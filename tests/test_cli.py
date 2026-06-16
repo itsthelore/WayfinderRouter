@@ -1,0 +1,95 @@
+"""Tests for the `wayfinder` CLI."""
+
+from __future__ import annotations
+
+import io
+import json
+
+import pytest
+from wayfinder.cli import main
+from wayfinder.complexity import FEATURE_ORDER
+from wayfinder.config import THRESHOLD_ENV
+
+TRIVIAL = "Say hello."
+COMPLEX = (
+    "# Plan\n\n## Steps\n\n"
+    + "".join(f"- step {i}\n" for i in range(12))
+    + "\n## Refs\n\n[a](https://x) [b](https://y)\n\n```py\nx=1\n```\n"
+)
+
+
+@pytest.fixture(autouse=True)
+def _clear_env(monkeypatch):
+    monkeypatch.delenv(THRESHOLD_ENV, raising=False)
+
+
+def _feed_stdin(monkeypatch, text: str) -> None:
+    monkeypatch.setattr("sys.stdin", io.StringIO(text))
+
+
+def test_cli_stdin_human(monkeypatch, capsys):
+    _feed_stdin(monkeypatch, TRIVIAL)
+    rc = main(["-"])
+    out = capsys.readouterr().out
+    assert rc == 0
+    assert "Recommended Model: LOCAL" in out
+
+
+def test_cli_json_is_versioned_contract(monkeypatch, capsys):
+    _feed_stdin(monkeypatch, COMPLEX)
+    rc = main(["-", "--json"])
+    payload = json.loads(capsys.readouterr().out)
+    assert rc == 0
+    assert payload["schema_version"] == "1"
+    assert payload["recommendation"] in ("local", "cloud")
+    assert set(payload["features"]) == set(FEATURE_ORDER)
+    assert 0.0 <= payload["score"] <= 1.0
+
+
+def test_cli_is_deterministic(monkeypatch, capsys):
+    _feed_stdin(monkeypatch, COMPLEX)
+    main(["-", "--json"])
+    first = capsys.readouterr().out
+    _feed_stdin(monkeypatch, COMPLEX)
+    main(["-", "--json"])
+    second = capsys.readouterr().out
+    assert first == second
+
+
+def test_cli_reads_a_file(tmp_path, capsys):
+    prompt = tmp_path / "prompt.md"
+    prompt.write_text(TRIVIAL, encoding="utf-8")
+    rc = main([str(prompt)])
+    assert rc == 0
+    assert "Recommended Model:" in capsys.readouterr().out
+
+
+def test_cli_threshold_override_routes_cloud(tmp_path, capsys):
+    prompt = tmp_path / "prompt.md"
+    prompt.write_text(TRIVIAL, encoding="utf-8")
+    rc = main([str(prompt), "--threshold", "0.0", "--json"])
+    payload = json.loads(capsys.readouterr().out)
+    assert rc == 0
+    assert payload["recommendation"] == "cloud"  # score 0.0 >= threshold 0.0
+
+
+def test_cli_file_not_found_is_usage_error(capsys):
+    rc = main(["does-not-exist.md"])
+    assert rc == 2
+    assert "file not found" in capsys.readouterr().err
+
+
+def test_cli_threshold_out_of_range_is_usage_error(monkeypatch, capsys):
+    _feed_stdin(monkeypatch, TRIVIAL)
+    rc = main(["-", "--threshold", "5"])
+    assert rc == 2
+    assert "--threshold" in capsys.readouterr().err
+
+
+def test_cli_malformed_config_is_config_error(tmp_path, monkeypatch, capsys):
+    (tmp_path / "wayfinder.toml").write_text("[routing]\nthreshold = 2.0\n", encoding="utf-8")
+    monkeypatch.chdir(tmp_path)
+    _feed_stdin(monkeypatch, TRIVIAL)
+    rc = main(["-"])
+    assert rc == 1
+    assert "threshold" in capsys.readouterr().err

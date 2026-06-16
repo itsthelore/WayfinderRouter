@@ -1,0 +1,27 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "wayfinder"
+version = "0.1.0"
+description = "A deterministic prompt-complexity router: score a prompt's structure and recommend a local or cloud model — offline, reproducible, no model call."
+readme = "README.md"
+license = { text = "MIT" }
+requires-python = ">=3.11"
+# Stdlib-only: scoring is pure text scanning and config is tomllib. Wayfinder has
+# no runtime dependency on RAC or anything else (WF-ADR-0001).
+dependencies = []
+
+[project.optional-dependencies]
+# Test runner only.
+dev = ["pytest>=7"]
+
+[project.scripts]
+wayfinder = "wayfinder.cli:main"
+
+[tool.setuptools]
+packages = ["wayfinder"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
