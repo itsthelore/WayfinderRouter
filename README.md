@@ -65,8 +65,9 @@ wayfinder route prompt.md --json
 ## Install
 
 ```bash
-pip install -e .            # the `wayfinder` command on PATH
-pip install -e ".[dev]"     # plus pytest
+pip install -e .              # the `wayfinder` command on PATH (zero dependencies)
+pip install -e ".[gateway]"   # plus the OpenAI-compatible routing gateway
+pip install -e ".[dev]"       # plus the test runner
 ```
 
 ## Configure routing
@@ -118,7 +119,48 @@ wayfinder calibrate data.jsonl --mode classifier --out wayfinder.toml
 ```
 
 The emitted fragment drops straight into `wayfinder.toml`; the summary (accuracy,
-chosen breakpoints) is printed to stderr.
+chosen breakpoints) is printed to stderr. The classifier is fit by deterministic
+L2-regularized Newton/IRLS — pure Python, converging in a handful of iterations.
+
+## Route with your own key (gateway)
+
+To actually *route* — score the prompt, then call the chosen model with your own
+key — run the OpenAI-compatible gateway (WF-ADR-0004). Your existing client points
+its `base_url` at Wayfinder; no application code changes.
+
+```toml
+# wayfinder.toml — map each routed model name to an upstream + a key env var.
+[routing]
+threshold = 0.6
+
+[gateway.models.local]
+base_url = "http://localhost:11434/v1"
+model = "llama3.2"
+
+[gateway.models.cloud]
+base_url = "https://api.example.com/v1"
+model = "big-model"
+api_key_env = "EXAMPLE_API_KEY"   # the *name* of the env var; the secret is never in this file
+```
+
+```bash
+pip install -e ".[gateway]"
+export EXAMPLE_API_KEY=...     # read at request time, only inside the gateway
+wayfinder serve --port 8088
+```
+
+```python
+import openai
+client = openai.OpenAI(base_url="http://localhost:8088/v1", api_key="unused")
+client.chat.completions.create(model="auto", messages=[{"role": "user", "content": "..."}])
+# Wayfinder scores the prompt, forwards to local or cloud, and returns the response.
+# Response headers carry x-wayfinder-model and x-wayfinder-score.
+```
+
+The gateway is the **only** part that touches keys or the network; the scorer,
+config, and calibrator stay pure, offline, and deterministic. Keys are read from
+the environment at request time and never enter `wayfinder.toml` or the scored
+path.
 
 ## Python API
 
@@ -144,8 +186,9 @@ tool shares no runtime code with RAC; see `decisions/WF-ADR-0001`.
 ```
 wayfinder/
   wayfinder/     the package: complexity scorer, tiers + classifier, own config
-                 loader, offline calibration, CLI
-  tests/         scorer, config, calibration, and CLI coverage
+                 loader, offline calibration (Newton/IRLS), CLI, and the optional
+                 OpenAI-compatible gateway (impure layer, behind the extra)
+  tests/         scorer, config, calibration, CLI, and gateway coverage
   decisions/     ADRs grounding the tool's own choices (dogfooded)
 ```
 

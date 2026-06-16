@@ -45,9 +45,17 @@ dependency on RAC**.
 - The two small things RAC provided are generic and reimplemented here, not
   borrowed: stripping a leading `---` frontmatter block (a ~17-line, import-free
   function) and a config-file walk-up (~10 lines, pointed at `wayfinder.toml`).
-- Wayfinder recommends; it never invokes a model, selects a provider, reads a
+- The **core** recommends; it never invokes a model, selects a provider, reads a
   credential, or tokenizes per a vendor model. The caller runs inference. (This
   is RAC ADR-068's boundary, carried over intact.)
+
+  *Amended (WF-ADR-0004):* this prohibition is scoped to the **deterministic
+  core** (`complexity`, `config`, `calibrate`). A separate, optional invocation
+  layer — an in-process invoker and an OpenAI-compatible gateway behind the
+  `wayfinder[gateway]` extra — may hold a bring-your-own key and call the chosen
+  model. Keys live only in that layer (never in `wayfinder.toml`, never in the
+  scored path), so the core stays pure, offline, and golden-tested. See
+  WF-ADR-0004.
 - The score is a structural *proxy*, not a verdict on prompt difficulty or a
   guarantee of model capability; calibrating the threshold to real local/cloud
   capability is the caller's responsibility.

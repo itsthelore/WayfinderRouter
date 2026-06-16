@@ -45,12 +45,28 @@ Add an offline `wayfinder calibrate` command and a classifier runtime mode.
   feature transform), and `argmax` picks the model. Inference is a few dot
   products — deterministic, no model call. It takes precedence over tiers when
   configured.
-- **Training is deterministic**: zero initialization, full-batch gradient descent
-  in fixed data order, fixed iteration count — no randomness, so the same dataset
-  yields the same weights. (Cross-platform float arithmetic is the only wrinkle,
-  the same one the scorer has; each fit is internally reproducible.)
-- **Stdlib only**: the fit is hand-written (`math` + lists), so the package keeps
-  `dependencies = []`. No numpy, no scikit-learn.
+- **The solver is L2-regularized Newton/IRLS** (amended from the initial
+  gradient descent): a gradient and Hessian accumulated in fixed data order,
+  solved by Gaussian elimination with partial pivoting, stopped on a tolerance.
+  Zero initialization, no randomness — the same dataset yields the same weights.
+  The L2 ridge keeps the Hessian positive-definite, which both makes the solve
+  well-posed on perfectly separable data (where unregularized logistic weights
+  diverge) and bounds the fitted weights. The feature space is tiny (7 features ×
+  a few classes), so it converges in a handful of iterations regardless of
+  dataset size. (Cross-platform float arithmetic is the only wrinkle, the same one
+  the scorer has; each fit is internally reproducible.)
+- **Stdlib only by default**: the solver is hand-written (`math` + lists), so the
+  package keeps `dependencies = []`. No numpy, no scikit-learn in the core. A
+  future optional `wayfinder[fast]` extra may use numpy for the linear-algebra
+  step, lazily imported with a pure-Python fallback; the two paths need not be
+  byte-identical, only each internally deterministic, and the emitted config
+  records which produced it. (scikit-learn is rejected — its solvers add seed and
+  tolerance nondeterminism.)
+- **Online calibration**, when a gateway or UI later observes routing outcomes,
+  is a deterministic *batch replay*: outcomes append to a log, and recalibration
+  re-fits on the full, deterministically-ordered set — never streaming SGD, which
+  cannot be made reproducible. This is recorded as accepted direction, not built
+  now.
 - The boundary holds: `calibrate` and the runtime never call a model; labels come
   from the caller's oracle (tests, production signals, or an offline judge).
 
@@ -67,8 +83,9 @@ Add an offline `wayfinder calibrate` command and a classifier runtime mode.
 
 ### Negative
 
-- Pure-Python full-batch gradient descent is slow on very large datasets
-  (calibration is offline, so this is acceptable; `--iterations` is tunable).
+- The pure-Python Hessian solve is O(params³) per iteration; fine for this tiny
+  parameter space, but a very large *number of models* would eventually motivate
+  the `wayfinder[fast]` extra (calibration is offline, so this is rarely urgent).
 - A classifier config is less glanceable than tier breakpoints — fitted weights,
   not human-set cuts. Tiers remain the inspectable option.
 
