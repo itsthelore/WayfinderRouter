@@ -1,18 +1,23 @@
-"""Deterministic prompt-complexity scoring and local/cloud routing.
+"""Deterministic prompt-complexity scoring and model routing.
 
-Scores a prompt's *structural* complexity and maps it to a ``local`` / ``cloud``
-routing recommendation against a threshold. Pure and offline: it reads only
-structural signals from the text — length, headings, steps, links, code blocks,
-tables — with no model, key, or network. The result is a *fact* (like a
-classifier's confidence), never a semantic verdict about how hard the prompt is,
-and Wayfinder never invokes a model: the caller maps the recommendation onto its
-own configured endpoints and runs inference.
+Scores a prompt's *structural* complexity and maps it to a model recommendation.
+Pure and offline: it reads only structural signals from the text — length,
+headings, steps, links, code blocks, tables — with no model, key, or network. The
+result is a *fact* (like a classifier's confidence), never a semantic verdict, and
+Wayfinder never invokes a model: it recommends, the caller runs inference.
 
-The scoring shape — each feature contributes a weighted, saturating amount toward
-the total weight, normalized to ``0.0 – 1.0`` — is heritage from RAC's
-deterministic ``classification.py`` (``points / ceiling``), but Wayfinder carries
-no dependency on RAC (WF-ADR-0001). A leading YAML frontmatter block is stripped
-first, so a stored prompt artifact and the same prompt on stdin score identically.
+Two routing modes, both deterministic given the config:
+
+- **Tiered** (default) — the structural features collapse to one bounded
+  ``0.0–1.0`` score (the ``points / ceiling`` shape, heritage from RAC's
+  ``classification.py``), and ordered score *bands* map the score to a model. The
+  binary local/cloud router is just the two-tier case.
+- **Classifier** — a fitted multinomial-logistic model gives each candidate model
+  a linear score over the same normalized features; ``argmax`` picks one. This is
+  the multi-signal / multi-model form (WF-ADR-0002, WF-ADR-0003).
+
+A leading YAML frontmatter block is stripped first, so a stored prompt artifact
+and the same prompt on stdin score identically.
 """
 
 from __future__ import annotations
@@ -20,9 +25,8 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass, field
 
-# Below this score the prompt is recommended for the local model; at or above it,
-# the cloud model. The cut is the user's to calibrate (``[routing] threshold`` in
-# ``wayfinder.toml``); this is the zero-config default.
+# Default cut for the binary local/cloud router: below it, local; at or above it,
+# cloud. The cut is the user's to calibrate; this is the zero-config default.
 DEFAULT_THRESHOLD = 0.5
 
 # The weighted structural features, in stable report order. Each is a count
@@ -37,8 +41,8 @@ FEATURE_ORDER = (
     "table_row_count",
 )
 
-# Relative importance of each feature. Length and step count dominate because
-# they track how much the prompt asks the model to hold and do.
+# Relative importance of each feature in the scalar score. Length and step count
+# dominate because they track how much the prompt asks the model to hold and do.
 DEFAULT_WEIGHTS: dict[str, float] = {
     "word_count": 3.0,
     "list_item_count": 2.0,
@@ -50,7 +54,8 @@ DEFAULT_WEIGHTS: dict[str, float] = {
 }
 
 # The feature value at which a feature contributes its full weight. Beyond it the
-# contribution saturates, so one very large signal cannot dominate the score.
+# contribution saturates, so one very large signal cannot dominate. This is also
+# the feature normalization used by the classifier, so values land in 0.0–1.0.
 SATURATION: dict[str, float] = {
     "word_count": 400.0,
     "heading_count": 8.0,
@@ -72,16 +77,78 @@ _FRONTMATTER_CLOSERS = ("---", "...")
 
 
 @dataclass(frozen=True)
-class RoutingConfig:
-    """The routing decision boundary — threshold plus feature weights.
+class Tier:
+    """One band of the tiered router: route to ``model`` when the score is at
+    least ``min_score``. The first tier of a config has ``min_score`` 0.0."""
 
-    Defaults give a working zero-config surface; ``wayfinder.toml`` may override
-    the threshold (and, optionally, individual weights) so a team calibrates the
-    cut to its own local/cloud capability.
+    min_score: float
+    model: str
+
+
+@dataclass(frozen=True)
+class ClassifierModel:
+    """A fitted multinomial-logistic router over the normalized feature vector.
+
+    ``weights[feature]`` is a per-model vector aligned with ``models``; ``argmax``
+    of ``intercept + Σ weight·feature`` over the models picks the recommendation.
+    Pure linear algebra at inference — no training, no model call.
     """
 
-    threshold: float = DEFAULT_THRESHOLD
+    models: tuple[str, ...]
+    weights: dict[str, tuple[float, ...]]
+    intercepts: tuple[float, ...]
+
+    def logits(self, features: dict[str, int]) -> list[float]:
+        x = normalized_features(features)
+        out = []
+        for c in range(len(self.models)):
+            z = self.intercepts[c]
+            for name in FEATURE_ORDER:
+                z += self.weights.get(name, (0.0,) * len(self.models))[c] * x[name]
+            out.append(z)
+        return out
+
+    def predict(self, features: dict[str, int]) -> str:
+        logits = self.logits(features)
+        # argmax with a stable first-index tie-break (deterministic).
+        best = 0
+        for c in range(1, len(logits)):
+            if logits[c] > logits[best]:
+                best = c
+        return self.models[best]
+
+
+# Default two-tier router == the binary local/cloud cut at DEFAULT_THRESHOLD.
+DEFAULT_TIERS: tuple[Tier, ...] = (Tier(0.0, "local"), Tier(DEFAULT_THRESHOLD, "cloud"))
+
+
+def binary_tiers(threshold: float = DEFAULT_THRESHOLD) -> tuple[Tier, ...]:
+    """The two-tier local/cloud router at ``threshold`` (score >= threshold = cloud)."""
+    return (Tier(0.0, "local"), Tier(threshold, "cloud"))
+
+
+@dataclass(frozen=True)
+class RoutingConfig:
+    """The routing decision boundary.
+
+    ``weights`` drive the scalar score (always computed). Exactly one routing mode
+    is active: ``classifier`` when set, otherwise the ``tiers`` bands. Defaults give
+    the zero-config binary local/cloud router.
+    """
+
     weights: dict[str, float] = field(default_factory=lambda: dict(DEFAULT_WEIGHTS))
+    tiers: tuple[Tier, ...] = DEFAULT_TIERS
+    classifier: ClassifierModel | None = None
+
+    @classmethod
+    def binary(
+        cls, threshold: float = DEFAULT_THRESHOLD, weights: dict[str, float] | None = None
+    ) -> RoutingConfig:
+        """A binary local/cloud config at ``threshold`` (ergonomic constructor)."""
+        return cls(
+            weights=dict(weights) if weights is not None else dict(DEFAULT_WEIGHTS),
+            tiers=binary_tiers(threshold),
+        )
 
 
 DEFAULT_CONFIG = RoutingConfig()
@@ -89,26 +156,33 @@ DEFAULT_CONFIG = RoutingConfig()
 
 @dataclass
 class ComplexityScore:
-    """A prompt's structural complexity and its routing recommendation.
+    """A prompt's structural score and its routing recommendation.
 
-    ``to_dict`` is the stable JSON contract: the score, the recommendation, the
-    threshold it was compared against, and the raw feature values behind it, so
-    the recommendation is explainable rather than opaque.
+    ``to_dict`` is the stable JSON contract (schema_version 2): the score, the
+    recommended model, the active mode, and the boundary used (tiers or the model
+    list), plus the raw feature values — so the recommendation is explainable.
     """
 
-    score: float  # 0.0 – 1.0, rounded to 2dp
-    recommendation: str  # "local" | "cloud"
-    threshold: float
+    score: float  # 0.0 – 1.0, rounded to 2dp — the structural heaviness
+    recommendation: str  # the chosen model name
+    mode: str  # "tiered" | "classifier"
     features: dict[str, int]
+    tiers: tuple[Tier, ...] | None = None  # set in tiered mode
+    models: tuple[str, ...] | None = None  # set in classifier mode
 
     def to_dict(self) -> dict:
-        return {
-            "schema_version": "1",
+        payload: dict = {
+            "schema_version": "2",
             "score": self.score,
             "recommendation": self.recommendation,
-            "threshold": self.threshold,
+            "mode": self.mode,
             "features": dict(self.features),
         }
+        if self.tiers is not None:
+            payload["tiers"] = [{"min_score": t.min_score, "model": t.model} for t in self.tiers]
+        if self.models is not None:
+            payload["models"] = list(self.models)
+        return payload
 
 
 def strip_frontmatter(text: str) -> str:
@@ -174,27 +248,61 @@ def extract_features(text: str) -> dict[str, int]:
     }
 
 
-def score_complexity(text: str, *, config: RoutingConfig = DEFAULT_CONFIG) -> ComplexityScore:
-    """Score ``text`` and recommend ``local`` or ``cloud`` against the threshold.
+def normalized_features(features: dict[str, int]) -> dict[str, float]:
+    """Each feature saturated into ``0.0–1.0`` (value / saturation, capped at 1).
 
-    The score normalizes the weighted, saturating feature contributions to
-    ``0.0 – 1.0``. The rounded score is compared to the threshold, so the
-    reported score and recommendation are always consistent.
+    The shared feature transform: the scalar score and the classifier both read
+    this, so a feature's scale is defined in exactly one place (``SATURATION``).
     """
+    return {name: min(features[name] / SATURATION[name], 1.0) for name in FEATURE_ORDER}
+
+
+def scalar_score(features: dict[str, int], weights: dict[str, float]) -> float:
+    """The bounded ``0.0–1.0`` structural score: weighted, saturating, normalized.
+
+    Computed the same way RAC's ``classification.py`` normalizes fit
+    (``points / ceiling``), rounded to 2dp so the reported score is stable.
+    """
+    norm = normalized_features(features)
+    total_weight = sum(weights.values())
+    if not total_weight:
+        return 0.0
+    accumulated = sum(weights.get(name, 0.0) * norm[name] for name in FEATURE_ORDER)
+    return round(accumulated / total_weight, 2)
+
+
+def recommend_tier(score: float, tiers: tuple[Tier, ...]) -> str:
+    """The model of the highest tier whose ``min_score`` the score reaches.
+
+    ``tiers`` are ascending by ``min_score`` with a 0.0 first tier, so the binary
+    case (``score >= threshold`` routes up) is preserved exactly.
+    """
+    chosen = tiers[0].model
+    for tier in tiers:
+        if score >= tier.min_score:
+            chosen = tier.model
+        else:
+            break
+    return chosen
+
+
+def score_complexity(text: str, *, config: RoutingConfig = DEFAULT_CONFIG) -> ComplexityScore:
+    """Score ``text`` and recommend a model. The score is always reported; the
+    recommendation comes from the classifier when configured, else the tiers."""
     features = extract_features(text)
-    total_weight = sum(config.weights.values())
-    if total_weight:
-        accumulated = sum(
-            config.weights.get(name, 0.0) * min(features[name] / SATURATION[name], 1.0)
-            for name in FEATURE_ORDER
+    score = scalar_score(features, config.weights)
+    if config.classifier is not None:
+        return ComplexityScore(
+            score=score,
+            recommendation=config.classifier.predict(features),
+            mode="classifier",
+            features=features,
+            models=config.classifier.models,
         )
-        score = round(accumulated / total_weight, 2)
-    else:
-        score = 0.0
-    recommendation = "cloud" if score >= config.threshold else "local"
     return ComplexityScore(
         score=score,
-        recommendation=recommendation,
-        threshold=config.threshold,
+        recommendation=recommend_tier(score, config.tiers),
+        mode="tiered",
         features=features,
+        tiers=config.tiers,
     )
