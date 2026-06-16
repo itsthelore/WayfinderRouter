@@ -97,7 +97,7 @@ def _cmd_calibrate(args: argparse.Namespace) -> int:
             args.mode,
             models_order=models,
             iterations=args.iterations,
-            learning_rate=args.learning_rate,
+            l2=args.l2,
         )
     except CalibrationError as exc:
         print(f"wayfinder: {exc}", file=sys.stderr)
@@ -110,6 +110,17 @@ def _cmd_calibrate(args: argparse.Namespace) -> int:
         print(result.toml)
     summary = ", ".join(f"{k}={v}" for k, v in result.summary.items())
     print(f"wayfinder: {summary}", file=sys.stderr)
+    return EXIT_OK
+
+
+def _cmd_serve(args: argparse.Namespace) -> int:
+    from .gateway import GatewayUnavailable, run
+
+    try:
+        run(start_dir=".", host=args.host, port=args.port)
+    except GatewayUnavailable as exc:
+        print(f"wayfinder: {exc}", file=sys.stderr)
+        return EXIT_USAGE
     return EXIT_OK
 
 
@@ -153,12 +164,20 @@ def build_parser() -> argparse.ArgumentParser:
         "--out", default=None, help="Write the config fragment here instead of stdout."
     )
     p_cal.add_argument(
-        "--iterations", type=int, default=300, help="Classifier fit iterations (default: 300)."
+        "--iterations", type=int, default=100, help="Max Newton iterations (default: 100)."
     )
     p_cal.add_argument(
-        "--learning-rate", type=float, default=0.5, help="Classifier learning rate (default: 0.5)."
+        "--l2", type=float, default=0.01, help="Classifier L2 regularization (default: 0.01)."
     )
     p_cal.set_defaults(func=_cmd_calibrate)
+
+    p_serve = sub.add_parser(
+        "serve",
+        help="Run the OpenAI-compatible routing gateway (needs the [gateway] extra).",
+    )
+    p_serve.add_argument("--host", default="127.0.0.1", help="Bind host (default: 127.0.0.1).")
+    p_serve.add_argument("--port", type=int, default=8088, help="Bind port (default: 8088).")
+    p_serve.set_defaults(func=_cmd_serve)
     return parser
 
 

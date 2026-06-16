@@ -181,15 +181,19 @@ def fit_classifier(
     samples: list[Sample],
     models_order: list[str] | None = None,
     *,
-    iterations: int = 300,
-    learning_rate: float = 0.5,
-    l2: float = 0.0,
+    iterations: int = 100,
+    l2: float = 0.01,
+    tol: float = 1e-8,
 ) -> CalibrationResult:
-    """Fit a multinomial-logistic router over the normalized feature vector.
+    """Fit a multinomial-logistic router by L2-regularized Newton/IRLS.
 
-    Deterministic: zero initialization, full-batch gradient descent in fixed data
-    order, fixed iteration count — no randomness, so the same dataset yields the
-    same weights.
+    Deterministic: zero initialization, exact Newton steps from a gradient and
+    Hessian accumulated in fixed data order, solved by Gaussian elimination with
+    partial pivoting, stopped on a tolerance. The L2 term keeps the Hessian
+    positive-definite (so the solve is well-posed even on perfectly separable
+    data, where unregularized logistic weights diverge) and bounds the weights.
+    The feature space is tiny (7 features x a few classes), so this converges in
+    a handful of iterations regardless of dataset size (WF-ADR-0003).
     """
     order = models_order or _labels_by_mean_score(samples)
     present = set(s.label for s in samples)
@@ -201,46 +205,96 @@ def fit_classifier(
     index = {label: i for i, label in enumerate(order)}
     feat_n = len(FEATURE_ORDER)
     class_n = len(order)
-    rows = [[normalized_features(s.features)[name] for name in FEATURE_ORDER] for s in samples]
+    # Augment each feature row with a constant 1.0 so the intercept is the last
+    # parameter of every class; parameter p of class c lives at c * params + p.
+    rows = [
+        [normalized_features(s.features)[name] for name in FEATURE_ORDER] + [1.0] for s in samples
+    ]
     targets = [index[s.label] for s in samples]
+    params = feat_n + 1
+    size = class_n * params
 
-    weights = [[0.0] * feat_n for _ in range(class_n)]
-    biases = [0.0] * class_n
-    n = len(rows)
-
+    theta = [0.0] * size
+    iterations_run = 0
     for _ in range(iterations):
-        grad_w = [[0.0] * feat_n for _ in range(class_n)]
-        grad_b = [0.0] * class_n
-        for x, target in zip(rows, targets, strict=True):
-            probs = _softmax([biases[c] + _dot(weights[c], x) for c in range(class_n)])
+        iterations_run += 1
+        gradient = [0.0] * size
+        hessian = [[0.0] * size for _ in range(size)]
+        for row, target in zip(rows, targets, strict=True):
+            logits = [_dot(theta[c * params : (c + 1) * params], row) for c in range(class_n)]
+            probs = _softmax(logits)
             for c in range(class_n):
-                delta = probs[c] - (1.0 if c == target else 0.0)
-                grad_b[c] += delta
-                for i in range(feat_n):
-                    grad_w[c][i] += delta * x[i]
-        for c in range(class_n):
-            biases[c] -= learning_rate * (grad_b[c] / n)
-            for i in range(feat_n):
-                weights[c][i] -= learning_rate * (grad_w[c][i] / n + l2 * weights[c][i])
+                resid = probs[c] - (1.0 if c == target else 0.0)
+                base_c = c * params
+                for j in range(params):
+                    gradient[base_c + j] += resid * row[j]
+                # Hessian block H[c, c'] = p_c (delta_cc' - p_c') x x^T.
+                for d in range(class_n):
+                    weight = probs[c] * ((1.0 if c == d else 0.0) - probs[d])
+                    if weight == 0.0:
+                        continue
+                    base_d = d * params
+                    for j in range(params):
+                        wj = weight * row[j]
+                        for k in range(params):
+                            hessian[base_c + j][base_d + k] += wj * row[k]
+        # L2 ridge: regularizes the gradient and the Hessian diagonal, keeping the
+        # system positive-definite and invertible.
+        for p in range(size):
+            gradient[p] += l2 * theta[p]
+            hessian[p][p] += l2
+        step = _solve(hessian, gradient)
+        for p in range(size):
+            theta[p] -= step[p]
+        if max(abs(s) for s in step) < tol:
+            break
 
+    weights_by_class = [theta[c * params : (c + 1) * params] for c in range(class_n)]
     classifier = ClassifierModel(
         models=tuple(order),
         weights={
-            name: tuple(weights[c][i] for c in range(class_n))
+            name: tuple(weights_by_class[c][i] for c in range(class_n))
             for i, name in enumerate(FEATURE_ORDER)
         },
-        intercepts=tuple(biases),
+        intercepts=tuple(weights_by_class[c][feat_n] for c in range(class_n)),
     )
     accuracy = _accuracy(samples, classifier.predict)
     return CalibrationResult(
         toml=_classifier_toml(classifier),
-        summary={"mode": "classifier", "models": list(order), "iterations": iterations,
+        summary={"mode": "classifier", "models": list(order), "iterations": iterations_run,
                  "accuracy": round(accuracy, 4), "samples": len(samples)},
     )
 
 
 def _dot(weights: list[float], x: list[float]) -> float:
     return sum(w * xi for w, xi in zip(weights, x, strict=True))
+
+
+def _solve(matrix: list[list[float]], vector: list[float]) -> list[float]:
+    """Solve ``matrix @ x = vector`` by Gaussian elimination with partial pivoting.
+
+    Deterministic (fixed pivot order, first-index tie-break). The matrix is the
+    regularized Hessian, so it is positive-definite and a pivot is always found.
+    """
+    n = len(vector)
+    # Work on an augmented copy so the inputs are untouched.
+    aug = [row[:] + [vector[i]] for i, row in enumerate(matrix)]
+    for col in range(n):
+        pivot = max(range(col, n), key=lambda r: abs(aug[r][col]))
+        if pivot != col:
+            aug[col], aug[pivot] = aug[pivot], aug[col]
+        pivot_val = aug[col][col]
+        for r in range(col + 1, n):
+            factor = aug[r][col] / pivot_val
+            if factor == 0.0:
+                continue
+            for c in range(col, n + 1):
+                aug[r][c] -= factor * aug[col][c]
+    solution = [0.0] * n
+    for row in range(n - 1, -1, -1):
+        acc = aug[row][n] - sum(aug[row][c] * solution[c] for c in range(row + 1, n))
+        solution[row] = acc / aug[row][row]
+    return solution
 
 
 def _softmax(logits: list[float]) -> list[float]:
@@ -292,8 +346,8 @@ def calibrate(
     mode: str,
     *,
     models_order: list[str] | None = None,
-    iterations: int = 300,
-    learning_rate: float = 0.5,
+    iterations: int = 100,
+    l2: float = 0.01,
 ) -> CalibrationResult:
     """Dispatch to the requested calibration mode."""
     if mode == "threshold":
@@ -301,7 +355,5 @@ def calibrate(
     if mode == "tiers":
         return calibrate_tiers(samples, models_order=models_order)
     if mode == "classifier":
-        return fit_classifier(
-            samples, models_order=models_order, iterations=iterations, learning_rate=learning_rate
-        )
+        return fit_classifier(samples, models_order=models_order, iterations=iterations, l2=l2)
     raise CalibrationError(f"unknown calibration mode: {mode!r}")
