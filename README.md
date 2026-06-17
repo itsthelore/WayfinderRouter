@@ -67,6 +67,7 @@ wayfinder route prompt.md --json
 ```bash
 pip install -e .              # the `wayfinder` command on PATH (zero dependencies)
 pip install -e ".[gateway]"   # plus the OpenAI-compatible routing gateway
+pip install -e ".[ui]"        # plus the local calibration/explain/configure UI
 pip install -e ".[dev]"       # plus the test runner
 ```
 
@@ -162,13 +163,36 @@ config, and calibrator stay pure, offline, and deterministic. Keys are read from
 the environment at request time and never enter `wayfinder.toml` or the scored
 path.
 
+## Explain & tune
+
+To see *why* a prompt routed where, ask for the per-feature breakdown — each
+feature's value, its normalized level, its weight, and its share of the score:
+
+```bash
+wayfinder route prompt.md --explain
+```
+
+For interactive tuning there's a local web UI (WF-ADR-0005) — paste a prompt, see
+the score, the tier ladder, and the contribution bars, and drag a threshold slider
+to watch the routing change live:
+
+```bash
+pip install -e ".[ui]"
+wayfinder ui --port 8099    # then open http://localhost:8099
+```
+
+The UI is a thin consumer of the same pure functions; it never calls a model. (The
+Explain/Playground screen ships now; calibrate and configure screens are planned.)
+
 ## Python API
 
 ```python
-from wayfinder import score_complexity, RoutingConfig
+from wayfinder import score_complexity, RoutingConfig, explain_score
 
 result = score_complexity(prompt_text, config=RoutingConfig.binary(threshold=0.7))
 print(result.recommendation, result.score, result.features)
+for fc in explain_score(result.features, RoutingConfig().weights):
+    print(fc.name, fc.contribution)
 ```
 
 ## Heritage
@@ -186,9 +210,10 @@ tool shares no runtime code with RAC; see `decisions/WF-ADR-0001`.
 ```
 wayfinder/
   wayfinder/     the package: complexity scorer, tiers + classifier, own config
-                 loader, offline calibration (Newton/IRLS), CLI, and the optional
-                 OpenAI-compatible gateway (impure layer, behind the extra)
-  tests/         scorer, config, calibration, CLI, and gateway coverage
+                 loader + writer, offline calibration (Newton/IRLS), explain, CLI,
+                 the optional OpenAI-compatible gateway, and the optional local UI
+                 (both impure/heavier layers, behind their extras)
+  tests/         scorer, config, calibration, explain, CLI, gateway, and UI coverage
   decisions/     ADRs grounding the tool's own choices (dogfooded)
 ```
 
