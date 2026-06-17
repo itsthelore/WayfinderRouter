@@ -3,7 +3,7 @@ requires = ["setuptools>=68"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "wayfinder"
+name = "wayfinder-router"
 version = "0.1.0"
 description = "A deterministic prompt-complexity router: score a prompt's structure and recommend a local or cloud model — offline, reproducible, no model call."
 readme = "README.md"

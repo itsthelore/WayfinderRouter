@@ -110,7 +110,7 @@ Full independence is selected.
 
 ## Success Measures
 
-- `pip install wayfinder` and a single prompt yield a deterministic recommendation
+- `pip install wayfinder-router` and a single prompt yield a deterministic recommendation
   with no RAC installed and no `.rac/` directory anywhere on the path.
 - The same prompt and threshold produce byte-identical output across runs and
   across the CLI and the Python API.
