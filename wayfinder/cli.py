@@ -131,6 +131,25 @@ def _cmd_calibrate(args: argparse.Namespace) -> int:
     return EXIT_OK
 
 
+def _cmd_recalibrate(args: argparse.Namespace) -> int:
+    from .recalibrate import recalibrate
+
+    try:
+        result = recalibrate(args.log, args.out, mode=args.mode, min_labels=args.min_labels)
+    except (CalibrationError, WayfinderConfigError) as exc:
+        print(f"wayfinder: {exc}", file=sys.stderr)
+        return EXIT_CONFIG
+    if not result.written:
+        print(f"wayfinder: skipped — {result.reason}", file=sys.stderr)
+        return EXIT_OK
+    summary = ", ".join(f"{k}={v}" for k, v in (result.summary or {}).items())
+    print(
+        f"wayfinder: recalibrated {args.out} from {result.label_count} labels — {summary}",
+        file=sys.stderr,
+    )
+    return EXIT_OK
+
+
 def _cmd_serve(args: argparse.Namespace) -> int:
     from .gateway import GatewayUnavailable, run
 
@@ -322,6 +341,22 @@ def build_parser() -> argparse.ArgumentParser:
         help="Calibration mode for --calibrate (default: threshold).",
     )
     p_onboard.set_defaults(func=_cmd_onboard)
+
+    p_recal = sub.add_parser(
+        "recalibrate",
+        help="Re-fit the routing config from the feedback log (cron/CI-friendly).",
+    )
+    p_recal.add_argument(
+        "--log", default="wayfinder-feedback.jsonl", help="Feedback label log to read."
+    )
+    p_recal.add_argument("--out", default="wayfinder.toml", help="Config file to update in place.")
+    p_recal.add_argument(
+        "--mode", choices=["threshold", "tiers", "classifier"], default="threshold"
+    )
+    p_recal.add_argument(
+        "--min-labels", type=int, default=2, help="Skip (no write) below this many labels."
+    )
+    p_recal.set_defaults(func=_cmd_recalibrate)
     return parser
 
 

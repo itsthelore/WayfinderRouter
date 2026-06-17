@@ -7,6 +7,9 @@ correctly. The deterministic core is tested separately and never touched here.
 
 from __future__ import annotations
 
+import os
+import time
+
 import pytest
 
 # Skip the whole module cleanly if the gateway extra is not installed.
@@ -152,3 +155,53 @@ def test_feedback_missing_fields_is_400(client):
     test_client, _ = client
     assert test_client.post("/v1/feedback", json={"text": "x"}).status_code == 400
     assert test_client.post("/v1/feedback", json={"label": "cloud"}).status_code == 400
+
+
+# --- hot-reload (scheduled recalibration takes effect live) -----------------
+
+
+_TWO_MODELS = (
+    '[gateway.models.local]\nbase_url = "http://l/v1"\nmodel = "l"\n\n'
+    '[gateway.models.cloud]\nbase_url = "http://c/v1"\nmodel = "c"\n'
+)
+
+
+def _ok_forward(*args, **kwargs):
+    return 200, b"{}", "application/json"
+
+
+def _write_config(path, threshold):
+    path.write_text(f"[routing]\nthreshold = {threshold}\n\n" + _TWO_MODELS, encoding="utf-8")
+    # Push mtime forward so the holder's change-detection fires deterministically.
+    future = time.time() + 10
+    os.utime(path, (future, future))
+
+
+def test_gateway_hot_reloads_when_config_changes(tmp_path, monkeypatch):
+    config = tmp_path / "wayfinder.toml"
+    _write_config(config, 0.9)  # COMPLEX (~0.38) is below 0.9 -> local
+    monkeypatch.setattr(gateway, "forward_request", _ok_forward)
+    client = TestClient(gateway.build_app(start_dir=str(tmp_path)))
+
+    first = client.post("/v1/chat/completions", json=COMPLEX)
+    assert first.headers["x-wayfinder-model"] == "local"
+
+    _write_config(config, 0.05)  # now COMPLEX is at/above 0.05 -> cloud
+    second = client.post("/v1/chat/completions", json=COMPLEX)
+    assert second.headers["x-wayfinder-model"] == "cloud"
+
+
+def test_gateway_keeps_last_good_config_on_bad_write(tmp_path, monkeypatch):
+    config = tmp_path / "wayfinder.toml"
+    _write_config(config, 0.9)  # COMPLEX -> local
+    monkeypatch.setattr(gateway, "forward_request", _ok_forward)
+    client = TestClient(gateway.build_app(start_dir=str(tmp_path)))
+    first = client.post("/v1/chat/completions", json=COMPLEX)
+    assert first.headers["x-wayfinder-model"] == "local"
+
+    config.write_text("[routing]\nthreshold = 5\n\n" + _TWO_MODELS, encoding="utf-8")  # invalid
+    future = time.time() + 20
+    os.utime(config, (future, future))
+    # Serving continues on the last-good config instead of failing.
+    again = client.post("/v1/chat/completions", json=COMPLEX)
+    assert again.headers["x-wayfinder-model"] == "local"

@@ -46,6 +46,7 @@ from .config import (
 )
 from .feedback import read_labels, record_label
 from .onboard import OnboardSummary, run_onboarding
+from .recalibrate import RecalibrationResult, recalibrate
 
 __version__ = "0.1.0"
 
@@ -80,4 +81,6 @@ __all__ = [
     "read_labels",
     "run_onboarding",
     "OnboardSummary",
+    "recalibrate",
+    "RecalibrationResult",
 ]

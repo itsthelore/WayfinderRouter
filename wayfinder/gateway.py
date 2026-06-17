@@ -31,7 +31,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from .complexity import score_complexity
+from .complexity import RoutingConfig, score_complexity
 from .config import WayfinderConfigError, find_config_file, load_routing_config
 from .feedback import DEFAULT_LOG, record_label
 
@@ -108,6 +108,25 @@ def gateway_config_from_toml(text: str, where: str = "wayfinder.toml") -> Gatewa
     return GatewayConfig(models=models)
 
 
+def dump_gateway_toml(gateway: GatewayConfig) -> str:
+    """Serialize a :class:`GatewayConfig` back to ``[gateway.models.*]`` TOML.
+
+    Used by recalibration to preserve the endpoint mapping when it rewrites the
+    routing section. Emits ``api_key_env`` (the env-var *name*) — never a secret.
+    """
+    blocks: list[str] = []
+    for name, model in gateway.models.items():
+        lines = [
+            f"[gateway.models.{name}]",
+            f'base_url = "{model.base_url}"',
+            f'model = "{model.model}"',
+        ]
+        if model.api_key_env:
+            lines.append(f'api_key_env = "{model.api_key_env}"')
+        blocks.append("\n".join(lines))
+    return "\n\n".join(blocks)
+
+
 def extract_prompt(messages: object) -> str:
     """Deterministically join the text of OpenAI-style chat messages for scoring.
 
@@ -170,20 +189,56 @@ def invoke_model(model: GatewayModel, prompt: str, timeout: float = 60.0) -> str
         raise RuntimeError(f"{model.model} returned an unexpected response shape: {exc}") from exc
 
 
+class _ConfigHolder:
+    """Caches routing + gateway config, reloading when ``wayfinder.toml`` changes.
+
+    Lets a recalibration (CLI, cron, or UI) take effect on the running gateway
+    with no restart: each request checks the config file's mtime and re-reads only
+    when it moved. A malformed mid-flight write keeps the last-good config (the
+    marker advances so it is not retried every request) rather than failing serving.
+    """
+
+    def __init__(self, start_dir: str) -> None:
+        self.start_dir = start_dir
+        self._routing = load_routing_config(start_dir)
+        self._gateway = load_gateway_config(start_dir)
+        self._mtime = self._mtime_now()
+
+    def _mtime_now(self) -> float | None:
+        path = find_config_file(self.start_dir)
+        if path is None:
+            return None
+        try:
+            return path.stat().st_mtime
+        except OSError:
+            return None
+
+    def current(self) -> tuple[RoutingConfig, GatewayConfig]:
+        mtime = self._mtime_now()
+        if mtime != self._mtime:
+            self._mtime = mtime
+            try:
+                self._routing = load_routing_config(self.start_dir)
+                self._gateway = load_gateway_config(self.start_dir)
+            except WayfinderConfigError:
+                pass  # keep last-good config; the marker advanced so we do not thrash
+        return self._routing, self._gateway
+
+
 def build_app(start_dir: str = ".") -> FastAPI:
-    """Build the FastAPI gateway app, loading routing + gateway config once."""
+    """Build the FastAPI gateway app; config hot-reloads on ``wayfinder.toml`` change."""
     try:
         from fastapi import Body, FastAPI, Response
         from fastapi.responses import JSONResponse
     except ImportError as exc:  # pragma: no cover - exercised only without the extra
         raise GatewayUnavailable(_INSTALL_HINT) from exc
 
-    routing = load_routing_config(start_dir)
-    gateway = load_gateway_config(start_dir)
+    holder = _ConfigHolder(start_dir)
     app = FastAPI(title="wayfinder-gateway")
 
     @app.get("/healthz")
     def healthz() -> dict:
+        _, gateway = holder.current()
         return {"status": "ok", "models": sorted(gateway.models)}
 
     @app.post("/v1/feedback")
@@ -200,6 +255,7 @@ def build_app(start_dir: str = ".") -> FastAPI:
 
     @app.post("/v1/chat/completions")
     def chat_completions(body: dict = Body(...)) -> Response:  # noqa: B008 - FastAPI default
+        routing, gateway = holder.current()
         decision = score_complexity(extract_prompt(body.get("messages")), config=routing)
         target = gateway.models.get(decision.recommendation)
         if target is None:
