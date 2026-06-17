@@ -116,8 +116,9 @@ Update the config on every judgment.
   judge with a click, then calibrate from the log — is **built** (extends
   WF-ADR-0005): it runs the arms through the gateway invoker and records via the
   pure feedback functions.
-- **Scheduled recalibration** (not built): re-run `calibrate` over the log on a
-  cadence and swap the config in, with a generation marker.
+- **Scheduled recalibration** is **built** (WF-ADR-0007): `wayfinder recalibrate`
+  (cron/CronJob) and a UI button re-fit from the log and write the config; the
+  gateway hot-reloads it.
 
 ## Success Measures
 

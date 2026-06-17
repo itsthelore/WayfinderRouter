@@ -186,8 +186,60 @@ which model was actually good enough; the label feeds the next recalibration:
 curl localhost:8088/v1/feedback -d '{"text": "...", "label": "cloud"}'
 ```
 
+**Recalibrate on a schedule (WF-ADR-0007).** Re-fit the routing config from the
+log — run it from cron / a k8s CronJob, or click "Recalibrate & save" in the UI's
+Onboard tab. It rewrites only the `[routing]` section and **preserves** your
+`[gateway]` endpoints; a running gateway **hot-reloads** the new config with no
+restart:
+
+```bash
+wayfinder recalibrate                  # log → calibrate → write wayfinder.toml
+wayfinder recalibrate --min-labels 50  # no-op until you have enough signal
+```
+
 The judging runs models, so it lives in the gateway/invocation layer (BYO key); the
 deterministic core is untouched and the label log carries no secrets.
+
+## Deploy & integrate (WF-ADR-0008)
+
+Wayfinder doesn't only work from the CLI — the CLI, onboarding, and UI are the
+*operator/bootstrap* surfaces. In production, prompts flow through the **gateway**
+(transparent) or the **library** (in-process); routing happens where prompts
+already are, not by re-typing them.
+
+**Run the gateway as a service** (sidecar or standalone):
+
+```bash
+docker build -t wayfinder . && docker run -p 8088:8088 -v "$PWD/data:/data" wayfinder
+# or: docker compose up gateway   (see docker-compose.example.yml)
+```
+
+**Point your existing client at it — no app code change.** Anything that speaks
+the OpenAI API takes a `base_url`:
+
+```python
+client = openai.OpenAI(base_url="http://localhost:8088/v1", api_key="unused")
+```
+
+The same `base_url` works for agent frameworks (LangChain/LlamaIndex), IDE
+assistants that allow a custom endpoint (Cursor, Continue), or a gateway like
+LiteLLM. Wayfinder scores each incoming prompt and forwards to the chosen model
+with your key.
+
+**Wire feedback from the host surface.** Your app/IDE/chat decides how to show a
+👍/👎 and posts the judgment; Wayfinder records it and the next recalibration
+learns from it:
+
+```js
+fetch("http://localhost:8088/v1/feedback", {
+  method: "POST",
+  body: JSON.stringify({ text: prompt, label: wasGoodEnough ? "local" : "cloud" }),
+});
+```
+
+**Schedule recalibration** with cron / a k8s CronJob (or `docker compose run --rm
+recalibrate`); the gateway hot-reloads the result. Keys always come from the
+environment (each model's `api_key_env`) — never the image or the config file.
 
 ## Explain & tune
 
@@ -247,12 +299,13 @@ tool shares no runtime code with RAC; see `decisions/WF-ADR-0001`.
 wayfinder/
   wayfinder/     the package: complexity scorer, tiers + classifier, own config
                  loader + writer, offline calibration (Newton/IRLS), explain, the
-                 feedback log + onboarding harness, CLI, and the optional
-                 OpenAI-compatible gateway and local UI (impure layers, behind
-                 their extras)
-  tests/         scorer, config, calibration, explain, feedback, onboard, CLI,
-                 gateway, and UI coverage
+                 feedback log + onboarding harness, recalibration, CLI, and the
+                 optional OpenAI-compatible gateway and local UI (impure layers,
+                 behind their extras)
+  tests/         scorer, config, calibration, explain, feedback, onboard,
+                 recalibrate, CLI, gateway, and UI coverage
   decisions/     ADRs grounding the tool's own choices (dogfooded)
+  Dockerfile, docker-compose.example.yml   deploy the gateway as a service
 ```
 
 ## Test
