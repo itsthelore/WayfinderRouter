@@ -6,7 +6,7 @@ scoring, calibration, or config parsing. It binds localhost and ships behind the
 ``wayfinder[ui]`` extra; ``fastapi``/``uvicorn`` are imported lazily so the core
 stays dependency-free.
 
-Three screens, all backed by core functions:
+Four screens, all backed by core functions:
 
 - **Explain / Playground** — paste a prompt; see score, recommendation, tier
   ladder, and per-feature contributions; drag a threshold slider live.
@@ -15,10 +15,15 @@ Three screens, all backed by core functions:
 - **Configure** — edit ``wayfinder.toml`` with live validation (the real loaders)
   and save. Secrets never appear: a gateway model carries ``api_key_env`` (the
   variable *name*), and the key is read from the environment elsewhere.
+- **Onboard** — A/B a local vs hosted model on sample prompts in the browser,
+  judge each, and record labels (WF-ADR-0006). The A/B run uses the gateway
+  invoker (BYO key); recording and calibrating reuse the pure feedback/calibrate
+  functions.
 """
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -31,7 +36,13 @@ from .config import (
     load_routing_config,
     routing_config_from_toml,
 )
-from .gateway import gateway_config_from_toml
+from .feedback import DEFAULT_LOG, read_labels, record_label
+from .gateway import (
+    GatewayUnavailable,
+    gateway_config_from_toml,
+    invoke_model,
+    load_gateway_config,
+)
 
 if TYPE_CHECKING:  # type-only; the runtime imports these lazily inside build_ui_app
     from fastapi import FastAPI
@@ -99,6 +110,34 @@ def save_config_text(text: str, start_dir: str = ".") -> str | None:
     return None
 
 
+def _log_path(start_dir: str) -> str:
+    return str(Path(start_dir) / DEFAULT_LOG)
+
+
+def onboard_arms(start_dir: str = ".") -> list[str]:
+    """The first two configured gateway models — the local/hosted arms to A/B."""
+    return list(load_gateway_config(start_dir).models)[:2]
+
+
+def onboard_run(start_dir: str, prompt: str, arms: list[str] | None = None) -> dict[str, str]:
+    """Run ``prompt`` through each arm and return its output (invokes models, BYO key)."""
+    gateway = load_gateway_config(start_dir)
+    chosen = arms or list(gateway.models)[:2]
+    return {arm: invoke_model(gateway.models[arm], prompt) for arm in chosen}
+
+
+def record_onboard_label(start_dir: str, prompt: str, label: str) -> int:
+    """Append a judgment to the feedback log; return the running label count."""
+    record_label(_log_path(start_dir), prompt, label)
+    return len(read_labels(_log_path(start_dir)))
+
+
+def onboard_dataset_text(start_dir: str) -> str:
+    """The feedback log as JSONL dataset text, for the Calibrate flow."""
+    rows = read_labels(_log_path(start_dir))
+    return "\n".join(json.dumps(r, ensure_ascii=False) for r in rows)
+
+
 def _models_list(value: object) -> list[str] | None:
     if isinstance(value, list):
         return [str(m).strip() for m in value if str(m).strip()] or None
@@ -161,6 +200,36 @@ def build_ui_app(start_dir: str = ".") -> FastAPI:
             return JSONResponse(status_code=400, content={"error": error})
         return {"ok": True}
 
+    @app.get("/api/onboard")
+    def api_onboard_state() -> dict:
+        return {"arms": onboard_arms(start_dir), "count": len(read_labels(_log_path(start_dir)))}
+
+    @app.post("/api/onboard/run")
+    def api_onboard_run(body: dict = Body(...)) -> object:  # noqa: B008 - FastAPI default
+        raw_prompt = body.get("prompt")
+        prompt = raw_prompt if isinstance(raw_prompt, str) else ""
+        if not prompt:
+            return JSONResponse(status_code=400, content={"error": "missing 'prompt'"})
+        try:
+            return {"outputs": onboard_run(start_dir, prompt, _models_list(body.get("arms")))}
+        except GatewayUnavailable as exc:
+            return JSONResponse(status_code=400, content={"error": str(exc)})
+        except RuntimeError as exc:  # an upstream model error
+            return JSONResponse(status_code=502, content={"error": str(exc)})
+
+    @app.post("/api/onboard/record")
+    def api_onboard_record(body: dict = Body(...)) -> object:  # noqa: B008 - FastAPI default
+        raw_prompt, raw_label = body.get("prompt"), body.get("label")
+        if not isinstance(raw_prompt, str) or not raw_prompt:
+            return JSONResponse(status_code=400, content={"error": "missing 'prompt'"})
+        if not isinstance(raw_label, str) or not raw_label:
+            return JSONResponse(status_code=400, content={"error": "missing 'label'"})
+        return {"ok": True, "count": record_onboard_label(start_dir, raw_prompt, raw_label)}
+
+    @app.get("/api/onboard/dataset")
+    def api_onboard_dataset() -> dict:
+        return {"dataset": onboard_dataset_text(start_dir)}
+
     return app
 
 
@@ -220,6 +289,7 @@ _PAGE = """<!doctype html>
     <button data-tab="explain" class="on">Explain</button>
     <button data-tab="calibrate">Calibrate</button>
     <button data-tab="configure">Configure</button>
+    <button data-tab="onboard">Onboard</button>
   </nav>
 
   <section id="explain" class="on">
@@ -267,6 +337,25 @@ _PAGE = """<!doctype html>
     </div>
   </section>
 
+  <section id="onboard">
+    <p class="muted">A/B a local vs hosted model on sample prompts, judge each, and
+      record labels. Needs two <code>[gateway.models]</code> and the
+      <code>[gateway]</code> extra. Arms: <span id="arms">—</span> · labels so far:
+      <span id="lblcount">0</span></p>
+    <textarea id="prompts" placeholder='one prompt per line, or {"text": "..."}'></textarea>
+    <div class="row">
+      <button class="act" id="startob">Start</button>
+      <span class="muted" id="obprogress"></span>
+    </div>
+    <div id="obcurrent" hidden>
+      <pre id="obprompt"></pre>
+      <div class="row" id="obarms"></div>
+      <div class="row" id="objudge"></div>
+    </div>
+    <div id="oberr" class="err"></div>
+    <div class="row"><button class="act" id="obcal">Calibrate from log →</button></div>
+  </section>
+
 <script>
 const $ = id => document.getElementById(id);
 async function post(url, body) {
@@ -282,6 +371,7 @@ document.querySelectorAll("nav button").forEach(b => b.addEventListener("click",
   b.classList.add("on");
   $(b.dataset.tab).classList.add("on");
   if (b.dataset.tab === "configure" && !$("toml").value) loadConfig();
+  if (b.dataset.tab === "onboard") loadOnboardState();
 }));
 
 // --- explain ---
@@ -360,6 +450,73 @@ $("save").addEventListener("click", async () => {
   const {ok, data} = await post("/api/config/save", {toml: $("toml").value});
   $("cfgstatus").innerHTML = ok
     ? '<span class="ok">saved</span>' : '<span class="err">' + data.error + '</span>';
+});
+
+// --- onboard ---
+let obQueue = [], obIndex = 0, obArms = [];
+function parsePrompts(text) {
+  return text.split("\\n").map(l => l.trim()).filter(Boolean).map(l => {
+    if (l.startsWith("{")) {
+      try { const o = JSON.parse(l); if (o && typeof o.text === "string") return o.text; }
+      catch (e) { /* fall through to raw line */ }
+    }
+    return l;
+  });
+}
+async function loadOnboardState() {
+  const r = await fetch("/api/onboard"); const d = await r.json();
+  obArms = d.arms;
+  $("arms").textContent = d.arms.length >= 2 ? d.arms.join(" vs ")
+    : "(configure two [gateway.models])";
+  $("lblcount").textContent = d.count;
+}
+$("startob").addEventListener("click", () => {
+  $("oberr").textContent = "";
+  obQueue = parsePrompts($("prompts").value); obIndex = 0;
+  if (!obQueue.length) { $("obprogress").textContent = "no prompts"; return; }
+  if (obArms.length < 2) {
+    $("oberr").textContent = "configure two [gateway.models] first"; return;
+  }
+  $("obcurrent").hidden = false; showCurrent();
+});
+async function showCurrent() {
+  if (obIndex >= obQueue.length) {
+    $("obcurrent").hidden = true;
+    $("obprogress").textContent = "done — " + obQueue.length + " judged";
+    return;
+  }
+  const prompt = obQueue[obIndex];
+  $("obprogress").textContent = (obIndex + 1) + " / " + obQueue.length;
+  $("obprompt").textContent = prompt;
+  $("obarms").textContent = "running both arms…"; $("objudge").innerHTML = "";
+  const {ok, data} = await post("/api/onboard/run", {prompt});
+  if (!ok) { $("obarms").textContent = ""; $("oberr").textContent = data.error; return; }
+  $("oberr").textContent = ""; $("obarms").innerHTML = "";
+  obArms.forEach(arm => {
+    const col = document.createElement("div"); col.style.flex = "1";
+    const h = document.createElement("strong"); h.textContent = arm;
+    const pre = document.createElement("pre"); pre.textContent = data.outputs[arm] || "";
+    col.append(h, pre); $("obarms").appendChild(col);
+  });
+  const [primary, fallback] = obArms;
+  const good = document.createElement("button");
+  good.className = "act"; good.textContent = "‘" + primary + "’ good enough";
+  good.onclick = () => recordJudgment(prompt, primary);
+  const need = document.createElement("button");
+  need.className = "act"; need.textContent = "needs ‘" + fallback + "’";
+  need.onclick = () => recordJudgment(prompt, fallback);
+  $("objudge").innerHTML = ""; $("objudge").append(good, need);
+}
+async function recordJudgment(prompt, label) {
+  const {data} = await post("/api/onboard/record", {prompt, label});
+  $("lblcount").textContent = data.count;
+  obIndex++; showCurrent();
+}
+$("obcal").addEventListener("click", async () => {
+  const r = await fetch("/api/onboard/dataset"); const d = await r.json();
+  if (!d.dataset) { $("oberr").textContent = "no labels recorded yet"; return; }
+  $("dataset").value = d.dataset;
+  document.querySelector('nav button[data-tab="calibrate"]').click();
 });
 
 score();

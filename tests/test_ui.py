@@ -14,6 +14,10 @@ from wayfinder.complexity import FEATURE_ORDER
 from wayfinder.ui import (
     calibrate_payload,
     current_config_text,
+    onboard_arms,
+    onboard_dataset_text,
+    onboard_run,
+    record_onboard_label,
     save_config_text,
     score_payload,
     validate_config_text,
@@ -25,6 +29,20 @@ COMPLEX = (
     + "".join(f"- step {i}\n" for i in range(12))
     + "\n## Refs\n\n[a](https://x) [b](https://y)\n\n```py\nx=1\n```\n| a | b |\n| - | - |\n"
 )
+GW_CONFIG = (
+    '[gateway.models.local]\nbase_url = "http://localhost/v1"\nmodel = "l"\n\n'
+    '[gateway.models.cloud]\nbase_url = "http://cloud/v1"\nmodel = "c"\n'
+)
+
+
+def _with_gateway(tmp_path) -> str:
+    (tmp_path / "wayfinder.toml").write_text(GW_CONFIG, encoding="utf-8")
+    return str(tmp_path)
+
+
+def _fake_forward(url, headers, json_body, timeout=60.0):
+    content = ('{"choices":[{"message":{"content":"reply:' + json_body["model"] + '"}}]}').encode()
+    return 200, content, "application/json"
 DATASET = "\n".join(
     json.dumps(r)
     for r in [{"text": TRIVIAL, "label": "local"}] * 4 + [{"text": COMPLEX, "label": "cloud"}] * 4
@@ -82,6 +100,25 @@ def test_save_config_writes_valid_and_refuses_invalid(tmp_path):
     # Invalid config is rejected and the file is not overwritten with garbage.
     assert save_config_text("[routing]\nthreshold = 9\n", str(tmp_path)) is not None
     assert "0.7" in (tmp_path / "wayfinder.toml").read_text(encoding="utf-8")
+
+
+def test_onboard_arms_lists_the_two_gateway_models(tmp_path):
+    assert onboard_arms(_with_gateway(tmp_path)) == ["local", "cloud"]
+
+
+def test_onboard_record_and_dataset_feed_calibrate(tmp_path):
+    start_dir = _with_gateway(tmp_path)
+    assert record_onboard_label(start_dir, "hi", "local") == 1
+    assert record_onboard_label(start_dir, COMPLEX, "cloud") == 2
+    dataset = onboard_dataset_text(start_dir)
+    assert calibrate_payload(dataset, "threshold")["summary"]["samples"] == 2
+
+
+def test_onboard_run_invokes_each_arm(tmp_path, monkeypatch):
+    from wayfinder import gateway
+
+    monkeypatch.setattr(gateway, "forward_request", _fake_forward)
+    assert onboard_run(_with_gateway(tmp_path), "hi") == {"local": "reply:l", "cloud": "reply:c"}
 
 
 # --- web endpoints ----------------------------------------------------------
@@ -151,3 +188,41 @@ def test_api_config_save_rejects_invalid(client):
     resp = client.post("/api/config/save", json={"toml": "[routing]\nthreshold = 9\n"})
     assert resp.status_code == 400
     assert "error" in resp.json()
+
+
+# --- onboard endpoints ------------------------------------------------------
+
+
+@pytest.fixture
+def ob_client(tmp_path, monkeypatch):
+    from wayfinder import gateway
+
+    monkeypatch.setattr(gateway, "forward_request", _fake_forward)
+    return TestClient(build_ui_app(start_dir=_with_gateway(tmp_path))), tmp_path
+
+
+def test_api_onboard_state_lists_arms(ob_client):
+    client, _ = ob_client
+    data = client.get("/api/onboard").json()
+    assert data["arms"] == ["local", "cloud"]
+    assert data["count"] == 0
+
+
+def test_api_onboard_run_returns_both_outputs(ob_client):
+    client, _ = ob_client
+    data = client.post("/api/onboard/run", json={"prompt": "hi"}).json()
+    assert set(data["outputs"]) == {"local", "cloud"}
+
+
+def test_api_onboard_run_missing_prompt_is_400(ob_client):
+    client, _ = ob_client
+    assert client.post("/api/onboard/run", json={}).status_code == 400
+
+
+def test_api_onboard_record_writes_the_shared_log(ob_client):
+    client, tmp_path = ob_client
+    resp = client.post("/api/onboard/record", json={"prompt": "hi", "label": "local"})
+    assert resp.json() == {"ok": True, "count": 1}
+    assert (tmp_path / "wayfinder-feedback.jsonl").is_file()
+    dataset = client.get("/api/onboard/dataset").json()["dataset"]
+    assert '"label": "local"' in dataset
