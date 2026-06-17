@@ -24,13 +24,16 @@ Config (`wayfinder.toml`)::
 
 from __future__ import annotations
 
+import json
 import os
 import tomllib
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import TYPE_CHECKING
 
 from .complexity import score_complexity
 from .config import WayfinderConfigError, find_config_file, load_routing_config
+from .feedback import DEFAULT_LOG, record_label
 
 if TYPE_CHECKING:  # type-only; the runtime imports these lazily inside build_app
     from fastapi import FastAPI, Response
@@ -142,6 +145,31 @@ def forward_request(
     )
 
 
+def invoke_model(model: GatewayModel, prompt: str, timeout: float = 60.0) -> str:
+    """Run ``prompt`` through one upstream model and return its text (BYO key).
+
+    The single-prompt call the onboarding harness uses to A/B a local vs hosted
+    model. It forwards an OpenAI-compatible chat request with the model's key
+    (read from the environment) and returns the assistant content. Reuses
+    :func:`forward_request`, so tests substitute the network the same way.
+    """
+    headers = {"Content-Type": "application/json"}
+    if model.api_key_env:
+        key = os.environ.get(model.api_key_env)
+        if key:
+            headers["Authorization"] = f"Bearer {key}"
+    body = {"model": model.model, "messages": [{"role": "user", "content": prompt}]}
+    url = model.base_url.rstrip("/") + "/chat/completions"
+    status, content, _ = forward_request(url, headers, body, timeout)
+    if status >= 400:
+        raise RuntimeError(f"{model.model} upstream returned {status}: {content[:200]!r}")
+    try:
+        data = json.loads(content)
+        return str(data["choices"][0]["message"]["content"])
+    except (json.JSONDecodeError, KeyError, IndexError, TypeError) as exc:
+        raise RuntimeError(f"{model.model} returned an unexpected response shape: {exc}") from exc
+
+
 def build_app(start_dir: str = ".") -> FastAPI:
     """Build the FastAPI gateway app, loading routing + gateway config once."""
     try:
@@ -157,6 +185,18 @@ def build_app(start_dir: str = ".") -> FastAPI:
     @app.get("/healthz")
     def healthz() -> dict:
         return {"status": "ok", "models": sorted(gateway.models)}
+
+    @app.post("/v1/feedback")
+    def feedback(body: dict = Body(...)) -> object:  # noqa: B008 - FastAPI default
+        # Steady-state escalate loop: the caller records which model was good
+        # enough for a prompt; the label feeds the next recalibration.
+        raw_text, raw_label = body.get("text"), body.get("label")
+        if not isinstance(raw_text, str) or not raw_text:
+            return JSONResponse(status_code=400, content={"error": "missing 'text'"})
+        if not isinstance(raw_label, str) or not raw_label:
+            return JSONResponse(status_code=400, content={"error": "missing 'label'"})
+        record_label(str(Path(start_dir) / DEFAULT_LOG), raw_text, raw_label)
+        return {"ok": True}
 
     @app.post("/v1/chat/completions")
     def chat_completions(body: dict = Body(...)) -> Response:  # noqa: B008 - FastAPI default

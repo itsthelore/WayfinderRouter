@@ -153,6 +153,82 @@ def _cmd_ui(args: argparse.Namespace) -> int:
     return EXIT_OK
 
 
+def _load_prompts(path: str) -> list[str]:
+    """One prompt per line: a JSON object with a ``text`` field, or raw text."""
+    prompts: list[str] = []
+    for line in Path(path).read_text(encoding="utf-8").splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        if line.startswith("{"):
+            row = json.loads(line)
+            if isinstance(row, dict) and isinstance(row.get("text"), str):
+                prompts.append(row["text"])
+                continue
+        prompts.append(line)
+    return prompts
+
+
+def _cmd_onboard(args: argparse.Namespace) -> int:
+    from .gateway import GatewayUnavailable, invoke_model, load_gateway_config
+    from .onboard import run_onboarding
+
+    if not Path(args.prompts).is_file():
+        print(f"wayfinder: file not found: {args.prompts}", file=sys.stderr)
+        return EXIT_USAGE
+    try:
+        gateway = load_gateway_config(".")
+    except WayfinderConfigError as exc:
+        print(f"wayfinder: {exc}", file=sys.stderr)
+        return EXIT_CONFIG
+    arms = [a.strip() for a in args.arms.split(",")] if args.arms else list(gateway.models)
+    arms = arms[:2]
+    if len(arms) < 2:
+        print(
+            "wayfinder: onboard needs two gateway models (e.g. local and hosted); "
+            "configure [gateway.models.*] or pass --arms local,cloud",
+            file=sys.stderr,
+        )
+        return EXIT_USAGE
+    missing = [a for a in arms if a not in gateway.models]
+    if missing:
+        print(f"wayfinder: no [gateway.models] entry for: {', '.join(missing)}", file=sys.stderr)
+        return EXIT_USAGE
+
+    primary, fallback = arms
+
+    def run_model(arm: str, prompt: str) -> str:
+        return invoke_model(gateway.models[arm], prompt)
+
+    def judge(prompt: str, outputs: dict) -> str:
+        # Interactive A/B goes to stderr so stdout stays clean for --calibrate.
+        print(f"\n--- prompt ---\n{prompt}\n", file=sys.stderr)
+        print(f"[{primary}]\n{outputs[primary]}\n", file=sys.stderr)
+        print(f"[{fallback}]\n{outputs[fallback]}\n", file=sys.stderr)
+        print(f"Is '{primary}' good enough? [y/N] ", end="", file=sys.stderr, flush=True)
+        answer = input().strip().lower()
+        return primary if answer in ("y", "yes") else fallback
+
+    try:
+        prompts = _load_prompts(args.prompts)
+        summary = run_onboarding(prompts, arms, run_model, judge, args.log)
+    except GatewayUnavailable as exc:
+        print(f"wayfinder: {exc}", file=sys.stderr)
+        return EXIT_USAGE
+    counts = ", ".join(f"{k}={v}" for k, v in summary.label_counts.items())
+    print(f"wayfinder: judged {summary.judged} prompts -> {counts}", file=sys.stderr)
+    print(f"wayfinder: labels appended to {args.log}", file=sys.stderr)
+
+    if args.calibrate:
+        from .calibrate import calibrate, load_dataset
+
+        result = calibrate(load_dataset(args.log), args.mode)
+        print(result.toml)
+        summary_line = ", ".join(f"{k}={v}" for k, v in result.summary.items())
+        print(f"wayfinder: {summary_line}", file=sys.stderr)
+    return EXIT_OK
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="wayfinder",
@@ -220,6 +296,32 @@ def build_parser() -> argparse.ArgumentParser:
     p_ui.add_argument("--host", default="127.0.0.1", help="Bind host (default: 127.0.0.1).")
     p_ui.add_argument("--port", type=int, default=8099, help="Bind port (default: 8099).")
     p_ui.set_defaults(func=_cmd_ui)
+
+    p_onboard = sub.add_parser(
+        "onboard",
+        help="A/B local vs hosted on sample prompts to bootstrap labels (needs [gateway]).",
+    )
+    p_onboard.add_argument(
+        "prompts", help="A file of prompts: one per line, or JSONL {\"text\": ...}."
+    )
+    p_onboard.add_argument(
+        "--arms",
+        default=None,
+        help="Two gateway model names to compare, e.g. local,cloud (default: first two).",
+    )
+    p_onboard.add_argument(
+        "--log", default="wayfinder-feedback.jsonl", help="Label log to append to."
+    )
+    p_onboard.add_argument(
+        "--calibrate", action="store_true", help="Calibrate a config from the log when done."
+    )
+    p_onboard.add_argument(
+        "--mode",
+        choices=["threshold", "tiers", "classifier"],
+        default="threshold",
+        help="Calibration mode for --calibrate (default: threshold).",
+    )
+    p_onboard.set_defaults(func=_cmd_onboard)
     return parser
 
 

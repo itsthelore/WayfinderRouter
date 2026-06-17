@@ -106,3 +106,49 @@ def test_response_body_is_relayed_unchanged(client):
     test_client, _ = client
     resp = test_client.post("/v1/chat/completions", json=TRIVIAL)
     assert resp.json() == {"id": "resp-1", "object": "chat.completion"}
+
+
+# --- invoke_model (the onboarding/A-B caller) -------------------------------
+
+
+def test_invoke_model_returns_assistant_text_with_byo_key(monkeypatch):
+    captured: dict = {}
+
+    def fake_forward(url, headers, json_body, timeout=60.0):
+        captured.update(url=url, headers=headers, body=json_body)
+        return 200, b'{"choices":[{"message":{"content":"hi from model"}}]}', "application/json"
+
+    monkeypatch.setattr(gateway, "forward_request", fake_forward)
+    monkeypatch.setenv("EXAMPLE_API_KEY", "sekret")
+    model = gateway.GatewayModel(
+        base_url="https://api.example.com/v1", model="big", api_key_env="EXAMPLE_API_KEY"
+    )
+    assert gateway.invoke_model(model, "hello") == "hi from model"
+    assert captured["url"] == "https://api.example.com/v1/chat/completions"
+    assert captured["body"]["model"] == "big"
+    assert captured["body"]["messages"][0]["content"] == "hello"
+    assert captured["headers"]["Authorization"] == "Bearer sekret"
+
+
+def test_invoke_model_raises_on_error_status(monkeypatch):
+    monkeypatch.setattr(gateway, "forward_request", lambda *a, **k: (500, b"boom", "text/plain"))
+    model = gateway.GatewayModel(base_url="http://x/v1", model="m")
+    with pytest.raises(RuntimeError):
+        gateway.invoke_model(model, "hi")
+
+
+# --- /v1/feedback (the steady-state escalate loop) --------------------------
+
+
+def test_feedback_records_a_label(client, tmp_path):
+    test_client, _ = client
+    resp = test_client.post("/v1/feedback", json={"text": "a prompt", "label": "cloud"})
+    assert resp.status_code == 200
+    log = tmp_path / "wayfinder-feedback.jsonl"
+    assert log.read_text(encoding="utf-8").strip() == '{"text": "a prompt", "label": "cloud"}'
+
+
+def test_feedback_missing_fields_is_400(client):
+    test_client, _ = client
+    assert test_client.post("/v1/feedback", json={"text": "x"}).status_code == 400
+    assert test_client.post("/v1/feedback", json={"label": "cloud"}).status_code == 400

@@ -44,6 +44,8 @@ from .config import (
     load_routing_config,
     routing_config_from_toml,
 )
+from .feedback import read_labels, record_label
+from .onboard import OnboardSummary, run_onboarding
 
 __version__ = "0.1.0"
 
@@ -73,4 +75,9 @@ __all__ = [
     "Sample",
     "CalibrationResult",
     "CalibrationError",
+    # Feedback / onboarding (the calibrate label faucet).
+    "record_label",
+    "read_labels",
+    "run_onboarding",
+    "OnboardSummary",
 ]
