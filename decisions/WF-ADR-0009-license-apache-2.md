@@ -17,7 +17,7 @@ Product
 
 ## Context
 
-Wayfinder Router was scaffolded under MIT. As it heads toward pilot and likely enterprise
+Wayfinder was scaffolded under MIT. As it heads toward pilot and likely enterprise
 use — and may grow commercial extensions later — the licence choice should be
 deliberate. Both MIT and Apache 2.0 are permissive and either would work; the
 question is which serves adoption best.
@@ -30,14 +30,14 @@ non-grant, and `NOTICE`/attribution mechanics.
 
 ## Decision
 
-License Wayfinder Router under the **Apache License, Version 2.0**.
+License Wayfinder under the **Apache License, Version 2.0**.
 
 - Replace the MIT `LICENSE` with the full Apache 2.0 text; set
   `license = { text = "Apache-2.0" }` in `pyproject.toml`; add a `NOTICE` file.
 - The explicit patent grant is the deciding factor: corporate open-source review
   teams look for it, and it gives adopters and contributors patent clarity that
   MIT does not address — while remaining fully permissive.
-- Wayfinder Router is independent of RAC (WF-ADR-0001), so this choice is its own; the
+- Wayfinder is independent of RAC (WF-ADR-0001), so this choice is its own; the
   sibling `decisiongrounding` being MIT imposes no constraint.
 
 ## Consequences
@@ -69,7 +69,7 @@ Maximal familiarity, minimal ceremony.
 #### Disadvantages
 
 - Against the embed-anywhere, BYO-key posture; would deter the in-process library
-  and gateway-sidecar use Wayfinder Router is designed for.
+  and gateway-sidecar use Wayfinder is designed for.
 
 ## Success Measures
 

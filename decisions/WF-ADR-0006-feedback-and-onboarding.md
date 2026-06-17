@@ -23,7 +23,7 @@ kind of task, route that way automatically.
 
 That is the keystone the product was missing. Calibration (WF-ADR-0003) always
 needed *labeled* data — prompts tagged with which model was good enough — but
-Wayfinder Router never provided a way to produce it; it only named the oracle (tests,
+Wayfinder never provided a way to produce it; it only named the oracle (tests,
 production signals, a judge). The user's request *is* that oracle: a human judgment
 of local-vs-hosted, turned into labels, fed to `calibrate`, closing the loop
 **collect judgments → calibrate → route automatically**.

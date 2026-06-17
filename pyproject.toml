@@ -37,7 +37,7 @@ classifiers = [
     "Topic :: Software Development :: Libraries",
     "Typing :: Typed",
 ]
-# Stdlib-only: scoring is pure text scanning and config is tomllib. Wayfinder Router has
+# Stdlib-only: scoring is pure text scanning and config is tomllib. Wayfinder has
 # no runtime dependency on RAC or anything else (WF-ADR-0001).
 dependencies = []
 

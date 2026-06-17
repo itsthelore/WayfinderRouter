@@ -17,13 +17,13 @@ Architecture
 
 ## Context
 
-WF-ADR-0001 made Wayfinder Router a pure recommender: it scores a prompt and names a
+WF-ADR-0001 made Wayfinder a pure recommender: it scores a prompt and names a
 model, but never invokes one — no key, no network. That purity is the integrity
 asset (deterministic, golden-tested, reproducible).
 
 But the natural user request is "weigh the prompt, then actually route it to the
 chosen model with my own key." Done naively — folding inference into the scorer —
-this would poison the property that makes Wayfinder Router trustworthy: the scored path
+this would poison the property that makes Wayfinder trustworthy: the scored path
 would become side-effectful, key-bearing, and non-deterministic.
 
 A design council (product, architecture, integration, calibration seats) reviewed
@@ -70,7 +70,7 @@ superseding it; the core's guarantee is unchanged, the prohibition is clarified.
   users already expect from comparable gateways.
 - The deterministic core keeps every property that makes it trustworthy; the
   non-deterministic, key-bearing code is isolated and separately tested.
-- Aligns with RAC ADR-035 (user owns credentials and inference): Wayfinder Router
+- Aligns with RAC ADR-035 (user owns credentials and inference): Wayfinder
   supplies the routing decision; the user's key and endpoints do the inference.
 
 ### Negative

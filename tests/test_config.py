@@ -1,4 +1,4 @@
-"""Tests for Wayfinder Router's own config loader (wayfinder-router.toml, no RAC)."""
+"""Tests for Wayfinder's own config loader (wayfinder-router.toml, no RAC)."""
 
 from __future__ import annotations
 

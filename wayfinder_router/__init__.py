@@ -1,4 +1,4 @@
-"""Wayfinder Router — a deterministic prompt-complexity router.
+"""Wayfinder — a deterministic prompt-complexity router.
 
 A standalone, offline tool: hand it a prompt, get a reproducible structural
 complexity score and a model recommendation. It never invokes a model — the

@@ -41,7 +41,7 @@ The router maps the structural score to a model through ordered **tiers**.
   from a `threshold` for the default binary router. Selection is O(1) after
   scoring; still deterministic, still no model call.
 - The recommendation is now a **configured model name**, not the literals
-  `local`/`cloud`. Wayfinder Router names the destination; the caller maps the name to
+  `local`/`cloud`. Wayfinder names the destination; the caller maps the name to
   an endpoint and runs inference (the WF-ADR-0001 boundary holds).
 
 ## Consequences

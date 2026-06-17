@@ -157,7 +157,7 @@ def test_index_serves_the_page(client):
     resp = client.get("/")
     assert resp.status_code == 200
     assert "text/html" in resp.headers["content-type"]
-    assert "Wayfinder Router" in resp.text
+    assert "Wayfinder" in resp.text
 
 
 def test_api_score_returns_contributions(client):

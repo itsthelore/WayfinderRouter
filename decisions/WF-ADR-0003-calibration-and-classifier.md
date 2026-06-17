@@ -24,7 +24,7 @@ reproducible way to derive the routing boundary from data — and, for models th
 differ in *kind* rather than difficulty, a router that is not limited to one
 ordinal axis.
 
-Both must hold the line WF-ADR-0001 drew: Wayfinder Router recommends, never invokes a
+Both must hold the line WF-ADR-0001 drew: Wayfinder recommends, never invokes a
 model, and every routing signal is a deterministic, offline function of the
 query. Calibration may use a model *offline to label data* (that is the caller's
 oracle), but the shipped runtime calls nothing.
