@@ -4,14 +4,47 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "wayfinder-router"
-version = "0.1.0"
+dynamic = ["version"]
 description = "A deterministic prompt-complexity router: score a prompt's structure and recommend a local or cloud model — offline, reproducible, no model call."
 readme = "README.md"
 license = { text = "Apache-2.0" }
 requires-python = ">=3.11"
+authors = [{ name = "Tom Ballard", email = "tom@armytage.co" }]
+keywords = [
+    "llm",
+    "llm-routing",
+    "model-routing",
+    "prompt-routing",
+    "prompt-complexity",
+    "openai-compatible",
+    "ai-gateway",
+    "local-llm",
+    "inference",
+    "cost-optimization",
+    "deterministic",
+    "ollama",
+]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: Apache Software License",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+    "Topic :: Software Development :: Libraries",
+    "Typing :: Typed",
+]
 # Stdlib-only: scoring is pure text scanning and config is tomllib. Wayfinder Router has
 # no runtime dependency on RAC or anything else (WF-ADR-0001).
 dependencies = []
+
+[project.urls]
+Homepage = "https://github.com/itsthelore/wayfinder-router"
+Repository = "https://github.com/itsthelore/wayfinder-router"
+Issues = "https://github.com/itsthelore/wayfinder-router/issues"
 
 [project.optional-dependencies]
 # The OpenAI-compatible routing gateway (WF-ADR-0004). The core never imports
@@ -27,6 +60,12 @@ wayfinder-router = "wayfinder_router.cli:main"
 
 [tool.setuptools]
 packages = ["wayfinder_router"]
+
+[tool.setuptools.dynamic]
+version = { attr = "wayfinder_router.__version__" }
+
+[tool.setuptools.package-data]
+wayfinder_router = ["py.typed"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
