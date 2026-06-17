@@ -17,25 +17,25 @@ Architecture
 
 ## Context
 
-Wayfinder Router began life as `rac route`, an exploration inside the
+Wayfinder began life as `rac route`, an exploration inside the
 `requirements-as-code` (RAC) repository: a deterministic, structural
 prompt-complexity scorer that recommends a local or cloud model. RAC's own
 decisions concluded the capability did not belong there — routing is a runtime
 *inference* concern, divergent from RAC/Lore's recorded-knowledge product line
-(RAC ADR-069 records the split; RAC ADR-068 pins the routing boundary). Wayfinder Router
+(RAC ADR-069 records the split; RAC ADR-068 pins the routing boundary). Wayfinder
 is the product that capability becomes.
 
 The defining question for this repository is the dependency direction. A prompt
 router that required users to install a requirements-as-code knowledge engine
 would be absurd: the audiences barely overlap. So the foundational choice is
-whether Wayfinder Router consumes RAC or stands alone.
+whether Wayfinder consumes RAC or stands alone.
 
 ## Decision
 
-Wayfinder Router is a standalone, deterministic prompt router with **zero runtime
+Wayfinder is a standalone, deterministic prompt router with **zero runtime
 dependency on RAC**.
 
-- Wayfinder Router does not import `rac`, depend on the `requirements-as-code` package,
+- Wayfinder does not import `rac`, depend on the `requirements-as-code` package,
   or read RAC's `.rac/` config namespace. It owns its own config file,
   `wayfinder-router.toml`.
 - The scorer is pure, offline structural scanning of the prompt text (length,
@@ -67,12 +67,12 @@ inspired by RAC's `classification.py` (`points / ceiling`).
 
 ### Positive
 
-- Wayfinder Router installs and runs with no RAC present and no `.rac/` on the path —
+- Wayfinder installs and runs with no RAC present and no `.rac/` on the path —
   usable by anyone running local + cloud models.
 - The router stays reproducible, testable, and free: no model call to decide
   whether to make a model call.
-- A clean product boundary: Wayfinder Router's concerns never leak back into RAC, and
-  RAC's knowledge model never constrains Wayfinder Router.
+- A clean product boundary: Wayfinder's concerns never leak back into RAC, and
+  RAC's knowledge model never constrains Wayfinder.
 
 ### Negative
 
@@ -95,7 +95,7 @@ Reuse RAC's `split_frontmatter` and config discovery via the published package.
 #### Disadvantages
 
 - Forces a prompt-routing audience to install a knowledge engine, contradicting
-  the reason Wayfinder Router was split out at all (RAC ADR-069).
+  the reason Wayfinder was split out at all (RAC ADR-069).
 
 ### Keep it as `rac route` inside RAC
 
@@ -114,4 +114,4 @@ Full independence is selected.
   with no RAC installed and no `.rac/` directory anywhere on the path.
 - The same prompt and threshold produce byte-identical output across runs and
   across the CLI and the Python API.
-- No Wayfinder Router code path imports `rac`, reads `.rac/`, or invokes a model.
+- No Wayfinder code path imports `rac`, reads `.rac/`, or invokes a model.

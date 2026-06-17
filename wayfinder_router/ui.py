@@ -274,7 +274,7 @@ _PAGE = """<!doctype html>
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Wayfinder Router</title>
+<title>Wayfinder</title>
 <style>
   :root { color-scheme: light dark; }
   body { font: 15px/1.5 system-ui, sans-serif; margin: 0; padding: 1.5rem;
@@ -307,7 +307,7 @@ _PAGE = """<!doctype html>
 </style>
 </head>
 <body>
-  <h1>Wayfinder Router</h1>
+  <h1>Wayfinder</h1>
   <nav>
     <button data-tab="explain" class="on">Explain</button>
     <button data-tab="calibrate">Calibrate</button>

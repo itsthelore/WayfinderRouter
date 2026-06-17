@@ -1,6 +1,6 @@
-"""Wayfinder Router's own configuration — `wayfinder-router.toml`, no RAC dependency.
+"""Wayfinder's own configuration — `wayfinder-router.toml`, no RAC dependency.
 
-Wayfinder Router owns its config namespace. It never reads RAC's `.rac/config.yaml`
+Wayfinder owns its config namespace. It never reads RAC's `.rac/config.yaml`
 (WF-ADR-0001). The routing boundary lives in a `wayfinder-router.toml` discovered by
 walking up from a starting directory, parsed with the standard-library
 `tomllib`. Determinism is preserved: the config is a committed file, so the same

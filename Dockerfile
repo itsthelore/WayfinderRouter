@@ -1,4 +1,4 @@
-# Wayfinder Router gateway (WF-ADR-0008): a small OpenAI-compatible proxy that
+# Wayfinder gateway (WF-ADR-0008): a small OpenAI-compatible proxy that
 # scores each prompt and forwards it to the chosen model with your key. Run it as
 # a sidecar or service; point your existing OpenAI-compatible client's base_url at
 # it. Keys come from the environment (the gateway model's api_key_env), never the
