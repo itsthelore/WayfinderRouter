@@ -326,7 +326,7 @@ lives in the environment).
 ## Python API
 
 ```python
-from wayfinder-router import score_complexity, RoutingConfig, explain_score
+from wayfinder_router import score_complexity, RoutingConfig, explain_score
 
 result = score_complexity(prompt_text, config=RoutingConfig.binary(threshold=0.7))
 print(result.recommendation, result.score, result.features)
@@ -348,7 +348,7 @@ tool shares no runtime code with RAC; see `decisions/WF-ADR-0001`.
 
 ```
 wayfinder-router/
-  wayfinder-router/     the package: complexity scorer, tiers + classifier, own config
+  wayfinder_router/     the package: complexity scorer, tiers + classifier, own config
                  loader + writer, offline calibration (Newton/IRLS), explain, the
                  feedback log + onboarding harness, recalibration, CLI, and the
                  optional OpenAI-compatible gateway and local UI (impure layers,
