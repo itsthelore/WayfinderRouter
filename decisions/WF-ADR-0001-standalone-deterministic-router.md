@@ -22,7 +22,7 @@ Wayfinder began life as `rac route`, an exploration inside the
 prompt-complexity scorer that recommends a local or cloud model. RAC's own
 decisions concluded the capability did not belong there — routing is a runtime
 *inference* concern, divergent from RAC/Lore's recorded-knowledge product line
-(RAC ADR-069 records the split; RAC ADR-068 pins the routing boundary). Wayfinder
+(RAC ADR-069 records the split; RAC ADR-070 pins the routing boundary). Wayfinder
 is the product that capability becomes.
 
 The defining question for this repository is the dependency direction. A prompt
@@ -47,7 +47,7 @@ dependency on RAC**.
   function) and a config-file walk-up (~10 lines, pointed at `wayfinder-router.toml`).
 - The **core** recommends; it never invokes a model, selects a provider, reads a
   credential, or tokenizes per a vendor model. The caller runs inference. (This
-  is RAC ADR-068's boundary, carried over intact.)
+  is RAC ADR-070's boundary, carried over intact.)
 
   *Amended (WF-ADR-0004):* this prohibition is scoped to the **deterministic
   core** (`complexity`, `config`, `calibrate`). A separate, optional invocation
