@@ -10,6 +10,45 @@ network request, and has **zero dependency on RAC** — it is pure text scanning
 plus a threshold. The recommendation is a fact you act on; Wayfinder stops there,
 and the caller runs inference.
 
+## Quickstart (gateway)
+
+Put Wayfinder in front of your models — your app keeps using the OpenAI API, you
+just change `base_url`. Pilot-facing one-pager: [EXPLAINER.md](EXPLAINER.md).
+
+1. Describe your two models in `wayfinder.toml`:
+
+   ```toml
+   [routing]
+   threshold = 0.5            # below -> local, at/above -> cloud
+
+   [gateway.models.local]
+   base_url = "http://localhost:11434/v1"
+   model = "llama3.2"
+
+   [gateway.models.cloud]
+   base_url = "https://api.openai.com/v1"
+   model = "gpt-4o"
+   api_key_env = "OPENAI_API_KEY"   # key read from this env var, never stored
+   ```
+
+2. Run the gateway:
+
+   ```bash
+   pip install -e ".[gateway]"
+   export OPENAI_API_KEY=sk-...
+   wayfinder serve --port 8088
+   ```
+
+3. Point your existing client at it — no code change:
+
+   ```python
+   client = openai.OpenAI(base_url="http://localhost:8088/v1", api_key="unused")
+   client.chat.completions.create(model="auto", messages=[{"role": "user", "content": "..."}])
+   ```
+
+Easy prompts go to local, hard ones to cloud; each response carries
+`x-wayfinder-model` and `x-wayfinder-score` so you can see the routing.
+
 ## Why deterministic
 
 The obvious way to route by complexity is to ask a model how complex the prompt
