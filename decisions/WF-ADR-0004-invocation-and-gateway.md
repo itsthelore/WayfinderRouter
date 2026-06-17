@@ -123,4 +123,4 @@ superseding it; the core's guarantee is unchanged, the prohibition is clarified.
 ## Related
 
 - Amends WF-ADR-0001 · builds on WF-ADR-0002 (tiers) and WF-ADR-0003 (calibration)
-- RAC ADR-035 (user-managed credentials), ADR-068 (routing boundary)
+- RAC ADR-035 (user-managed credentials), ADR-070 (routing boundary)
