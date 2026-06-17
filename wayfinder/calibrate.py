@@ -58,33 +58,42 @@ class CalibrationResult:
     summary: dict
 
 
+def parse_dataset(text: str, where: str = "<dataset>") -> list[Sample]:
+    """Parse a JSONL dataset of ``{"text": ..., "label": ...}`` rows from a string.
+
+    The in-memory counterpart of :func:`load_dataset`, so the UI can calibrate
+    pasted data without a file. Each row's prompt is scored to features once.
+    """
+    samples: list[Sample] = []
+    for lineno, raw in enumerate(text.splitlines(), start=1):
+        line = raw.strip()
+        if not line:
+            continue
+        try:
+            row = json.loads(line)
+        except json.JSONDecodeError as exc:
+            raise CalibrationError(f"{where}:{lineno}: invalid JSON: {exc}") from exc
+        prompt = row.get("text")
+        label = row.get("label")
+        if not isinstance(prompt, str) or not isinstance(label, str) or not label:
+            raise CalibrationError(
+                f"{where}:{lineno}: each row needs string 'text' and non-empty 'label'"
+            )
+        features = extract_features(prompt)
+        samples.append(Sample(features=features, label=label, score=_default_score(features)))
+    if not samples:
+        raise CalibrationError(f"{where}: no labeled rows found")
+    return samples
+
+
 def load_dataset(path: str) -> list[Sample]:
-    """Read a JSONL dataset of ``{"text": ..., "label": ...}`` rows.
+    """Read a JSONL dataset of ``{"text": ..., "label": ...}`` rows from a file.
 
     Each row's prompt is scored to features once; the label is the model the row
     should route to (for ``threshold`` mode, the two labels are the two arms).
     """
-    samples: list[Sample] = []
     with open(path, encoding="utf-8") as handle:
-        for lineno, line in enumerate(handle, start=1):
-            line = line.strip()
-            if not line:
-                continue
-            try:
-                row = json.loads(line)
-            except json.JSONDecodeError as exc:
-                raise CalibrationError(f"{path}:{lineno}: invalid JSON: {exc}") from exc
-            text = row.get("text")
-            label = row.get("label")
-            if not isinstance(text, str) or not isinstance(label, str) or not label:
-                raise CalibrationError(
-                    f"{path}:{lineno}: each row needs string 'text' and non-empty 'label'"
-                )
-            features = extract_features(text)
-            samples.append(Sample(features=features, label=label, score=_default_score(features)))
-    if not samples:
-        raise CalibrationError(f"{path}: no labeled rows found")
-    return samples
+        return parse_dataset(handle.read(), where=path)
 
 
 def _default_score(features: dict[str, int]) -> float:

@@ -55,25 +55,21 @@ def find_config_file(start_dir: str) -> Path | None:
     return None
 
 
-def load_routing_config(start_dir: str = ".") -> RoutingConfig:
-    """Read the routing config from the nearest ``wayfinder.toml`` (or defaults).
+def routing_config_from_toml(text: str, where: str = CONFIG_FILE) -> RoutingConfig:
+    """Parse a :class:`RoutingConfig` from ``wayfinder.toml`` text.
 
-    Malformed shapes raise :class:`WayfinderConfigError` — config is never
-    silently ignored.
+    The pure, file-free parser shared by :func:`load_routing_config` and the
+    config-editing UI, so a posted draft is validated exactly as a real file is.
+    Malformed shapes raise :class:`WayfinderConfigError`.
     """
-    config_path = find_config_file(start_dir)
-    routing: dict = {}
-    if config_path is not None:
-        try:
-            data = tomllib.loads(config_path.read_text(encoding="utf-8"))
-        except (tomllib.TOMLDecodeError, OSError) as exc:
-            raise WayfinderConfigError(f"cannot read {config_path}: {exc}") from exc
-        section = data.get("routing")
-        if section is not None and not isinstance(section, dict):
-            raise WayfinderConfigError(f"{config_path}: '[routing]' must be a table")
-        routing = section or {}
-
-    where = str(config_path) if config_path else CONFIG_FILE
+    try:
+        data = tomllib.loads(text)
+    except tomllib.TOMLDecodeError as exc:
+        raise WayfinderConfigError(f"{where}: invalid TOML: {exc}") from exc
+    section = data.get("routing")
+    if section is not None and not isinstance(section, dict):
+        raise WayfinderConfigError(f"{where}: '[routing]' must be a table")
+    routing = section or {}
     weights = _parse_weights(where, routing.get("weights"))
 
     if "classifier" in routing:
@@ -85,6 +81,23 @@ def load_routing_config(start_dir: str = ".") -> RoutingConfig:
     threshold = _parse_threshold(where, routing.get("threshold"), _DEFAULT_THRESHOLD)
     threshold = _apply_env_threshold(threshold)
     return RoutingConfig(weights=weights, tiers=binary_tiers(threshold))
+
+
+def load_routing_config(start_dir: str = ".") -> RoutingConfig:
+    """Read the routing config from the nearest ``wayfinder.toml`` (or defaults).
+
+    Malformed shapes raise :class:`WayfinderConfigError` — config is never
+    silently ignored.
+    """
+    config_path = find_config_file(start_dir)
+    if config_path is None:
+        threshold = _apply_env_threshold(_DEFAULT_THRESHOLD)
+        return RoutingConfig(tiers=binary_tiers(threshold))
+    try:
+        text = config_path.read_text(encoding="utf-8")
+    except OSError as exc:
+        raise WayfinderConfigError(f"cannot read {config_path}: {exc}") from exc
+    return routing_config_from_toml(text, where=str(config_path))
 
 
 def _parse_threshold(where: str, value: object, default: float) -> float:

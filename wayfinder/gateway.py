@@ -64,31 +64,42 @@ def load_gateway_config(start_dir: str = ".") -> GatewayConfig:
     if path is None:
         return GatewayConfig()
     try:
-        data = tomllib.loads(path.read_text(encoding="utf-8"))
-    except (tomllib.TOMLDecodeError, OSError) as exc:
+        text = path.read_text(encoding="utf-8")
+    except OSError as exc:
         raise WayfinderConfigError(f"cannot read {path}: {exc}") from exc
+    return gateway_config_from_toml(text, where=str(path))
+
+
+def gateway_config_from_toml(text: str, where: str = "wayfinder.toml") -> GatewayConfig:
+    """Parse a :class:`GatewayConfig` from ``wayfinder.toml`` text (file-free)."""
+    try:
+        data = tomllib.loads(text)
+    except tomllib.TOMLDecodeError as exc:
+        raise WayfinderConfigError(f"{where}: invalid TOML: {exc}") from exc
     gateway = data.get("gateway")
     if gateway is None:
         return GatewayConfig()
     if not isinstance(gateway, dict):
-        raise WayfinderConfigError(f"{path}: '[gateway]' must be a table")
+        raise WayfinderConfigError(f"{where}: '[gateway]' must be a table")
     raw_models = gateway.get("models") or {}
     if not isinstance(raw_models, dict):
-        raise WayfinderConfigError(f"{path}: '[gateway.models]' must be a table")
+        raise WayfinderConfigError(f"{where}: '[gateway.models]' must be a table")
     models: dict[str, GatewayModel] = {}
     for name, entry in raw_models.items():
         if not isinstance(entry, dict):
-            raise WayfinderConfigError(f"{path}: '[gateway.models.{name}]' must be a table")
+            raise WayfinderConfigError(f"{where}: '[gateway.models.{name}]' must be a table")
         base_url = entry.get("base_url")
         model = entry.get("model")
         api_key_env = entry.get("api_key_env")
         if not isinstance(base_url, str) or not base_url:
-            raise WayfinderConfigError(f"{path}: 'gateway.models.{name}.base_url' must be a string")
+            raise WayfinderConfigError(
+                f"{where}: 'gateway.models.{name}.base_url' must be a string"
+            )
         if not isinstance(model, str) or not model:
-            raise WayfinderConfigError(f"{path}: 'gateway.models.{name}.model' must be a string")
+            raise WayfinderConfigError(f"{where}: 'gateway.models.{name}.model' must be a string")
         if api_key_env is not None and (not isinstance(api_key_env, str) or not api_key_env):
             raise WayfinderConfigError(
-                f"{path}: 'gateway.models.{name}.api_key_env' must be a non-empty string"
+                f"{where}: 'gateway.models.{name}.api_key_env' must be a non-empty string"
             )
         models[name] = GatewayModel(base_url=base_url, model=model, api_key_env=api_key_env)
     return GatewayConfig(models=models)

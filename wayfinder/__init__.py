@@ -23,6 +23,7 @@ from .calibrate import (
     Sample,
     calibrate,
     load_dataset,
+    parse_dataset,
     sweep_curve,
 )
 from .complexity import (
@@ -37,7 +38,12 @@ from .complexity import (
     scalar_score,
     score_complexity,
 )
-from .config import WayfinderConfigError, dump_routing_toml, load_routing_config
+from .config import (
+    WayfinderConfigError,
+    dump_routing_toml,
+    load_routing_config,
+    routing_config_from_toml,
+)
 
 __version__ = "0.1.0"
 
@@ -56,12 +62,14 @@ __all__ = [
     "ClassifierModel",
     # Config.
     "load_routing_config",
+    "routing_config_from_toml",
     "dump_routing_toml",
     "WayfinderConfigError",
     # Calibration.
     "calibrate",
     "sweep_curve",
     "load_dataset",
+    "parse_dataset",
     "Sample",
     "CalibrationResult",
     "CalibrationError",
