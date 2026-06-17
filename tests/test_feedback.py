@@ -3,9 +3,9 @@
 from __future__ import annotations
 
 import pytest
-from wayfinder.calibrate import calibrate, load_dataset
+from wayfinder_router.calibrate import calibrate, load_dataset
 
-from wayfinder import read_labels, record_label
+from wayfinder_router import read_labels, record_label
 
 COMPLEX = (
     "# Plan\n\n## Steps\n\n"

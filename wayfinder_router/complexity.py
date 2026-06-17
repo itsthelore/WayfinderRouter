@@ -4,7 +4,7 @@ Scores a prompt's *structural* complexity and maps it to a model recommendation.
 Pure and offline: it reads only structural signals from the text — length,
 headings, steps, links, code blocks, tables — with no model, key, or network. The
 result is a *fact* (like a classifier's confidence), never a semantic verdict, and
-Wayfinder never invokes a model: it recommends, the caller runs inference.
+Wayfinder Router never invokes a model: it recommends, the caller runs inference.
 
 Two routing modes, both deterministic given the config:
 
@@ -188,7 +188,7 @@ class ComplexityScore:
 def strip_frontmatter(text: str) -> str:
     """Return ``text`` with a leading ``---`` YAML frontmatter block removed.
 
-    A generic, self-contained reimplementation (Wayfinder depends on nothing):
+    A generic, self-contained reimplementation (Wayfinder Router depends on nothing):
     only a block starting on the very first line counts; an unterminated block is
     left in place so the whole text is still scored.
     """

@@ -17,13 +17,13 @@ Architecture
 
 ## Context
 
-WF-ADR-0001 made Wayfinder a pure recommender: it scores a prompt and names a
+WF-ADR-0001 made Wayfinder Router a pure recommender: it scores a prompt and names a
 model, but never invokes one — no key, no network. That purity is the integrity
 asset (deterministic, golden-tested, reproducible).
 
 But the natural user request is "weigh the prompt, then actually route it to the
 chosen model with my own key." Done naively — folding inference into the scorer —
-this would poison the property that makes Wayfinder trustworthy: the scored path
+this would poison the property that makes Wayfinder Router trustworthy: the scored path
 would become side-effectful, key-bearing, and non-deterministic.
 
 A design council (product, architecture, integration, calibration seats) reviewed
@@ -47,12 +47,12 @@ the deterministic core untouched.
   the established pattern (LiteLLM / RouteLLM / OpenRouter).
 - **In-process invoker (secondary).** A thin helper for Python callers who prefer
   not to run a proxy; same boundary, keys supplied by the caller.
-- **Keys never enter the core or the config file.** `wayfinder.toml` may map a
+- **Keys never enter the core or the config file.** `wayfinder-router.toml` may map a
   model name to an upstream `base_url` and the *name of the env var* that holds
   the key (`api_key_env`); the secret itself is read from the environment at
-  request time, only inside the gateway. No secret is ever in `wayfinder.toml`,
+  request time, only inside the gateway. No secret is ever in `wayfinder-router.toml`,
   in the scored path, or in any golden test.
-- **The impure layer ships behind an extra.** `wayfinder[gateway]` pulls
+- **The impure layer ships behind an extra.** `wayfinder-router[gateway]` pulls
   `fastapi`/`uvicorn`/`httpx`, lazily imported with a clear install hint when
   absent. The base package keeps `dependencies = []` (WF-ADR-0001).
 - **No UI is required for routing.** Routing is headless (gateway/library/CLI). A
@@ -70,7 +70,7 @@ superseding it; the core's guarantee is unchanged, the prohibition is clarified.
   users already expect from comparable gateways.
 - The deterministic core keeps every property that makes it trustworthy; the
   non-deterministic, key-bearing code is isolated and separately tested.
-- Aligns with RAC ADR-035 (user owns credentials and inference): Wayfinder
+- Aligns with RAC ADR-035 (user owns credentials and inference): Wayfinder Router
   supplies the routing decision; the user's key and endpoints do the inference.
 
 ### Negative
@@ -118,7 +118,7 @@ superseding it; the core's guarantee is unchanged, the prohibition is clarified.
   and no key access; its golden tests are unchanged.
 - An OpenAI-style client pointed at the gateway routes to the recommended
   upstream with the user's key, with no application code change.
-- No secret ever appears in `wayfinder.toml` or any test fixture.
+- No secret ever appears in `wayfinder-router.toml` or any test fixture.
 
 ## Related
 

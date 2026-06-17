@@ -1,16 +1,16 @@
 """Optional OpenAI-compatible routing gateway (WF-ADR-0004).
 
 This is the impure layer: it holds bring-your-own keys and calls upstream models.
-It ships behind the ``wayfinder[gateway]`` extra; ``fastapi`` / ``uvicorn`` /
+It ships behind the ``wayfinder-router[gateway]`` extra; ``fastapi`` / ``uvicorn`` /
 ``httpx`` are imported lazily so the deterministic core stays dependency-free.
 
 A client points its OpenAI-compatible ``base_url`` at this gateway. For each
 request the gateway scores the prompt with the pure core, maps the recommended
 model name to a configured upstream, and forwards the call with the user's key.
 Keys are read from the environment at request time and never appear in
-``wayfinder.toml``, in the scored path, or in any test fixture.
+``wayfinder-router.toml``, in the scored path, or in any test fixture.
 
-Config (`wayfinder.toml`)::
+Config (`wayfinder-router.toml`)::
 
     [gateway.models.local]
     base_url = "http://localhost:11434/v1"
@@ -38,7 +38,7 @@ from .feedback import DEFAULT_LOG, record_label
 if TYPE_CHECKING:  # type-only; the runtime imports these lazily inside build_app
     from fastapi import FastAPI, Response
 
-_INSTALL_HINT = "the gateway needs its extra: pip install 'wayfinder[gateway]'"
+_INSTALL_HINT = "the gateway needs its extra: pip install 'wayfinder-router[gateway]'"
 
 
 class GatewayUnavailable(Exception):
@@ -62,7 +62,7 @@ class GatewayConfig:
 
 
 def load_gateway_config(start_dir: str = ".") -> GatewayConfig:
-    """Read `[gateway.models.<name>]` from the nearest ``wayfinder.toml``."""
+    """Read `[gateway.models.<name>]` from the nearest ``wayfinder-router.toml``."""
     path = find_config_file(start_dir)
     if path is None:
         return GatewayConfig()
@@ -73,8 +73,8 @@ def load_gateway_config(start_dir: str = ".") -> GatewayConfig:
     return gateway_config_from_toml(text, where=str(path))
 
 
-def gateway_config_from_toml(text: str, where: str = "wayfinder.toml") -> GatewayConfig:
-    """Parse a :class:`GatewayConfig` from ``wayfinder.toml`` text (file-free)."""
+def gateway_config_from_toml(text: str, where: str = "wayfinder-router.toml") -> GatewayConfig:
+    """Parse a :class:`GatewayConfig` from ``wayfinder-router.toml`` text (file-free)."""
     try:
         data = tomllib.loads(text)
     except tomllib.TOMLDecodeError as exc:
@@ -190,7 +190,7 @@ def invoke_model(model: GatewayModel, prompt: str, timeout: float = 60.0) -> str
 
 
 class _ConfigHolder:
-    """Caches routing + gateway config, reloading when ``wayfinder.toml`` changes.
+    """Caches routing + gateway config, reloading when ``wayfinder-router.toml`` changes.
 
     Lets a recalibration (CLI, cron, or UI) take effect on the running gateway
     with no restart: each request checks the config file's mtime and re-reads only
@@ -226,7 +226,7 @@ class _ConfigHolder:
 
 
 def build_app(start_dir: str = ".") -> FastAPI:
-    """Build the FastAPI gateway app; config hot-reloads on ``wayfinder.toml`` change."""
+    """Build the FastAPI gateway app; config hot-reloads on ``wayfinder-router.toml`` change."""
     try:
         from fastapi import Body, FastAPI, Response
         from fastapi.responses import JSONResponse
@@ -234,7 +234,7 @@ def build_app(start_dir: str = ".") -> FastAPI:
         raise GatewayUnavailable(_INSTALL_HINT) from exc
 
     holder = _ConfigHolder(start_dir)
-    app = FastAPI(title="wayfinder-gateway")
+    app = FastAPI(title="wayfinder-router-gateway")
 
     @app.get("/healthz")
     def healthz() -> dict:
@@ -267,7 +267,7 @@ def build_app(start_dir: str = ".") -> FastAPI:
                             f"no gateway endpoint configured for model "
                             f"'{decision.recommendation}'"
                         ),
-                        "type": "wayfinder_misconfigured",
+                        "type": "wayfinder_router_misconfigured",
                     }
                 },
             )
@@ -284,8 +284,8 @@ def build_app(start_dir: str = ".") -> FastAPI:
             status_code=status,
             media_type=content_type,
             headers={
-                "x-wayfinder-model": decision.recommendation,
-                "x-wayfinder-score": f"{decision.score:.2f}",
+                "x-wayfinder-router-model": decision.recommendation,
+                "x-wayfinder-router-score": f"{decision.score:.2f}",
             },
         )
 
@@ -295,7 +295,7 @@ def build_app(start_dir: str = ".") -> FastAPI:
 def run(  # pragma: no cover
     start_dir: str = ".", host: str = "127.0.0.1", port: int = 8088
 ) -> None:
-    """Serve the gateway with uvicorn (the `wayfinder serve` command)."""
+    """Serve the gateway with uvicorn (the `wayfinder-router serve` command)."""
     try:
         import uvicorn
     except ImportError as exc:

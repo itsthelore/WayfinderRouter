@@ -16,7 +16,7 @@ import pytest
 pytest.importorskip("fastapi")
 from fastapi.testclient import TestClient  # noqa: E402
 
-from wayfinder import gateway  # noqa: E402
+from wayfinder_router import gateway  # noqa: E402
 
 TRIVIAL = {"model": "auto", "messages": [{"role": "user", "content": "hi"}]}
 COMPLEX_TEXT = (
@@ -40,7 +40,7 @@ CONFIG = (
 
 @pytest.fixture
 def client(tmp_path, monkeypatch):
-    (tmp_path / "wayfinder.toml").write_text(CONFIG, encoding="utf-8")
+    (tmp_path / "wayfinder-router.toml").write_text(CONFIG, encoding="utf-8")
     captured: dict = {}
 
     def fake_forward(url, headers, json_body, timeout=60.0):
@@ -65,7 +65,7 @@ def test_trivial_prompt_routes_to_local_upstream(client, monkeypatch):
     test_client, captured = client
     resp = test_client.post("/v1/chat/completions", json=TRIVIAL)
     assert resp.status_code == 200
-    assert resp.headers["x-wayfinder-model"] == "local"
+    assert resp.headers["x-wayfinder-router-model"] == "local"
     # Forwarded to the local upstream, with the upstream model id, no auth header.
     assert captured["url"] == "http://localhost:11434/v1/chat/completions"
     assert captured["body"]["model"] == "llama3.2"
@@ -77,7 +77,7 @@ def test_complex_prompt_routes_to_cloud_with_byo_key(client, monkeypatch):
     monkeypatch.setenv("EXAMPLE_API_KEY", "sekret")
     resp = test_client.post("/v1/chat/completions", json=COMPLEX)
     assert resp.status_code == 200
-    assert resp.headers["x-wayfinder-model"] == "cloud"
+    assert resp.headers["x-wayfinder-router-model"] == "cloud"
     assert captured["url"] == "https://api.example.com/v1/chat/completions"
     assert captured["body"]["model"] == "big-model"
     # The BYO key is read from the env at request time and injected.
@@ -88,7 +88,7 @@ def test_complex_prompt_routes_to_cloud_with_byo_key(client, monkeypatch):
 
 def test_unconfigured_model_is_a_clear_misconfig_error(tmp_path, monkeypatch):
     # Routing recommends "cloud" but only "local" has an endpoint.
-    (tmp_path / "wayfinder.toml").write_text(
+    (tmp_path / "wayfinder-router.toml").write_text(
         "[routing]\nthreshold = 0.2\n\n"
         "[gateway.models.local]\n"
         'base_url = "http://localhost:11434/v1"\n'
@@ -102,7 +102,7 @@ def test_unconfigured_model_is_a_clear_misconfig_error(tmp_path, monkeypatch):
     test_client = TestClient(gateway.build_app(start_dir=str(tmp_path)))
     resp = test_client.post("/v1/chat/completions", json=COMPLEX)
     assert resp.status_code == 500
-    assert resp.json()["error"]["type"] == "wayfinder_misconfigured"
+    assert resp.json()["error"]["type"] == "wayfinder_router_misconfigured"
 
 
 def test_response_body_is_relayed_unchanged(client):
@@ -147,7 +147,7 @@ def test_feedback_records_a_label(client, tmp_path):
     test_client, _ = client
     resp = test_client.post("/v1/feedback", json={"text": "a prompt", "label": "cloud"})
     assert resp.status_code == 200
-    log = tmp_path / "wayfinder-feedback.jsonl"
+    log = tmp_path / "wayfinder-router-feedback.jsonl"
     assert log.read_text(encoding="utf-8").strip() == '{"text": "a prompt", "label": "cloud"}'
 
 
@@ -178,30 +178,30 @@ def _write_config(path, threshold):
 
 
 def test_gateway_hot_reloads_when_config_changes(tmp_path, monkeypatch):
-    config = tmp_path / "wayfinder.toml"
+    config = tmp_path / "wayfinder-router.toml"
     _write_config(config, 0.9)  # COMPLEX (~0.38) is below 0.9 -> local
     monkeypatch.setattr(gateway, "forward_request", _ok_forward)
     client = TestClient(gateway.build_app(start_dir=str(tmp_path)))
 
     first = client.post("/v1/chat/completions", json=COMPLEX)
-    assert first.headers["x-wayfinder-model"] == "local"
+    assert first.headers["x-wayfinder-router-model"] == "local"
 
     _write_config(config, 0.05)  # now COMPLEX is at/above 0.05 -> cloud
     second = client.post("/v1/chat/completions", json=COMPLEX)
-    assert second.headers["x-wayfinder-model"] == "cloud"
+    assert second.headers["x-wayfinder-router-model"] == "cloud"
 
 
 def test_gateway_keeps_last_good_config_on_bad_write(tmp_path, monkeypatch):
-    config = tmp_path / "wayfinder.toml"
+    config = tmp_path / "wayfinder-router.toml"
     _write_config(config, 0.9)  # COMPLEX -> local
     monkeypatch.setattr(gateway, "forward_request", _ok_forward)
     client = TestClient(gateway.build_app(start_dir=str(tmp_path)))
     first = client.post("/v1/chat/completions", json=COMPLEX)
-    assert first.headers["x-wayfinder-model"] == "local"
+    assert first.headers["x-wayfinder-router-model"] == "local"
 
     config.write_text("[routing]\nthreshold = 5\n\n" + _TWO_MODELS, encoding="utf-8")  # invalid
     future = time.time() + 20
     os.utime(config, (future, future))
     # Serving continues on the last-good config instead of failing.
     again = client.post("/v1/chat/completions", json=COMPLEX)
-    assert again.headers["x-wayfinder-model"] == "local"
+    assert again.headers["x-wayfinder-router-model"] == "local"

@@ -9,7 +9,7 @@ description = "A deterministic prompt-complexity router: score a prompt's struct
 readme = "README.md"
 license = { text = "Apache-2.0" }
 requires-python = ">=3.11"
-# Stdlib-only: scoring is pure text scanning and config is tomllib. Wayfinder has
+# Stdlib-only: scoring is pure text scanning and config is tomllib. Wayfinder Router has
 # no runtime dependency on RAC or anything else (WF-ADR-0001).
 dependencies = []
 
@@ -23,10 +23,10 @@ ui = ["fastapi>=0.110", "uvicorn>=0.27"]
 dev = ["pytest>=7", "fastapi>=0.110", "httpx>=0.27"]
 
 [project.scripts]
-wayfinder = "wayfinder.cli:main"
+wayfinder-router = "wayfinder_router.cli:main"
 
 [tool.setuptools]
-packages = ["wayfinder"]
+packages = ["wayfinder_router"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

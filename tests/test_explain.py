@@ -5,10 +5,10 @@ from __future__ import annotations
 import json
 
 import pytest
-from wayfinder.calibrate import CalibrationError
-from wayfinder.complexity import FEATURE_ORDER
+from wayfinder_router.calibrate import CalibrationError
+from wayfinder_router.complexity import FEATURE_ORDER
 
-from wayfinder import (
+from wayfinder_router import (
     ClassifierModel,
     RoutingConfig,
     Tier,
@@ -82,7 +82,7 @@ def test_sweep_curve_requires_two_labels(tmp_path):
 
 
 def _roundtrip(tmp_path, config: RoutingConfig) -> RoutingConfig:
-    (tmp_path / "wayfinder.toml").write_text(dump_routing_toml(config), encoding="utf-8")
+    (tmp_path / "wayfinder-router.toml").write_text(dump_routing_toml(config), encoding="utf-8")
     return load_routing_config(str(tmp_path))
 
 
@@ -120,7 +120,7 @@ def test_dump_classifier_round_trips_and_predicts_the_same(tmp_path):
 def test_calibrated_classifier_dump_round_trips(tmp_path):
     rows = [{"text": "hi", "label": "local"}] * 5 + [{"text": COMPLEX, "label": "cloud"}] * 5
     fragment = calibrate(load_dataset(_dataset(tmp_path, rows)), "classifier").toml
-    (tmp_path / "wayfinder.toml").write_text(fragment, encoding="utf-8")
+    (tmp_path / "wayfinder-router.toml").write_text(fragment, encoding="utf-8")
     config = load_routing_config(str(tmp_path))
     # Re-dumping the loaded config and reloading is a fixed point.
     again = _roundtrip(tmp_path, config)

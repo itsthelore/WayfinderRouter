@@ -1,4 +1,4 @@
-# wayfinder
+# wayfinder-router
 
 A deterministic prompt-complexity router. Hand it a prompt, get back a
 reproducible structural complexity score and a recommendation:
@@ -7,15 +7,15 @@ reproducible structural complexity score and a recommendation:
 
 It is a **standalone** tool. It calls no model, needs no API key, makes no
 network request, and has **zero dependency on RAC** — it is pure text scanning
-plus a threshold. The recommendation is a fact you act on; Wayfinder stops there,
+plus a threshold. The recommendation is a fact you act on; Wayfinder Router stops there,
 and the caller runs inference.
 
 ## Quickstart (gateway)
 
-Put Wayfinder in front of your models — your app keeps using the OpenAI API, you
+Put Wayfinder Router in front of your models — your app keeps using the OpenAI API, you
 just change `base_url`. Pilot-facing one-pager: [EXPLAINER.md](EXPLAINER.md).
 
-1. Describe your two models in `wayfinder.toml`:
+1. Describe your two models in `wayfinder-router.toml`:
 
    ```toml
    [routing]
@@ -36,7 +36,7 @@ just change `base_url`. Pilot-facing one-pager: [EXPLAINER.md](EXPLAINER.md).
    ```bash
    pip install -e ".[gateway]"
    export OPENAI_API_KEY=sk-...
-   wayfinder serve --port 8088
+   wayfinder-router serve --port 8088
    ```
 
 3. Point your existing client at it — no code change:
@@ -47,7 +47,7 @@ just change `base_url`. Pilot-facing one-pager: [EXPLAINER.md](EXPLAINER.md).
    ```
 
 Easy prompts go to local, hard ones to cloud; each response carries
-`x-wayfinder-model` and `x-wayfinder-score` so you can see the routing.
+`x-wayfinder-router-model` and `x-wayfinder-router-score` so you can see the routing.
 
 **Check it's working** (the headers show where each request went):
 
@@ -56,9 +56,9 @@ curl -s localhost:8088/healthz                         # {"status":"ok","models"
 curl -s -D - -o /dev/null http://localhost:8088/v1/chat/completions \
   -H "Content-Type: application/json" \
   -d '{"model":"auto","messages":[{"role":"user","content":"hi"}]}' \
-  | grep -i x-wayfinder
-# x-wayfinder-model: local
-# x-wayfinder-score: 0.00
+  | grep -i x-wayfinder-router
+# x-wayfinder-router-model: local
+# x-wayfinder-router-score: 0.00
 ```
 
 ## Why deterministic
@@ -66,7 +66,7 @@ curl -s -D - -o /dev/null http://localhost:8088/v1/chat/completions \
 The obvious way to route by complexity is to ask a model how complex the prompt
 is — an LLM-as-judge router. That is non-deterministic, costs a model call to
 decide whether to make a model call, and cannot be reproduced or tested.
-Wayfinder takes the opposite stance: it scores *structure* — length, headings,
+Wayfinder Router takes the opposite stance: it scores *structure* — length, headings,
 instruction steps, links, code blocks, tables — combines the signals into a
 bounded `0.0–1.0` score, and compares that to a threshold you control. Same
 prompt and same threshold always give the same answer.
@@ -78,8 +78,8 @@ why the threshold is yours to set.
 ## Run it (offline, no install)
 
 ```bash
-cd wayfinder
-echo "Summarise this paragraph in one sentence." | python -m wayfinder.cli route -
+cd wayfinder-router
+echo "Summarise this paragraph in one sentence." | python -m wayfinder_router.cli route -
 make route PROMPT=path/to/prompt.md
 ```
 
@@ -99,7 +99,7 @@ Contributing Features:
 JSON for machine consumers (an agent reads this and routes to its own model):
 
 ```bash
-wayfinder route prompt.md --json
+wayfinder-router route prompt.md --json
 ```
 
 ```json
@@ -116,7 +116,7 @@ wayfinder route prompt.md --json
 ## Install
 
 ```bash
-pip install -e .              # the `wayfinder` command on PATH (zero dependencies)
+pip install -e .              # the `wayfinder-router` command on PATH (zero dependencies)
 pip install -e ".[gateway]"   # plus the OpenAI-compatible routing gateway
 pip install -e ".[ui]"        # plus the local calibration/explain/configure UI
 pip install -e ".[dev]"       # plus the test runner
@@ -124,7 +124,7 @@ pip install -e ".[dev]"       # plus the test runner
 
 ## Configure routing
 
-Wayfinder reads its **own** config — never RAC's `.rac/`. Drop a `wayfinder.toml`
+Wayfinder Router reads its **own** config — never RAC's `.rac/`. Drop a `wayfinder-router.toml`
 anywhere at or above where you run it. Three modes, in precedence order
 (classifier > tiers > threshold); `weights` (the scalar-score weights) apply to
 any of them.
@@ -137,7 +137,7 @@ threshold = 0.6
 weights = { word_count = 4.0, list_item_count = 2.5 }
 ```
 
-`--threshold N` overrides it for one run; `WAYFINDER_THRESHOLD` overrides via the
+`--threshold N` overrides it for one run; `WAYFINDER_ROUTER_THRESHOLD` overrides via the
 environment.
 
 **Tiered** (WF-ADR-0002) — ordered score bands route to any number of models:
@@ -159,18 +159,18 @@ per-model linear scores. Usually produced by `calibrate`, not hand-written.
 
 ## Calibrate from data
 
-The cut is a *proxy*; calibrate it against your traffic. `wayfinder calibrate`
+The cut is a *proxy*; calibrate it against your traffic. `wayfinder-router calibrate`
 reads a labeled JSONL dataset (`{"text": ..., "label": ...}`) and emits a config
 fragment — offline, deterministic, and it never calls a model (labels come from
 your own oracle):
 
 ```bash
-wayfinder calibrate data.jsonl --mode threshold              # sweep the binary cut
-wayfinder calibrate data.jsonl --mode tiers                  # ordinal multi-model
-wayfinder calibrate data.jsonl --mode classifier --out wayfinder.toml
+wayfinder-router calibrate data.jsonl --mode threshold              # sweep the binary cut
+wayfinder-router calibrate data.jsonl --mode tiers                  # ordinal multi-model
+wayfinder-router calibrate data.jsonl --mode classifier --out wayfinder-router.toml
 ```
 
-The emitted fragment drops straight into `wayfinder.toml`; the summary (accuracy,
+The emitted fragment drops straight into `wayfinder-router.toml`; the summary (accuracy,
 chosen breakpoints) is printed to stderr. The classifier is fit by deterministic
 L2-regularized Newton/IRLS — pure Python, converging in a handful of iterations.
 
@@ -178,10 +178,10 @@ L2-regularized Newton/IRLS — pure Python, converging in a handful of iteration
 
 To actually *route* — score the prompt, then call the chosen model with your own
 key — run the OpenAI-compatible gateway (WF-ADR-0004). Your existing client points
-its `base_url` at Wayfinder; no application code changes.
+its `base_url` at Wayfinder Router; no application code changes.
 
 ```toml
-# wayfinder.toml — map each routed model name to an upstream + a key env var.
+# wayfinder-router.toml — map each routed model name to an upstream + a key env var.
 [routing]
 threshold = 0.6
 
@@ -198,20 +198,20 @@ api_key_env = "EXAMPLE_API_KEY"   # the *name* of the env var; the secret is nev
 ```bash
 pip install -e ".[gateway]"
 export EXAMPLE_API_KEY=...     # read at request time, only inside the gateway
-wayfinder serve --port 8088
+wayfinder-router serve --port 8088
 ```
 
 ```python
 import openai
 client = openai.OpenAI(base_url="http://localhost:8088/v1", api_key="unused")
 client.chat.completions.create(model="auto", messages=[{"role": "user", "content": "..."}])
-# Wayfinder scores the prompt, forwards to local or cloud, and returns the response.
-# Response headers carry x-wayfinder-model and x-wayfinder-score.
+# Wayfinder Router scores the prompt, forwards to local or cloud, and returns the response.
+# Response headers carry x-wayfinder-router-model and x-wayfinder-router-score.
 ```
 
 The gateway is the **only** part that touches keys or the network; the scorer,
 config, and calibrator stay pure, offline, and deterministic. Keys are read from
-the environment at request time and never enter `wayfinder.toml` or the scored
+the environment at request time and never enter `wayfinder-router.toml` or the scored
 path.
 
 ## Learn from feedback (onboarding)
@@ -219,11 +219,11 @@ path.
 Don't guess the cut — *learn* it from your own judgment of local vs hosted output
 (WF-ADR-0006). The loop is: **collect judgments → calibrate → route automatically.**
 
-**Bootstrap with A/B onboarding.** For each sample prompt, `wayfinder onboard` runs
+**Bootstrap with A/B onboarding.** For each sample prompt, `wayfinder-router onboard` runs
 both arms and asks which was good enough; the answer is a label:
 
 ```bash
-wayfinder onboard prompts.jsonl --arms local,cloud --calibrate > wayfinder.toml
+wayfinder-router onboard prompts.jsonl --arms local,cloud --calibrate > wayfinder-router.toml
 ```
 
 The A/B comparison and the prompt go to stderr; `--calibrate` prints the resulting
@@ -244,8 +244,8 @@ Onboard tab. It rewrites only the `[routing]` section and **preserves** your
 restart:
 
 ```bash
-wayfinder recalibrate                  # log → calibrate → write wayfinder.toml
-wayfinder recalibrate --min-labels 50  # no-op until you have enough signal
+wayfinder-router recalibrate                  # log → calibrate → write wayfinder-router.toml
+wayfinder-router recalibrate --min-labels 50  # no-op until you have enough signal
 ```
 
 The judging runs models, so it lives in the gateway/invocation layer (BYO key); the
@@ -253,7 +253,7 @@ deterministic core is untouched and the label log carries no secrets.
 
 ## Deploy & integrate (WF-ADR-0008)
 
-Wayfinder doesn't only work from the CLI — the CLI, onboarding, and UI are the
+Wayfinder Router doesn't only work from the CLI — the CLI, onboarding, and UI are the
 *operator/bootstrap* surfaces. In production, prompts flow through the **gateway**
 (transparent) or the **library** (in-process); routing happens where prompts
 already are, not by re-typing them.
@@ -261,7 +261,7 @@ already are, not by re-typing them.
 **Run the gateway as a service** (sidecar or standalone):
 
 ```bash
-docker build -t wayfinder . && docker run -p 8088:8088 -v "$PWD/data:/data" wayfinder
+docker build -t wayfinder-router . && docker run -p 8088:8088 -v "$PWD/data:/data" wayfinder-router
 # or: docker compose up gateway   (see docker-compose.example.yml)
 ```
 
@@ -274,11 +274,11 @@ client = openai.OpenAI(base_url="http://localhost:8088/v1", api_key="unused")
 
 The same `base_url` works for agent frameworks (LangChain/LlamaIndex), IDE
 assistants that allow a custom endpoint (Cursor, Continue), or a gateway like
-LiteLLM. Wayfinder scores each incoming prompt and forwards to the chosen model
+LiteLLM. Wayfinder Router scores each incoming prompt and forwards to the chosen model
 with your key.
 
 **Wire feedback from the host surface.** Your app/IDE/chat decides how to show a
-👍/👎 and posts the judgment; Wayfinder records it and the next recalibration
+👍/👎 and posts the judgment; Wayfinder Router records it and the next recalibration
 learns from it:
 
 ```js
@@ -298,7 +298,7 @@ To see *why* a prompt routed where, ask for the per-feature breakdown — each
 feature's value, its normalized level, its weight, and its share of the score:
 
 ```bash
-wayfinder route prompt.md --explain
+wayfinder-router route prompt.md --explain
 ```
 
 For interactive tuning there's a local web UI (WF-ADR-0005) with three tabs:
@@ -308,7 +308,7 @@ For interactive tuning there's a local web UI (WF-ADR-0005) with three tabs:
 - **Calibrate** — paste a labeled JSONL dataset; run a mode; see accuracy, the
   threshold-sweep curve, and the resulting config fragment, then send it to
   Configure.
-- **Configure** — edit `wayfinder.toml` with live validation (the real loaders)
+- **Configure** — edit `wayfinder-router.toml` with live validation (the real loaders)
   and save.
 - **Onboard** — A/B a local vs hosted model on sample prompts in the browser,
   judge each, record labels, then calibrate from the log (needs `[gateway]` too,
@@ -316,7 +316,7 @@ For interactive tuning there's a local web UI (WF-ADR-0005) with three tabs:
 
 ```bash
 pip install -e ".[ui]"
-wayfinder ui --port 8099    # then open http://localhost:8099
+wayfinder-router ui --port 8099    # then open http://localhost:8099
 ```
 
 The UI is a thin consumer of the same pure functions; it never calls a model, and
@@ -326,7 +326,7 @@ lives in the environment).
 ## Python API
 
 ```python
-from wayfinder import score_complexity, RoutingConfig, explain_score
+from wayfinder-router import score_complexity, RoutingConfig, explain_score
 
 result = score_complexity(prompt_text, config=RoutingConfig.binary(threshold=0.7))
 print(result.recommendation, result.score, result.features)
@@ -336,7 +336,7 @@ for fc in explain_score(result.features, RoutingConfig().weights):
 
 ## Heritage
 
-Wayfinder began as the `rac route` exploration inside
+Wayfinder Router began as the `rac route` exploration inside
 [requirements-as-code](https://github.com/itsthelore/requirements-as-code), and
 its scoring shape is inspired by RAC's deterministic `classification.py`
 (`points / ceiling`). It was split out because routing is a runtime *inference*
@@ -347,8 +347,8 @@ tool shares no runtime code with RAC; see `decisions/WF-ADR-0001`.
 ## Repository layout
 
 ```
-wayfinder/
-  wayfinder/     the package: complexity scorer, tiers + classifier, own config
+wayfinder-router/
+  wayfinder-router/     the package: complexity scorer, tiers + classifier, own config
                  loader + writer, offline calibration (Newton/IRLS), explain, the
                  feedback log + onboarding harness, recalibration, CLI, and the
                  optional OpenAI-compatible gateway and local UI (impure layers,

@@ -23,7 +23,7 @@ kind of task, route that way automatically.
 
 That is the keystone the product was missing. Calibration (WF-ADR-0003) always
 needed *labeled* data — prompts tagged with which model was good enough — but
-Wayfinder never provided a way to produce it; it only named the oracle (tests,
+Wayfinder Router never provided a way to produce it; it only named the oracle (tests,
 production signals, a judge). The user's request *is* that oracle: a human judgment
 of local-vs-hosted, turned into labels, fed to `calibrate`, closing the loop
 **collect judgments → calibrate → route automatically**.
@@ -38,10 +38,10 @@ existing calibration, with two collection modes and the core untouched.
 
 - **The label log is the calibrate dataset.** Each judgment is a
   `{"text", "label"}` JSON line appended to a log — exactly the format
-  `load_dataset` / `wayfinder calibrate` consume. So feedback turns into a routing
+  `load_dataset` / `wayfinder-router calibrate` consume. So feedback turns into a routing
   config with **no new calibration logic**, and recalibration is a deterministic
   batch replay of the whole log (the direction WF-ADR-0003 recorded).
-- **A/B onboarding (bounded, clean labels).** `wayfinder onboard` runs each sample
+- **A/B onboarding (bounded, clean labels).** `wayfinder-router onboard` runs each sample
   prompt through two arms (a local and a hosted model), shows both outputs, and
   the user judges which was good enough; the chosen arm is the label. Running both
   costs 2× briefly but yields the strongest label — the user sees the counterfactual.
@@ -51,10 +51,10 @@ existing calibration, with two collection modes and the core untouched.
 - **The harness is injectable; the core is pure.** `run_onboarding` takes the
   model-call and the judgment as callables, so the loop is tested with fakes — no
   model, no terminal. The model invoker (`invoke_model`) and the gateway endpoint
-  live in the invocation layer behind the `wayfinder[gateway]` extra; nothing in
+  live in the invocation layer behind the `wayfinder-router[gateway]` extra; nothing in
   `complexity`/`config`/`calibrate` changes, and no model is called in the core.
 - **Keys stay out.** Invocation reads a bring-your-own key from the environment
-  (via the gateway model's `api_key_env`); no secret is in `wayfinder.toml`, the
+  (via the gateway model's `api_key_env`); no secret is in `wayfinder-router.toml`, the
   label log, or the scored path.
 
 ## Consequences
@@ -116,13 +116,13 @@ Update the config on every judgment.
   judge with a click, then calibrate from the log — is **built** (extends
   WF-ADR-0005): it runs the arms through the gateway invoker and records via the
   pure feedback functions.
-- **Scheduled recalibration** is **built** (WF-ADR-0007): `wayfinder recalibrate`
+- **Scheduled recalibration** is **built** (WF-ADR-0007): `wayfinder-router recalibrate`
   (cron/CronJob) and a UI button re-fit from the log and write the config; the
   gateway hot-reloads it.
 
 ## Success Measures
 
-- A handful of `wayfinder onboard` judgments produce a log that `calibrate` turns
+- A handful of `wayfinder-router onboard` judgments produce a log that `calibrate` turns
   into a config which then routes those prompts the judged way.
 - `/v1/feedback` appends a label that a later `calibrate` consumes unchanged.
 - No feedback or onboarding path imports a model SDK into the core or writes a key

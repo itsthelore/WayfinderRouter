@@ -9,9 +9,9 @@ from __future__ import annotations
 import json
 
 import pytest
-from wayfinder.calibrate import CalibrationError
-from wayfinder.complexity import FEATURE_ORDER
-from wayfinder.ui import (
+from wayfinder_router.calibrate import CalibrationError
+from wayfinder_router.complexity import FEATURE_ORDER
+from wayfinder_router.ui import (
     calibrate_payload,
     current_config_text,
     onboard_arms,
@@ -37,7 +37,7 @@ GW_CONFIG = (
 
 
 def _with_gateway(tmp_path) -> str:
-    (tmp_path / "wayfinder.toml").write_text(GW_CONFIG, encoding="utf-8")
+    (tmp_path / "wayfinder-router.toml").write_text(GW_CONFIG, encoding="utf-8")
     return str(tmp_path)
 
 
@@ -97,10 +97,10 @@ def test_validate_config_text_accepts_and_rejects():
 
 def test_save_config_writes_valid_and_refuses_invalid(tmp_path):
     assert save_config_text("[routing]\nthreshold = 0.7\n", str(tmp_path)) is None
-    assert (tmp_path / "wayfinder.toml").read_text(encoding="utf-8").startswith("[routing]")
+    assert (tmp_path / "wayfinder-router.toml").read_text(encoding="utf-8").startswith("[routing]")
     # Invalid config is rejected and the file is not overwritten with garbage.
     assert save_config_text("[routing]\nthreshold = 9\n", str(tmp_path)) is not None
-    assert "0.7" in (tmp_path / "wayfinder.toml").read_text(encoding="utf-8")
+    assert "0.7" in (tmp_path / "wayfinder-router.toml").read_text(encoding="utf-8")
 
 
 def test_onboard_arms_lists_the_two_gateway_models(tmp_path):
@@ -116,7 +116,7 @@ def test_onboard_record_and_dataset_feed_calibrate(tmp_path):
 
 
 def test_onboard_run_invokes_each_arm(tmp_path, monkeypatch):
-    from wayfinder import gateway
+    from wayfinder_router import gateway
 
     monkeypatch.setattr(gateway, "forward_request", _fake_forward)
     assert onboard_run(_with_gateway(tmp_path), "hi") == {"local": "reply:l", "cloud": "reply:c"}
@@ -124,7 +124,7 @@ def test_onboard_run_invokes_each_arm(tmp_path, monkeypatch):
 
 def _feedback_log(tmp_path) -> None:
     rows = [{"text": "hi", "label": "local"}] * 4 + [{"text": COMPLEX, "label": "cloud"}] * 4
-    (tmp_path / "wayfinder-feedback.jsonl").write_text(
+    (tmp_path / "wayfinder-router-feedback.jsonl").write_text(
         "\n".join(json.dumps(r) for r in rows), encoding="utf-8"
     )
 
@@ -133,7 +133,7 @@ def test_recalibrate_payload_writes_config_from_log(tmp_path):
     _feedback_log(tmp_path)
     out = recalibrate_payload(str(tmp_path), "threshold")
     assert out["written"] and out["summary"]["accuracy"] == 1.0
-    assert (tmp_path / "wayfinder.toml").is_file()
+    assert (tmp_path / "wayfinder-router.toml").is_file()
 
 
 def test_recalibrate_payload_skips_empty_log(tmp_path):
@@ -145,7 +145,7 @@ def test_recalibrate_payload_skips_empty_log(tmp_path):
 
 pytest.importorskip("fastapi")
 from fastapi.testclient import TestClient  # noqa: E402
-from wayfinder.ui import build_ui_app  # noqa: E402
+from wayfinder_router.ui import build_ui_app  # noqa: E402
 
 
 @pytest.fixture
@@ -157,7 +157,7 @@ def test_index_serves_the_page(client):
     resp = client.get("/")
     assert resp.status_code == 200
     assert "text/html" in resp.headers["content-type"]
-    assert "Wayfinder" in resp.text
+    assert "Wayfinder Router" in resp.text
 
 
 def test_api_score_returns_contributions(client):
@@ -201,7 +201,7 @@ def test_api_config_get_validate_save_round_trip(client, tmp_path):
 
     saved = client.post("/api/config/save", json={"toml": "[routing]\nthreshold = 0.6\n"})
     assert saved.status_code == 200
-    assert (tmp_path / "wayfinder.toml").read_text(encoding="utf-8").startswith("[routing]")
+    assert (tmp_path / "wayfinder-router.toml").read_text(encoding="utf-8").startswith("[routing]")
 
 
 def test_api_config_save_rejects_invalid(client):
@@ -215,7 +215,7 @@ def test_api_config_save_rejects_invalid(client):
 
 @pytest.fixture
 def ob_client(tmp_path, monkeypatch):
-    from wayfinder import gateway
+    from wayfinder_router import gateway
 
     monkeypatch.setattr(gateway, "forward_request", _fake_forward)
     return TestClient(build_ui_app(start_dir=_with_gateway(tmp_path))), tmp_path
@@ -243,7 +243,7 @@ def test_api_onboard_record_writes_the_shared_log(ob_client):
     client, tmp_path = ob_client
     resp = client.post("/api/onboard/record", json={"prompt": "hi", "label": "local"})
     assert resp.json() == {"ok": True, "count": 1}
-    assert (tmp_path / "wayfinder-feedback.jsonl").is_file()
+    assert (tmp_path / "wayfinder-router-feedback.jsonl").is_file()
     dataset = client.get("/api/onboard/dataset").json()["dataset"]
     assert '"label": "local"' in dataset
 
@@ -253,7 +253,7 @@ def test_api_recalibrate_writes_config(tmp_path):
     client = TestClient(build_ui_app(start_dir=str(tmp_path)))
     data = client.post("/api/recalibrate", json={"mode": "threshold"}).json()
     assert data["written"] and data["summary"]["accuracy"] == 1.0
-    assert (tmp_path / "wayfinder.toml").is_file()
+    assert (tmp_path / "wayfinder-router.toml").is_file()
 
 
 def test_api_recalibrate_skips_empty_log(client):

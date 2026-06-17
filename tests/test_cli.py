@@ -1,4 +1,4 @@
-"""Tests for the `wayfinder` CLI (route and calibrate subcommands)."""
+"""Tests for the `wayfinder-router` CLI (route and calibrate subcommands)."""
 
 from __future__ import annotations
 
@@ -6,9 +6,9 @@ import io
 import json
 
 import pytest
-from wayfinder.cli import main
-from wayfinder.complexity import FEATURE_ORDER
-from wayfinder.config import THRESHOLD_ENV
+from wayfinder_router.cli import main
+from wayfinder_router.complexity import FEATURE_ORDER
+from wayfinder_router.config import THRESHOLD_ENV
 
 TRIVIAL = "Say hello."
 COMPLEX = (
@@ -99,7 +99,7 @@ def test_route_threshold_out_of_range_is_usage_error(monkeypatch, capsys):
 
 
 def test_route_malformed_config_is_config_error(tmp_path, monkeypatch, capsys):
-    (tmp_path / "wayfinder.toml").write_text("[routing]\nthreshold = 2.0\n", encoding="utf-8")
+    (tmp_path / "wayfinder-router.toml").write_text("[routing]\nthreshold = 2.0\n", encoding="utf-8")
     monkeypatch.chdir(tmp_path)
     _feed_stdin(monkeypatch, TRIVIAL)
     rc = main(["route", "-"])
@@ -126,7 +126,7 @@ def test_calibrate_emits_toml_to_stdout(tmp_path, capsys):
 
 
 def test_calibrate_writes_a_file(tmp_path, capsys):
-    out = tmp_path / "wayfinder.toml"
+    out = tmp_path / "wayfinder-router.toml"
     rc = main(["calibrate", _dataset(tmp_path), "--mode", "classifier", "--out", str(out)])
     assert rc == 0
     assert "[routing.classifier]" in out.read_text(encoding="utf-8")

@@ -1,4 +1,4 @@
-"""Make the package root importable so `import wayfinder` works without install."""
+"""Make the package root importable so `import wayfinder_router` works without install."""
 
 import sys
 from pathlib import Path

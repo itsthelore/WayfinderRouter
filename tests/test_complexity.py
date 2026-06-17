@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from wayfinder.complexity import (
+from wayfinder_router.complexity import (
     DEFAULT_THRESHOLD,
     FEATURE_ORDER,
     extract_features,
@@ -11,7 +11,7 @@ from wayfinder.complexity import (
     strip_frontmatter,
 )
 
-from wayfinder import (
+from wayfinder_router import (
     ClassifierModel,
     ComplexityScore,
     RoutingConfig,

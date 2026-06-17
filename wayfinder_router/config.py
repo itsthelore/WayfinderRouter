@@ -1,7 +1,7 @@
-"""Wayfinder's own configuration — `wayfinder.toml`, no RAC dependency.
+"""Wayfinder Router's own configuration — `wayfinder-router.toml`, no RAC dependency.
 
-Wayfinder owns its config namespace. It never reads RAC's `.rac/config.yaml`
-(WF-ADR-0001). The routing boundary lives in a `wayfinder.toml` discovered by
+Wayfinder Router owns its config namespace. It never reads RAC's `.rac/config.yaml`
+(WF-ADR-0001). The routing boundary lives in a `wayfinder-router.toml` discovered by
 walking up from a starting directory, parsed with the standard-library
 `tomllib`. Determinism is preserved: the config is a committed file, so the same
 input plus the same file yields the same answer.
@@ -35,18 +35,18 @@ from .complexity import (
     binary_tiers,
 )
 
-CONFIG_FILE = "wayfinder.toml"
+CONFIG_FILE = "wayfinder-router.toml"
 # Convenience override for one-off runs of the binary router without editing the
 # file. Ignored when explicit tiers or a classifier are configured.
-THRESHOLD_ENV = "WAYFINDER_THRESHOLD"
+THRESHOLD_ENV = "WAYFINDER_ROUTER_THRESHOLD"
 
 
 class WayfinderConfigError(Exception):
-    """A `wayfinder.toml` exists but is malformed (a usage error, never ignored)."""
+    """A `wayfinder-router.toml` exists but is malformed (a usage error, never ignored)."""
 
 
 def find_config_file(start_dir: str) -> Path | None:
-    """The nearest ``wayfinder.toml`` at or above ``start_dir``, or None."""
+    """The nearest ``wayfinder-router.toml`` at or above ``start_dir``, or None."""
     current = Path(start_dir).resolve()
     for directory in (current, *current.parents):
         candidate = directory / CONFIG_FILE
@@ -56,7 +56,7 @@ def find_config_file(start_dir: str) -> Path | None:
 
 
 def routing_config_from_toml(text: str, where: str = CONFIG_FILE) -> RoutingConfig:
-    """Parse a :class:`RoutingConfig` from ``wayfinder.toml`` text.
+    """Parse a :class:`RoutingConfig` from ``wayfinder-router.toml`` text.
 
     The pure, file-free parser shared by :func:`load_routing_config` and the
     config-editing UI, so a posted draft is validated exactly as a real file is.
@@ -84,7 +84,7 @@ def routing_config_from_toml(text: str, where: str = CONFIG_FILE) -> RoutingConf
 
 
 def load_routing_config(start_dir: str = ".") -> RoutingConfig:
-    """Read the routing config from the nearest ``wayfinder.toml`` (or defaults).
+    """Read the routing config from the nearest ``wayfinder-router.toml`` (or defaults).
 
     Malformed shapes raise :class:`WayfinderConfigError` — config is never
     silently ignored.
@@ -208,7 +208,7 @@ def _fmt_num(value: float) -> str:
 
 
 def dump_routing_toml(config: RoutingConfig) -> str:
-    """Serialize a :class:`RoutingConfig` back to a ``wayfinder.toml`` fragment.
+    """Serialize a :class:`RoutingConfig` back to a ``wayfinder-router.toml`` fragment.
 
     The deterministic round-trip for the Configure surface: the output loads back
     through :func:`load_routing_config` to the same config. Non-default weights are

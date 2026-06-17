@@ -37,11 +37,11 @@ The router maps the structural score to a model through ordered **tiers**.
 - The binary local/cloud router is exactly the two-tier case
   `[(0.0, "local"), (threshold, "cloud")]`, so `score >= threshold` still routes
   up — existing behavior and the `--threshold` override are preserved.
-- Tiers are configured in `wayfinder.toml` under `[[routing.tiers]]`, or built
+- Tiers are configured in `wayfinder-router.toml` under `[[routing.tiers]]`, or built
   from a `threshold` for the default binary router. Selection is O(1) after
   scoring; still deterministic, still no model call.
 - The recommendation is now a **configured model name**, not the literals
-  `local`/`cloud`. Wayfinder names the destination; the caller maps the name to
+  `local`/`cloud`. Wayfinder Router names the destination; the caller maps the name to
   an endpoint and runs inference (the WF-ADR-0001 boundary holds).
 
 ## Consequences

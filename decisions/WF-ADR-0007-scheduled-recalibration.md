@@ -18,7 +18,7 @@ Architecture
 ## Context
 
 WF-ADR-0006 recorded "scheduled recalibration" as a forward direction: the
-feedback log keeps growing (from `wayfinder onboard` and the gateway's
+feedback log keeps growing (from `wayfinder-router onboard` and the gateway's
 `/v1/feedback`), so the routing config should be re-fit from it periodically and
 the running gateway should pick up the new config. Two gaps stood in the way: the
 gateway loads its config **once at startup** (so a re-fit would not take effect
@@ -39,11 +39,11 @@ gateway hot-reload. **No automatic recalibration runs inside the serving process
   **preserves the `[gateway]` section** (the endpoint mapping and `api_key_env`
   *names* — never a secret), with a `# recalibrated from feedback: …` header for
   traceability. Pure orchestration; no model call.
-- **Triggers:** `wayfinder recalibrate` (the schedulable unit — run it from cron,
+- **Triggers:** `wayfinder-router recalibrate` (the schedulable unit — run it from cron,
   a systemd timer, or a k8s CronJob) and a **UI "Recalibrate & save" button**.
-  Both just write `wayfinder.toml`. Both keep a human or an operator in the loop.
+  Both just write `wayfinder-router.toml`. Both keep a human or an operator in the loop.
 - **Gateway hot-reload:** the gateway caches its config and re-reads
-  `wayfinder.toml` when the file's mtime changes, so any recalibration takes effect
+  `wayfinder-router.toml` when the file's mtime changes, so any recalibration takes effect
   live with no restart. A malformed mid-flight write keeps the last-good config
   (the mtime marker advances so it is not retried every request) rather than
   failing serving.
@@ -59,7 +59,7 @@ gateway hot-reload. **No automatic recalibration runs inside the serving process
 - Recalibration stays **out of the serving path**: a fit can't add request latency
   or take the gateway down, and the gateway remains a pure forwarder (WF-ADR-0004).
 - Deterministic and safe under multiple replicas — each reads the same committed
-  `wayfinder.toml`; nothing is re-fit independently per instance.
+  `wayfinder-router.toml`; nothing is re-fit independently per instance.
 
 ### Negative
 
@@ -90,7 +90,7 @@ Re-fit inside `/v1/feedback` when the label count crosses a threshold.
 
 ## Success Measures
 
-- `wayfinder recalibrate` on a balanced log writes a config that routes the
+- `wayfinder-router recalibrate` on a balanced log writes a config that routes the
   labeled prompts the labeled way, with the `[gateway]` section intact and no
   secret in the file.
 - A running gateway routes the new way on the next request after the config file

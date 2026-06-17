@@ -2,7 +2,7 @@
 
 Each recorded judgment is a ``{"text", "label"}`` JSON line: the prompt and the
 model that was good enough for it. That is exactly the dataset
-``wayfinder calibrate`` (and :func:`~wayfinder.load_dataset`) consume, so feedback
+``wayfinder-router calibrate`` (and :func:`~wayfinder_router.load_dataset`) consume, so feedback
 turns straight into a routing config with no new calibration logic — the loop is
 collect judgments -> calibrate -> route automatically.
 
@@ -15,7 +15,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-DEFAULT_LOG = "wayfinder-feedback.jsonl"
+DEFAULT_LOG = "wayfinder-router-feedback.jsonl"
 
 
 def record_label(log_path: str, text: str, label: str) -> None:

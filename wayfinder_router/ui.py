@@ -3,7 +3,7 @@
 A thin consumer of the pure core: it scores prompts, calibrates from pasted data,
 and edits the config file — it never invokes a model and never reimplements
 scoring, calibration, or config parsing. It binds localhost and ships behind the
-``wayfinder[ui]`` extra; ``fastapi``/``uvicorn`` are imported lazily so the core
+``wayfinder-router[ui]`` extra; ``fastapi``/``uvicorn`` are imported lazily so the core
 stays dependency-free.
 
 Four screens, all backed by core functions:
@@ -12,7 +12,7 @@ Four screens, all backed by core functions:
   ladder, and per-feature contributions; drag a threshold slider live.
 - **Calibrate** — paste a labeled JSONL dataset; run a mode; see accuracy, the
   threshold-sweep curve, and the resulting config fragment.
-- **Configure** — edit ``wayfinder.toml`` with live validation (the real loaders)
+- **Configure** — edit ``wayfinder-router.toml`` with live validation (the real loaders)
   and save. Secrets never appear: a gateway model carries ``api_key_env`` (the
   variable *name*), and the key is read from the environment elsewhere.
 - **Onboard** — A/B a local vs hosted model on sample prompts in the browser,
@@ -48,7 +48,7 @@ from .recalibrate import recalibrate
 if TYPE_CHECKING:  # type-only; the runtime imports these lazily inside build_ui_app
     from fastapi import FastAPI
 
-_INSTALL_HINT = "the UI needs its extra: pip install 'wayfinder[ui]'"
+_INSTALL_HINT = "the UI needs its extra: pip install 'wayfinder-router[ui]'"
 _MODES = ("threshold", "tiers", "classifier")
 
 
@@ -85,7 +85,7 @@ def calibrate_payload(
 
 
 def current_config_text(start_dir: str = ".") -> str:
-    """The current ``wayfinder.toml`` text, or a dumped default when none exists."""
+    """The current ``wayfinder-router.toml`` text, or a dumped default when none exists."""
     path = find_config_file(start_dir)
     if path is not None:
         return path.read_text(encoding="utf-8")
@@ -103,11 +103,11 @@ def validate_config_text(text: str) -> str | None:
 
 
 def save_config_text(text: str, start_dir: str = ".") -> str | None:
-    """Validate then write ``wayfinder.toml``; return an error string or None."""
+    """Validate then write ``wayfinder-router.toml``; return an error string or None."""
     error = validate_config_text(text)
     if error is not None:
         return error
-    (Path(start_dir) / "wayfinder.toml").write_text(text, encoding="utf-8")
+    (Path(start_dir) / "wayfinder-router.toml").write_text(text, encoding="utf-8")
     return None
 
 
@@ -140,9 +140,9 @@ def onboard_dataset_text(start_dir: str) -> str:
 
 
 def recalibrate_payload(start_dir: str = ".", mode: str = "threshold") -> dict:
-    """Re-fit and write ``wayfinder.toml`` from the feedback log; return the outcome."""
+    """Re-fit and write ``wayfinder-router.toml`` from the feedback log; return the outcome."""
     result = recalibrate(
-        _log_path(start_dir), str(Path(start_dir) / "wayfinder.toml"), mode=mode
+        _log_path(start_dir), str(Path(start_dir) / "wayfinder-router.toml"), mode=mode
     )
     return {
         "written": result.written,
@@ -171,7 +171,7 @@ def build_ui_app(start_dir: str = ".") -> FastAPI:
     except ImportError as exc:  # pragma: no cover - exercised only without the extra
         raise UIUnavailable(_INSTALL_HINT) from exc
 
-    app = FastAPI(title="wayfinder-ui")
+    app = FastAPI(title="wayfinder-router-ui")
 
     @app.get("/", response_class=HTMLResponse)
     def index() -> str:
@@ -259,7 +259,7 @@ def build_ui_app(start_dir: str = ".") -> FastAPI:
 def run_ui(  # pragma: no cover
     start_dir: str = ".", host: str = "127.0.0.1", port: int = 8099
 ) -> None:
-    """Serve the UI with uvicorn (the `wayfinder ui` command)."""
+    """Serve the UI with uvicorn (the `wayfinder-router ui` command)."""
     try:
         import uvicorn
     except ImportError as exc:
@@ -274,7 +274,7 @@ _PAGE = """<!doctype html>
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Wayfinder</title>
+<title>Wayfinder Router</title>
 <style>
   :root { color-scheme: light dark; }
   body { font: 15px/1.5 system-ui, sans-serif; margin: 0; padding: 1.5rem;
@@ -307,7 +307,7 @@ _PAGE = """<!doctype html>
 </style>
 </head>
 <body>
-  <h1>Wayfinder</h1>
+  <h1>Wayfinder Router</h1>
   <nav>
     <button data-tab="explain" class="on">Explain</button>
     <button data-tab="calibrate">Calibrate</button>
@@ -349,7 +349,7 @@ _PAGE = """<!doctype html>
   </section>
 
   <section id="configure">
-    <p class="muted">Edit <code>wayfinder.toml</code>. Keys are never stored here —
+    <p class="muted">Edit <code>wayfinder-router.toml</code>. Keys are never stored here —
       a gateway model names an <code>api_key_env</code> and the secret stays in the
       environment.</p>
     <textarea id="toml"></textarea>
@@ -551,7 +551,7 @@ $("obrecal").addEventListener("click", async () => {
   if (!ok) { $("obrecalstatus").innerHTML = '<span class="err">' + data.error + '</span>'; return; }
   if (!data.written) { $("obrecalstatus").textContent = "skipped — " + data.reason; return; }
   const s = Object.entries(data.summary).map(([k, v]) => k + "=" + v).join(" · ");
-  $("obrecalstatus").innerHTML = '<span class="ok">saved wayfinder.toml</span> · ' + s;
+  $("obrecalstatus").innerHTML = '<span class="ok">saved wayfinder-router.toml</span> · ' + s;
   loadOnboardState();
 });
 

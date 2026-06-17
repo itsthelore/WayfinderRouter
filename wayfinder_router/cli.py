@@ -1,11 +1,11 @@
-"""The `wayfinder` CLI.
+"""The `wayfinder-router` CLI.
 
-    wayfinder route <prompt-file | ->  [--threshold N] [--json]
-    wayfinder calibrate <dataset.jsonl> [--mode threshold|tiers|classifier]
-                                        [--models a,b,c] [--out wayfinder.toml]
+    wayfinder-router route <prompt-file | ->  [--threshold N] [--json]
+    wayfinder-router calibrate <dataset.jsonl> [--mode threshold|tiers|classifier]
+                                        [--models a,b,c] [--out wayfinder-router.toml]
 
 `route` scores a prompt and recommends a model — read-only and offline, it never
-invokes a model. `calibrate` turns a labeled dataset into a `wayfinder.toml`
+invokes a model. `calibrate` turns a labeled dataset into a `wayfinder-router.toml`
 fragment (printed to stdout, or written with `--out`); a one-line summary goes to
 stderr. Exit codes: ``0`` success, ``1`` malformed config / calibration error,
 ``2`` usage error (file not found, bad argument).
@@ -77,7 +77,7 @@ def _route(
 
 def _cmd_route(args: argparse.Namespace) -> int:
     if args.threshold is not None and not 0.0 <= args.threshold <= 1.0:
-        print("wayfinder: --threshold must be a number between 0.0 and 1.0", file=sys.stderr)
+        print("wayfinder-router: --threshold must be a number between 0.0 and 1.0", file=sys.stderr)
         return EXIT_USAGE
     try:
         if args.prompt == "-":
@@ -85,7 +85,7 @@ def _cmd_route(args: argparse.Namespace) -> int:
         else:
             path = Path(args.prompt)
             if not path.is_file():
-                print(f"wayfinder: file not found: {args.prompt}", file=sys.stderr)
+                print(f"wayfinder-router: file not found: {args.prompt}", file=sys.stderr)
                 return EXIT_USAGE
             result, config = _route(
                 path.read_text(encoding="utf-8"),
@@ -93,7 +93,7 @@ def _cmd_route(args: argparse.Namespace) -> int:
                 threshold=args.threshold,
             )
     except WayfinderConfigError as exc:
-        print(f"wayfinder: {exc}", file=sys.stderr)
+        print(f"wayfinder-router: {exc}", file=sys.stderr)
         return EXIT_CONFIG
 
     if args.json:
@@ -105,7 +105,7 @@ def _cmd_route(args: argparse.Namespace) -> int:
 
 def _cmd_calibrate(args: argparse.Namespace) -> int:
     if not Path(args.dataset).is_file():
-        print(f"wayfinder: file not found: {args.dataset}", file=sys.stderr)
+        print(f"wayfinder-router: file not found: {args.dataset}", file=sys.stderr)
         return EXIT_USAGE
     models = [m.strip() for m in args.models.split(",")] if args.models else None
     try:
@@ -118,16 +118,16 @@ def _cmd_calibrate(args: argparse.Namespace) -> int:
             l2=args.l2,
         )
     except CalibrationError as exc:
-        print(f"wayfinder: {exc}", file=sys.stderr)
+        print(f"wayfinder-router: {exc}", file=sys.stderr)
         return EXIT_CONFIG
 
     if args.out:
         Path(args.out).write_text(result.toml, encoding="utf-8")
-        print(f"wayfinder: wrote {args.out}", file=sys.stderr)
+        print(f"wayfinder-router: wrote {args.out}", file=sys.stderr)
     else:
         print(result.toml)
     summary = ", ".join(f"{k}={v}" for k, v in result.summary.items())
-    print(f"wayfinder: {summary}", file=sys.stderr)
+    print(f"wayfinder-router: {summary}", file=sys.stderr)
     return EXIT_OK
 
 
@@ -137,14 +137,14 @@ def _cmd_recalibrate(args: argparse.Namespace) -> int:
     try:
         result = recalibrate(args.log, args.out, mode=args.mode, min_labels=args.min_labels)
     except (CalibrationError, WayfinderConfigError) as exc:
-        print(f"wayfinder: {exc}", file=sys.stderr)
+        print(f"wayfinder-router: {exc}", file=sys.stderr)
         return EXIT_CONFIG
     if not result.written:
-        print(f"wayfinder: skipped — {result.reason}", file=sys.stderr)
+        print(f"wayfinder-router: skipped — {result.reason}", file=sys.stderr)
         return EXIT_OK
     summary = ", ".join(f"{k}={v}" for k, v in (result.summary or {}).items())
     print(
-        f"wayfinder: recalibrated {args.out} from {result.label_count} labels — {summary}",
+        f"wayfinder-router: recalibrated {args.out} from {result.label_count} labels — {summary}",
         file=sys.stderr,
     )
     return EXIT_OK
@@ -156,7 +156,7 @@ def _cmd_serve(args: argparse.Namespace) -> int:
     try:
         run(start_dir=".", host=args.host, port=args.port)
     except GatewayUnavailable as exc:
-        print(f"wayfinder: {exc}", file=sys.stderr)
+        print(f"wayfinder-router: {exc}", file=sys.stderr)
         return EXIT_USAGE
     return EXIT_OK
 
@@ -167,7 +167,7 @@ def _cmd_ui(args: argparse.Namespace) -> int:
     try:
         run_ui(start_dir=".", host=args.host, port=args.port)
     except UIUnavailable as exc:
-        print(f"wayfinder: {exc}", file=sys.stderr)
+        print(f"wayfinder-router: {exc}", file=sys.stderr)
         return EXIT_USAGE
     return EXIT_OK
 
@@ -193,25 +193,25 @@ def _cmd_onboard(args: argparse.Namespace) -> int:
     from .onboard import run_onboarding
 
     if not Path(args.prompts).is_file():
-        print(f"wayfinder: file not found: {args.prompts}", file=sys.stderr)
+        print(f"wayfinder-router: file not found: {args.prompts}", file=sys.stderr)
         return EXIT_USAGE
     try:
         gateway = load_gateway_config(".")
     except WayfinderConfigError as exc:
-        print(f"wayfinder: {exc}", file=sys.stderr)
+        print(f"wayfinder-router: {exc}", file=sys.stderr)
         return EXIT_CONFIG
     arms = [a.strip() for a in args.arms.split(",")] if args.arms else list(gateway.models)
     arms = arms[:2]
     if len(arms) < 2:
         print(
-            "wayfinder: onboard needs two gateway models (e.g. local and hosted); "
+            "wayfinder-router: onboard needs two gateway models (e.g. local and hosted); "
             "configure [gateway.models.*] or pass --arms local,cloud",
             file=sys.stderr,
         )
         return EXIT_USAGE
     missing = [a for a in arms if a not in gateway.models]
     if missing:
-        print(f"wayfinder: no [gateway.models] entry for: {', '.join(missing)}", file=sys.stderr)
+        print(f"wayfinder-router: no [gateway.models] entry for: {', '.join(missing)}", file=sys.stderr)
         return EXIT_USAGE
 
     primary, fallback = arms
@@ -232,11 +232,11 @@ def _cmd_onboard(args: argparse.Namespace) -> int:
         prompts = _load_prompts(args.prompts)
         summary = run_onboarding(prompts, arms, run_model, judge, args.log)
     except GatewayUnavailable as exc:
-        print(f"wayfinder: {exc}", file=sys.stderr)
+        print(f"wayfinder-router: {exc}", file=sys.stderr)
         return EXIT_USAGE
     counts = ", ".join(f"{k}={v}" for k, v in summary.label_counts.items())
-    print(f"wayfinder: judged {summary.judged} prompts -> {counts}", file=sys.stderr)
-    print(f"wayfinder: labels appended to {args.log}", file=sys.stderr)
+    print(f"wayfinder-router: judged {summary.judged} prompts -> {counts}", file=sys.stderr)
+    print(f"wayfinder-router: labels appended to {args.log}", file=sys.stderr)
 
     if args.calibrate:
         from .calibrate import calibrate, load_dataset
@@ -244,16 +244,16 @@ def _cmd_onboard(args: argparse.Namespace) -> int:
         result = calibrate(load_dataset(args.log), args.mode)
         print(result.toml)
         summary_line = ", ".join(f"{k}={v}" for k, v in result.summary.items())
-        print(f"wayfinder: {summary_line}", file=sys.stderr)
+        print(f"wayfinder-router: {summary_line}", file=sys.stderr)
     return EXIT_OK
 
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        prog="wayfinder",
+        prog="wayfinder-router",
         description="Deterministic prompt-complexity router.",
     )
-    parser.add_argument("--version", action="version", version=f"wayfinder {__version__}")
+    parser.add_argument("--version", action="version", version=f"wayfinder-router {__version__}")
     sub = parser.add_subparsers(dest="command", required=True)
 
     p_route = sub.add_parser("route", help="Score a prompt and recommend a model.")
@@ -275,7 +275,7 @@ def build_parser() -> argparse.ArgumentParser:
     p_route.set_defaults(func=_cmd_route)
 
     p_cal = sub.add_parser(
-        "calibrate", help="Turn a labeled JSONL dataset into a wayfinder.toml fragment."
+        "calibrate", help="Turn a labeled JSONL dataset into a wayfinder-router.toml fragment."
     )
     p_cal.add_argument("dataset", help="JSONL file of {\"text\": ..., \"label\": ...} rows.")
     p_cal.add_argument(
@@ -329,7 +329,7 @@ def build_parser() -> argparse.ArgumentParser:
         help="Two gateway model names to compare, e.g. local,cloud (default: first two).",
     )
     p_onboard.add_argument(
-        "--log", default="wayfinder-feedback.jsonl", help="Label log to append to."
+        "--log", default="wayfinder-router-feedback.jsonl", help="Label log to append to."
     )
     p_onboard.add_argument(
         "--calibrate", action="store_true", help="Calibrate a config from the log when done."
@@ -347,9 +347,9 @@ def build_parser() -> argparse.ArgumentParser:
         help="Re-fit the routing config from the feedback log (cron/CI-friendly).",
     )
     p_recal.add_argument(
-        "--log", default="wayfinder-feedback.jsonl", help="Feedback label log to read."
+        "--log", default="wayfinder-router-feedback.jsonl", help="Feedback label log to read."
     )
-    p_recal.add_argument("--out", default="wayfinder.toml", help="Config file to update in place.")
+    p_recal.add_argument("--out", default="wayfinder-router.toml", help="Config file to update in place.")
     p_recal.add_argument(
         "--mode", choices=["threshold", "tiers", "classifier"], default="threshold"
     )

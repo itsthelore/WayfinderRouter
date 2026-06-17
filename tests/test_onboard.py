@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import pytest
 
-from wayfinder import read_labels, run_onboarding
+from wayfinder_router import read_labels, run_onboarding
 
 
 def test_onboarding_records_the_judged_arm_and_runs_every_arm(tmp_path):

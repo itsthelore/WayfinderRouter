@@ -5,10 +5,10 @@ from __future__ import annotations
 import json
 
 import pytest
-from wayfinder.calibrate import CalibrationError, calibrate
-from wayfinder.config import load_routing_config
+from wayfinder_router.calibrate import CalibrationError, calibrate
+from wayfinder_router.config import load_routing_config
 
-from wayfinder import load_dataset, score_complexity
+from wayfinder_router import load_dataset, score_complexity
 
 SIMPLE = "hi there"
 MEDIUM = "# Task\n\nDo a few things.\n\n- one\n- two\n- three\n- four\n"
@@ -61,7 +61,7 @@ def test_threshold_mode_requires_exactly_two_labels(tmp_path):
 
 def test_threshold_round_trips_into_a_usable_config(tmp_path):
     samples = load_dataset(_dataset(tmp_path, _binary_rows()))
-    (tmp_path / "wayfinder.toml").write_text(calibrate(samples, "threshold").toml, encoding="utf-8")
+    (tmp_path / "wayfinder-router.toml").write_text(calibrate(samples, "threshold").toml, encoding="utf-8")
     config = load_routing_config(str(tmp_path))
     assert score_complexity(SIMPLE, config=config).recommendation == "local"
     assert score_complexity(LARGE, config=config).recommendation == "cloud"
@@ -82,7 +82,7 @@ def test_tiers_calibration_orders_and_separates(tmp_path):
     assert result.summary["models"] == ["small", "medium", "large"]
     assert result.summary["accuracy"] == 1.0
 
-    (tmp_path / "wayfinder.toml").write_text(result.toml, encoding="utf-8")
+    (tmp_path / "wayfinder-router.toml").write_text(result.toml, encoding="utf-8")
     config = load_routing_config(str(tmp_path))
     assert score_complexity(SIMPLE, config=config).recommendation == "small"
     assert score_complexity(LARGE, config=config).recommendation == "large"
@@ -104,7 +104,7 @@ def test_classifier_round_trips_and_predicts(tmp_path):
     assert result.summary["mode"] == "classifier"
     assert result.summary["accuracy"] == 1.0
 
-    (tmp_path / "wayfinder.toml").write_text(result.toml, encoding="utf-8")
+    (tmp_path / "wayfinder-router.toml").write_text(result.toml, encoding="utf-8")
     config = load_routing_config(str(tmp_path))
     assert config.classifier is not None
     assert score_complexity(SIMPLE, config=config).recommendation == "local"

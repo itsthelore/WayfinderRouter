@@ -17,9 +17,9 @@ Product
 
 ## Context
 
-A fair question: does Wayfinder only work when someone types a prompt into the
+A fair question: does Wayfinder Router only work when someone types a prompt into the
 CLI? The CLI, the onboarding flow, and the UI are all operator/bootstrap surfaces.
-For Wayfinder to be useful, prompts have to be routed where they *already flow* —
+For Wayfinder Router to be useful, prompts have to be routed where they *already flow* —
 inside applications, agent frameworks, and IDE assistants — not re-entered by hand.
 
 The mechanism for that already exists (the OpenAI-compatible gateway, WF-ADR-0004),
@@ -31,21 +31,21 @@ written down.
 State the integration surfaces and package the gateway for deployment.
 
 - **The gateway is the primary integration surface.** Any client that speaks the
-  OpenAI API points its `base_url` at Wayfinder and routes transparently, with no
+  OpenAI API points its `base_url` at Wayfinder Router and routes transparently, with no
   application code change: an app using the OpenAI SDK, agent frameworks
   (LangChain/LlamaIndex), IDE assistants that accept a custom endpoint (Cursor,
-  Continue), or a gateway like LiteLLM. Wayfinder scores the incoming prompt and
+  Continue), or a gateway like LiteLLM. Wayfinder Router scores the incoming prompt and
   forwards to the chosen model with the user's key.
-- **The library is the in-process surface.** `from wayfinder import
+- **The library is the in-process surface.** `from wayfinder-router import
   score_complexity` for apps that own their model calls and want the recommendation
   without a network hop.
 - **The CLI / onboarding / UI are operator/bootstrap surfaces**, not the request
   path: they calibrate and inspect the config that the gateway and library then use.
-- **Deployment:** ship a container that runs `wayfinder serve` as a sidecar or
-  small service, plus a compose example that persists `wayfinder.toml` and the
+- **Deployment:** ship a container that runs `wayfinder-router serve` as a sidecar or
+  small service, plus a compose example that persists `wayfinder-router.toml` and the
   feedback log on a volume and shows the `recalibrate` one-shot (the CronJob analog).
 - **Feedback wiring is the host surface's responsibility.** The host (app, IDE,
-  chat) decides how to surface a 👍/👎 and POSTs it to `/v1/feedback`; Wayfinder
+  chat) decides how to surface a 👍/👎 and POSTs it to `/v1/feedback`; Wayfinder Router
   provides the endpoint and the recording, not the judgment UI.
 - **Secrets stay in the environment** (the gateway model's `api_key_env`), never in
   the image, the config file, or the scored path.
@@ -67,7 +67,7 @@ State the integration surfaces and package the gateway for deployment.
 ### Negative
 
 - The host app must do a little work to wire feedback (a thumbs control → one POST);
-  Wayfinder deliberately does not own that UI.
+  Wayfinder Router deliberately does not own that UI.
 - No turnkey framework adapters yet — integration is via `base_url` until one is built.
 
 ## Alternatives Considered

@@ -1,12 +1,12 @@
-"""Tests for Wayfinder's own config loader (wayfinder.toml, no RAC)."""
+"""Tests for Wayfinder Router's own config loader (wayfinder-router.toml, no RAC)."""
 
 from __future__ import annotations
 
 import pytest
-from wayfinder.complexity import DEFAULT_THRESHOLD
-from wayfinder.config import THRESHOLD_ENV
+from wayfinder_router.complexity import DEFAULT_THRESHOLD
+from wayfinder_router.config import THRESHOLD_ENV
 
-from wayfinder import RoutingConfig, WayfinderConfigError, load_routing_config
+from wayfinder_router import RoutingConfig, WayfinderConfigError, load_routing_config
 
 
 @pytest.fixture(autouse=True)
@@ -15,7 +15,7 @@ def _clear_env(monkeypatch):
 
 
 def _write(tmp_path, body: str) -> str:
-    (tmp_path / "wayfinder.toml").write_text(body, encoding="utf-8")
+    (tmp_path / "wayfinder-router.toml").write_text(body, encoding="utf-8")
     return str(tmp_path)
 
 

@@ -40,9 +40,9 @@ core, plus the small core additions it (and the CLI) need.
   split RAC uses).
 - **Local web app.** A FastAPI backend exposes JSON endpoints wrapping the core; a
   single no-build HTML/JS page is served inline (no Node toolchain, no static-asset
-  build). It binds localhost. Ships behind the `wayfinder[ui]` extra
+  build). It binds localhost. Ships behind the `wayfinder-router[ui]` extra
   (`fastapi`/`uvicorn`), lazily imported, so the base package keeps
-  `dependencies = []`. The `wayfinder ui` command runs it.
+  `dependencies = []`. The `wayfinder-router ui` command runs it.
 - **Three core additions, pure and independently useful:**
   - `explain_score(features, weights)` → per-feature contribution to the score
     (`weight × normalized / Σweights`), also surfaced as `route --explain`.
@@ -54,7 +54,7 @@ core, plus the small core additions it (and the CLI) need.
   recommendation, tier ladder, contribution bars, live threshold slider);
   Calibrate (paste a labeled JSONL → run a mode → accuracy, the threshold-sweep
   curve, and the config fragment, with "send to Configure"); Configure (edit
-  `wayfinder.toml` with live validation through the real loaders, then save);
+  `wayfinder-router.toml` with live validation through the real loaders, then save);
   Onboard (A/B a local vs hosted model on sample prompts, judge each, record
   labels, then calibrate from the log — WF-ADR-0006). The text-free parsers the
   middle two rest on — `parse_dataset` and `routing_config_from_toml` — are also
@@ -86,7 +86,7 @@ conflicting with it: the UI is calibration/explain/configure only.
 
 - A web UI is a maintenance surface (the inline page, the endpoints); kept minimal
   and no-build to contain it.
-- Save writes the whole `wayfinder.toml`; calibrate "applies" by sending its
+- Save writes the whole `wayfinder-router.toml`; calibrate "applies" by sending its
   fragment to the Configure editor for review rather than writing blindly, so a
   human merges it with any existing gateway config.
 
@@ -119,7 +119,7 @@ conflicting with it: the UI is calibration/explain/configure only.
   function, proven by testing those functions directly.
 - `explain_score` contributions sum to the score; `dump_routing_toml` round-trips;
   the UI's `/api/score` returns the same result as the library.
-- No secret ever appears in the UI or in `wayfinder.toml`.
+- No secret ever appears in the UI or in `wayfinder-router.toml`.
 
 ## Related
 

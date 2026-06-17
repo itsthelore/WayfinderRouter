@@ -1,7 +1,7 @@
 """Offline calibration — turn labeled prompts into a routing config.
 
 Calibration is the empirical step that maps the structural proxy onto a real
-decision. It runs *offline* on a labeled dataset and emits a ``wayfinder.toml``
+decision. It runs *offline* on a labeled dataset and emits a ``wayfinder-router.toml``
 fragment; the runtime stays deterministic and free (WF-ADR-0003). Nothing here
 touches a model — labels come from whatever oracle the caller already has.
 

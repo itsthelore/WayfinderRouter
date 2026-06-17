@@ -1,13 +1,13 @@
 """Recalibration — re-fit the routing config from the feedback log (WF-ADR-0007).
 
 The deterministic batch replay WF-ADR-0006 recorded: read the whole label log,
-calibrate, and write the routing section of ``wayfinder.toml`` — preserving the
+calibrate, and write the routing section of ``wayfinder-router.toml`` — preserving the
 ``[gateway]`` section (the endpoint mapping and its ``api_key_env`` names, never a
 secret) so the running gateway keeps working. The gateway hot-reloads the new file.
 
 Pure orchestration over existing pieces (``read_labels`` + ``load_dataset`` +
 ``calibrate`` + ``dump_gateway_toml``); no model call lives here. Triggered by
-``wayfinder recalibrate`` (CLI / cron) or the UI button — never automatically inside
+``wayfinder-router recalibrate`` (CLI / cron) or the UI button — never automatically inside
 the serving process.
 """
 
@@ -44,8 +44,8 @@ def recalibrate(
 
     A no-op (no write) when the log holds fewer than ``min_labels`` rows, so a
     scheduled run or a button click on a near-empty log is safe. May raise
-    :class:`~wayfinder.CalibrationError` (e.g. ``threshold`` mode needs both arms
-    represented) or :class:`~wayfinder.WayfinderConfigError` (a malformed existing
+    :class:`~wayfinder_router.CalibrationError` (e.g. ``threshold`` mode needs both arms
+    represented) or :class:`~wayfinder_router.WayfinderConfigError` (a malformed existing
     config) — callers report those.
     """
     rows = read_labels(log_path)
