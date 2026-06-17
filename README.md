@@ -172,17 +172,24 @@ feature's value, its normalized level, its weight, and its share of the score:
 wayfinder route prompt.md --explain
 ```
 
-For interactive tuning there's a local web UI (WF-ADR-0005) — paste a prompt, see
-the score, the tier ladder, and the contribution bars, and drag a threshold slider
-to watch the routing change live:
+For interactive tuning there's a local web UI (WF-ADR-0005) with three tabs:
+
+- **Explain** — paste a prompt; see the score, tier ladder, and contribution bars,
+  and drag a threshold slider to watch routing change live.
+- **Calibrate** — paste a labeled JSONL dataset; run a mode; see accuracy, the
+  threshold-sweep curve, and the resulting config fragment, then send it to
+  Configure.
+- **Configure** — edit `wayfinder.toml` with live validation (the real loaders)
+  and save.
 
 ```bash
 pip install -e ".[ui]"
 wayfinder ui --port 8099    # then open http://localhost:8099
 ```
 
-The UI is a thin consumer of the same pure functions; it never calls a model. (The
-Explain/Playground screen ships now; calibrate and configure screens are planned.)
+The UI is a thin consumer of the same pure functions; it never calls a model, and
+no secret ever appears in it (a gateway model names an `api_key_env`; the key
+lives in the environment).
 
 ## Python API
 

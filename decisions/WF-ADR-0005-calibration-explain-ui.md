@@ -50,10 +50,14 @@ core, plus the small core additions it (and the CLI) need.
     calibrate chart.
   - `dump_routing_toml(config)` → a deterministic config writer that round-trips
     through `load_routing_config`, for the configure surface's save.
-- **Three screens.** Explain/Playground (built: paste a prompt → score,
+- **Three screens, all built.** Explain/Playground (paste a prompt → score,
   recommendation, tier ladder, contribution bars, live threshold slider);
-  Calibrate (planned: dataset → run → sweep chart → apply); Configure (planned:
-  edit/save `wayfinder.toml`).
+  Calibrate (paste a labeled JSONL → run a mode → accuracy, the threshold-sweep
+  curve, and the config fragment, with "send to Configure"); Configure (edit
+  `wayfinder.toml` with live validation through the real loaders, then save). The
+  text-free parsers the latter two rest on — `parse_dataset` and
+  `routing_config_from_toml` — are also pure core additions, so a pasted draft is
+  validated exactly as a real file is.
 - **It never routes or invokes.** No model call. The one exception, a future "test
   through the gateway" action, goes through the WF-ADR-0004 gateway layer with a
   BYO key — opt-in and separate.
@@ -78,7 +82,9 @@ conflicting with it: the UI is calibration/explain/configure only.
 
 - A web UI is a maintenance surface (the inline page, the endpoints); kept minimal
   and no-build to contain it.
-- Phase 2/3 screens (calibrate, configure) are described here but not yet built.
+- Save writes the whole `wayfinder.toml`; calibrate "applies" by sending its
+  fragment to the Configure editor for review rather than writing blindly, so a
+  human merges it with any existing gateway config.
 
 ## Alternatives Considered
 
