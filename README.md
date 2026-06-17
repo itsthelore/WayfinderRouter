@@ -1,3 +1,8 @@
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/banner-dark.png">
+  <img alt="Wayfinder — choose your path to your answers. Deterministic. Calibrated. No RAG, no guessing." src="docs/banner-light.png">
+</picture>
+
 # wayfinder-router
 
 A deterministic prompt-complexity router. Hand it a prompt, get back a
