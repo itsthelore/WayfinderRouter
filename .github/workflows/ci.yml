@@ -1,0 +1,42 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.11", "3.12", "3.13"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+      - name: Install (with gateway + ui extras so mypy sees the optional deps)
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev,gateway,ui]" ruff mypy
+      - name: Assert RAC is absent (WF-ADR-0001 standalone invariant)
+        run: |
+          if python -c "import rac" 2>/dev/null; then
+            echo "FAIL: rac must not be importable in a standalone install"
+            exit 1
+          fi
+      - name: Ruff
+        run: ruff check .
+      - name: Mypy
+        run: mypy wayfinder_router
+      - name: Pytest
+        run: pytest -q
+
+  docker:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build the gateway image
+        run: docker build -t wayfinder-router:ci .
