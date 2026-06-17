@@ -20,7 +20,13 @@ from pathlib import Path
 
 from . import __version__
 from .calibrate import CalibrationError, calibrate, load_dataset
-from .complexity import ComplexityScore, RoutingConfig, binary_tiers, score_complexity
+from .complexity import (
+    ComplexityScore,
+    RoutingConfig,
+    binary_tiers,
+    explain_score,
+    score_complexity,
+)
 from .config import WayfinderConfigError, load_routing_config
 
 EXIT_OK = 0
@@ -28,7 +34,7 @@ EXIT_CONFIG = 1
 EXIT_USAGE = 2
 
 
-def _render_human(result: ComplexityScore) -> str:
+def _render_human(result: ComplexityScore, weights: dict[str, float] | None = None) -> str:
     lines = [
         f"Recommended Model: {result.recommendation}",
         f"Complexity Score: {result.score:.2f}  (mode: {result.mode})",
@@ -42,19 +48,31 @@ def _render_human(result: ComplexityScore) -> str:
     if result.models is not None:
         lines.append("")
         lines.append("Candidates: " + ", ".join(result.models))
-    lines.append("")
-    lines.append("Contributing Features:")
-    for name, value in result.features.items():
-        lines.append(f"  {name.replace('_', ' ').title()}: {value}")
+    if weights is not None:
+        # --explain: show each feature's share of the score (value, normalized,
+        # weight, contribution), so the recommendation is auditable.
+        lines += ["", "Score Breakdown (feature: value  norm x weight = contribution):"]
+        for fc in explain_score(result.features, weights):
+            lines.append(
+                f"  {fc.name:<18} {fc.value:>5}  "
+                f"{fc.normalized:.2f} x {fc.weight:<4g} = {fc.contribution:.3f}"
+            )
+    else:
+        lines.append("")
+        lines.append("Contributing Features:")
+        for name, value in result.features.items():
+            lines.append(f"  {name.replace('_', ' ').title()}: {value}")
     return "\n".join(lines)
 
 
-def _route(text: str, *, start_dir: str, threshold: float | None) -> ComplexityScore:
+def _route(
+    text: str, *, start_dir: str, threshold: float | None
+) -> tuple[ComplexityScore, RoutingConfig]:
     config = load_routing_config(start_dir)
     if threshold is not None:
         # An explicit per-run cut forces the binary local/cloud router.
         config = RoutingConfig(weights=config.weights, tiers=binary_tiers(threshold))
-    return score_complexity(text, config=config)
+    return score_complexity(text, config=config), config
 
 
 def _cmd_route(args: argparse.Namespace) -> int:
@@ -63,13 +81,13 @@ def _cmd_route(args: argparse.Namespace) -> int:
         return EXIT_USAGE
     try:
         if args.prompt == "-":
-            result = _route(sys.stdin.read(), start_dir=".", threshold=args.threshold)
+            result, config = _route(sys.stdin.read(), start_dir=".", threshold=args.threshold)
         else:
             path = Path(args.prompt)
             if not path.is_file():
                 print(f"wayfinder: file not found: {args.prompt}", file=sys.stderr)
                 return EXIT_USAGE
-            result = _route(
+            result, config = _route(
                 path.read_text(encoding="utf-8"),
                 start_dir=str(path.parent),
                 threshold=args.threshold,
@@ -81,7 +99,7 @@ def _cmd_route(args: argparse.Namespace) -> int:
     if args.json:
         print(json.dumps(result.to_dict(), indent=2))
     else:
-        print(_render_human(result))
+        print(_render_human(result, weights=config.weights if args.explain else None))
     return EXIT_OK
 
 
@@ -124,6 +142,17 @@ def _cmd_serve(args: argparse.Namespace) -> int:
     return EXIT_OK
 
 
+def _cmd_ui(args: argparse.Namespace) -> int:
+    from .ui import UIUnavailable, run_ui
+
+    try:
+        run_ui(start_dir=".", host=args.host, port=args.port)
+    except UIUnavailable as exc:
+        print(f"wayfinder: {exc}", file=sys.stderr)
+        return EXIT_USAGE
+    return EXIT_OK
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="wayfinder",
@@ -142,6 +171,11 @@ def build_parser() -> argparse.ArgumentParser:
     )
     p_route.add_argument(
         "--json", action="store_true", help="Emit JSON instead of human-readable text."
+    )
+    p_route.add_argument(
+        "--explain",
+        action="store_true",
+        help="Show each feature's contribution to the score (human output only).",
     )
     p_route.set_defaults(func=_cmd_route)
 
@@ -178,6 +212,14 @@ def build_parser() -> argparse.ArgumentParser:
     p_serve.add_argument("--host", default="127.0.0.1", help="Bind host (default: 127.0.0.1).")
     p_serve.add_argument("--port", type=int, default=8088, help="Bind port (default: 8088).")
     p_serve.set_defaults(func=_cmd_serve)
+
+    p_ui = sub.add_parser(
+        "ui",
+        help="Run the local calibration/explain/configure UI (needs the [ui] extra).",
+    )
+    p_ui.add_argument("--host", default="127.0.0.1", help="Bind host (default: 127.0.0.1).")
+    p_ui.add_argument("--port", type=int, default=8099, help="Bind port (default: 8099).")
+    p_ui.set_defaults(func=_cmd_ui)
     return parser
 
 

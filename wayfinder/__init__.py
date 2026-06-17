@@ -17,18 +17,27 @@ Two routing modes, both deterministic given the config: ordered score *tiers*
 
 from __future__ import annotations
 
-from .calibrate import CalibrationError, CalibrationResult, Sample, calibrate, load_dataset
+from .calibrate import (
+    CalibrationError,
+    CalibrationResult,
+    Sample,
+    calibrate,
+    load_dataset,
+    sweep_curve,
+)
 from .complexity import (
     ClassifierModel,
     ComplexityScore,
+    FeatureContribution,
     RoutingConfig,
     Tier,
+    explain_score,
     extract_features,
     normalized_features,
     scalar_score,
     score_complexity,
 )
-from .config import WayfinderConfigError, load_routing_config
+from .config import WayfinderConfigError, dump_routing_toml, load_routing_config
 
 __version__ = "0.1.0"
 
@@ -39,15 +48,19 @@ __all__ = [
     "scalar_score",
     "extract_features",
     "normalized_features",
+    "explain_score",
     "ComplexityScore",
+    "FeatureContribution",
     "RoutingConfig",
     "Tier",
     "ClassifierModel",
     # Config.
     "load_routing_config",
+    "dump_routing_toml",
     "WayfinderConfigError",
     # Calibration.
     "calibrate",
+    "sweep_curve",
     "load_dataset",
     "Sample",
     "CalibrationResult",

@@ -17,7 +17,9 @@ dependencies = []
 # The OpenAI-compatible routing gateway (WF-ADR-0004). The core never imports
 # these; they are loaded lazily only when the gateway runs.
 gateway = ["fastapi>=0.110", "uvicorn>=0.27", "httpx>=0.27"]
-# Test runner; includes fastapi + httpx so the gateway is exercised in CI.
+# The local calibration/explain/configure UI (WF-ADR-0005); lazily imported.
+ui = ["fastapi>=0.110", "uvicorn>=0.27"]
+# Test runner; includes fastapi + httpx so the gateway and UI are exercised in CI.
 dev = ["pytest>=7", "fastapi>=0.110", "httpx>=0.27"]
 
 [project.scripts]

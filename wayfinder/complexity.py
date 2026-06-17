@@ -306,3 +306,51 @@ def score_complexity(text: str, *, config: RoutingConfig = DEFAULT_CONFIG) -> Co
         features=features,
         tiers=config.tiers,
     )
+
+
+@dataclass(frozen=True)
+class FeatureContribution:
+    """One feature's part in the scalar score — the "why" behind a recommendation.
+
+    ``contribution`` is the feature's share of the score
+    (``weight × normalized / Σweights``); summing it across features gives the
+    unrounded score. Pure and deterministic, so it powers both ``route --explain``
+    and the explain UI without any new logic.
+    """
+
+    name: str
+    value: int  # the raw feature count
+    normalized: float  # value / saturation, capped at 1.0
+    weight: float
+    contribution: float  # share of the score
+
+    def to_dict(self) -> dict:
+        return {
+            "name": self.name,
+            "value": self.value,
+            "normalized": self.normalized,
+            "weight": self.weight,
+            "contribution": self.contribution,
+        }
+
+
+def explain_score(
+    features: dict[str, int], weights: dict[str, float]
+) -> list[FeatureContribution]:
+    """Break the scalar score into one :class:`FeatureContribution` per feature."""
+    norm = normalized_features(features)
+    total_weight = sum(weights.values())
+    out: list[FeatureContribution] = []
+    for name in FEATURE_ORDER:
+        weight = weights.get(name, 0.0)
+        contribution = (weight * norm[name] / total_weight) if total_weight else 0.0
+        out.append(
+            FeatureContribution(
+                name=name,
+                value=features[name],
+                normalized=round(norm[name], 4),
+                weight=weight,
+                contribution=round(contribution, 4),
+            )
+        )
+    return out

@@ -190,6 +190,44 @@ def _number_vector(where: str, label: str, value: object, count: int) -> tuple[f
     return tuple(float(v) for v in value)
 
 
+def _fmt_num(value: float) -> str:
+    return repr(round(float(value), 6))
+
+
+def dump_routing_toml(config: RoutingConfig) -> str:
+    """Serialize a :class:`RoutingConfig` back to a ``wayfinder.toml`` fragment.
+
+    The deterministic round-trip for the Configure surface: the output loads back
+    through :func:`load_routing_config` to the same config. Non-default weights are
+    emitted; the active mode (classifier or tiers) is emitted in full.
+    """
+    blocks: list[str] = []
+    if dict(config.weights) != dict(DEFAULT_WEIGHTS):
+        items = ", ".join(f"{name} = {_fmt_num(config.weights[name])}" for name in FEATURE_ORDER)
+        blocks.append("[routing]\nweights = { " + items + " }")
+    if config.classifier is not None:
+        clf = config.classifier
+        models = ", ".join(f'"{m}"' for m in clf.models)
+        intercepts = ", ".join(_fmt_num(b) for b in clf.intercepts)
+        lines = [
+            "[routing.classifier]",
+            f"models = [{models}]",
+            f"intercepts = [{intercepts}]",
+            "",
+            "[routing.classifier.weights]",
+        ]
+        for name in FEATURE_ORDER:
+            lines.append(f"{name} = [" + ", ".join(_fmt_num(w) for w in clf.weights[name]) + "]")
+        blocks.append("\n".join(lines))
+    else:
+        tiers = "\n\n".join(
+            f"[[routing.tiers]]\nmin_score = {_fmt_num(t.min_score)}\nmodel = \"{t.model}\""
+            for t in config.tiers
+        )
+        blocks.append(tiers)
+    return "\n\n".join(blocks) + "\n"
+
+
 def _apply_env_threshold(default: float) -> float:
     raw = os.environ.get(THRESHOLD_ENV)
     if raw is None or raw == "":

@@ -129,6 +129,28 @@ def _sweep_cut(scored: list[tuple[float, bool]]) -> tuple[float, float]:
     return best_cuts[len(best_cuts) // 2], best_acc
 
 
+def sweep_curve(samples: list[Sample]) -> list[tuple[float, float]]:
+    """The full ``(threshold, accuracy)`` curve for two-label data.
+
+    The chart behind threshold calibration: each candidate cut and the accuracy
+    of "route high when score >= cut". Deterministic; raises for other than two
+    labels. Reuses the same scoring as :func:`calibrate_threshold`.
+    """
+    labels = _labels_by_mean_score(samples)
+    if len(labels) != 2:
+        raise CalibrationError(
+            f"sweep needs exactly two labels, found {len(labels)}: {labels}"
+        )
+    _, high = labels
+    scored = [(s.score, s.label == high) for s in samples]
+    total = len(scored)
+    candidates = sorted({0.0, *(round(score, 4) for score, _ in scored)})
+    return [
+        (cut, sum(1 for score, is_high in scored if (score >= cut) == is_high) / total)
+        for cut in candidates
+    ]
+
+
 def calibrate_threshold(samples: list[Sample]) -> CalibrationResult:
     """Binary calibration: sweep the local/cloud-style cut between two labels."""
     labels = _labels_by_mean_score(samples)

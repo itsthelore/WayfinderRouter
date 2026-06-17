@@ -76,6 +76,15 @@ def test_route_threshold_override_forces_cloud(tmp_path, capsys):
     assert payload["recommendation"] == "cloud"  # score 0.0 >= threshold 0.0
 
 
+def test_route_explain_shows_the_breakdown(monkeypatch, capsys):
+    _feed_stdin(monkeypatch, COMPLEX)
+    rc = main(["route", "-", "--explain"])
+    out = capsys.readouterr().out
+    assert rc == 0
+    assert "Score Breakdown" in out
+    assert "word_count" in out
+
+
 def test_route_file_not_found_is_usage_error(capsys):
     rc = main(["route", "does-not-exist.md"])
     assert rc == 2
