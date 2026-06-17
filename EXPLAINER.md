@@ -67,3 +67,17 @@ prompts and asks you to pick, to establish the initial cut.
 - It **decides and forwards; it doesn't judge quality** — the thumbs-up/down comes
   from your app or your users.
 - Confirm **streaming** behaves as expected in your setup during the pilot.
+
+## What we'd love to hear (pilots)
+
+A few quick signals are plenty:
+
+- **Did the routing feel right?** Anything sent to local that should have gone to
+  cloud, or vice versa?
+- **Cost / latency change** versus sending everything to the big model.
+- **Any prompt where the score surprised you** — run `wayfinder route <file>
+  --explain` to see which features drove it.
+- **Anything that broke or felt clunky** — setup, errors, streaming.
+
+And send a thumbs-down inline (`POST /v1/feedback`) whenever an answer wasn't good
+enough — that's the data that tunes the router to your judgment.

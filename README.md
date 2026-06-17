@@ -49,6 +49,18 @@ just change `base_url`. Pilot-facing one-pager: [EXPLAINER.md](EXPLAINER.md).
 Easy prompts go to local, hard ones to cloud; each response carries
 `x-wayfinder-model` and `x-wayfinder-score` so you can see the routing.
 
+**Check it's working** (the headers show where each request went):
+
+```bash
+curl -s localhost:8088/healthz                         # {"status":"ok","models":["cloud","local"]}
+curl -s -D - -o /dev/null http://localhost:8088/v1/chat/completions \
+  -H "Content-Type: application/json" \
+  -d '{"model":"auto","messages":[{"role":"user","content":"hi"}]}' \
+  | grep -i x-wayfinder
+# x-wayfinder-model: local
+# x-wayfinder-score: 0.00
+```
+
 ## Why deterministic
 
 The obvious way to route by complexity is to ask a model how complex the prompt
