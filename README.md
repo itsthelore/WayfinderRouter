@@ -163,6 +163,32 @@ config, and calibrator stay pure, offline, and deterministic. Keys are read from
 the environment at request time and never enter `wayfinder.toml` or the scored
 path.
 
+## Learn from feedback (onboarding)
+
+Don't guess the cut — *learn* it from your own judgment of local vs hosted output
+(WF-ADR-0006). The loop is: **collect judgments → calibrate → route automatically.**
+
+**Bootstrap with A/B onboarding.** For each sample prompt, `wayfinder onboard` runs
+both arms and asks which was good enough; the answer is a label:
+
+```bash
+wayfinder onboard prompts.jsonl --arms local,cloud --calibrate > wayfinder.toml
+```
+
+The A/B comparison and the prompt go to stderr; `--calibrate` prints the resulting
+config to stdout. Each judgment appends a `{"text", "label"}` line to a feedback
+log — which *is* the `calibrate` dataset, so the log turns straight into a config.
+
+**Keep it honest with steady-state feedback.** Once routing automatically, record
+which model was actually good enough; the label feeds the next recalibration:
+
+```bash
+curl localhost:8088/v1/feedback -d '{"text": "...", "label": "cloud"}'
+```
+
+The judging runs models, so it lives in the gateway/invocation layer (BYO key); the
+deterministic core is untouched and the label log carries no secrets.
+
 ## Explain & tune
 
 To see *why* a prompt routed where, ask for the per-feature breakdown — each
@@ -217,10 +243,12 @@ tool shares no runtime code with RAC; see `decisions/WF-ADR-0001`.
 ```
 wayfinder/
   wayfinder/     the package: complexity scorer, tiers + classifier, own config
-                 loader + writer, offline calibration (Newton/IRLS), explain, CLI,
-                 the optional OpenAI-compatible gateway, and the optional local UI
-                 (both impure/heavier layers, behind their extras)
-  tests/         scorer, config, calibration, explain, CLI, gateway, and UI coverage
+                 loader + writer, offline calibration (Newton/IRLS), explain, the
+                 feedback log + onboarding harness, CLI, and the optional
+                 OpenAI-compatible gateway and local UI (impure layers, behind
+                 their extras)
+  tests/         scorer, config, calibration, explain, feedback, onboard, CLI,
+                 gateway, and UI coverage
   decisions/     ADRs grounding the tool's own choices (dogfooded)
 ```
 
