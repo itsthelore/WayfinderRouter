@@ -207,6 +207,9 @@ For interactive tuning there's a local web UI (WF-ADR-0005) with three tabs:
   Configure.
 - **Configure** — edit `wayfinder.toml` with live validation (the real loaders)
   and save.
+- **Onboard** — A/B a local vs hosted model on sample prompts in the browser,
+  judge each, record labels, then calibrate from the log (needs `[gateway]` too,
+  for the model calls).
 
 ```bash
 pip install -e ".[ui]"

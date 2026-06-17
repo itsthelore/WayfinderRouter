@@ -50,14 +50,18 @@ core, plus the small core additions it (and the CLI) need.
     calibrate chart.
   - `dump_routing_toml(config)` → a deterministic config writer that round-trips
     through `load_routing_config`, for the configure surface's save.
-- **Three screens, all built.** Explain/Playground (paste a prompt → score,
+- **Four screens, all built.** Explain/Playground (paste a prompt → score,
   recommendation, tier ladder, contribution bars, live threshold slider);
   Calibrate (paste a labeled JSONL → run a mode → accuracy, the threshold-sweep
   curve, and the config fragment, with "send to Configure"); Configure (edit
-  `wayfinder.toml` with live validation through the real loaders, then save). The
-  text-free parsers the latter two rest on — `parse_dataset` and
-  `routing_config_from_toml` — are also pure core additions, so a pasted draft is
-  validated exactly as a real file is.
+  `wayfinder.toml` with live validation through the real loaders, then save);
+  Onboard (A/B a local vs hosted model on sample prompts, judge each, record
+  labels, then calibrate from the log — WF-ADR-0006). The text-free parsers the
+  middle two rest on — `parse_dataset` and `routing_config_from_toml` — are also
+  pure core additions, so a pasted draft is validated exactly as a real file is.
+  The Onboard tab is the one screen that runs models: it uses the gateway invoker
+  (BYO key), while recording and calibrating reuse the pure feedback/calibrate
+  functions.
 - **It never routes or invokes.** No model call. The one exception, a future "test
   through the gateway" action, goes through the WF-ADR-0004 gateway layer with a
   BYO key — opt-in and separate.

@@ -110,12 +110,14 @@ Update the config on every judgment.
 - Not reproducible (order-dependent). Batch replay over the log preserves the
   determinism guarantee.
 
-## Forward direction (recorded, not all built)
+## Forward direction (recorded)
 
 - A **UI "Onboard" tab** over the same harness — paste prompts, A/B in the browser,
-  judge with a click — is the natural next surface (extends WF-ADR-0005).
-- **Scheduled recalibration**: re-run `calibrate` over the log on a cadence and
-  swap the config in, with a generation marker.
+  judge with a click, then calibrate from the log — is **built** (extends
+  WF-ADR-0005): it runs the arms through the gateway invoker and records via the
+  pure feedback functions.
+- **Scheduled recalibration** (not built): re-run `calibrate` over the log on a
+  cadence and swap the config in, with a generation marker.
 
 ## Success Measures
 
