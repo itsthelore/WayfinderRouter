@@ -17,6 +17,7 @@ from wayfinder.ui import (
     onboard_arms,
     onboard_dataset_text,
     onboard_run,
+    recalibrate_payload,
     record_onboard_label,
     save_config_text,
     score_payload,
@@ -119,6 +120,25 @@ def test_onboard_run_invokes_each_arm(tmp_path, monkeypatch):
 
     monkeypatch.setattr(gateway, "forward_request", _fake_forward)
     assert onboard_run(_with_gateway(tmp_path), "hi") == {"local": "reply:l", "cloud": "reply:c"}
+
+
+def _feedback_log(tmp_path) -> None:
+    rows = [{"text": "hi", "label": "local"}] * 4 + [{"text": COMPLEX, "label": "cloud"}] * 4
+    (tmp_path / "wayfinder-feedback.jsonl").write_text(
+        "\n".join(json.dumps(r) for r in rows), encoding="utf-8"
+    )
+
+
+def test_recalibrate_payload_writes_config_from_log(tmp_path):
+    _feedback_log(tmp_path)
+    out = recalibrate_payload(str(tmp_path), "threshold")
+    assert out["written"] and out["summary"]["accuracy"] == 1.0
+    assert (tmp_path / "wayfinder.toml").is_file()
+
+
+def test_recalibrate_payload_skips_empty_log(tmp_path):
+    out = recalibrate_payload(str(tmp_path), "threshold")
+    assert out["written"] is False
 
 
 # --- web endpoints ----------------------------------------------------------
@@ -226,3 +246,15 @@ def test_api_onboard_record_writes_the_shared_log(ob_client):
     assert (tmp_path / "wayfinder-feedback.jsonl").is_file()
     dataset = client.get("/api/onboard/dataset").json()["dataset"]
     assert '"label": "local"' in dataset
+
+
+def test_api_recalibrate_writes_config(tmp_path):
+    _feedback_log(tmp_path)
+    client = TestClient(build_ui_app(start_dir=str(tmp_path)))
+    data = client.post("/api/recalibrate", json={"mode": "threshold"}).json()
+    assert data["written"] and data["summary"]["accuracy"] == 1.0
+    assert (tmp_path / "wayfinder.toml").is_file()
+
+
+def test_api_recalibrate_skips_empty_log(client):
+    assert client.post("/api/recalibrate", json={"mode": "threshold"}).json()["written"] is False

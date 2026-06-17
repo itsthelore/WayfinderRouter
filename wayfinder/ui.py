@@ -43,6 +43,7 @@ from .gateway import (
     invoke_model,
     load_gateway_config,
 )
+from .recalibrate import recalibrate
 
 if TYPE_CHECKING:  # type-only; the runtime imports these lazily inside build_ui_app
     from fastapi import FastAPI
@@ -138,6 +139,19 @@ def onboard_dataset_text(start_dir: str) -> str:
     return "\n".join(json.dumps(r, ensure_ascii=False) for r in rows)
 
 
+def recalibrate_payload(start_dir: str = ".", mode: str = "threshold") -> dict:
+    """Re-fit and write ``wayfinder.toml`` from the feedback log; return the outcome."""
+    result = recalibrate(
+        _log_path(start_dir), str(Path(start_dir) / "wayfinder.toml"), mode=mode
+    )
+    return {
+        "written": result.written,
+        "label_count": result.label_count,
+        "summary": result.summary,
+        "reason": result.reason,
+    }
+
+
 def _models_list(value: object) -> list[str] | None:
     if isinstance(value, list):
         return [str(m).strip() for m in value if str(m).strip()] or None
@@ -229,6 +243,15 @@ def build_ui_app(start_dir: str = ".") -> FastAPI:
     @app.get("/api/onboard/dataset")
     def api_onboard_dataset() -> dict:
         return {"dataset": onboard_dataset_text(start_dir)}
+
+    @app.post("/api/recalibrate")
+    def api_recalibrate(body: dict = Body(...)) -> object:  # noqa: B008 - FastAPI default
+        raw_mode = body.get("mode")
+        mode = raw_mode if isinstance(raw_mode, str) and raw_mode in _MODES else "threshold"
+        try:
+            return recalibrate_payload(start_dir, mode)
+        except (CalibrationError, WayfinderConfigError) as exc:
+            return JSONResponse(status_code=400, content={"error": str(exc)})
 
     return app
 
@@ -353,7 +376,11 @@ _PAGE = """<!doctype html>
       <div class="row" id="objudge"></div>
     </div>
     <div id="oberr" class="err"></div>
-    <div class="row"><button class="act" id="obcal">Calibrate from log →</button></div>
+    <div class="row">
+      <button class="act" id="obcal">Calibrate from log →</button>
+      <button class="act" id="obrecal">Recalibrate &amp; save</button>
+      <span id="obrecalstatus" class="muted"></span>
+    </div>
   </section>
 
 <script>
@@ -517,6 +544,15 @@ $("obcal").addEventListener("click", async () => {
   if (!d.dataset) { $("oberr").textContent = "no labels recorded yet"; return; }
   $("dataset").value = d.dataset;
   document.querySelector('nav button[data-tab="calibrate"]').click();
+});
+$("obrecal").addEventListener("click", async () => {
+  $("obrecalstatus").textContent = "recalibrating…";
+  const {ok, data} = await post("/api/recalibrate", {mode: "threshold"});
+  if (!ok) { $("obrecalstatus").innerHTML = '<span class="err">' + data.error + '</span>'; return; }
+  if (!data.written) { $("obrecalstatus").textContent = "skipped — " + data.reason; return; }
+  const s = Object.entries(data.summary).map(([k, v]) => k + "=" + v).join(" · ");
+  $("obrecalstatus").innerHTML = '<span class="ok">saved wayfinder.toml</span> · ' + s;
+  loadOnboardState();
 });
 
 score();
