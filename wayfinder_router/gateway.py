@@ -10,6 +10,23 @@ model name to a configured upstream, and forwards the call with the user's key.
 Keys are read from the environment at request time and never appear in
 ``wayfinder-router.toml``, in the scored path, or in any test fixture.
 
+A request may steer the routing decision per call without changing any
+application code, through OpenAI-compatible channels (WF-ADR-0011). This only
+moves *which threshold/decision applies*; it never adds inference, so the
+WF-ADR-0001/0004 boundary holds:
+
+- the OpenAI ``model`` field is a routing directive — ``auto`` (or any
+  unrecognized value) scores per config, an exact configured endpoint name
+  pins the call to that endpoint, and ``prefer-local`` / ``prefer-cloud`` pin
+  to the low / high end of the configured router;
+- an ``X-Wayfinder-Threshold`` header (a number in ``0.0``–``1.0``) re-decides
+  the call at that binary cut, reusing the configured scoring weights.
+
+Every response carries the decision signal: ``x-wayfinder-router-model`` (the
+chosen endpoint), ``x-wayfinder-router-score`` (the structural score, always
+computed), and ``x-wayfinder-router-mode`` (``scored`` / ``pinned`` /
+``threshold-override``).
+
 Config (`wayfinder-router.toml`)::
 
     [gateway.models.local]
@@ -31,7 +48,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from .complexity import RoutingConfig, score_complexity
+from .complexity import RoutingConfig, Tier, recommend_tier, score_complexity
 from .config import WayfinderConfigError, find_config_file, load_routing_config
 from .feedback import DEFAULT_LOG, record_label
 
@@ -147,6 +164,72 @@ def extract_prompt(messages: object) -> str:
     return "\n".join(parts)
 
 
+# Per-request override transport (WF-ADR-0011). These are pure and offline: they
+# only move which threshold/decision applies, never invoke a model.
+THRESHOLD_HEADER = "x-wayfinder-threshold"
+_AUTO = "auto"  # the OpenAI `model` sentinel meaning "Wayfinder decides"
+_PREFER_LOW = "prefer-local"
+_PREFER_HIGH = "prefer-cloud"
+
+
+class BadOverride(Exception):
+    """A per-request override was supplied but is malformed or not applicable."""
+
+
+def resolve_pin(model_field: object, routing: RoutingConfig, gateway: GatewayConfig) -> str | None:
+    """Resolve an explicit endpoint pin from the OpenAI ``model`` field, or ``None``.
+
+    ``auto``, an empty value, or any string that is neither a configured endpoint
+    name nor a ``prefer-*`` alias returns ``None`` — the request asks Wayfinder to
+    score and decide (kept tolerant so ordinary OpenAI ``model`` ids pass through).
+    ``prefer-local`` / ``prefer-cloud`` resolve to the low / high end of the
+    configured router (the first / last tier's model).
+    """
+    if not isinstance(model_field, str):
+        return None
+    name = model_field.strip()
+    if not name or name == _AUTO:
+        return None
+    if name == _PREFER_LOW:
+        return routing.tiers[0].model if routing.tiers else None
+    if name == _PREFER_HIGH:
+        return routing.tiers[-1].model if routing.tiers else None
+    return name if name in gateway.models else None
+
+
+def parse_threshold_header(value: str | None) -> float | None:
+    """Parse the ``X-Wayfinder-Threshold`` header into a ``0.0``–``1.0`` cut, or ``None``.
+
+    Raises :class:`BadOverride` when the header is present but not a number in range.
+    """
+    if value is None:
+        return None
+    try:
+        threshold = float(value)
+    except ValueError as exc:
+        raise BadOverride(
+            f"{THRESHOLD_HEADER} must be a number in 0.0-1.0, got {value!r}"
+        ) from exc
+    if not 0.0 <= threshold <= 1.0:
+        raise BadOverride(f"{THRESHOLD_HEADER} must be in 0.0-1.0, got {threshold}")
+    return threshold
+
+
+def threshold_tiers(routing: RoutingConfig, threshold: float) -> tuple[Tier, ...]:
+    """Binary tiers at ``threshold`` reusing the configured router's endpoint names.
+
+    The threshold override is only well-defined for a binary (two-tier) router;
+    a classifier or a multi-tier router has no single cut to move, so this raises
+    :class:`BadOverride`.
+    """
+    if routing.classifier is not None or len(routing.tiers) != 2:
+        raise BadOverride(
+            f"{THRESHOLD_HEADER} applies only to a binary (two-tier) router; this "
+            "gateway is configured for classifier or multi-tier routing"
+        )
+    return (Tier(0.0, routing.tiers[0].model), Tier(threshold, routing.tiers[1].model))
+
+
 def forward_request(
     url: str, headers: dict[str, str], json_body: dict, timeout: float = 60.0
 ) -> tuple[int, bytes, str]:
@@ -228,7 +311,7 @@ class _ConfigHolder:
 def build_app(start_dir: str = ".") -> FastAPI:
     """Build the FastAPI gateway app; config hot-reloads on ``wayfinder-router.toml`` change."""
     try:
-        from fastapi import Body, FastAPI, Response
+        from fastapi import Body, FastAPI, Header, Response
         from fastapi.responses import JSONResponse
     except ImportError as exc:  # pragma: no cover - exercised only without the extra
         raise GatewayUnavailable(_INSTALL_HINT) from exc
@@ -254,19 +337,39 @@ def build_app(start_dir: str = ".") -> FastAPI:
         return {"ok": True}
 
     @app.post("/v1/chat/completions")
-    def chat_completions(body: dict = Body(...)) -> Response:  # noqa: B008 - FastAPI default
+    def chat_completions(  # noqa: B008 - FastAPI default
+        body: dict = Body(...),
+        x_wayfinder_threshold: str | None = Header(default=None),
+    ) -> Response:
         routing, gateway = holder.current()
+        # Score once (always reported); a per-request override only changes which
+        # endpoint the score routes to, never how it is computed (WF-ADR-0011).
         decision = score_complexity(extract_prompt(body.get("messages")), config=routing)
-        target = gateway.models.get(decision.recommendation)
+
+        pin = resolve_pin(body.get("model"), routing, gateway)
+        if pin is not None:
+            chosen, mode = pin, "pinned"
+        else:
+            try:
+                threshold = parse_threshold_header(x_wayfinder_threshold)
+                if threshold is not None:
+                    chosen = recommend_tier(decision.score, threshold_tiers(routing, threshold))
+                    mode = "threshold-override"
+                else:
+                    chosen, mode = decision.recommendation, "scored"
+            except BadOverride as exc:
+                return JSONResponse(
+                    status_code=400,
+                    content={"error": {"message": str(exc), "type": "wayfinder_router_bad_override"}},
+                )
+
+        target = gateway.models.get(chosen)
         if target is None:
             return JSONResponse(
                 status_code=500,
                 content={
                     "error": {
-                        "message": (
-                            f"no gateway endpoint configured for model "
-                            f"'{decision.recommendation}'"
-                        ),
+                        "message": f"no gateway endpoint configured for model '{chosen}'",
                         "type": "wayfinder_router_misconfigured",
                     }
                 },
@@ -284,8 +387,9 @@ def build_app(start_dir: str = ".") -> FastAPI:
             status_code=status,
             media_type=content_type,
             headers={
-                "x-wayfinder-router-model": decision.recommendation,
+                "x-wayfinder-router-model": chosen,
                 "x-wayfinder-router-score": f"{decision.score:.2f}",
+                "x-wayfinder-router-mode": mode,
             },
         )
 
