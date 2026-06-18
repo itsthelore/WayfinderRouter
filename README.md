@@ -64,6 +64,42 @@ curl -s -D - -o /dev/null http://localhost:8088/v1/chat/completions \
 # x-wayfinder-router-score: 0.00
 ```
 
+## Where Wayfinder sits
+
+Wayfinder ships **no end-user interface** — it is middleware that sits *behind*
+whatever OpenAI-compatible client you already use. You point that client's
+`base_url` at the gateway once; from then on Wayfinder is invisible, and the
+**same interface serves a request whether it routes local or hosted**:
+
+```text
+You  (a chat app / IDE / agent / your own code)
+  │   one OpenAI-compatible request — base_url -> the gateway
+  v
+Wayfinder gateway  -- scores the prompt, picks local vs cloud --+
+  |                                                             |
+  | local                                                hosted |
+  v                                                             v
+Ollama / LM Studio / vLLM                     OpenAI / Together / any hosted API
+(an OpenAI-compatible /v1)                    (an OpenAI-compatible /v1)
+  |                                                             |
+  +---------------- response flows back up ---------------------+
+  v
+You -- same client, same response, plus the x-wayfinder-router-* headers
+```
+
+- **The interface in front is yours to choose** — a chat GUI (e.g. Open WebUI,
+  LibreChat), an IDE assistant that allows a custom endpoint (Cursor, Continue),
+  an agent framework (LangChain, LlamaIndex), or your own app on the OpenAI SDK.
+  Want a turnkey chat window? Put **Open WebUI** in front and point it at the gateway.
+- **Local and hosted are backends, not UIs.** The "local model" is a server
+  (Ollama, LM Studio, vLLM, llama.cpp) exposing an OpenAI-compatible `/v1`; the
+  hosted one is the same shape. Wayfinder forwards to whichever it picked, and the
+  completion returns through the *same* client — the user never switches UIs and
+  usually never knows which model answered (the response headers say, if you care).
+- The `wayfinder-router ui` console is **not** this chat surface — it is the
+  operator's tuning view (score a prompt, calibrate, edit config), never the path
+  production traffic takes.
+
 ## Why deterministic
 
 The obvious way to route by complexity is to ask a model how complex the prompt
