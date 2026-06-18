@@ -15,6 +15,12 @@ details, release history over commit history.
 
 ### Changed
 
+- Redesigned the local UI (`wayfinder-router ui`) as a branded, modern surface:
+  a teal-on-cream/navy palette derived from the project banners, automatic light
+  and dark themes (`prefers-color-scheme`), a wordmark + tagline header, carded
+  sections, primary/secondary buttons, a custom-styled threshold slider, a
+  recommendation pill, and refined tables and contribution bars. Presentation
+  only — no behavior, endpoint, or dependency change (WF-ADR-0005).
 - README install guidance now leads with `[gateway]` — the extra you need to
   route traffic through the proxy — clarifies that the bare install is the
   zero-dependency scorer/CLI/library, and documents `[all]`. Install snippets use
