@@ -1,0 +1,35 @@
+# Run Wayfinder Router alongside LibreChat with zero forking.
+#
+# Copy this into your LibreChat checkout as docker-compose.override.yml (next to
+# LibreChat's own docker-compose.yml — Compose merges the two automatically), copy
+# examples/librechat.yaml there as ./librechat.yaml, drop your routing config in
+# ./wayfinder-data/wayfinder-router.toml, then `docker compose up`. LibreChat then
+# offers a "Wayfinder" endpoint whose model dropdown picks the routing mode per
+# conversation.
+
+services:
+  # LibreChat's app service — extend it to mount the Wayfinder endpoint config and
+  # wait for the gateway.
+  api:
+    volumes:
+      - ./librechat.yaml:/app/librechat.yaml
+    depends_on:
+      - wayfinder
+    # On Linux, only if you point baseURL at the host instead of the `wayfinder`
+    # service name:
+    # extra_hosts:
+    #   - "host.docker.internal:host-gateway"
+
+  # The router gateway (WF-ADR-0004 / WF-ADR-0008). Built straight from the repo;
+  # swap in a published image once one is available.
+  wayfinder:
+    build: https://github.com/itsthelore/wayfinder-router.git
+    # image: ghcr.io/itsthelore/wayfinder-router:latest
+    expose:
+      - "8088"                       # reachable on the compose network as wayfinder:8088
+    volumes:
+      - ./wayfinder-data:/data       # holds wayfinder-router.toml ([routing] + [gateway.models]) and the feedback log
+    environment:
+      # Names here must match the api_key_env values in your wayfinder-router.toml.
+      - OPENAI_API_KEY=${OPENAI_API_KEY:-}
+    restart: unless-stopped
