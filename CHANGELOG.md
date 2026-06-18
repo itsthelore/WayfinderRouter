@@ -4,6 +4,22 @@ User-visible changes to Wayfinder, by release. Follows the spirit of
 [Keep a Changelog](https://keepachangelog.com/): user impact over implementation
 details, release history over commit history.
 
+## v0.1.5 — 2026-06-18
+
+### Added
+
+- **A read-only routing dashboard** (WF-ADR-0014). `GET /router` serves a tiny,
+  self-contained page (no CDN, no build step) showing recent routing decisions, a
+  per-model count, and scores at a glance; `GET /router/recent` is the JSON behind
+  it. Decision **metadata only** — model, score, mode, request id, timestamp —
+  never prompt text, kept in a bounded in-memory ring. It answers "is routing
+  working?" without inspecting per-request headers, and is distinct from the
+  off-path `wayfinder-router ui` operator console.
+- **`X-Wayfinder-Debug: true`** (opt-in) surfaces the routing decision in the
+  response — a `wayfinder` object in a non-streaming JSON body, or a trailing
+  `wayfinder` SSE event on a stream — for clients that render the body but hide
+  headers. The default response stays byte-clean.
+
 ## v0.1.4 — 2026-06-18
 
 ### Added
