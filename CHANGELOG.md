@@ -4,6 +4,30 @@ User-visible changes to Wayfinder, by release. Follows the spirit of
 [Keep a Changelog](https://keepachangelog.com/): user impact over implementation
 details, release history over commit history.
 
+## v0.1.4 — 2026-06-18
+
+### Added
+
+- **Streaming responses** (WF-ADR-0013). A request with `stream: true` is relayed back
+  as Server-Sent-Events so chat clients (LibreChat, Open WebUI, …) render tokens
+  progressively. The gateway now forwards asynchronously (`httpx.AsyncClient`), so
+  concurrent requests no longer block one another.
+- `wayfinder-router serve --dry-run` returns the routing decision (model, score, mode)
+  without calling any upstream — try the router with no backends configured.
+- A configurable upstream timeout via `WAYFINDER_ROUTER_TIMEOUT` or `serve --timeout`
+  (default 60s), and an optional `WAYFINDER_ROUTER_FEEDBACK_TOKEN` that gates the
+  `/v1/feedback` write behind a bearer token to prevent label-log poisoning.
+- Every response carries an `x-wayfinder-router-request-id`; routing decisions, upstream
+  errors, and config-reload failures are logged. `GET /healthz` reports `degraded` and
+  lists `missing_keys` when a configured `api_key_env` is unset.
+
+### Changed
+
+- Upstream transport failures (timeout, connection refused) now return an OpenAI-shaped
+  `wayfinder_router_upstream_error` (a `502`, or a terminal SSE error event for a stream)
+  instead of a bare `500` with a traceback. Scoring and the WF-ADR-0001/0004 boundary are
+  unchanged.
+
 ## v0.1.3 — 2026-06-18
 
 ### Added
