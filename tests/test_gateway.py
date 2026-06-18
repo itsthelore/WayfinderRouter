@@ -43,13 +43,13 @@ def client(tmp_path, monkeypatch):
     (tmp_path / "wayfinder-router.toml").write_text(CONFIG, encoding="utf-8")
     captured: dict = {}
 
-    def fake_forward(url, headers, json_body, timeout=60.0):
+    async def fake_aforward(url, headers, json_body, timeout=60.0):
         captured["url"] = url
         captured["headers"] = headers
         captured["body"] = json_body
         return 200, b'{"id": "resp-1", "object": "chat.completion"}', "application/json"
 
-    monkeypatch.setattr(gateway, "forward_request", fake_forward)
+    monkeypatch.setattr(gateway, "aforward_request", fake_aforward)
     app = gateway.build_app(start_dir=str(tmp_path))
     return TestClient(app), captured
 
@@ -95,10 +95,7 @@ def test_unconfigured_model_is_a_clear_misconfig_error(tmp_path, monkeypatch):
         'model = "llama3.2"\n',
         encoding="utf-8",
     )
-    def fake_forward(*args, **kwargs):
-        return 200, b"{}", "application/json"
-
-    monkeypatch.setattr(gateway, "forward_request", fake_forward)
+    monkeypatch.setattr(gateway, "aforward_request", _ok_aforward)
     test_client = TestClient(gateway.build_app(start_dir=str(tmp_path)))
     resp = test_client.post("/v1/chat/completions", json=COMPLEX)
     assert resp.status_code == 500
@@ -111,7 +108,13 @@ def test_response_body_is_relayed_unchanged(client):
     assert resp.json() == {"id": "resp-1", "object": "chat.completion"}
 
 
-# --- invoke_model (the onboarding/A-B caller) -------------------------------
+def test_response_carries_a_request_id(client):
+    test_client, _ = client
+    resp = test_client.post("/v1/chat/completions", json=TRIVIAL)
+    assert resp.headers.get("x-wayfinder-router-request-id")
+
+
+# --- invoke_model (the onboarding/A-B caller, synchronous) ------------------
 
 
 def test_invoke_model_returns_assistant_text_with_byo_key(monkeypatch):
@@ -140,6 +143,77 @@ def test_invoke_model_raises_on_error_status(monkeypatch):
         gateway.invoke_model(model, "hi")
 
 
+# --- streaming + upstream errors (WF-ADR-0013) ------------------------------
+
+
+def test_streaming_relays_sse_chunks(tmp_path, monkeypatch):
+    (tmp_path / "wayfinder-router.toml").write_text(CONFIG, encoding="utf-8")
+
+    async def fake_stream(url, headers, json_body, timeout=60.0):
+        yield b'data: {"choices":[{"delta":{"content":"hi"}}]}\n\n'
+        yield b"data: [DONE]\n\n"
+
+    monkeypatch.setattr(gateway, "aforward_stream", fake_stream)
+    test_client = TestClient(gateway.build_app(start_dir=str(tmp_path)))
+    resp = test_client.post(
+        "/v1/chat/completions",
+        json={"model": "auto", "stream": True, "messages": [{"role": "user", "content": "hi"}]},
+    )
+    assert resp.status_code == 200
+    assert resp.headers["content-type"].startswith("text/event-stream")
+    assert resp.headers["x-wayfinder-router-model"] == "local"
+    assert resp.headers["x-wayfinder-router-mode"] == "scored"
+    assert b'"delta"' in resp.content and b"[DONE]" in resp.content
+
+
+def test_streaming_upstream_error_becomes_a_terminal_sse_event(tmp_path, monkeypatch):
+    (tmp_path / "wayfinder-router.toml").write_text(CONFIG, encoding="utf-8")
+
+    async def boom_stream(url, headers, json_body, timeout=60.0):
+        raise gateway.UpstreamError("connection refused")
+        yield b""  # pragma: no cover - makes this an async generator
+
+    monkeypatch.setattr(gateway, "aforward_stream", boom_stream)
+    test_client = TestClient(gateway.build_app(start_dir=str(tmp_path)))
+    resp = test_client.post(
+        "/v1/chat/completions",
+        json={"model": "auto", "stream": True, "messages": [{"role": "user", "content": "hi"}]},
+    )
+    assert resp.status_code == 200  # the stream already started with a 200
+    assert b"wayfinder_router_upstream_error" in resp.content
+    assert b"[DONE]" in resp.content
+
+
+def test_non_streaming_upstream_error_is_a_502(tmp_path, monkeypatch):
+    (tmp_path / "wayfinder-router.toml").write_text(CONFIG, encoding="utf-8")
+
+    async def boom(url, headers, json_body, timeout=60.0):
+        raise gateway.UpstreamError("connection refused")
+
+    monkeypatch.setattr(gateway, "aforward_request", boom)
+    test_client = TestClient(gateway.build_app(start_dir=str(tmp_path)))
+    resp = test_client.post("/v1/chat/completions", json=TRIVIAL)
+    assert resp.status_code == 502
+    assert resp.json()["error"]["type"] == "wayfinder_router_upstream_error"
+    assert resp.headers["x-wayfinder-router-model"] == "local"
+
+
+# --- dry-run (try the router with no backends) ------------------------------
+
+
+def test_dry_run_returns_the_decision_without_an_upstream(tmp_path):
+    # No [gateway.models] at all; dry-run still reports the routing decision.
+    (tmp_path / "wayfinder-router.toml").write_text("[routing]\nthreshold = 0.2\n", encoding="utf-8")
+    test_client = TestClient(gateway.build_app(start_dir=str(tmp_path), dry_run=True))
+    resp = test_client.post("/v1/chat/completions", json=TRIVIAL)
+    assert resp.status_code == 200
+    decision = resp.json()["wayfinder"]
+    assert decision["model"] == "local"
+    assert decision["mode"] == "scored"
+    assert decision["dry_run"] is True
+    assert resp.headers["x-wayfinder-router-mode"] == "scored"
+
+
 # --- /v1/feedback (the steady-state escalate loop) --------------------------
 
 
@@ -157,6 +231,20 @@ def test_feedback_missing_fields_is_400(client):
     assert test_client.post("/v1/feedback", json={"label": "cloud"}).status_code == 400
 
 
+def test_feedback_requires_a_token_when_configured(tmp_path, monkeypatch):
+    (tmp_path / "wayfinder-router.toml").write_text(CONFIG, encoding="utf-8")
+    monkeypatch.setenv("WAYFINDER_ROUTER_FEEDBACK_TOKEN", "s3cret")
+    test_client = TestClient(gateway.build_app(start_dir=str(tmp_path)))
+    unauth = test_client.post("/v1/feedback", json={"text": "a", "label": "cloud"})
+    assert unauth.status_code == 401
+    ok = test_client.post(
+        "/v1/feedback",
+        json={"text": "a", "label": "cloud"},
+        headers={"Authorization": "Bearer s3cret"},
+    )
+    assert ok.status_code == 200
+
+
 # --- hot-reload (scheduled recalibration takes effect live) -----------------
 
 
@@ -166,7 +254,7 @@ _TWO_MODELS = (
 )
 
 
-def _ok_forward(*args, **kwargs):
+async def _ok_aforward(*args, **kwargs):
     return 200, b"{}", "application/json"
 
 
@@ -180,7 +268,7 @@ def _write_config(path, threshold):
 def test_gateway_hot_reloads_when_config_changes(tmp_path, monkeypatch):
     config = tmp_path / "wayfinder-router.toml"
     _write_config(config, 0.9)  # COMPLEX (~0.38) is below 0.9 -> local
-    monkeypatch.setattr(gateway, "forward_request", _ok_forward)
+    monkeypatch.setattr(gateway, "aforward_request", _ok_aforward)
     client = TestClient(gateway.build_app(start_dir=str(tmp_path)))
 
     first = client.post("/v1/chat/completions", json=COMPLEX)
@@ -194,7 +282,7 @@ def test_gateway_hot_reloads_when_config_changes(tmp_path, monkeypatch):
 def test_gateway_keeps_last_good_config_on_bad_write(tmp_path, monkeypatch):
     config = tmp_path / "wayfinder-router.toml"
     _write_config(config, 0.9)  # COMPLEX -> local
-    monkeypatch.setattr(gateway, "forward_request", _ok_forward)
+    monkeypatch.setattr(gateway, "aforward_request", _ok_aforward)
     client = TestClient(gateway.build_app(start_dir=str(tmp_path)))
     first = client.post("/v1/chat/completions", json=COMPLEX)
     assert first.headers["x-wayfinder-router-model"] == "local"
@@ -318,7 +406,7 @@ def test_threshold_override_rejected_for_multitier_router(tmp_path, monkeypatch)
         '[gateway.models.cloud]\nbase_url = "http://c/v1"\nmodel = "c"\n',
         encoding="utf-8",
     )
-    monkeypatch.setattr(gateway, "forward_request", _ok_forward)
+    monkeypatch.setattr(gateway, "aforward_request", _ok_aforward)
     test_client = TestClient(gateway.build_app(start_dir=str(tmp_path)))
     resp = test_client.post(
         "/v1/chat/completions", json=COMPLEX, headers={"X-Wayfinder-Threshold": "0.5"}
@@ -379,7 +467,7 @@ def test_list_models_omits_prefer_directives_for_a_classifier(tmp_path):
 def test_prefer_directive_falls_through_to_scoring_under_a_classifier(tmp_path, monkeypatch):
     # A classifier has no ordered ladder, so prefer-* is not a pin — the gateway scores.
     (tmp_path / "wayfinder-router.toml").write_text(CLASSIFIER_CONFIG, encoding="utf-8")
-    monkeypatch.setattr(gateway, "forward_request", _ok_forward)
+    monkeypatch.setattr(gateway, "aforward_request", _ok_aforward)
     test_client = TestClient(gateway.build_app(start_dir=str(tmp_path)))
     resp = test_client.post(
         "/v1/chat/completions",
