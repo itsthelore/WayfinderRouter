@@ -4,7 +4,7 @@ User-visible changes to Wayfinder, by release. Follows the spirit of
 [Keep a Changelog](https://keepachangelog.com/): user impact over implementation
 details, release history over commit history.
 
-## Unreleased
+## v0.1.2 — unreleased
 
 ### Added
 

@@ -48,7 +48,7 @@ from .feedback import read_labels, record_label
 from .onboard import OnboardSummary, run_onboarding
 from .recalibrate import RecalibrationResult, recalibrate
 
-__version__ = "0.1.1"
+__version__ = "0.1.2"
 
 __all__ = [
     "__version__",
