@@ -52,6 +52,9 @@ Issues = "https://github.com/itsthelore/wayfinder-router/issues"
 gateway = ["fastapi>=0.110", "uvicorn>=0.27", "httpx>=0.27"]
 # The local calibration/explain/configure UI (WF-ADR-0005); lazily imported.
 ui = ["fastapi>=0.110", "uvicorn>=0.27"]
+# Convenience: the gateway and the UI together — the common "route my traffic"
+# install. Self-references the two extras so it stays in sync with them.
+all = ["wayfinder-router[gateway,ui]"]
 # Test runner; includes fastapi + httpx so the gateway and UI are exercised in CI.
 dev = ["pytest>=7", "fastapi>=0.110", "httpx>=0.27"]
 
