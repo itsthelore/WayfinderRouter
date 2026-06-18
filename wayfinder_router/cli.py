@@ -154,7 +154,13 @@ def _cmd_serve(args: argparse.Namespace) -> int:
     from .gateway import GatewayUnavailable, run
 
     try:
-        run(start_dir=".", host=args.host, port=args.port)
+        run(
+            start_dir=".",
+            host=args.host,
+            port=args.port,
+            dry_run=args.dry_run,
+            timeout=args.timeout,
+        )
     except GatewayUnavailable as exc:
         print(f"wayfinder-router: {exc}", file=sys.stderr)
         return EXIT_USAGE
@@ -306,6 +312,17 @@ def build_parser() -> argparse.ArgumentParser:
     )
     p_serve.add_argument("--host", default="127.0.0.1", help="Bind host (default: 127.0.0.1).")
     p_serve.add_argument("--port", type=int, default=8088, help="Bind port (default: 8088).")
+    p_serve.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Return the routing decision without calling an upstream (no backends needed).",
+    )
+    p_serve.add_argument(
+        "--timeout",
+        type=float,
+        default=None,
+        help="Upstream request timeout in seconds (default: WAYFINDER_ROUTER_TIMEOUT or 60).",
+    )
     p_serve.set_defaults(func=_cmd_serve)
 
     p_ui = sub.add_parser(

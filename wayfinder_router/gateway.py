@@ -10,6 +10,14 @@ model name to a configured upstream, and forwards the call with the user's key.
 Keys are read from the environment at request time and never appear in
 ``wayfinder-router.toml``, in the scored path, or in any test fixture.
 
+Streaming is first-class (WF-ADR-0013): a request with ``stream: true`` is relayed
+back as a Server-Sent-Events stream so chat clients render tokens progressively.
+The forward path is async (``httpx.AsyncClient``) so concurrent requests do not
+block one another. Upstream transport failures become an OpenAI-shaped
+``wayfinder_router_upstream_error`` rather than a bare 500, every request carries
+an ``x-wayfinder-router-request-id`` for tracing, and the upstream timeout is
+configurable (``WAYFINDER_ROUTER_TIMEOUT``).
+
 A request may steer the routing decision per call without changing any
 application code, through OpenAI-compatible channels (WF-ADR-0011). This only
 moves *which threshold/decision applies*; it never adds inference, so the
@@ -23,10 +31,15 @@ WF-ADR-0001/0004 boundary holds:
 - an ``X-Wayfinder-Threshold`` header (a number in ``0.0``–``1.0``) re-decides
   the call at that binary cut, reusing the configured scoring weights.
 
+Note the score is a *structural* proxy (length, headings, lists, code, links), not
+a verdict on semantic difficulty: a short but hard prompt scores low. Calibrate the
+threshold on your own traffic (``wayfinder-router calibrate``); the default is only
+a starting point.
+
 Every response carries the decision signal: ``x-wayfinder-router-model`` (the
 chosen endpoint), ``x-wayfinder-router-score`` (the structural score, always
-computed), and ``x-wayfinder-router-mode`` (``scored`` / ``pinned`` /
-``threshold-override``).
+computed), ``x-wayfinder-router-mode`` (``scored`` / ``pinned`` /
+``threshold-override``), and ``x-wayfinder-router-request-id``.
 
 ``GET /v1/models`` advertises the selectable options — ``auto``,
 ``prefer-local`` / ``prefer-hosted`` (for a tiered router), and the configured
@@ -48,8 +61,11 @@ Config (`wayfinder-router.toml`)::
 from __future__ import annotations
 
 import json
+import logging
 import os
 import tomllib
+import uuid
+from collections.abc import AsyncIterator
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -61,11 +77,20 @@ from .feedback import DEFAULT_LOG, record_label
 if TYPE_CHECKING:  # type-only; the runtime imports these lazily inside build_app
     from fastapi import FastAPI, Response
 
+logger = logging.getLogger("wayfinder_router.gateway")
+
 _INSTALL_HINT = "the gateway needs its extra: pip install 'wayfinder-router[gateway]'"
+_TIMEOUT_ENV = "WAYFINDER_ROUTER_TIMEOUT"
+_FEEDBACK_TOKEN_ENV = "WAYFINDER_ROUTER_FEEDBACK_TOKEN"
+_DEFAULT_TIMEOUT = 60.0
 
 
 class GatewayUnavailable(Exception):
     """The gateway extra (fastapi / uvicorn / httpx) is not installed."""
+
+
+class UpstreamError(Exception):
+    """An upstream call failed at the transport level (timeout, connection)."""
 
 
 @dataclass(frozen=True)
@@ -242,11 +267,13 @@ def threshold_tiers(routing: RoutingConfig, threshold: float) -> tuple[Tier, ...
 
 
 def forward_request(
-    url: str, headers: dict[str, str], json_body: dict, timeout: float = 60.0
+    url: str, headers: dict[str, str], json_body: dict, timeout: float = _DEFAULT_TIMEOUT
 ) -> tuple[int, bytes, str]:
     """POST ``json_body`` to ``url``; return ``(status, content, content_type)``.
 
-    Isolated so tests can substitute it without a real upstream.
+    The synchronous forwarder used by :func:`invoke_model` (the onboarding A/B
+    caller, which runs outside the async server). Isolated so tests can substitute
+    it without a real upstream.
     """
     try:
         import httpx
@@ -258,7 +285,51 @@ def forward_request(
     )
 
 
-def invoke_model(model: GatewayModel, prompt: str, timeout: float = 60.0) -> str:
+async def aforward_request(
+    url: str, headers: dict[str, str], json_body: dict, timeout: float = _DEFAULT_TIMEOUT
+) -> tuple[int, bytes, str]:
+    """Async, non-streaming forward used by the server; returns the buffered reply.
+
+    Transport failures (timeout, connection refused) raise :class:`UpstreamError`
+    so the handler can return an OpenAI-shaped error instead of a bare 500.
+    Isolated so tests can substitute it without a real upstream.
+    """
+    try:
+        import httpx
+    except ImportError as exc:  # pragma: no cover - exercised only without the extra
+        raise GatewayUnavailable(_INSTALL_HINT) from exc
+    try:
+        async with httpx.AsyncClient(timeout=timeout) as client:
+            response = await client.post(url, headers=headers, json=json_body)
+    except httpx.HTTPError as exc:
+        raise UpstreamError(str(exc) or exc.__class__.__name__) from exc
+    return response.status_code, response.content, response.headers.get(
+        "content-type", "application/json"
+    )
+
+
+async def aforward_stream(
+    url: str, headers: dict[str, str], json_body: dict, timeout: float = _DEFAULT_TIMEOUT
+) -> AsyncIterator[bytes]:
+    """Async generator relaying an upstream Server-Sent-Events stream chunk by chunk.
+
+    Transport failures raise :class:`UpstreamError`, which the handler turns into a
+    terminal SSE error event. Isolated so tests can substitute it.
+    """
+    try:
+        import httpx
+    except ImportError as exc:  # pragma: no cover - exercised only without the extra
+        raise GatewayUnavailable(_INSTALL_HINT) from exc
+    try:
+        async with httpx.AsyncClient(timeout=timeout) as client:
+            async with client.stream("POST", url, headers=headers, json=json_body) as response:
+                async for chunk in response.aiter_bytes():
+                    yield chunk
+    except httpx.HTTPError as exc:
+        raise UpstreamError(str(exc) or exc.__class__.__name__) from exc
+
+
+def invoke_model(model: GatewayModel, prompt: str, timeout: float = _DEFAULT_TIMEOUT) -> str:
     """Run ``prompt`` through one upstream model and return its text (BYO key).
 
     The single-prompt call the onboarding harness uses to A/B a local vs hosted
@@ -283,13 +354,25 @@ def invoke_model(model: GatewayModel, prompt: str, timeout: float = 60.0) -> str
         raise RuntimeError(f"{model.model} returned an unexpected response shape: {exc}") from exc
 
 
+def _resolve_timeout() -> float:
+    """The upstream timeout in seconds, from ``WAYFINDER_ROUTER_TIMEOUT`` or the default."""
+    raw = os.environ.get(_TIMEOUT_ENV)
+    if raw:
+        try:
+            return float(raw)
+        except ValueError:
+            logger.warning("ignoring invalid %s=%r", _TIMEOUT_ENV, raw)
+    return _DEFAULT_TIMEOUT
+
+
 class _ConfigHolder:
     """Caches routing + gateway config, reloading when ``wayfinder-router.toml`` changes.
 
     Lets a recalibration (CLI, cron, or UI) take effect on the running gateway
     with no restart: each request checks the config file's mtime and re-reads only
     when it moved. A malformed mid-flight write keeps the last-good config (the
-    marker advances so it is not retried every request) rather than failing serving.
+    marker advances so it is not retried every request) and is logged rather than
+    failing serving silently.
     """
 
     def __init__(self, start_dir: str) -> None:
@@ -314,26 +397,63 @@ class _ConfigHolder:
             try:
                 self._routing = load_routing_config(self.start_dir)
                 self._gateway = load_gateway_config(self.start_dir)
-            except WayfinderConfigError:
-                pass  # keep last-good config; the marker advanced so we do not thrash
+            except WayfinderConfigError as exc:
+                # Keep last-good config; the marker advanced so we do not thrash.
+                logger.warning("config reload failed, keeping last-good config: %s", exc)
         return self._routing, self._gateway
 
 
-def build_app(start_dir: str = ".") -> FastAPI:
-    """Build the FastAPI gateway app; config hot-reloads on ``wayfinder-router.toml`` change."""
+def build_app(
+    start_dir: str = ".", *, dry_run: bool = False, timeout: float | None = None
+) -> FastAPI:
+    """Build the FastAPI gateway app; config hot-reloads on ``wayfinder-router.toml`` change.
+
+    ``dry_run`` makes ``/v1/chat/completions`` return the routing decision without
+    calling any upstream — try the router with no backends. ``timeout`` overrides the
+    upstream timeout (else ``WAYFINDER_ROUTER_TIMEOUT`` or 60s).
+    """
     try:
         from fastapi import Body, FastAPI, Header, Response
-        from fastapi.responses import JSONResponse
+        from fastapi.responses import JSONResponse, StreamingResponse
     except ImportError as exc:  # pragma: no cover - exercised only without the extra
         raise GatewayUnavailable(_INSTALL_HINT) from exc
 
     holder = _ConfigHolder(start_dir)
+    request_timeout = timeout if timeout is not None else _resolve_timeout()
+    feedback_token = os.environ.get(_FEEDBACK_TOKEN_ENV)
     app = FastAPI(title="wayfinder-router-gateway")
+
+    # Startup diagnostics: surface the misconfigurations that otherwise only show up
+    # as a confusing first-request failure.
+    _, gw0 = holder.current()
+    for name, model in gw0.models.items():
+        if model.api_key_env and not os.environ.get(model.api_key_env):
+            logger.warning("gateway model '%s' references unset env var %s", name, model.api_key_env)
+    if not gw0.models and not dry_run:
+        logger.warning(
+            "no [gateway.models] configured; requests will fail until you add an endpoint "
+            "(or run with --dry-run to see routing decisions without backends)"
+        )
+    if feedback_token is None:
+        logger.info(
+            "/v1/feedback is unauthenticated; set %s to require a bearer token", _FEEDBACK_TOKEN_ENV
+        )
+
+    def _missing_keys(gw: GatewayConfig) -> list[str]:
+        return sorted(
+            name
+            for name, model in gw.models.items()
+            if model.api_key_env and not os.environ.get(model.api_key_env)
+        )
 
     @app.get("/healthz")
     def healthz() -> dict:
-        _, gateway = holder.current()
-        return {"status": "ok", "models": sorted(gateway.models)}
+        _, gw = holder.current()
+        missing = _missing_keys(gw)
+        body: dict = {"status": "degraded" if missing else "ok", "models": sorted(gw.models)}
+        if missing:
+            body["missing_keys"] = missing
+        return body
 
     @app.get("/v1/models")
     def list_models() -> dict:
@@ -359,9 +479,15 @@ def build_app(start_dir: str = ".") -> FastAPI:
         }
 
     @app.post("/v1/feedback")
-    def feedback(body: dict = Body(...)) -> object:  # noqa: B008 - FastAPI default
+    def feedback(  # noqa: B008 - FastAPI default
+        body: dict = Body(...),
+        authorization: str | None = Header(default=None),
+    ) -> object:
         # Steady-state escalate loop: the caller records which model was good
-        # enough for a prompt; the label feeds the next recalibration.
+        # enough for a prompt; the label feeds the next recalibration. Writing the
+        # label log is guarded by an optional bearer token to prevent poisoning.
+        if feedback_token is not None and authorization != f"Bearer {feedback_token}":
+            return JSONResponse(status_code=401, content={"error": "unauthorized"})
         raw_text, raw_label = body.get("text"), body.get("label")
         if not isinstance(raw_text, str) or not raw_text:
             return JSONResponse(status_code=400, content={"error": "missing 'text'"})
@@ -371,16 +497,17 @@ def build_app(start_dir: str = ".") -> FastAPI:
         return {"ok": True}
 
     @app.post("/v1/chat/completions")
-    def chat_completions(  # noqa: B008 - FastAPI default
+    async def chat_completions(  # noqa: B008 - FastAPI default
         body: dict = Body(...),
         x_wayfinder_threshold: str | None = Header(default=None),
     ) -> Response:
-        routing, gateway = holder.current()
+        request_id = uuid.uuid4().hex[:12]
+        routing, gw = holder.current()
         # Score once (always reported); a per-request override only changes which
         # endpoint the score routes to, never how it is computed (WF-ADR-0011).
         decision = score_complexity(extract_prompt(body.get("messages")), config=routing)
 
-        pin = resolve_pin(body.get("model"), routing, gateway)
+        pin = resolve_pin(body.get("model"), routing, gw)
         if pin is not None:
             chosen, mode = pin, "pinned"
         else:
@@ -392,13 +519,41 @@ def build_app(start_dir: str = ".") -> FastAPI:
                 else:
                     chosen, mode = decision.recommendation, "scored"
             except BadOverride as exc:
+                logger.info("request %s rejected: %s", request_id, exc)
                 return JSONResponse(
                     status_code=400,
                     content={"error": {"message": str(exc), "type": "wayfinder_router_bad_override"}},
+                    headers={"x-wayfinder-router-request-id": request_id},
                 )
 
-        target = gateway.models.get(chosen)
+        wf_headers = {
+            "x-wayfinder-router-model": chosen,
+            "x-wayfinder-router-score": f"{decision.score:.2f}",
+            "x-wayfinder-router-mode": mode,
+            "x-wayfinder-router-request-id": request_id,
+        }
+        logger.info(
+            "request %s -> %s (score %.2f, mode %s)", request_id, chosen, decision.score, mode
+        )
+
+        if dry_run:
+            return JSONResponse(
+                status_code=200,
+                content={
+                    "wayfinder": {
+                        "model": chosen,
+                        "score": round(decision.score, 2),
+                        "mode": mode,
+                        "request_id": request_id,
+                        "dry_run": True,
+                    }
+                },
+                headers=wf_headers,
+            )
+
+        target = gw.models.get(chosen)
         if target is None:
+            logger.error("request %s: no endpoint configured for model '%s'", request_id, chosen)
             return JSONResponse(
                 status_code=500,
                 content={
@@ -407,6 +562,7 @@ def build_app(start_dir: str = ".") -> FastAPI:
                         "type": "wayfinder_router_misconfigured",
                     }
                 },
+                headers=wf_headers,
             )
         headers = {"Content-Type": "application/json"}
         if target.api_key_env:
@@ -415,27 +571,52 @@ def build_app(start_dir: str = ".") -> FastAPI:
                 headers["Authorization"] = f"Bearer {key}"
         forward_body = {**body, "model": target.model}
         url = target.base_url.rstrip("/") + "/chat/completions"
-        status, content, content_type = forward_request(url, headers, forward_body)
+
+        if body.get("stream") is True:
+
+            async def sse() -> AsyncIterator[bytes]:
+                try:
+                    async for chunk in aforward_stream(url, headers, forward_body, request_timeout):
+                        yield chunk
+                except UpstreamError as exc:
+                    logger.warning("request %s upstream stream error: %s", request_id, exc)
+                    err = json.dumps(
+                        {"error": {"message": str(exc), "type": "wayfinder_router_upstream_error"}}
+                    )
+                    yield f"data: {err}\n\n".encode()
+                    yield b"data: [DONE]\n\n"
+
+            return StreamingResponse(sse(), media_type="text/event-stream", headers=wf_headers)
+
+        try:
+            status, content, content_type = await aforward_request(
+                url, headers, forward_body, request_timeout
+            )
+        except UpstreamError as exc:
+            logger.warning("request %s upstream error: %s", request_id, exc)
+            return JSONResponse(
+                status_code=502,
+                content={"error": {"message": str(exc), "type": "wayfinder_router_upstream_error"}},
+                headers=wf_headers,
+            )
         return Response(
-            content=content,
-            status_code=status,
-            media_type=content_type,
-            headers={
-                "x-wayfinder-router-model": chosen,
-                "x-wayfinder-router-score": f"{decision.score:.2f}",
-                "x-wayfinder-router-mode": mode,
-            },
+            content=content, status_code=status, media_type=content_type, headers=wf_headers
         )
 
     return app
 
 
 def run(  # pragma: no cover
-    start_dir: str = ".", host: str = "127.0.0.1", port: int = 8088
+    start_dir: str = ".",
+    host: str = "127.0.0.1",
+    port: int = 8088,
+    *,
+    dry_run: bool = False,
+    timeout: float | None = None,
 ) -> None:
     """Serve the gateway with uvicorn (the `wayfinder-router serve` command)."""
     try:
         import uvicorn
     except ImportError as exc:
         raise GatewayUnavailable(_INSTALL_HINT) from exc
-    uvicorn.run(build_app(start_dir), host=host, port=port)
+    uvicorn.run(build_app(start_dir, dry_run=dry_run, timeout=timeout), host=host, port=port)
