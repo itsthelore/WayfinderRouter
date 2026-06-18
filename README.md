@@ -37,7 +37,7 @@ just change `base_url`. Pilot-facing one-pager: [EXPLAINER.md](EXPLAINER.md).
 2. Run the gateway:
 
    ```bash
-   pip install -e ".[gateway]"
+   pip install "wayfinder-router[gateway]"
    export OPENAI_API_KEY=sk-...
    wayfinder-router serve --port 8088
    ```
@@ -119,10 +119,10 @@ wayfinder-router route prompt.md --json
 ## Install
 
 ```bash
-pip install -e .              # the `wayfinder-router` command on PATH (zero dependencies)
-pip install -e ".[gateway]"   # plus the OpenAI-compatible routing gateway
-pip install -e ".[ui]"        # plus the local calibration/explain/configure UI
-pip install -e ".[dev]"       # plus the test runner
+pip install "wayfinder-router[gateway]"    # route traffic through the OpenAI-compatible gateway (the common case)
+pip install wayfinder-router               # core only: scorer + CLI + Python API, zero deps (you route in your own code)
+pip install "wayfinder-router[ui]"         # add the local calibration/explain/configure UI
+pip install "wayfinder-router[all]"        # gateway + UI together
 ```
 
 ## Configure routing
@@ -199,7 +199,7 @@ api_key_env = "EXAMPLE_API_KEY"   # the *name* of the env var; the secret is nev
 ```
 
 ```bash
-pip install -e ".[gateway]"
+pip install "wayfinder-router[gateway]"
 export EXAMPLE_API_KEY=...     # read at request time, only inside the gateway
 wayfinder-router serve --port 8088
 ```
@@ -318,7 +318,7 @@ For interactive tuning there's a local web UI (WF-ADR-0005) with three tabs:
   for the model calls).
 
 ```bash
-pip install -e ".[ui]"
+pip install "wayfinder-router[ui]"
 wayfinder-router ui --port 8099    # then open http://localhost:8099
 ```
 
