@@ -4,6 +4,22 @@ User-visible changes to Wayfinder, by release. Follows the spirit of
 [Keep a Changelog](https://keepachangelog.com/): user impact over implementation
 details, release history over commit history.
 
+## v0.1.1 — 2026-06-18
+
+### Added
+
+- An `all` install extra that pulls in the gateway and the UI in one step:
+  `pip install "wayfinder-router[all]"` (equivalent to `[gateway,ui]`). The
+  deterministic core stays zero-dependency (WF-ADR-0001); `all` is only a
+  convenience aggregate of the existing optional extras.
+
+### Changed
+
+- README install guidance now leads with `[gateway]` — the extra you need to
+  route traffic through the proxy — clarifies that the bare install is the
+  zero-dependency scorer/CLI/library, and documents `[all]`. Install snippets use
+  the published `pip install "wayfinder-router[...]"` form.
+
 ## v0.1.0 — 2026-06-18
 
 The first public release. **Wayfinder** is a deterministic prompt-complexity
