@@ -25,6 +25,9 @@ details, release history over commit history.
   route traffic through the proxy — clarifies that the bare install is the
   zero-dependency scorer/CLI/library, and documents `[all]`. Install snippets use
   the published `pip install "wayfinder-router[...]"` form.
+- README gains a **"Where Wayfinder sits"** section — a diagram and explanation
+  that Wayfinder is transparent middleware behind any OpenAI-compatible client
+  (e.g. Open WebUI), and that local and hosted are *backends*, not separate UIs.
 
 ## v0.1.0 — 2026-06-18
 
