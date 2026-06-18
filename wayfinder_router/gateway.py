@@ -39,7 +39,9 @@ a starting point.
 Every response carries the decision signal: ``x-wayfinder-router-model`` (the
 chosen endpoint), ``x-wayfinder-router-score`` (the structural score, always
 computed), ``x-wayfinder-router-mode`` (``scored`` / ``pinned`` /
-``threshold-override``), and ``x-wayfinder-router-request-id``.
+``threshold-override``), and ``x-wayfinder-router-request-id``. ``GET /router`` shows
+recent decisions at a glance and ``X-Wayfinder-Debug: true`` surfaces the decision in
+the response body (WF-ADR-0014).
 
 ``GET /v1/models`` advertises the selectable options — ``auto``,
 ``prefer-local`` / ``prefer-hosted`` (for a tiered router), and the configured
@@ -63,8 +65,10 @@ from __future__ import annotations
 import json
 import logging
 import os
+import time
 import tomllib
 import uuid
+from collections import deque
 from collections.abc import AsyncIterator
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -83,6 +87,39 @@ _INSTALL_HINT = "the gateway needs its extra: pip install 'wayfinder-router[gate
 _TIMEOUT_ENV = "WAYFINDER_ROUTER_TIMEOUT"
 _FEEDBACK_TOKEN_ENV = "WAYFINDER_ROUTER_FEEDBACK_TOKEN"
 _DEFAULT_TIMEOUT = 60.0
+_RECENT_MAX = 200  # routing decisions kept in memory for the /router view (metadata only)
+
+# A tiny, self-contained "is routing working?" dashboard (WF-ADR-0014). No CDN, no
+# build step, no prompt text — it polls /router/recent (decision metadata only).
+_DASHBOARD_HTML = """<!doctype html><html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Wayfinder routing</title><style>
+body{font:14px ui-sans-serif,system-ui,sans-serif;margin:2rem;color:#1b1f1d;background:#f4efe6}
+h1{font-size:1.1rem;margin:0 0 .25rem}#counts{color:#5c635f;margin-bottom:1rem}
+table{border-collapse:collapse;width:100%}th,td{text-align:left;padding:.35rem .6rem;border-bottom:1px solid #ddd4c4}
+th{font-size:.7rem;text-transform:uppercase;letter-spacing:.04em;color:#5c635f}
+td{font-variant-numeric:tabular-nums}code{font-family:ui-monospace,monospace;color:#0c655d}
+.pill{display:inline-block;padding:.05rem .55rem;border-radius:999px;background:#d8ede9;color:#0c655d;font-size:.8rem}
+@media(prefers-color-scheme:dark){body{background:#0e1614;color:#eef2ee}th,#counts{color:#9aa6a0}
+td,th{border-color:#28332f}code{color:#46c8b9}.pill{background:#142e2a;color:#46c8b9}}
+</style></head><body>
+<h1>Wayfinder routing <span id="total" class="pill">…</span></h1>
+<div id="counts"></div>
+<table><thead><tr><th>when</th><th>model</th><th>score</th><th>mode</th><th>request id</th></tr></thead>
+<tbody id="rows"></tbody></table>
+<script>
+async function tick(){
+  try{
+    const d=await (await fetch('/router/recent?limit=50')).json();
+    total.textContent=d.total+' routed';
+    counts.textContent=Object.entries(d.by_model).map(([k,v])=>k+': '+v).join('  ·  ');
+    rows.innerHTML=d.recent.map(x=>`<tr><td>${new Date(x.ts*1000).toLocaleTimeString()}</td>`+
+      `<td>${x.model}</td><td>${x.score.toFixed(2)}</td><td>${x.mode}</td>`+
+      `<td><code>${x.request_id}</code></td></tr>`).join('');
+  }catch(e){counts.textContent='gateway unreachable';}
+}
+tick();setInterval(tick,2000);
+</script></body></html>"""
 
 
 class GatewayUnavailable(Exception):
@@ -414,13 +451,14 @@ def build_app(
     """
     try:
         from fastapi import Body, FastAPI, Header, Response
-        from fastapi.responses import JSONResponse, StreamingResponse
+        from fastapi.responses import HTMLResponse, JSONResponse, StreamingResponse
     except ImportError as exc:  # pragma: no cover - exercised only without the extra
         raise GatewayUnavailable(_INSTALL_HINT) from exc
 
     holder = _ConfigHolder(start_dir)
     request_timeout = timeout if timeout is not None else _resolve_timeout()
     feedback_token = os.environ.get(_FEEDBACK_TOKEN_ENV)
+    recent: deque[dict] = deque(maxlen=_RECENT_MAX)  # decision metadata only, no prompt text
     app = FastAPI(title="wayfinder-router-gateway")
 
     # Startup diagnostics: surface the misconfigurations that otherwise only show up
@@ -478,6 +516,26 @@ def build_app(
             ],
         }
 
+    @app.get("/router/recent")
+    def router_recent(limit: int = 50) -> dict:
+        """Read-only view of recent routing decisions (WF-ADR-0014).
+
+        Metadata only — model, score, mode, request id, timestamp — never prompt
+        text. The visibility half of the control surface: see *that* routing is
+        happening and where, without inspecting per-request headers. Pure and offline.
+        """
+        items = list(recent)
+        by_model: dict[str, int] = {}
+        for entry in items:
+            by_model[entry["model"]] = by_model.get(entry["model"], 0) + 1
+        clamped = max(1, min(limit, _RECENT_MAX))
+        return {"total": len(items), "by_model": by_model, "recent": items[-clamped:][::-1]}
+
+    @app.get("/router", response_class=HTMLResponse)
+    def router_dashboard() -> str:
+        """A tiny self-contained dashboard that polls /router/recent."""
+        return _DASHBOARD_HTML
+
     @app.post("/v1/feedback")
     def feedback(  # noqa: B008 - FastAPI default
         body: dict = Body(...),
@@ -500,6 +558,7 @@ def build_app(
     async def chat_completions(  # noqa: B008 - FastAPI default
         body: dict = Body(...),
         x_wayfinder_threshold: str | None = Header(default=None),
+        x_wayfinder_debug: str | None = Header(default=None),
     ) -> Response:
         request_id = uuid.uuid4().hex[:12]
         routing, gw = holder.current()
@@ -535,6 +594,18 @@ def build_app(
         logger.info(
             "request %s -> %s (score %.2f, mode %s)", request_id, chosen, decision.score, mode
         )
+        recent.append(
+            {
+                "request_id": request_id,
+                "model": chosen,
+                "score": round(decision.score, 2),
+                "mode": mode,
+                "ts": time.time(),
+            }
+        )
+        # Opt-in: surface the decision in the response so a client can show it
+        # (default stays byte-clean for strict clients). The headers always carry it.
+        debug = (x_wayfinder_debug or "").strip().lower() in ("1", "true", "yes")
 
         if dry_run:
             return JSONResponse(
@@ -578,6 +649,16 @@ def build_app(
                 try:
                     async for chunk in aforward_stream(url, headers, forward_body, request_timeout):
                         yield chunk
+                    if debug:
+                        meta = json.dumps(
+                            {
+                                "model": chosen,
+                                "score": round(decision.score, 2),
+                                "mode": mode,
+                                "request_id": request_id,
+                            }
+                        )
+                        yield f"event: wayfinder\ndata: {meta}\n\n".encode()
                 except UpstreamError as exc:
                     logger.warning("request %s upstream stream error: %s", request_id, exc)
                     err = json.dumps(
@@ -599,6 +680,19 @@ def build_app(
                 content={"error": {"message": str(exc), "type": "wayfinder_router_upstream_error"}},
                 headers=wf_headers,
             )
+        if debug and content and "json" in content_type:
+            try:
+                data = json.loads(content)
+            except json.JSONDecodeError:
+                data = None
+            if isinstance(data, dict):
+                data["wayfinder"] = {
+                    "model": chosen,
+                    "score": round(decision.score, 2),
+                    "mode": mode,
+                    "request_id": request_id,
+                }
+                content = json.dumps(data).encode()
         return Response(
             content=content, status_code=status, media_type=content_type, headers=wf_headers
         )
