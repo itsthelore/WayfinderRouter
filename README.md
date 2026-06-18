@@ -313,6 +313,27 @@ See [`examples/`](examples/) for both recipes. A live per-conversation *threshol
 slider* is the one thing a stock UI can't express — that's what the `wayfinder-chat`
 fork adds (WF-ADR-0010); this is the no-fork path that proves it out first.
 
+## Seeing routing (is it working?)
+
+Wayfinder's control surface is distributed across the tools you already run, so it's
+easy to *not notice* it working. Four places show or steer routing:
+
+- **The model dropdown** in your client is the routing-mode picker (`auto` /
+  `prefer-local` / `prefer-hosted` / a pinned endpoint), auto-populated from
+  `GET /v1/models`.
+- **Response headers** — `x-wayfinder-router-model` / `-score` / `-mode` /
+  `-request-id` — say where each request went and why.
+- **`X-Wayfinder-Debug: true`** (opt-in) surfaces the decision *in the response body*
+  (a `wayfinder` object), for clients that render JSON but hide headers. The default
+  response stays byte-clean.
+- **A read-only dashboard** at `http://localhost:8088/router` (JSON at
+  `/router/recent`) shows the last decisions, a per-model count, and scores at a
+  glance — metadata only, never prompt text. It's distinct from the
+  `wayfinder-router ui` operator console, which is off the traffic path (WF-ADR-0014).
+
+The threshold header is the one fine control no stock client exposes; a
+per-conversation slider is what the `wayfinder-chat` fork (WF-ADR-0010) adds.
+
 ## Learn from feedback (onboarding)
 
 Don't guess the cut — *learn* it from your own judgment of local vs hosted output
@@ -404,6 +425,8 @@ and config-reload failures are logged. Tunables (env or flags):
 - `serve --dry-run` — return routing decisions without calling any upstream.
 - `GET /healthz` reports `degraded` and lists `missing_keys` when a configured
   `api_key_env` is unset.
+- `GET /router` is a read-only dashboard of recent decisions; `X-Wayfinder-Debug: true`
+  surfaces the decision in the response body (WF-ADR-0014).
 
 ## Explain & tune
 
