@@ -4,15 +4,30 @@ User-visible changes to Wayfinder, by release. Follows the spirit of
 [Keep a Changelog](https://keepachangelog.com/): user impact over implementation
 details, release history over commit history.
 
-## Unreleased
+## v0.1.3 — 2026-06-18
 
 ### Added
 
+- The gateway serves **`GET /v1/models`**, an OpenAI-compatible discovery list of
+  the selectable routing options — `auto`, `prefer-local` / `prefer-hosted` (for a
+  tiered/binary router), and each configured `[gateway.models]` endpoint. Any
+  OpenAI-compatible client now auto-populates its model dropdown with the routing
+  modes, so no hand-written model list is needed. Like `/healthz` it reads config
+  only — no key, no model call, no network (WF-ADR-0012).
 - Integration examples under `examples/` for putting a chat UI in front of the
   gateway with no fork: a LibreChat custom-endpoint config (`librechat.yaml`) and a
   Compose override that runs the gateway as a LibreChat sidecar, plus Open WebUI
-  connection notes. All lean on the v0.1.2 per-request override (WF-ADR-0011) so a
-  UI's model dropdown becomes a per-conversation routing-mode picker. Docs only.
+  connection notes. They lean on the per-request override (WF-ADR-0011) so a UI's
+  model dropdown becomes a per-conversation routing-mode picker.
+
+### Changed
+
+- The high-end routing directive is now **`prefer-hosted`** (was `prefer-cloud`),
+  matching the local/hosted language used elsewhere and because the high end of a
+  router is not always literally "cloud". `prefer-cloud` keeps working as a silent
+  back-compat alias. `prefer-local` / `prefer-hosted` apply to a tiered/binary
+  router; under a classifier (which has no ordered ladder) they now fall through to
+  scoring rather than pinning (WF-ADR-0011 amendment).
 
 ## v0.1.2 — 2026-06-18
 
