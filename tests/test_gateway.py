@@ -248,6 +248,7 @@ def test_prefer_local_pins_low_end(client):
 
 
 def test_prefer_cloud_pins_high_end(client, monkeypatch):
+    # prefer-cloud is the v0.1.2 name, kept as a silent back-compat alias of prefer-hosted.
     test_client, captured = client
     monkeypatch.setenv("EXAMPLE_API_KEY", "sekret")
     resp = test_client.post(
@@ -324,3 +325,65 @@ def test_threshold_override_rejected_for_multitier_router(tmp_path, monkeypatch)
     )
     assert resp.status_code == 400
     assert resp.json()["error"]["type"] == "wayfinder_router_bad_override"
+
+
+def test_prefer_hosted_pins_high_end(client, monkeypatch):
+    # prefer-hosted is the canonical high-end directive (v0.1.3+); a trivial prompt
+    # that would score local is pinned to the high end instead.
+    test_client, captured = client
+    monkeypatch.setenv("EXAMPLE_API_KEY", "sekret")
+    resp = test_client.post(
+        "/v1/chat/completions",
+        json={"model": "prefer-hosted", "messages": [{"role": "user", "content": "hi"}]},
+    )
+    assert resp.headers["x-wayfinder-router-model"] == "cloud"
+    assert resp.headers["x-wayfinder-router-mode"] == "pinned"
+
+
+# --- model discovery (/v1/models, WF-ADR-0012) ------------------------------
+
+
+CLASSIFIER_CONFIG = (
+    "[routing.classifier]\n"
+    'models = ["local", "cloud"]\n'
+    "intercepts = [0.0, 0.0]\n\n"
+    "[routing.classifier.weights]\n"
+    "word_count = [0.0, 1.0]\n\n"
+    '[gateway.models.local]\nbase_url = "http://l/v1"\nmodel = "l"\n\n'
+    '[gateway.models.cloud]\nbase_url = "http://c/v1"\nmodel = "c"\n'
+)
+
+
+def test_list_models_advertises_directives_and_endpoints(client):
+    test_client, _ = client
+    resp = test_client.get("/v1/models")
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["object"] == "list"
+    ids = [m["id"] for m in body["data"]]
+    # auto + the prefer-* directives (binary router) + each configured endpoint.
+    assert ids == ["auto", "prefer-local", "prefer-hosted", "local", "cloud"]
+    assert all(m["object"] == "model" and m["owned_by"] == "wayfinder" for m in body["data"])
+    # The renamed-away v0.1.2 name is not advertised (it still resolves, as an alias).
+    assert "prefer-cloud" not in ids
+
+
+def test_list_models_omits_prefer_directives_for_a_classifier(tmp_path):
+    (tmp_path / "wayfinder-router.toml").write_text(CLASSIFIER_CONFIG, encoding="utf-8")
+    test_client = TestClient(gateway.build_app(start_dir=str(tmp_path)))
+    ids = [m["id"] for m in test_client.get("/v1/models").json()["data"]]
+    assert ids == ["auto", "local", "cloud"]
+    assert "prefer-local" not in ids and "prefer-hosted" not in ids
+
+
+def test_prefer_directive_falls_through_to_scoring_under_a_classifier(tmp_path, monkeypatch):
+    # A classifier has no ordered ladder, so prefer-* is not a pin — the gateway scores.
+    (tmp_path / "wayfinder-router.toml").write_text(CLASSIFIER_CONFIG, encoding="utf-8")
+    monkeypatch.setattr(gateway, "forward_request", _ok_forward)
+    test_client = TestClient(gateway.build_app(start_dir=str(tmp_path)))
+    resp = test_client.post(
+        "/v1/chat/completions",
+        json={"model": "prefer-hosted", "messages": [{"role": "user", "content": "hi"}]},
+    )
+    assert resp.status_code == 200
+    assert resp.headers["x-wayfinder-router-mode"] == "scored"
