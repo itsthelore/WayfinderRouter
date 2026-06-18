@@ -23,15 +23,15 @@ endpoints:
       # on Linux add extra_hosts: ["host.docker.internal:host-gateway"] to the api
       # service).
       baseURL: "http://wayfinder:8088/v1"
-      # The gateway has no /v1/models endpoint, so declare the list rather than
-      # fetch it. Each id is a routing directive, not a concrete model name:
-      #   auto          score the prompt and decide (the default boundary)
-      #   prefer-local  pin to the low end of the router
-      #   prefer-cloud  pin to the high end of the router
-      #   <endpoint>    pin to a configured [gateway.models.<name>] (edit to match)
+      # The gateway serves /v1/models (WF-ADR-0012), so let LibreChat fetch the
+      # routing options instead of hand-listing them. They are routing directives,
+      # not concrete model names:
+      #   auto           score the prompt and decide (the default boundary)
+      #   prefer-local   pin to the low end of the router
+      #   prefer-hosted  pin to the high end of the router
+      #   <endpoint>     a configured [gateway.models.<name>]
       models:
-        default: ["auto", "prefer-local", "prefer-cloud", "local", "cloud"]
-        fetch: false
+        fetch: true
       modelDisplayLabel: "Wayfinder"
       titleConvo: true
       titleModel: "auto"
