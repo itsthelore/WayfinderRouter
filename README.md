@@ -67,6 +67,17 @@ curl -s -D - -o /dev/null http://localhost:8088/v1/chat/completions \
 # x-wayfinder-router-score: 0.00
 ```
 
+> **Try it in 30 seconds, no backends.** `wayfinder-router serve --dry-run` answers
+> `/v1/chat/completions` with the routing *decision* (model, score, mode) instead of
+> calling an upstream — point a client at it to feel the routing before wiring real models.
+>
+> **What's next:** `wayfinder-router route prompt.md --explain` shows *why* a prompt scored
+> where it did; `wayfinder-router ui` opens the tuning console; then collect a handful of
+> local-vs-hosted judgments and `wayfinder-router calibrate` to fit the cut to your traffic.
+> The default threshold is only a starting point — the score is a **structural proxy**
+> (length, headings, lists, code), not a verdict on semantic difficulty, so a short hard
+> prompt scores low. Calibration is what makes it yours.
+
 ## Where Wayfinder sits
 
 Wayfinder ships **no end-user interface** — it is middleware that sits *behind*
@@ -379,6 +390,20 @@ fetch("http://localhost:8088/v1/feedback", {
 **Schedule recalibration** with cron / a k8s CronJob (or `docker compose run --rm
 recalibrate`); the gateway hot-reloads the result. Keys always come from the
 environment (each model's `api_key_env`) — never the image or the config file.
+
+**Production behaviour (WF-ADR-0013).** The gateway forwards asynchronously and
+**streams**: a request with `stream: true` is relayed back as Server-Sent-Events so
+chat clients render tokens progressively. An upstream timeout or connection failure
+returns an OpenAI-shaped `wayfinder_router_upstream_error` (not a bare 500), every
+response carries an `x-wayfinder-router-request-id` for tracing, and routing decisions
+and config-reload failures are logged. Tunables (env or flags):
+
+- `WAYFINDER_ROUTER_TIMEOUT` / `serve --timeout` — upstream timeout in seconds (default 60).
+- `WAYFINDER_ROUTER_FEEDBACK_TOKEN` — when set, `/v1/feedback` requires
+  `Authorization: Bearer <token>` (otherwise the label log is an open write).
+- `serve --dry-run` — return routing decisions without calling any upstream.
+- `GET /healthz` reports `degraded` and lists `missing_keys` when a configured
+  `api_key_env` is unset.
 
 ## Explain & tune
 
