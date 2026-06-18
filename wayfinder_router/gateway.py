@@ -17,8 +17,9 @@ WF-ADR-0001/0004 boundary holds:
 
 - the OpenAI ``model`` field is a routing directive — ``auto`` (or any
   unrecognized value) scores per config, an exact configured endpoint name
-  pins the call to that endpoint, and ``prefer-local`` / ``prefer-cloud`` pin
-  to the low / high end of the configured router;
+  pins the call to that endpoint, and ``prefer-local`` / ``prefer-hosted`` pin
+  to the low / high end of the configured router (``prefer-cloud`` is a
+  back-compat alias of ``prefer-hosted``);
 - an ``X-Wayfinder-Threshold`` header (a number in ``0.0``–``1.0``) re-decides
   the call at that binary cut, reusing the configured scoring weights.
 
@@ -26,6 +27,11 @@ Every response carries the decision signal: ``x-wayfinder-router-model`` (the
 chosen endpoint), ``x-wayfinder-router-score`` (the structural score, always
 computed), and ``x-wayfinder-router-mode`` (``scored`` / ``pinned`` /
 ``threshold-override``).
+
+``GET /v1/models`` advertises the selectable options — ``auto``,
+``prefer-local`` / ``prefer-hosted`` (for a tiered router), and the configured
+endpoint names — so a client discovers them without a hand-written list
+(WF-ADR-0012).
 
 Config (`wayfinder-router.toml`)::
 
@@ -169,7 +175,8 @@ def extract_prompt(messages: object) -> str:
 THRESHOLD_HEADER = "x-wayfinder-threshold"
 _AUTO = "auto"  # the OpenAI `model` sentinel meaning "Wayfinder decides"
 _PREFER_LOW = "prefer-local"
-_PREFER_HIGH = "prefer-cloud"
+_PREFER_HIGH = "prefer-hosted"  # canonical high-end directive (v0.1.3+)
+_PREFER_HIGH_ALIASES = ("prefer-cloud",)  # back-compat: shipped in v0.1.2, still resolves
 
 
 class BadOverride(Exception):
@@ -180,20 +187,24 @@ def resolve_pin(model_field: object, routing: RoutingConfig, gateway: GatewayCon
     """Resolve an explicit endpoint pin from the OpenAI ``model`` field, or ``None``.
 
     ``auto``, an empty value, or any string that is neither a configured endpoint
-    name nor a ``prefer-*`` alias returns ``None`` — the request asks Wayfinder to
-    score and decide (kept tolerant so ordinary OpenAI ``model`` ids pass through).
-    ``prefer-local`` / ``prefer-cloud`` resolve to the low / high end of the
-    configured router (the first / last tier's model).
+    name nor a ``prefer-*`` directive returns ``None`` — the request asks Wayfinder
+    to score and decide (kept tolerant so ordinary OpenAI ``model`` ids pass
+    through). ``prefer-local`` / ``prefer-hosted`` resolve to the low / high end of
+    the configured router (its first / last tier's model); ``prefer-cloud`` is a
+    back-compat alias of ``prefer-hosted``. They apply only to a tiered/binary
+    router — a classifier has no ordered ladder, so ``prefer-*`` falls through to
+    scoring there.
     """
     if not isinstance(model_field, str):
         return None
     name = model_field.strip()
     if not name or name == _AUTO:
         return None
-    if name == _PREFER_LOW:
-        return routing.tiers[0].model if routing.tiers else None
-    if name == _PREFER_HIGH:
-        return routing.tiers[-1].model if routing.tiers else None
+    if routing.classifier is None and routing.tiers:
+        if name == _PREFER_LOW:
+            return routing.tiers[0].model
+        if name == _PREFER_HIGH or name in _PREFER_HIGH_ALIASES:
+            return routing.tiers[-1].model
     return name if name in gateway.models else None
 
 
@@ -323,6 +334,29 @@ def build_app(start_dir: str = ".") -> FastAPI:
     def healthz() -> dict:
         _, gateway = holder.current()
         return {"status": "ok", "models": sorted(gateway.models)}
+
+    @app.get("/v1/models")
+    def list_models() -> dict:
+        """Advertise the selectable routing options as an OpenAI-compatible list.
+
+        Pure and offline like ``/healthz``: reads the current config only — no key,
+        no model call, no network — so any OpenAI client auto-populates its model
+        dropdown with the routing directives and configured endpoints instead of a
+        hand-written list (WF-ADR-0012). ``prefer-*`` appears only for a
+        tiered/binary router; a classifier has no ordered ladder to lean on.
+        """
+        routing, gw = holder.current()
+        ids = [_AUTO]
+        if routing.classifier is None and routing.tiers:
+            ids += [_PREFER_LOW, _PREFER_HIGH]
+        ids += list(gw.models)
+        return {
+            "object": "list",
+            "data": [
+                {"id": mid, "object": "model", "created": 0, "owned_by": "wayfinder"}
+                for mid in ids
+            ],
+        }
 
     @app.post("/v1/feedback")
     def feedback(body: dict = Body(...)) -> object:  # noqa: B008 - FastAPI default
