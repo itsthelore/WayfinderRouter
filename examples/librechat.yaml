@@ -1,0 +1,42 @@
+# Wayfinder Router as a custom OpenAI-compatible endpoint in LibreChat.
+#
+# Drop this in your LibreChat checkout as ./librechat.yaml (LibreChat auto-loads it).
+# It turns LibreChat's model dropdown into a Wayfinder routing-mode picker: each
+# entry below is sent as the OpenAI `model` field, which the gateway reads as a
+# per-request routing directive (WF-ADR-0011).
+#
+# Pair it with examples/docker-compose.override.yml to run the gateway alongside
+# LibreChat, or point baseURL at a gateway you run yourself.
+
+version: 1.2.1
+cache: true
+
+endpoints:
+  custom:
+    - name: "Wayfinder"
+      # The gateway never checks an inbound key (it injects its own upstream key
+      # from each model's api_key_env). LibreChat just requires the field to be
+      # set — any placeholder works.
+      apiKey: "wayfinder-noop"
+      # The `wayfinder` service from docker-compose.override.yml. If you instead
+      # run the gateway on your host, use http://host.docker.internal:8088/v1 (and
+      # on Linux add extra_hosts: ["host.docker.internal:host-gateway"] to the api
+      # service).
+      baseURL: "http://wayfinder:8088/v1"
+      # The gateway has no /v1/models endpoint, so declare the list rather than
+      # fetch it. Each id is a routing directive, not a concrete model name:
+      #   auto          score the prompt and decide (the default boundary)
+      #   prefer-local  pin to the low end of the router
+      #   prefer-cloud  pin to the high end of the router
+      #   <endpoint>    pin to a configured [gateway.models.<name>] (edit to match)
+      models:
+        default: ["auto", "prefer-local", "prefer-cloud", "local", "cloud"]
+        fetch: false
+      modelDisplayLabel: "Wayfinder"
+      titleConvo: true
+      titleModel: "auto"
+      # A static threshold for every request through this endpoint (optional). A
+      # per-conversation slider is what the wayfinder-chat fork adds (WF-ADR-0010);
+      # stock LibreChat can only set one fixed value here.
+      # headers:
+      #   X-Wayfinder-Threshold: "0.7"

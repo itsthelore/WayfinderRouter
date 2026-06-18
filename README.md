@@ -284,6 +284,23 @@ Each response adds `x-wayfinder-router-mode` (`scored` / `pinned` /
 `threshold-override`) alongside the `x-wayfinder-router-model` / `-score` headers,
 so you can see which channel decided the route.
 
+## Use it from a chat UI (no fork)
+
+Because the `model` field is a routing directive (above), any OpenAI-compatible
+**chat UI** can drive routing with no code change: list the directives as selectable
+models and the app's normal model dropdown becomes a per-conversation routing-mode
+picker (`auto` / `prefer-local` / `prefer-cloud` / a pinned endpoint).
+
+- **LibreChat** — copy [`examples/librechat.yaml`](examples/librechat.yaml) and
+  [`examples/docker-compose.override.yml`](examples/docker-compose.override.yml)
+  into your LibreChat checkout and `docker compose up`; pick the "Wayfinder" endpoint.
+- **Open WebUI** — add an OpenAI connection pointing at the gateway and list the
+  directives in the connection's **Model IDs** field (it can't fetch `/v1/models`).
+
+See [`examples/`](examples/) for both recipes. A live per-conversation *threshold
+slider* is the one thing a stock UI can't express — that's what the `wayfinder-chat`
+fork adds (WF-ADR-0010); this is the no-fork path that proves it out first.
+
 ## Learn from feedback (onboarding)
 
 Don't guess the cut — *learn* it from your own judgment of local vs hosted output

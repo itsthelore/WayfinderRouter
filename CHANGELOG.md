@@ -4,6 +4,16 @@ User-visible changes to Wayfinder, by release. Follows the spirit of
 [Keep a Changelog](https://keepachangelog.com/): user impact over implementation
 details, release history over commit history.
 
+## Unreleased
+
+### Added
+
+- Integration examples under `examples/` for putting a chat UI in front of the
+  gateway with no fork: a LibreChat custom-endpoint config (`librechat.yaml`) and a
+  Compose override that runs the gateway as a LibreChat sidecar, plus Open WebUI
+  connection notes. All lean on the v0.1.2 per-request override (WF-ADR-0011) so a
+  UI's model dropdown becomes a per-conversation routing-mode picker. Docs only.
+
 ## v0.1.2 — 2026-06-18
 
 ### Added
