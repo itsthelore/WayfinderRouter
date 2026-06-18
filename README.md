@@ -51,6 +51,9 @@ just change `base_url`. Pilot-facing one-pager: [EXPLAINER.md](EXPLAINER.md).
 
 Easy prompts go to local, hard ones to cloud; each response carries
 `x-wayfinder-router-model` and `x-wayfinder-router-score` so you can see the routing.
+Need to steer one request? A client can pin it (`model="cloud"` /
+`prefer-local`) or move the cut per call (an `X-Wayfinder-Threshold` header) —
+see [Steer a single request](#steer-a-single-request-override).
 
 **Check it's working** (the headers show where each request went):
 
@@ -252,6 +255,34 @@ The gateway is the **only** part that touches keys or the network; the scorer,
 config, and calibrator stay pure, offline, and deterministic. Keys are read from
 the environment at request time and never enter `wayfinder-router.toml` or the scored
 path.
+
+### Steer a single request (override)
+
+The deployment's `wayfinder-router.toml` sets the default boundary, but a client
+can override the decision for one request — no application change, plain
+OpenAI-compatible transport (WF-ADR-0011). An override only changes *where* the
+request is forwarded; the prompt is still scored deterministically, and no
+override adds a model call.
+
+- **The `model` field is a routing directive.** `auto` (or any ordinary model id)
+  lets Wayfinder decide; a configured endpoint name (`local`, `cloud`, …) **pins**
+  the request to that endpoint; `prefer-local` / `prefer-cloud` pin to the low /
+  high end of your router.
+- **An `X-Wayfinder-Threshold` header re-cuts the decision** for that request — a
+  number in `0.0`–`1.0`, reusing your configured weights (binary routers only).
+
+```python
+# Pin one call to cloud regardless of score:
+client.chat.completions.create(model="cloud", messages=[...])
+# Or move the cut for one call (keep model="auto"):
+client.chat.completions.create(
+    model="auto", messages=[...], extra_headers={"X-Wayfinder-Threshold": "0.8"}
+)
+```
+
+Each response adds `x-wayfinder-router-mode` (`scored` / `pinned` /
+`threshold-override`) alongside the `x-wayfinder-router-model` / `-score` headers,
+so you can see which channel decided the route.
 
 ## Learn from feedback (onboarding)
 

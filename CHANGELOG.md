@@ -4,6 +4,22 @@ User-visible changes to Wayfinder, by release. Follows the spirit of
 [Keep a Changelog](https://keepachangelog.com/): user impact over implementation
 details, release history over commit history.
 
+## Unreleased
+
+### Added
+
+- The gateway accepts a **per-request routing override** so a client can steer a
+  single call without changing the deployment's `wayfinder-router.toml`
+  (WF-ADR-0011). The OpenAI `model` field is a routing directive — `auto` (or any
+  ordinary model id) scores per config, a configured endpoint name pins the call
+  to that endpoint, and `prefer-local` / `prefer-cloud` pin to the low / high end
+  of the router — and an `X-Wayfinder-Threshold` header (a number in `0.0`–`1.0`)
+  re-cuts a binary router for that one request. Responses gain an
+  `x-wayfinder-router-mode` header (`scored` / `pinned` / `threshold-override`)
+  alongside the existing `-model` / `-score` headers. The override only changes
+  which endpoint a request routes to; scoring stays deterministic and key-free
+  (WF-ADR-0001/0004).
+
 ## v0.1.1 — 2026-06-18
 
 ### Added
