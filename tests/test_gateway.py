@@ -205,3 +205,122 @@ def test_gateway_keeps_last_good_config_on_bad_write(tmp_path, monkeypatch):
     # Serving continues on the last-good config instead of failing.
     again = client.post("/v1/chat/completions", json=COMPLEX)
     assert again.headers["x-wayfinder-router-model"] == "local"
+
+
+# --- per-request routing override (WF-ADR-0011) -----------------------------
+
+
+def test_scored_default_reports_mode(client):
+    # With no override the gateway scores and decides, and says so in the signal.
+    test_client, _ = client
+    resp = test_client.post("/v1/chat/completions", json=TRIVIAL)
+    assert resp.headers["x-wayfinder-router-model"] == "local"
+    assert resp.headers["x-wayfinder-router-mode"] == "scored"
+
+
+def test_model_field_pins_to_configured_endpoint(client, monkeypatch):
+    # A trivial prompt scores ~0 (would route local) but the request pins "cloud".
+    test_client, captured = client
+    monkeypatch.setenv("EXAMPLE_API_KEY", "sekret")
+    resp = test_client.post(
+        "/v1/chat/completions",
+        json={"model": "cloud", "messages": [{"role": "user", "content": "hi"}]},
+    )
+    assert resp.status_code == 200
+    assert resp.headers["x-wayfinder-router-model"] == "cloud"
+    assert resp.headers["x-wayfinder-router-mode"] == "pinned"
+    # The structural score is still computed and reported even when pinned.
+    assert resp.headers["x-wayfinder-router-score"] == "0.00"
+    assert captured["url"] == "https://api.example.com/v1/chat/completions"
+    assert captured["body"]["model"] == "big-model"
+
+
+def test_prefer_local_pins_low_end(client):
+    # A complex prompt would route cloud; prefer-local pins it to the low end.
+    test_client, captured = client
+    resp = test_client.post(
+        "/v1/chat/completions",
+        json={"model": "prefer-local", "messages": [{"role": "user", "content": COMPLEX_TEXT}]},
+    )
+    assert resp.headers["x-wayfinder-router-model"] == "local"
+    assert resp.headers["x-wayfinder-router-mode"] == "pinned"
+    assert captured["body"]["model"] == "llama3.2"
+
+
+def test_prefer_cloud_pins_high_end(client, monkeypatch):
+    test_client, captured = client
+    monkeypatch.setenv("EXAMPLE_API_KEY", "sekret")
+    resp = test_client.post(
+        "/v1/chat/completions",
+        json={"model": "prefer-cloud", "messages": [{"role": "user", "content": "hi"}]},
+    )
+    assert resp.headers["x-wayfinder-router-model"] == "cloud"
+    assert resp.headers["x-wayfinder-router-mode"] == "pinned"
+
+
+def test_unknown_model_id_falls_through_to_scoring(client):
+    # An ordinary OpenAI model id is not a directive; the gateway scores as usual.
+    test_client, _ = client
+    resp = test_client.post(
+        "/v1/chat/completions",
+        json={"model": "gpt-4o", "messages": [{"role": "user", "content": "hi"}]},
+    )
+    assert resp.headers["x-wayfinder-router-mode"] == "scored"
+    assert resp.headers["x-wayfinder-router-model"] == "local"
+
+
+def test_threshold_header_overrides_the_cut(client):
+    # COMPLEX scores ~0.38; the configured cut (0.2) routes cloud, but a per-request
+    # threshold of 0.9 moves the boundary above the score and routes local instead.
+    test_client, _ = client
+    resp = test_client.post(
+        "/v1/chat/completions", json=COMPLEX, headers={"X-Wayfinder-Threshold": "0.9"}
+    )
+    assert resp.status_code == 200
+    assert resp.headers["x-wayfinder-router-model"] == "local"
+    assert resp.headers["x-wayfinder-router-mode"] == "threshold-override"
+
+
+def test_pin_takes_precedence_over_threshold_header(client):
+    # An explicit endpoint pin wins over a threshold header on the same request.
+    test_client, _ = client
+    resp = test_client.post(
+        "/v1/chat/completions",
+        json={"model": "local", "messages": [{"role": "user", "content": COMPLEX_TEXT}]},
+        headers={"X-Wayfinder-Threshold": "0.0"},
+    )
+    assert resp.headers["x-wayfinder-router-mode"] == "pinned"
+    assert resp.headers["x-wayfinder-router-model"] == "local"
+
+
+def test_bad_threshold_header_is_400(client):
+    test_client, _ = client
+    not_a_number = test_client.post(
+        "/v1/chat/completions", json=COMPLEX, headers={"X-Wayfinder-Threshold": "nope"}
+    )
+    assert not_a_number.status_code == 400
+    assert not_a_number.json()["error"]["type"] == "wayfinder_router_bad_override"
+    out_of_range = test_client.post(
+        "/v1/chat/completions", json=COMPLEX, headers={"X-Wayfinder-Threshold": "1.5"}
+    )
+    assert out_of_range.status_code == 400
+
+
+def test_threshold_override_rejected_for_multitier_router(tmp_path, monkeypatch):
+    # The cut is only well-defined for a binary router; a multi-tier config 400s.
+    (tmp_path / "wayfinder-router.toml").write_text(
+        '[[routing.tiers]]\nmin_score = 0.0\nmodel = "local"\n\n'
+        '[[routing.tiers]]\nmin_score = 0.4\nmodel = "mid"\n\n'
+        '[[routing.tiers]]\nmin_score = 0.7\nmodel = "cloud"\n\n'
+        '[gateway.models.local]\nbase_url = "http://l/v1"\nmodel = "l"\n\n'
+        '[gateway.models.mid]\nbase_url = "http://m/v1"\nmodel = "m"\n\n'
+        '[gateway.models.cloud]\nbase_url = "http://c/v1"\nmodel = "c"\n',
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(gateway, "forward_request", _ok_forward)
+    test_client = TestClient(gateway.build_app(start_dir=str(tmp_path)))
+    resp = test_client.post(
+        "/v1/chat/completions", json=COMPLEX, headers={"X-Wayfinder-Threshold": "0.5"}
+    )
+    assert resp.status_code == 400
+    assert resp.json()["error"]["type"] == "wayfinder_router_bad_override"
