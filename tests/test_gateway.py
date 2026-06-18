@@ -214,6 +214,55 @@ def test_dry_run_returns_the_decision_without_an_upstream(tmp_path):
     assert resp.headers["x-wayfinder-router-mode"] == "scored"
 
 
+# --- routing visibility (/router, X-Wayfinder-Debug, WF-ADR-0014) -----------
+
+
+def test_router_recent_tracks_decisions_without_prompt_text(client):
+    test_client, _ = client
+    test_client.post("/v1/chat/completions", json=TRIVIAL)
+    test_client.post(
+        "/v1/chat/completions",
+        json={"model": "cloud", "messages": [{"role": "user", "content": "a secret prompt body"}]},
+    )
+    body = test_client.get("/router/recent").json()
+    assert body["total"] == 2
+    assert body["by_model"] == {"local": 1, "cloud": 1}
+    # Most-recent-first; metadata only, never the prompt text.
+    first = body["recent"][0]
+    assert set(first) == {"request_id", "model", "score", "mode", "ts"}
+    assert first["model"] == "cloud"
+    assert "a secret prompt body" not in test_client.get("/router/recent").text
+
+
+def test_router_dashboard_serves_self_contained_html(client):
+    test_client, _ = client
+    resp = test_client.get("/router")
+    assert resp.status_code == 200
+    assert resp.headers["content-type"].startswith("text/html")
+    assert "Wayfinder routing" in resp.text
+    assert "/router/recent" in resp.text  # the page polls the JSON endpoint
+
+
+def test_debug_header_injects_the_decision_into_the_response_body(client):
+    test_client, _ = client
+    resp = test_client.post(
+        "/v1/chat/completions", json=TRIVIAL, headers={"X-Wayfinder-Debug": "true"}
+    )
+    assert resp.status_code == 200
+    decision = resp.json()["wayfinder"]
+    assert decision["model"] == "local"
+    assert decision["mode"] == "scored"
+    # The relayed upstream payload is preserved alongside the injected field.
+    assert resp.json()["id"] == "resp-1"
+
+
+def test_default_response_body_omits_the_decision(client):
+    # Without the opt-in header the body is byte-clean (strict clients unaffected).
+    test_client, _ = client
+    resp = test_client.post("/v1/chat/completions", json=TRIVIAL)
+    assert "wayfinder" not in resp.json()
+
+
 # --- /v1/feedback (the steady-state escalate loop) --------------------------
 
 
