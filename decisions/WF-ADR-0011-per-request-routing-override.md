@@ -147,9 +147,29 @@ Treat any `model` that is not a directive as an error.
 - A response's `x-wayfinder-router-mode` reports `scored`, `pinned`, or
   `threshold-override` matching the channel that was used.
 
+## Amendment (v0.1.3 — `prefer-hosted`, and discovery)
+
+Two refinements landed in v0.1.3, consistent with the decision above:
+
+- The high-end directive is renamed `prefer-cloud` → **`prefer-hosted`**, matching
+  the local/hosted language used across Wayfinder and because the high end of a
+  router is not always literally "cloud". `prefer-cloud` is retained as a silent
+  back-compat alias (it shipped in v0.1.2 and still resolves), but only
+  `prefer-hosted` is published and documented.
+- `prefer-local` / `prefer-hosted` are defined only for a **tiered/binary** router.
+  Under a classifier there is no ordered low/high ladder, so `prefer-*` now falls
+  through to scoring rather than resolving against the default tiers. (The original
+  decision left this implicit; the tolerant fall-through matches the `model` field's
+  existing pass-through behaviour, while the `X-Wayfinder-Threshold` header keeps its
+  `400` for non-binary routers — an explicit control, not a tolerant field.)
+
+The selectable directives are now discoverable over the wire via `GET /v1/models`
+(WF-ADR-0012), so clients no longer hand-encode them.
+
 ## Related Decisions
 
 - WF-ADR-0004 (the gateway and the invocation boundary this override rides on)
 - WF-ADR-0001 (the deterministic, key-free core the override must not disturb)
 - WF-ADR-0010 (the chat fork whose per-conversation controls need this override)
 - WF-ADR-0002 (tiers — the low/high ends `prefer-*` resolve to)
+- WF-ADR-0012 (the `/v1/models` discovery endpoint that advertises these directives)
