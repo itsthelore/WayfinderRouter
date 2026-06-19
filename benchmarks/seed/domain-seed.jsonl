@@ -1,0 +1,36 @@
+{"prompt": "What is 7 times 8?", "domain": "maths", "label": "local"}
+{"prompt": "Round 3.14159 to two decimal places.", "domain": "maths", "label": "local"}
+{"prompt": "What is half of 50?", "domain": "maths", "label": "local"}
+{"prompt": "Convert 1/4 to a decimal.", "domain": "maths", "label": "local"}
+{"prompt": "Prove that the square root of 2 is irrational.", "domain": "maths", "label": "cloud"}
+{"prompt": "Find all integer solutions to x^2 + y^2 = 2025 and justify that the list is complete.", "domain": "maths", "label": "cloud"}
+{"prompt": "Derive a closed form for the recurrence T(n) = 2T(n/2) + n and prove it by induction.", "domain": "maths", "label": "cloud"}
+{"prompt": "Compute the eigenvalues of the matrix [[2,1],[1,2]] and explain how to diagonalize it.", "domain": "maths", "label": "cloud"}
+{"prompt": "What planet is closest to the Sun?", "domain": "science", "label": "local"}
+{"prompt": "What gas do plants absorb from the air during photosynthesis?", "domain": "science", "label": "local"}
+{"prompt": "What is the chemical symbol for gold?", "domain": "science", "label": "local"}
+{"prompt": "How many bones are in the adult human body?", "domain": "science", "label": "local"}
+{"prompt": "Explain why entropy increases in an isolated system and derive the Clausius inequality.", "domain": "science", "label": "cloud"}
+{"prompt": "Walk through the steps of the citric acid cycle and explain its net ATP yield.", "domain": "science", "label": "cloud"}
+{"prompt": "For a 50-ohm transmission line terminated in a 75-ohm load, derive the reflection coefficient and the resulting VSWR.", "domain": "science", "label": "cloud"}
+{"prompt": "Explain how quantum tunnelling probability depends on barrier width and particle energy, with the governing relation.", "domain": "science", "label": "cloud"}
+{"prompt": "What is the capital of France?", "domain": "general", "label": "local"}
+{"prompt": "Who wrote the play Romeo and Juliet?", "domain": "general", "label": "local"}
+{"prompt": "In what year did World War II end?", "domain": "general", "label": "local"}
+{"prompt": "What is the largest ocean on Earth?", "domain": "general", "label": "local"}
+{"prompt": "Compare the economic causes of the 1929 and 2008 financial crises and assess whether the policy responses were adequate.", "domain": "general", "label": "cloud"}
+{"prompt": "Analyze how the separation of powers constrains executive overreach, citing concrete historical examples.", "domain": "general", "label": "cloud"}
+{"prompt": "Evaluate the ethical tradeoffs between utilitarianism and deontology when making medical triage decisions.", "domain": "general", "label": "cloud"}
+{"prompt": "Assess the long-term geopolitical consequences of the Treaty of Versailles on twentieth-century Europe.", "domain": "general", "label": "cloud"}
+{"prompt": "Write a Python function that returns the length of a string.", "domain": "code", "label": "local"}
+{"prompt": "How do I print 'hello world' in Python?", "domain": "code", "label": "local"}
+{"prompt": "Write a one-line list comprehension that squares the numbers 1 to 5.", "domain": "code", "label": "local"}
+{"prompt": "Implement a thread-safe LRU cache in Python with O(1) get and put, and explain the invariants that keep it correct under concurrency.", "domain": "code", "label": "cloud"}
+{"prompt": "Two threads acquire two locks in opposite orders and deadlock; refactor to a lock-ordering scheme and argue why it eliminates the cycle.", "domain": "code", "label": "cloud"}
+{"prompt": "Write a function to detect a cycle in a directed graph, return one cycle if present, and give its time and space complexity.", "domain": "code", "label": "cloud"}
+{"prompt": "If it is raining outside, should you take an umbrella?", "domain": "commonsense", "label": "local"}
+{"prompt": "Which is heavier, a kilogram of feathers or a kilogram of bricks?", "domain": "commonsense", "label": "local"}
+{"prompt": "What object do you normally use to unlock a door?", "domain": "commonsense", "label": "local"}
+{"prompt": "A is the father of B, and B is the father of C. If C is also D's son and D is E's brother, what is A to E? Explain each step.", "domain": "commonsense", "label": "cloud"}
+{"prompt": "Three switches in a hallway each control one of three bulbs in a closed room; describe a strategy that identifies every switch with only a single visit to the room.", "domain": "commonsense", "label": "cloud"}
+{"prompt": "Given conflicting eyewitness times and a fixed train schedule, infer the most internally consistent sequence of events and justify it.", "domain": "commonsense", "label": "cloud"}

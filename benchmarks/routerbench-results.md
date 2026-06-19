@@ -53,6 +53,13 @@ routes more to cloud, so skill is the number that answers the question.
 
 ## Headline (0-shot, 36,497 prompts)
 
+> **In-sample caveat (knees tuned on the test set).** The threshold/knee rows below are
+> selected on the *same* rows they report — an optimistic, in-sample estimate. A
+> leakage-free re-run (calibrate on a train split, score on held-out test) is in
+> [`calibration-eval.md`](calibration-eval.md): the structural knee's skill holds at
+> **−0.038** held-out (the finding survives), and the lexical opt-in's skill holds at
+> **+0.057** (so it was real, not leakage).
+
 | router | quality | cost/call | → cloud | PGR | skill | cost saved | decide µs |
 | --- | --: | --: | --: | --: | --: | --: | --: |
 | oracle (upper bound, not a router) | 0.81 | 2.00e-03 | 59% | 1.07 | **+0.48** | 39% | ~0 |
