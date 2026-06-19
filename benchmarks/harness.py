@@ -29,6 +29,7 @@ class Row:
     prompt: str
     difficulty: str
     label: dict[str, int]  # {"local": 0/1, "cloud": 0/1} correctness
+    cost: dict[str, float] | None = None  # optional real per-call cost; falls back to COST
 
 
 @dataclass(frozen=True)
@@ -50,7 +51,12 @@ def load_dataset(path: str | Path) -> list[Row]:
             continue
         data = json.loads(line)
         rows.append(
-            Row(prompt=data["prompt"], difficulty=data.get("difficulty", ""), label=data["label"])
+            Row(
+                prompt=data["prompt"],
+                difficulty=data.get("difficulty", ""),
+                label=data["label"],
+                cost=data.get("cost"),
+            )
         )
     return rows
 
@@ -60,6 +66,16 @@ def _reference(rows: list[Row]) -> tuple[float, float]:
     q_local = sum(r.label["local"] for r in rows) / n
     q_cloud = sum(r.label["cloud"] for r in rows) / n
     return q_local, q_cloud
+
+
+def _cost(row: Row, choice: str) -> float:
+    """The per-call cost of ``choice`` on ``row`` — real cost when present, else the flat default."""
+    return row.cost[choice] if row.cost else COST[choice]
+
+
+def _cloud_ref_cost(rows: list[Row]) -> float:
+    """Mean cost of always routing to the strong model — the always-cloud baseline for savings."""
+    return sum(_cost(r, CLOUD) for r in rows) / len(rows)
 
 
 def evaluate(name: str, router: Router, rows: list[Row], *, measure_latency: bool = False) -> Metrics:
@@ -73,16 +89,17 @@ def evaluate(name: str, router: Router, rows: list[Row], *, measure_latency: boo
         choices.append(choice)
     n = len(rows)
     quality = sum(row.label[choice] for row, choice in zip(rows, choices, strict=True)) / n
-    cost = sum(COST[choice] for choice in choices) / n
+    cost = sum(_cost(row, choice) for row, choice in zip(rows, choices, strict=True)) / n
     frac_cloud = sum(choice == CLOUD for choice in choices) / n
     denom = (q_cloud - q_local) or 1.0
+    cloud_ref = _cloud_ref_cost(rows)
     return Metrics(
         name=name,
         quality=quality,
         cost=cost,
         frac_cloud=frac_cloud,
         pgr=(quality - q_local) / denom,
-        cost_savings=(COST[CLOUD] - cost) / COST[CLOUD],
+        cost_savings=(cloud_ref - cost) / cloud_ref if cloud_ref else 0.0,
         latency_us=(elapsed / n) * 1e6 if measure_latency else 0.0,
     )
 
@@ -95,17 +112,18 @@ def evaluate_oracle(rows: list[Row]) -> Metrics:
     for row in rows:
         choice = LOCAL if row.label["local"] else (CLOUD if row.label["cloud"] else LOCAL)
         quality += row.label[choice]
-        cost += COST[choice]
+        cost += _cost(row, choice)
         frac_cloud += choice == CLOUD
     quality, cost, frac_cloud = quality / n, cost / n, frac_cloud / n
     denom = (q_cloud - q_local) or 1.0
+    cloud_ref = _cloud_ref_cost(rows)
     return Metrics(
         name="oracle (upper bound, not a real router)",
         quality=quality,
         cost=cost,
         frac_cloud=frac_cloud,
         pgr=(quality - q_local) / denom,
-        cost_savings=(COST[CLOUD] - cost) / COST[CLOUD],
+        cost_savings=(cloud_ref - cost) / cloud_ref if cloud_ref else 0.0,
         latency_us=0.0,
     )
 
