@@ -143,6 +143,44 @@ def test_invoke_model_raises_on_error_status(monkeypatch):
         gateway.invoke_model(model, "hi")
 
 
+# --- cost metadata (WF-ADR-0017) --------------------------------------------
+
+
+def test_cost_per_1k_is_parsed_and_round_trips():
+    body = (
+        "[gateway.models.cloud]\n"
+        'base_url = "https://api.example.com/v1"\n'
+        'model = "big-model"\n'
+        'api_key_env = "EXAMPLE_API_KEY"\n'
+        "cost_per_1k = 12.5\n"
+    )
+    config = gateway.gateway_config_from_toml(body)
+    assert config.models["cloud"].cost_per_1k == 12.5
+    # Round-trips through the dumper used by recalibration.
+    again = gateway.gateway_config_from_toml(gateway.dump_gateway_toml(config))
+    assert again.models["cloud"].cost_per_1k == 12.5
+
+
+def test_cost_per_1k_is_optional():
+    body = (
+        "[gateway.models.local]\n"
+        'base_url = "http://localhost:11434/v1"\n'
+        'model = "llama3.2"\n'
+    )
+    assert gateway.gateway_config_from_toml(body).models["local"].cost_per_1k is None
+
+
+def test_negative_cost_per_1k_is_rejected():
+    body = (
+        "[gateway.models.cloud]\n"
+        'base_url = "https://api.example.com/v1"\n'
+        'model = "big-model"\n'
+        "cost_per_1k = -1.0\n"
+    )
+    with pytest.raises(gateway.WayfinderConfigError):
+        gateway.gateway_config_from_toml(body)
+
+
 # --- streaming + upstream errors (WF-ADR-0013) ------------------------------
 
 
