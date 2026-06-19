@@ -34,3 +34,4 @@ Deterministic and offline; reproduce with `python -m benchmarks.run`. `quality` 
 | hard-short | 6 | 1.00 | 100% |
 | hard-short-structured | 4 | 0.25 | 25% |
 | hard-structured | 5 | 1.00 | 100% |
+
