@@ -58,6 +58,23 @@ scoring predicts *structural* heaviness — long, multi-step, formatted prompts 
 semantic difficulty. Wayfinder is for traffic where those correlate, calibrated on your
 own labels.
 
+## Real-label cross-check (RouterArena)
+
+The blind sets above use *by-construction* labels. RouterArena's published
+`cached_results/` give the stronger test: **real, externally graded** `score` and real
+`inference_cost` per model per prompt, reachable offline. `benchmarks/routerarena_adapter.py`
+joins two models on 809 shared prompts across 78 benchmark families (AIME, MMLU-Pro,
+LiveCodeBench, PubMedQA, …), with a weak model as `local` (claude-3-haiku, 0.52) and a
+stronger one as `cloud` (gemini-2.0-flash, 0.69 — a real 0.17 quality gap).
+
+On those real labels, Wayfinder's structural router still does not separate hard from
+easy: at its cost-aware knee it recovers **PGR 0.52**, *below* the plain length baseline
+(**0.68**) and even a hair under stable-random (0.56). Same verdict as the by-construction
+blind sets, now on real graded outcomes: structural scoring predicts structural heaviness,
+not difficulty. (The three cached models are all small-tier and the cheapest is also the
+most accurate, so the cost axis is degenerate here — for a true cheap-weak vs
+strong-expensive frontier, run RouterBench via `routerbench_adapter.py`.)
+
 ## The edge that survives a blind test
 
 The decision is pure-Python, sub-millisecond, offline, and deterministic — no model
