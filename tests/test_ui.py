@@ -55,7 +55,7 @@ DATASET = "\n".join(
 
 def test_score_payload_is_explainable_and_pure(tmp_path):
     payload = score_payload(COMPLEX, start_dir=str(tmp_path))
-    assert payload["schema_version"] == "2"
+    assert payload["schema_version"] == "3"
     assert payload["recommendation"] in ("local", "cloud")
     assert [c["name"] for c in payload["contributions"]] == list(FEATURE_ORDER)
     total = sum(c["contribution"] for c in payload["contributions"])
