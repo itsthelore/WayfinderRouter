@@ -43,6 +43,10 @@ computed), ``x-wayfinder-router-mode`` (``scored`` / ``pinned`` /
 recent decisions at a glance and ``X-Wayfinder-Debug: true`` surfaces the decision in
 the response body (WF-ADR-0014).
 
+``GET /metrics`` exposes the same decisions as Prometheus counters and histograms —
+metadata only, never prompt text, off the scored path — hand-rolled with no extra
+dependency (WF-ADR-0018).
+
 ``GET /v1/models`` advertises the selectable options — ``auto``,
 ``prefer-local`` / ``prefer-hosted`` (for a tiered router), and the configured
 endpoint names — so a client discovers them without a hand-written list
@@ -69,7 +73,7 @@ import time
 import tomllib
 import uuid
 from collections import deque
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Callable
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -120,6 +124,124 @@ async function tick(){
 }
 tick();setInterval(tick,2000);
 </script></body></html>"""
+
+# --- metrics (WF-ADR-0018) --------------------------------------------------
+# Prometheus histogram bucket bounds, in seconds. Decision latency is a text scan
+# with no model call, so its buckets are sub-millisecond; upstream latency spans a
+# model round-trip, so its buckets are coarse.
+_DECISION_BUCKETS = (0.0001, 0.00025, 0.0005, 0.001, 0.0025, 0.005, 0.01, 0.025, 0.05)
+_UPSTREAM_BUCKETS = (0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0, 30.0, 60.0)
+
+
+def _new_hist(bounds: tuple[float, ...]) -> dict:
+    return {"bounds": bounds, "counts": [0] * len(bounds), "sum": 0.0, "count": 0}
+
+
+def _observe(hist: dict, value: float) -> None:
+    hist["sum"] += value
+    hist["count"] += 1
+    for i, bound in enumerate(hist["bounds"]):
+        if value <= bound:
+            hist["counts"][i] += 1
+
+
+def _label_escape(value: str) -> str:
+    return value.replace("\\", "\\\\").replace('"', '\\"')
+
+
+def _render_histogram(name: str, hist: dict, label_pairs: str = "") -> list[str]:
+    sep = "," if label_pairs else ""
+    out: list[str] = []
+    for bound, count in zip(hist["bounds"], hist["counts"], strict=True):
+        out.append(f'{name}_bucket{{{label_pairs}{sep}le="{bound:g}"}} {count}')
+    out.append(f'{name}_bucket{{{label_pairs}{sep}le="+Inf"}} {hist["count"]}')
+    braces = f"{{{label_pairs}}}" if label_pairs else ""
+    out.append(f"{name}_sum{braces} {hist['sum']:g}")
+    out.append(f"{name}_count{braces} {hist['count']}")
+    return out
+
+
+class Metrics:
+    """In-memory gateway metrics rendered in the Prometheus text format (WF-ADR-0018).
+
+    Metadata only — ``model`` and ``mode`` labels, never prompt text — mirroring
+    the /router ring's privacy stance. Pure in-process counters; the /metrics
+    endpoint that reads them is off the scored path (no key, no model call, no
+    network). Counters reset on restart, as Prometheus expects.
+    """
+
+    def __init__(self, version: str) -> None:
+        self.version = version
+        self.requests: dict[tuple[str, str], int] = {}  # (model, mode) -> count
+        self.upstream_errors: dict[str, int] = {}  # model -> count
+        self.reload_failures = 0
+        self.decision = _new_hist(_DECISION_BUCKETS)
+        self.upstream: dict[str, dict] = {}  # model -> histogram
+
+    def observe_decision(self, model: str, mode: str, seconds: float) -> None:
+        key = (model, mode)
+        self.requests[key] = self.requests.get(key, 0) + 1
+        _observe(self.decision, seconds)
+
+    def observe_upstream(self, model: str, seconds: float) -> None:
+        hist = self.upstream.get(model)
+        if hist is None:
+            hist = self.upstream[model] = _new_hist(_UPSTREAM_BUCKETS)
+        _observe(hist, seconds)
+
+    def observe_upstream_error(self, model: str) -> None:
+        self.upstream_errors[model] = self.upstream_errors.get(model, 0) + 1
+
+    def record_reload_failure(self) -> None:
+        self.reload_failures += 1
+
+    def render(self) -> str:
+        lines: list[str] = []
+        lines.append("# HELP wayfinder_router_build_info Build information.")
+        lines.append("# TYPE wayfinder_router_build_info gauge")
+        lines.append(f'wayfinder_router_build_info{{version="{_label_escape(self.version)}"}} 1')
+
+        lines.append("# HELP wayfinder_router_requests_total Routed requests by model and mode.")
+        lines.append("# TYPE wayfinder_router_requests_total counter")
+        for (model, mode), n in sorted(self.requests.items()):
+            labels = f'model="{_label_escape(model)}",mode="{_label_escape(mode)}"'
+            lines.append(f"wayfinder_router_requests_total{{{labels}}} {n}")
+
+        lines.append(
+            "# HELP wayfinder_router_upstream_errors_total Upstream transport failures by model."
+        )
+        lines.append("# TYPE wayfinder_router_upstream_errors_total counter")
+        for model, n in sorted(self.upstream_errors.items()):
+            lines.append(
+                f'wayfinder_router_upstream_errors_total{{model="{_label_escape(model)}"}} {n}'
+            )
+
+        lines.append(
+            "# HELP wayfinder_router_config_reload_failures_total "
+            "Config reloads that failed and kept the last-good config."
+        )
+        lines.append("# TYPE wayfinder_router_config_reload_failures_total counter")
+        lines.append(f"wayfinder_router_config_reload_failures_total {self.reload_failures}")
+
+        lines.append(
+            "# HELP wayfinder_router_decision_latency_seconds "
+            "Time to score a prompt and pick a model (no model call)."
+        )
+        lines.append("# TYPE wayfinder_router_decision_latency_seconds histogram")
+        lines += _render_histogram("wayfinder_router_decision_latency_seconds", self.decision)
+
+        lines.append(
+            "# HELP wayfinder_router_upstream_latency_seconds "
+            "Upstream model round-trip time by model."
+        )
+        lines.append("# TYPE wayfinder_router_upstream_latency_seconds histogram")
+        for model, hist in sorted(self.upstream.items()):
+            lines += _render_histogram(
+                "wayfinder_router_upstream_latency_seconds",
+                hist,
+                f'model="{_label_escape(model)}"',
+            )
+        return "\n".join(lines) + "\n"
 
 
 class GatewayUnavailable(Exception):
@@ -408,12 +530,15 @@ class _ConfigHolder:
     Lets a recalibration (CLI, cron, or UI) take effect on the running gateway
     with no restart: each request checks the config file's mtime and re-reads only
     when it moved. A malformed mid-flight write keeps the last-good config (the
-    marker advances so it is not retried every request) and is logged rather than
-    failing serving silently.
+    marker advances so it is not retried every request), is logged rather than
+    failing serving silently, and increments the reload-failure metric.
     """
 
-    def __init__(self, start_dir: str) -> None:
+    def __init__(
+        self, start_dir: str, *, on_reload_failure: Callable[[], None] | None = None
+    ) -> None:
         self.start_dir = start_dir
+        self._on_reload_failure = on_reload_failure
         self._routing = load_routing_config(start_dir)
         self._gateway = load_gateway_config(start_dir)
         self._mtime = self._mtime_now()
@@ -437,6 +562,8 @@ class _ConfigHolder:
             except WayfinderConfigError as exc:
                 # Keep last-good config; the marker advanced so we do not thrash.
                 logger.warning("config reload failed, keeping last-good config: %s", exc)
+                if self._on_reload_failure is not None:
+                    self._on_reload_failure()
         return self._routing, self._gateway
 
 
@@ -451,11 +578,19 @@ def build_app(
     """
     try:
         from fastapi import Body, FastAPI, Header, Response
-        from fastapi.responses import HTMLResponse, JSONResponse, StreamingResponse
+        from fastapi.responses import (
+            HTMLResponse,
+            JSONResponse,
+            PlainTextResponse,
+            StreamingResponse,
+        )
     except ImportError as exc:  # pragma: no cover - exercised only without the extra
         raise GatewayUnavailable(_INSTALL_HINT) from exc
 
-    holder = _ConfigHolder(start_dir)
+    from . import __version__  # local import: avoids a circular import at module load
+
+    metrics = Metrics(__version__)
+    holder = _ConfigHolder(start_dir, on_reload_failure=metrics.record_reload_failure)
     request_timeout = timeout if timeout is not None else _resolve_timeout()
     feedback_token = os.environ.get(_FEEDBACK_TOKEN_ENV)
     recent: deque[dict] = deque(maxlen=_RECENT_MAX)  # decision metadata only, no prompt text
@@ -492,6 +627,17 @@ def build_app(
         if missing:
             body["missing_keys"] = missing
         return body
+
+    @app.get("/metrics", response_class=PlainTextResponse)
+    def metrics_endpoint() -> Response:
+        """Prometheus text exposition of routing metrics (WF-ADR-0018).
+
+        Metadata only (model / mode labels), never prompt text; a pure read of
+        in-memory counters, off the scored path — no key, no model call, no network.
+        """
+        return PlainTextResponse(
+            metrics.render(), media_type="text/plain; version=0.0.4; charset=utf-8"
+        )
 
     @app.get("/v1/models")
     def list_models() -> dict:
@@ -563,8 +709,11 @@ def build_app(
         request_id = uuid.uuid4().hex[:12]
         routing, gw = holder.current()
         # Score once (always reported); a per-request override only changes which
-        # endpoint the score routes to, never how it is computed (WF-ADR-0011).
+        # endpoint the score routes to, never how it is computed (WF-ADR-0011). The
+        # scoring time is the decision-latency metric (WF-ADR-0018).
+        score_started = time.perf_counter()
         decision = score_complexity(extract_prompt(body.get("messages")), config=routing)
+        decision_seconds = time.perf_counter() - score_started
 
         pin = resolve_pin(body.get("model"), routing, gw)
         if pin is not None:
@@ -603,6 +752,7 @@ def build_app(
                 "ts": time.time(),
             }
         )
+        metrics.observe_decision(chosen, mode, decision_seconds)
         # Opt-in: surface the decision in the response so a client can show it
         # (default stays byte-clean for strict clients). The headers always carry it.
         debug = (x_wayfinder_debug or "").strip().lower() in ("1", "true", "yes")
@@ -646,9 +796,11 @@ def build_app(
         if body.get("stream") is True:
 
             async def sse() -> AsyncIterator[bytes]:
+                upstream_started = time.perf_counter()
                 try:
                     async for chunk in aforward_stream(url, headers, forward_body, request_timeout):
                         yield chunk
+                    metrics.observe_upstream(chosen, time.perf_counter() - upstream_started)
                     if debug:
                         meta = json.dumps(
                             {
@@ -660,6 +812,7 @@ def build_app(
                         )
                         yield f"event: wayfinder\ndata: {meta}\n\n".encode()
                 except UpstreamError as exc:
+                    metrics.observe_upstream_error(chosen)
                     logger.warning("request %s upstream stream error: %s", request_id, exc)
                     err = json.dumps(
                         {"error": {"message": str(exc), "type": "wayfinder_router_upstream_error"}}
@@ -669,17 +822,20 @@ def build_app(
 
             return StreamingResponse(sse(), media_type="text/event-stream", headers=wf_headers)
 
+        upstream_started = time.perf_counter()
         try:
             status, content, content_type = await aforward_request(
                 url, headers, forward_body, request_timeout
             )
         except UpstreamError as exc:
+            metrics.observe_upstream_error(chosen)
             logger.warning("request %s upstream error: %s", request_id, exc)
             return JSONResponse(
                 status_code=502,
                 content={"error": {"message": str(exc), "type": "wayfinder_router_upstream_error"}},
                 headers=wf_headers,
             )
+        metrics.observe_upstream(chosen, time.perf_counter() - upstream_started)
         if debug and content and "json" in content_type:
             try:
                 data = json.loads(content)
