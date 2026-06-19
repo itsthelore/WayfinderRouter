@@ -20,9 +20,11 @@ client just takes a `base_url`, and you point it at Wayfinder.
 
 1. Your app sends its normal chat request to Wayfinder instead of straight to the
    provider (one config line: `base_url`).
-2. Wayfinder **scores the prompt's structural complexity** — length, steps, code
-   blocks, tables, and so on — with a fixed, deterministic rule. No AI is used to
-   make this decision, so it is instant and free.
+2. Wayfinder **scores the prompt's complexity** — its structure (length, steps,
+   code blocks, tables) and difficulty cues in the wording (reasoning terms like
+   "prove" and "derive", math symbols, hard constraints) — with a fixed,
+   deterministic rule. No AI is used to make this decision, so it is instant and
+   free.
 3. The score picks the destination: below your cut → the local/cheap model; at or
    above it → the cloud/bigger model (you can have more than two tiers).
 4. Wayfinder forwards the request to that model's real endpoint **using your key**
@@ -59,9 +61,12 @@ prompts and asks you to pick, to establish the initial cut.
 
 ## Honest limits
 
-- It routes on **structure, not meaning** — a fast proxy for difficulty, not a
-  judge of the answer. That's why the threshold is yours to calibrate; the default
-  cut is a starting guess, not a guarantee.
+- It routes on **observable cues, not meaning** — structure and difficulty
+  wording are a fast proxy for difficulty, not a judge of the answer. It catches
+  many short-but-hard prompts through lexical cues, but one whose difficulty is
+  purely semantic (a subtle code snippet, "the 100th prime") has no tell and can
+  slip through. That's why the threshold is yours to calibrate; the default cut is
+  a starting guess, not a guarantee.
 - It only routes among **models you've configured** — it doesn't discover or host
   anything.
 - It **decides and forwards; it doesn't judge quality** — the thumbs-up/down comes
