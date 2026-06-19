@@ -4,6 +4,27 @@ User-visible changes to Wayfinder, by release. Follows the spirit of
 [Keep a Changelog](https://keepachangelog.com/): user impact over implementation
 details, release history over commit history.
 
+## v0.1.6 — 2026-06-18
+
+### Added
+
+- A **deterministic, offline benchmark** under `benchmarks/` (`make benchmark`,
+  WF-ADR-0015) with metrics aligned to the routing literature (RouteLLM / RouterArena):
+  quality, cost, call-fraction, performance-gap-recovered, cost savings, and decision
+  latency, plus the full cost-quality curve. It reproduces byte-for-byte with no network
+  or keys, ships honest baselines (always-local/cloud, stable-random, a tuned
+  length-threshold, an oracle upper bound) and an illustrative dataset that **includes
+  Wayfinder's failure mode**; point it at RouterBench / RouterArena for general numbers.
+  Routers that need a model call to decide (RouteLLM, NotDiamond, …) get a pluggable
+  adapter and a comparison citing their **published** numbers with provenance — never
+  presented as ours.
+
+### Changed
+
+- README gains a **"How it compares"** section: the precise, defensible positioning (the
+  only offline, zero-model-call, calibrate-on-your-data, self-hosted structural router),
+  an honest comparison table, and a link to the reproducible benchmark.
+
 ## v0.1.5 — 2026-06-18
 
 ### Added
