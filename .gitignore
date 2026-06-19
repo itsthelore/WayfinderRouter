@@ -4,3 +4,7 @@ __pycache__/
 .pytest_cache/
 build/
 dist/
+.venv/
+# Local RouterBench pulls and generated harness inputs (reproducible from the adapter)
+data/
+benchmarks/routerbench*.jsonl
