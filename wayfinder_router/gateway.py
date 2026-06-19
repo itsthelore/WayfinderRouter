@@ -28,7 +28,7 @@ WF-ADR-0001/0004 boundary holds:
   pins the call to that endpoint, and ``prefer-local`` / ``prefer-hosted`` pin
   to the low / high end of the configured router (``prefer-cloud`` is a
   back-compat alias of ``prefer-hosted``);
-- an ``X-Wayfinder-Threshold`` header (a number in ``0.0``–``1.0``) re-decides
+- an ``X-Wayfinder-Threshold`` header (a number in ``0.0``–1.0``) re-decides
   the call at that binary cut, reusing the configured scoring weights.
 
 Note the score is a *structural* proxy (length, headings, lists, code, links), not
@@ -177,6 +177,11 @@ class Metrics:
         self.reload_failures = 0
         self.decision = _new_hist(_DECISION_BUCKETS)
         self.upstream: dict[str, dict] = {}  # model -> histogram
+        self.model_costs: dict[str, float] = {}  # model -> cost_per_1k (WF-ADR-0017)
+
+    def set_model_costs(self, costs: dict[str, float]) -> None:
+        """Record per-model cost metadata to surface as a gauge (informational)."""
+        self.model_costs = dict(costs)
 
     def observe_decision(self, model: str, mode: str, seconds: float) -> None:
         key = (model, mode)
@@ -223,6 +228,17 @@ class Metrics:
         lines.append("# TYPE wayfinder_router_config_reload_failures_total counter")
         lines.append(f"wayfinder_router_config_reload_failures_total {self.reload_failures}")
 
+        if self.model_costs:
+            lines.append(
+                "# HELP wayfinder_router_model_cost_per_1k "
+                "Configured per-1k-token cost by model (informational, WF-ADR-0017)."
+            )
+            lines.append("# TYPE wayfinder_router_model_cost_per_1k gauge")
+            for model, cost in sorted(self.model_costs.items()):
+                lines.append(
+                    f'wayfinder_router_model_cost_per_1k{{model="{_label_escape(model)}"}} {cost:g}'
+                )
+
         lines.append(
             "# HELP wayfinder_router_decision_latency_seconds "
             "Time to score a prompt and pick a model (no model call)."
@@ -259,6 +275,7 @@ class GatewayModel:
     base_url: str  # OpenAI-compatible base, e.g. http://localhost:11434/v1
     model: str  # the upstream model id to send in the forwarded request
     api_key_env: str | None = None  # env var holding the key, or None for no auth
+    cost_per_1k: float | None = None  # optional cost metadata (WF-ADR-0017), informational
 
 
 @dataclass(frozen=True)
@@ -311,7 +328,21 @@ def gateway_config_from_toml(text: str, where: str = "wayfinder-router.toml") ->
             raise WayfinderConfigError(
                 f"{where}: 'gateway.models.{name}.api_key_env' must be a non-empty string"
             )
-        models[name] = GatewayModel(base_url=base_url, model=model, api_key_env=api_key_env)
+        cost_per_1k = entry.get("cost_per_1k")
+        if cost_per_1k is not None and (
+            isinstance(cost_per_1k, bool)
+            or not isinstance(cost_per_1k, (int, float))
+            or cost_per_1k < 0
+        ):
+            raise WayfinderConfigError(
+                f"{where}: 'gateway.models.{name}.cost_per_1k' must be a non-negative number"
+            )
+        models[name] = GatewayModel(
+            base_url=base_url,
+            model=model,
+            api_key_env=api_key_env,
+            cost_per_1k=float(cost_per_1k) if cost_per_1k is not None else None,
+        )
     return GatewayConfig(models=models)
 
 
@@ -330,6 +361,8 @@ def dump_gateway_toml(gateway: GatewayConfig) -> str:
         ]
         if model.api_key_env:
             lines.append(f'api_key_env = "{model.api_key_env}"')
+        if model.cost_per_1k is not None:
+            lines.append(f"cost_per_1k = {round(model.cost_per_1k, 6)!r}")
         blocks.append("\n".join(lines))
     return "\n\n".join(blocks)
 
@@ -393,7 +426,7 @@ def resolve_pin(model_field: object, routing: RoutingConfig, gateway: GatewayCon
 
 
 def parse_threshold_header(value: str | None) -> float | None:
-    """Parse the ``X-Wayfinder-Threshold`` header into a ``0.0``–``1.0`` cut, or ``None``.
+    """Parse the ``X-Wayfinder-Threshold`` header into a ``0.0``–1.0`` cut, or ``None``.
 
     Raises :class:`BadOverride` when the header is present but not a number in range.
     """
@@ -599,6 +632,10 @@ def build_app(
     # Startup diagnostics: surface the misconfigurations that otherwise only show up
     # as a confusing first-request failure.
     _, gw0 = holder.current()
+    metrics.set_model_costs(
+        {name: model.cost_per_1k for name, model in gw0.models.items()
+         if model.cost_per_1k is not None}
+    )
     for name, model in gw0.models.items():
         if model.api_key_env and not os.environ.get(model.api_key_env):
             logger.warning("gateway model '%s' references unset env var %s", name, model.api_key_env)
