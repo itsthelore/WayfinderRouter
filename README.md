@@ -38,9 +38,10 @@ local or cloud model, offline, with no model call to decide.</strong></p>
 </table>
 
 Wayfinder reads the shape of a prompt — its length, headings, lists, and code —
-and tells you whether to send it to your small local model or your big cloud one.
-It decides in microseconds, runs offline, and never calls another model to make
-the call. No API key, no network, no heavy dependencies. You get a score and a
+plus difficulty cues in the wording, like proofs, math, and hard constraints, and
+tells you whether to send it to your small local model or your big cloud one. It
+decides in microseconds, runs offline, and never calls another model to make the
+call. No API key, no network, no heavy dependencies. You get a score and a
 recommendation; what you do with it is up to you.
 
 Cheap prompts stay local, hard ones go to the expensive model, and you stop paying
@@ -50,8 +51,8 @@ frontier prices for "summarize this" and "fix my typo."
 
 Most routers decide by calling a model: a trained classifier, an LLM judge, or a
 hosted API. That adds latency, cost, and a little randomness to the exact step
-that is meant to save you money. Wayfinder reads structure instead, so the
-decision is free and the same every time.
+that is meant to save you money. Wayfinder reads structure and wording instead, so
+the decision is free and the same every time.
 
 | router | decides by | model call? | self-host | calibrate |
 | --- | --- | :-: | :-: | :-: |
@@ -63,10 +64,13 @@ decision is free and the same every time.
 
 Wayfinder is not chasing a top accuracy number. It is the one router you can run
 offline, with zero model calls, and tune on your own traffic. The catch is real
-too: structure cannot tell a short-but-hard question from a short-easy one, so a
-semantic router will beat it there. The [benchmark](benchmarks/README.md)
-(`make benchmark`) shows where it wins and where it loses, against honest baselines
-and a perfect oracle. Point it at RouterBench or RouterArena for bigger numbers.
+too: it reads lexical cues like proofs, math, and constraints to catch many
+short-but-hard prompts, but a prompt whose difficulty is purely semantic — a
+subtle code snippet, an innocent-looking "what is the 100th prime number?" — has
+no structural or lexical tell, and a semantic router will beat it there. The
+[benchmark](benchmarks/README.md) (`make benchmark`) shows where it wins and where
+it loses, against honest baselines and a perfect oracle. Point it at RouterBench or
+RouterArena for bigger numbers.
 
 ## Quickstart
 
@@ -167,12 +171,13 @@ A few things follow from this:
   (Ollama, LM Studio, vLLM, llama.cpp) speaking OpenAI's `/v1`; the hosted one is
   the same shape. The user never switches UIs and usually never knows which model
   answered.
-- **The score is structural, not a second opinion.** Asking a model how hard a
+- **The score is computed, not a second opinion.** Asking a model how hard a
   prompt is would be slow, non-deterministic, and would cost a model call to decide
-  whether to make a model call. Wayfinder scores the structure instead (length,
-  headings, steps, links, code, tables) into a `0.0`-`1.0` value and compares it to
-  your threshold. Same prompt, same threshold, same answer. It is a proxy for
-  difficulty, not a verdict, which is why the threshold is yours to tune.
+  whether to make a model call. Wayfinder scans the prompt instead — structure
+  (length, headings, steps, links, code, tables) and difficulty cues in the wording
+  (reasoning terms, math symbols, constraints) — into a `0.0`-`1.0` value and
+  compares it to your threshold. Same prompt, same threshold, same answer. It is a
+  proxy for difficulty, not a verdict, which is why the threshold is yours to tune.
 
 Keys are read from the environment at request time and never touch the config file
 or the scored path.
@@ -201,11 +206,11 @@ model):
 
 ```json
 {
-  "schema_version": "2",
+  "schema_version": "3",
   "score": 0.66,
   "recommendation": "cloud",
   "mode": "tiered",
-  "features": { "word_count": 545, "heading_count": 12, "...": 0 },
+  "features": { "word_count": 545, "heading_count": 12, "reasoning_term_count": 3, "...": 0 },
   "tiers": [{ "min_score": 0.0, "model": "local" }, { "min_score": 0.5, "model": "cloud" }]
 }
 ```
@@ -266,6 +271,19 @@ wayfinder-router calibrate data.jsonl --mode classifier --out wayfinder-router.t
 The fragment drops straight into `wayfinder-router.toml`; the accuracy and chosen
 breakpoints print to stderr. The classifier is fit by deterministic L2-regularized
 Newton/IRLS, pure Python, converging in a handful of iterations.
+
+To pick a cut in cost terms instead of bare accuracy, give per-arm costs and a
+savings target: Wayfinder chooses the most accurate cut that still saves at least
+that much against always routing to the expensive model.
+
+```bash
+wayfinder-router calibrate data.jsonl --mode threshold \
+  --objective cost-quality --target-savings 0.4 --costs local=0.2,cloud=1.0
+```
+
+Cost is metadata only — it shapes the calibrated cut and is reported on the
+`/metrics` endpoint, but never enters a per-request decision, which stays
+deterministic and free.
 
 ### Steer a single request
 
