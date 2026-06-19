@@ -90,7 +90,7 @@ details, release history over commit history.
   router; under a classifier (which has no ordered ladder) they now fall through to
   scoring rather than pinning (WF-ADR-0011 amendment).
 
-## v0.1.2 — 2026-06-18
+## v0.1.2 — unreleased
 
 ### Added
 
