@@ -103,12 +103,30 @@ def _cmd_route(args: argparse.Namespace) -> int:
     return EXIT_OK
 
 
+def _parse_costs(raw: str | None) -> dict[str, float] | None:
+    """Parse ``--costs local=0.2,cloud=1.0`` into a label->cost map (or None)."""
+    if not raw:
+        return None
+    costs: dict[str, float] = {}
+    for item in raw.split(","):
+        label, _, value = item.partition("=")
+        label = label.strip()
+        if not label or not value.strip():
+            raise CalibrationError(f"--costs must be label=number pairs, got {item!r}")
+        try:
+            costs[label] = float(value)
+        except ValueError as exc:
+            raise CalibrationError(f"--costs value for {label!r} must be a number") from exc
+    return costs
+
+
 def _cmd_calibrate(args: argparse.Namespace) -> int:
     if not Path(args.dataset).is_file():
         print(f"wayfinder-router: file not found: {args.dataset}", file=sys.stderr)
         return EXIT_USAGE
     models = [m.strip() for m in args.models.split(",")] if args.models else None
     try:
+        costs = _parse_costs(args.costs)
         samples = load_dataset(args.dataset)
         result = calibrate(
             samples,
@@ -116,6 +134,9 @@ def _cmd_calibrate(args: argparse.Namespace) -> int:
             models_order=models,
             iterations=args.iterations,
             l2=args.l2,
+            objective=args.objective,
+            costs=costs,
+            target_savings=args.target_savings,
         )
     except CalibrationError as exc:
         print(f"wayfinder-router: {exc}", file=sys.stderr)
@@ -303,6 +324,24 @@ def build_parser() -> argparse.ArgumentParser:
     )
     p_cal.add_argument(
         "--l2", type=float, default=0.01, help="Classifier L2 regularization (default: 0.01)."
+    )
+    p_cal.add_argument(
+        "--objective",
+        choices=["accuracy", "cost-quality"],
+        default="accuracy",
+        help="threshold mode: maximize accuracy (default) or accuracy at a savings "
+        "target (cost-quality, needs --target-savings).",
+    )
+    p_cal.add_argument(
+        "--target-savings",
+        type=float,
+        default=None,
+        help="Cost saved vs always-routing-high to hold, 0.0-1.0 (cost-quality objective).",
+    )
+    p_cal.add_argument(
+        "--costs",
+        default=None,
+        help="Per-arm cost for cost-quality, e.g. local=0.2,cloud=1.0 (default: 0.2/1.0).",
     )
     p_cal.set_defaults(func=_cmd_calibrate)
 

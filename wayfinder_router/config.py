@@ -145,7 +145,12 @@ def _parse_tiers(where: str, value: object) -> tuple[Tier, ...]:
             raise WayfinderConfigError(f"{where}: tier 'min_score' must be a number in 0.0-1.0")
         if not isinstance(model, str) or not model:
             raise WayfinderConfigError(f"{where}: tier 'model' must be a non-empty string")
-        tiers.append(Tier(float(min_score), model))
+        cost = entry.get("cost")
+        if cost is not None and (
+            isinstance(cost, bool) or not isinstance(cost, (int, float)) or cost < 0
+        ):
+            raise WayfinderConfigError(f"{where}: tier 'cost' must be a non-negative number")
+        tiers.append(Tier(float(min_score), model, float(cost) if cost is not None else None))
     tiers.sort(key=lambda t: t.min_score)
     if tiers[0].min_score != 0.0:
         raise WayfinderConfigError(f"{where}: the first tier must have min_score = 0.0")
@@ -207,6 +212,17 @@ def _fmt_num(value: float) -> str:
     return repr(round(float(value), 6))
 
 
+def _dump_tier(tier: Tier) -> str:
+    lines = [
+        "[[routing.tiers]]",
+        f"min_score = {_fmt_num(tier.min_score)}",
+        f'model = "{tier.model}"',
+    ]
+    if tier.cost is not None:
+        lines.append(f"cost = {_fmt_num(tier.cost)}")
+    return "\n".join(lines)
+
+
 def dump_routing_toml(config: RoutingConfig) -> str:
     """Serialize a :class:`RoutingConfig` back to a ``wayfinder-router.toml`` fragment.
 
@@ -233,11 +249,7 @@ def dump_routing_toml(config: RoutingConfig) -> str:
             lines.append(f"{name} = [" + ", ".join(_fmt_num(w) for w in clf.weights[name]) + "]")
         blocks.append("\n".join(lines))
     else:
-        tiers = "\n\n".join(
-            f"[[routing.tiers]]\nmin_score = {_fmt_num(t.min_score)}\nmodel = \"{t.model}\""
-            for t in config.tiers
-        )
-        blocks.append(tiers)
+        blocks.append("\n\n".join(_dump_tier(t) for t in config.tiers))
     return "\n\n".join(blocks) + "\n"
 
 
