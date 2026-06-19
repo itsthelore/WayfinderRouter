@@ -160,8 +160,27 @@ def sweep_curve(samples: list[Sample]) -> list[tuple[float, float]]:
     ]
 
 
-def calibrate_threshold(samples: list[Sample]) -> CalibrationResult:
-    """Binary calibration: sweep the local/cloud-style cut between two labels."""
+# Default relative per-call costs when the caller gives none (WF-ADR-0017): the
+# benchmark's units — the cheap/low arm at 0.2, the expensive/high arm at 1.0.
+_DEFAULT_COST_LOW = 0.2
+_DEFAULT_COST_HIGH = 1.0
+
+
+def calibrate_threshold(
+    samples: list[Sample],
+    *,
+    objective: str = "accuracy",
+    costs: dict[str, float] | None = None,
+    target_savings: float | None = None,
+) -> CalibrationResult:
+    """Binary calibration: sweep the local/cloud-style cut between two labels.
+
+    ``objective="accuracy"`` (the default) picks the most accurate cut.
+    ``objective="cost-quality"`` (WF-ADR-0017) picks the most accurate cut that
+    still reaches ``target_savings`` against always-routing-high, with per-arm
+    cost from ``costs`` (defaulting to the benchmark's 0.2 / 1.0 units). Cost only
+    moves where the cut is placed; the scored path is untouched.
+    """
     labels = _labels_by_mean_score(samples)
     if len(labels) != 2:
         raise CalibrationError(
@@ -169,6 +188,24 @@ def calibrate_threshold(samples: list[Sample]) -> CalibrationResult:
         )
     low, high = labels
     scored = [(s.score, s.label == high) for s in samples]
+    if objective == "cost-quality":
+        if target_savings is None:
+            raise CalibrationError("cost-quality objective needs a target_savings")
+        cost_low, cost_high = _resolve_costs(costs, low, high)
+        threshold, accuracy, savings = _sweep_cut_cost_aware(
+            scored, cost_low, cost_high, target_savings
+        )
+        tiers = (Tier(0.0, low, cost_low), Tier(threshold, high, cost_high))
+        return CalibrationResult(
+            toml=_tiers_toml(tiers),
+            summary={"mode": "threshold", "objective": "cost-quality",
+                     "threshold": threshold, "models": [low, high],
+                     "accuracy": round(accuracy, 4), "cost_savings": round(savings, 4),
+                     "target_savings": round(float(target_savings), 4),
+                     "samples": len(samples)},
+        )
+    if objective != "accuracy":
+        raise CalibrationError(f"unknown objective: {objective!r}")
     threshold, accuracy = _sweep_cut(scored)
     tiers = (Tier(0.0, low), Tier(threshold, high))
     return CalibrationResult(
@@ -176,6 +213,64 @@ def calibrate_threshold(samples: list[Sample]) -> CalibrationResult:
         summary={"mode": "threshold", "threshold": threshold, "models": [low, high],
                  "accuracy": round(accuracy, 4), "samples": len(samples)},
     )
+
+
+def _resolve_costs(
+    costs: dict[str, float] | None, low: str, high: str
+) -> tuple[float, float]:
+    """The (low-arm, high-arm) per-call cost, defaulting to the benchmark units."""
+    if costs is None:
+        return _DEFAULT_COST_LOW, _DEFAULT_COST_HIGH
+    missing = [label for label in (low, high) if label not in costs]
+    if missing:
+        raise CalibrationError(
+            f"--costs must give a cost for each label; missing: {', '.join(missing)}"
+        )
+    cost_low, cost_high = float(costs[low]), float(costs[high])
+    if cost_high <= 0:
+        raise CalibrationError(f"the high-cost arm ('{high}') must have a positive cost")
+    return cost_low, cost_high
+
+
+def _savings_at(
+    scored: list[tuple[float, bool]], cut: float, cost_low: float, cost_high: float
+) -> float:
+    total = len(scored)
+    n_high = sum(1 for score, _ in scored if score >= cut)
+    mean_cost = (n_high * cost_high + (total - n_high) * cost_low) / total
+    return (cost_high - mean_cost) / cost_high
+
+
+def _sweep_cut_cost_aware(
+    scored: list[tuple[float, bool]], cost_low: float, cost_high: float,
+    target_savings: float,
+) -> tuple[float, float, float]:
+    """Most accurate cut whose cost savings reach ``target_savings``.
+
+    Raising the cut routes more calls to the cheap arm (more savings — the curve
+    is monotone in the cut), so the feasible set is the cuts at or above the
+    savings target; among them this maximises accuracy, ties broken to the median
+    cut (a stable central choice). Raises when even all-low cannot reach it.
+    """
+    candidates = sorted({0.0, *(round(score, 4) for score, _ in scored)})
+    total = len(scored)
+    feasible: list[tuple[float, float]] = []  # (accuracy, cut)
+    best_savings = 0.0
+    for cut in candidates:
+        savings = _savings_at(scored, cut, cost_low, cost_high)
+        best_savings = max(best_savings, savings)
+        if savings + 1e-9 >= target_savings:
+            correct = sum(1 for score, is_high in scored if (score >= cut) == is_high)
+            feasible.append((correct / total, cut))
+    if not feasible:
+        raise CalibrationError(
+            f"no cut reaches target savings {target_savings:.2f}; "
+            f"the most achievable is {best_savings:.2f}"
+        )
+    best_acc = max(acc for acc, _ in feasible)
+    best_cuts = sorted(cut for acc, cut in feasible if acc == best_acc)
+    chosen = best_cuts[len(best_cuts) // 2]
+    return chosen, best_acc, _savings_at(scored, chosen, cost_low, cost_high)
 
 
 def calibrate_tiers(
@@ -223,8 +318,8 @@ def fit_classifier(
     partial pivoting, stopped on a tolerance. The L2 term keeps the Hessian
     positive-definite (so the solve is well-posed even on perfectly separable
     data, where unregularized logistic weights diverge) and bounds the weights.
-    The feature space is tiny (7 features x a few classes), so this converges in
-    a handful of iterations regardless of dataset size (WF-ADR-0003).
+    The feature space is tiny (a dozen features x a few classes), so this
+    converges in a handful of iterations regardless of dataset size (WF-ADR-0003).
     """
     order = models_order or _labels_by_mean_score(samples)
     present = set(s.label for s in samples)
@@ -348,11 +443,14 @@ def _fmt(value: float) -> str:
 def _tiers_toml(tiers: tuple[Tier, ...]) -> str:
     blocks = []
     for tier in tiers:
-        blocks.append(
+        block = (
             "[[routing.tiers]]\n"
             f"min_score = {_fmt(tier.min_score)}\n"
             f'model = "{tier.model}"\n'
         )
+        if tier.cost is not None:
+            block += f"cost = {_fmt(tier.cost)}\n"
+        blocks.append(block)
     return "\n".join(blocks)
 
 
@@ -379,10 +477,23 @@ def calibrate(
     models_order: list[str] | None = None,
     iterations: int = 100,
     l2: float = 0.01,
+    objective: str = "accuracy",
+    costs: dict[str, float] | None = None,
+    target_savings: float | None = None,
 ) -> CalibrationResult:
-    """Dispatch to the requested calibration mode."""
+    """Dispatch to the requested calibration mode.
+
+    The cost-aware objective (WF-ADR-0017) is scoped to ``threshold`` mode in v1 —
+    the binary cut is where a savings target is well defined.
+    """
+    if objective != "accuracy" and mode != "threshold":
+        raise CalibrationError(
+            f"objective {objective!r} is only available in threshold mode"
+        )
     if mode == "threshold":
-        return calibrate_threshold(samples)
+        return calibrate_threshold(
+            samples, objective=objective, costs=costs, target_savings=target_savings
+        )
     if mode == "tiers":
         return calibrate_tiers(samples, models_order=models_order)
     if mode == "classifier":
