@@ -3,6 +3,11 @@
   <img alt="Wayfinder — choose your path to your answers. Deterministic. Calibrated. No RAG, no guessing." src="docs/banner-light.png">
 </picture>
 
+[![PyPI](https://img.shields.io/pypi/v/wayfinder-router.svg)](https://pypi.org/project/wayfinder-router/)
+[![Python versions](https://img.shields.io/pypi/pyversions/wayfinder-router.svg)](https://pypi.org/project/wayfinder-router/)
+[![License: Apache 2.0](https://img.shields.io/pypi/l/wayfinder-router.svg)](https://github.com/itsthelore/wayfinder-router/blob/main/LICENSE)
+[![CI](https://github.com/itsthelore/wayfinder-router/actions/workflows/ci.yml/badge.svg)](https://github.com/itsthelore/wayfinder-router/actions/workflows/ci.yml)
+
 A deterministic prompt-complexity router. Hand it a prompt, get back a
 reproducible structural complexity score and a recommendation:
 
