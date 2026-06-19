@@ -28,7 +28,7 @@ WF-ADR-0001/0004 boundary holds:
   pins the call to that endpoint, and ``prefer-local`` / ``prefer-hosted`` pin
   to the low / high end of the configured router (``prefer-cloud`` is a
   back-compat alias of ``prefer-hosted``);
-- an ``X-Wayfinder-Threshold`` header (a number in ``0.0``–1.0``) re-decides
+- an ``X-Wayfinder-Threshold`` header (a number in ``0.0``–``1.0``) re-decides
   the call at that binary cut, reusing the configured scoring weights.
 
 Note the score is a *structural* proxy (length, headings, lists, code, links), not
@@ -426,7 +426,7 @@ def resolve_pin(model_field: object, routing: RoutingConfig, gateway: GatewayCon
 
 
 def parse_threshold_header(value: str | None) -> float | None:
-    """Parse the ``X-Wayfinder-Threshold`` header into a ``0.0``–1.0`` cut, or ``None``.
+    """Parse the ``X-Wayfinder-Threshold`` header into a ``0.0``–``1.0`` cut, or ``None``.
 
     Raises :class:`BadOverride` when the header is present but not a number in range.
     """
