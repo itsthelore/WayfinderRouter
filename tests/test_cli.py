@@ -43,7 +43,7 @@ def test_route_json_is_versioned_contract(monkeypatch, capsys):
     rc = main(["route", "-", "--json"])
     payload = json.loads(capsys.readouterr().out)
     assert rc == 0
-    assert payload["schema_version"] == "2"
+    assert payload["schema_version"] == "3"
     assert payload["recommendation"] in ("local", "cloud")
     assert payload["mode"] == "tiered"
     assert set(payload["features"]) == set(FEATURE_ORDER)
@@ -136,3 +136,34 @@ def test_calibrate_missing_dataset_is_usage_error(capsys):
     rc = main(["calibrate", "nope.jsonl"])
     assert rc == 2
     assert "file not found" in capsys.readouterr().err
+
+
+def test_calibrate_cost_quality_emits_cost_and_reports_savings(tmp_path, capsys):
+    rc = main([
+        "calibrate", _dataset(tmp_path), "--mode", "threshold",
+        "--objective", "cost-quality", "--target-savings", "0.4",
+    ])
+    captured = capsys.readouterr()
+    assert rc == 0
+    assert "cost = " in captured.out
+    assert "objective=cost-quality" in captured.err
+    assert "cost_savings=" in captured.err
+
+
+def test_calibrate_cost_quality_accepts_custom_costs(tmp_path, capsys):
+    rc = main([
+        "calibrate", _dataset(tmp_path), "--mode", "threshold",
+        "--objective", "cost-quality", "--target-savings", "0.3",
+        "--costs", "local=0.1,cloud=1.0",
+    ])
+    assert rc == 0
+    assert "cost = 0.1" in capsys.readouterr().out
+
+
+def test_calibrate_unreachable_savings_is_config_error(tmp_path, capsys):
+    rc = main([
+        "calibrate", _dataset(tmp_path), "--mode", "threshold",
+        "--objective", "cost-quality", "--target-savings", "0.99",
+    ])
+    assert rc == 1
+    assert "target savings" in capsys.readouterr().err

@@ -67,6 +67,59 @@ def test_threshold_round_trips_into_a_usable_config(tmp_path):
     assert score_complexity(LARGE, config=config).recommendation == "cloud"
 
 
+# --- cost-aware threshold (WF-ADR-0017) -------------------------------------
+
+
+def test_cost_quality_holds_the_savings_target_and_emits_cost(tmp_path):
+    samples = load_dataset(_dataset(tmp_path, _binary_rows()))
+    result = calibrate(samples, "threshold", objective="cost-quality", target_savings=0.4)
+    assert result.summary["objective"] == "cost-quality"
+    assert result.summary["cost_savings"] >= 0.4
+    # The emitted config records the per-arm cost metadata and still routes right.
+    (tmp_path / "wayfinder-router.toml").write_text(result.toml, encoding="utf-8")
+    config = load_routing_config(str(tmp_path))
+    assert [t.cost for t in config.tiers] == [0.2, 1.0]
+    assert score_complexity(SIMPLE, config=config).recommendation == "local"
+    assert score_complexity(LARGE, config=config).recommendation == "cloud"
+
+
+def test_cost_quality_respects_custom_costs(tmp_path):
+    samples = load_dataset(_dataset(tmp_path, _binary_rows()))
+    result = calibrate(
+        samples, "threshold", objective="cost-quality", target_savings=0.3,
+        costs={"local": 0.1, "cloud": 1.0},
+    )
+    (tmp_path / "wayfinder-router.toml").write_text(result.toml, encoding="utf-8")
+    config = load_routing_config(str(tmp_path))
+    assert [t.cost for t in config.tiers] == [0.1, 1.0]
+
+
+def test_cost_quality_rejects_an_unreachable_target(tmp_path):
+    samples = load_dataset(_dataset(tmp_path, _binary_rows()))
+    with pytest.raises(CalibrationError):
+        calibrate(samples, "threshold", objective="cost-quality", target_savings=0.99)
+
+
+def test_cost_quality_needs_a_target(tmp_path):
+    samples = load_dataset(_dataset(tmp_path, _binary_rows()))
+    with pytest.raises(CalibrationError):
+        calibrate(samples, "threshold", objective="cost-quality")
+
+
+def test_cost_quality_only_in_threshold_mode(tmp_path):
+    samples = load_dataset(_dataset(tmp_path, _binary_rows()))
+    with pytest.raises(CalibrationError):
+        calibrate(samples, "classifier", objective="cost-quality", target_savings=0.4)
+
+
+def test_accuracy_objective_emits_no_cost_metadata(tmp_path):
+    # The default objective is unchanged: tiers carry no cost.
+    samples = load_dataset(_dataset(tmp_path, _binary_rows()))
+    result = calibrate(samples, "threshold")
+    assert "cost" not in result.toml
+    assert "objective" not in result.summary
+
+
 # --- tiers mode -------------------------------------------------------------
 
 

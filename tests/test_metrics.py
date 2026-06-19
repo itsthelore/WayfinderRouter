@@ -70,6 +70,33 @@ def test_metrics_never_leak_prompt_text(tmp_path, monkeypatch):
     assert "a secret prompt body" not in client.get("/metrics").text
 
 
+def test_model_cost_gauge_is_exposed_when_configured(tmp_path, monkeypatch):
+    config = (
+        "[routing]\nthreshold = 0.5\n\n"
+        "[gateway.models.local]\n"
+        'base_url = "http://localhost:11434/v1"\n'
+        'model = "llama3.2"\n'
+        "cost_per_1k = 0.0\n\n"
+        "[gateway.models.cloud]\n"
+        'base_url = "https://api.example.com/v1"\n'
+        'model = "big-model"\n'
+        "cost_per_1k = 10.0\n"
+    )
+    (tmp_path / "wayfinder-router.toml").write_text(config, encoding="utf-8")
+    monkeypatch.setattr(gateway, "aforward_request", _ok_aforward)
+    client = TestClient(gateway.build_app(start_dir=str(tmp_path)))
+    text = client.get("/metrics").text
+    assert "# TYPE wayfinder_router_model_cost_per_1k gauge" in text
+    assert 'wayfinder_router_model_cost_per_1k{model="cloud"} 10' in text
+    assert 'wayfinder_router_model_cost_per_1k{model="local"} 0' in text
+
+
+def test_model_cost_gauge_absent_without_cost_metadata(tmp_path, monkeypatch):
+    # No cost_per_1k configured -> the gauge block is omitted entirely.
+    client = _client(tmp_path, monkeypatch)
+    assert "wayfinder_router_model_cost_per_1k" not in client.get("/metrics").text
+
+
 def test_upstream_error_increments_the_error_counter(tmp_path, monkeypatch):
     (tmp_path / "wayfinder-router.toml").write_text(CONFIG, encoding="utf-8")
 
