@@ -105,12 +105,18 @@ def evaluate(name: str, router: Router, rows: list[Row], *, measure_latency: boo
 
 
 def evaluate_oracle(rows: list[Row]) -> Metrics:
-    """Upper bound: for each row pick the cheapest model that is correct."""
+    """Upper bound: for each row pick the better model, tie-broken to the cheaper local.
+
+    Route ``local`` whenever its label is at least the cloud's (same-or-better quality at
+    lower cost), else ``cloud``. For binary 0/1 labels this is exactly "the cheapest model
+    that is correct"; for RouterBench's *fractional* graded scores it correctly maximises
+    quality instead of treating any nonzero local score as a win.
+    """
     q_local, q_cloud = _reference(rows)
     n = len(rows)
     quality = cost = frac_cloud = 0.0
     for row in rows:
-        choice = LOCAL if row.label["local"] else (CLOUD if row.label["cloud"] else LOCAL)
+        choice = LOCAL if row.label["local"] >= row.label["cloud"] else CLOUD
         quality += row.label[choice]
         cost += _cost(row, choice)
         frac_cloud += choice == CLOUD

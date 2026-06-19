@@ -28,10 +28,16 @@ _WORD_CUTS = [5.0, 10.0, 15.0, 20.0, 30.0, 40.0, 60.0, 120.0]
 _CURVE_POINTS = [0.0, 0.02, 0.05, 0.1, 0.15, 0.2, 0.25, 0.3]
 
 
+def _fmt_cost(cost: float) -> str:
+    """Two decimals for relative-unit costs (>= 0.01); scientific for the micro-dollar
+    per-call costs that RouterBench/RouterArena carry, which round to 0.00 at 2dp."""
+    return f"{cost:.2f}" if cost >= 0.01 else f"{cost:.2e}"
+
+
 def _row(m: Metrics) -> str:
     latency = f"{m.latency_us:.1f}" if m.latency_us else "~0"
     return (
-        f"| {m.name} | {m.quality:.2f} | {m.cost:.2f} | {m.frac_cloud:.0%} | "
+        f"| {m.name} | {m.quality:.2f} | {_fmt_cost(m.cost)} | {m.frac_cloud:.0%} | "
         f"{m.pgr:.2f} | {m.cost_savings:.0%} | {latency} |"
     )
 
@@ -51,7 +57,7 @@ def _curve(points: list[tuple[float, Metrics]]) -> str:
     for value, m in points:
         if value in wanted:
             lines.append(
-                f"| {value:.2f} | {m.quality:.2f} | {m.cost:.2f} | {m.frac_cloud:.0%} | {m.pgr:.2f} |"
+                f"| {value:.2f} | {m.quality:.2f} | {_fmt_cost(m.cost)} | {m.frac_cloud:.0%} | {m.pgr:.2f} |"
             )
     return "\n".join(lines)
 

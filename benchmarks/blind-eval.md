@@ -73,7 +73,42 @@ easy: at its cost-aware knee it recovers **PGR 0.52**, *below* the plain length 
 blind sets, now on real graded outcomes: structural scoring predicts structural heaviness,
 not difficulty. (The three cached models are all small-tier and the cheapest is also the
 most accurate, so the cost axis is degenerate here — for a true cheap-weak vs
-strong-expensive frontier, run RouterBench via `routerbench_adapter.py`.)
+strong-expensive frontier, see RouterBench below.)
+
+## Real-label cross-check (RouterBench) — the frontier gap
+
+RouterArena's cost axis was degenerate; RouterBench (Hu et al. 2024) is not.
+`routerbench_adapter.py` reduces its 0-shot graded table (36,497 real prompts, 11 models)
+to `mistralai/mistral-7b-chat` as `local` (score 0.31, $0.000046/call) vs
+`gpt-4-1106-preview` as `cloud` (0.78, $0.003293/call) — a real **0.475 quality gap at a
+~72× cost ratio**. The fair metric is **skill = PGR − frac_cloud** (a router routing
+fraction *f* to cloud recovers PGR = *f* at random, so skill > 0 means it beats chance at
+picking *which* prompts to escalate). Full numbers in `routerbench-results.md`.
+
+| router | PGR | → cloud | skill | reading |
+| --- | --: | --: | --: | --- |
+| stable-random | 0.50 | 50% | +0.00 | the zero-skill line |
+| length-threshold (knee) | 0.44 | 51% | −0.07 | a dumb length rule is at random |
+| **wayfinder, structural (knee)** | **0.22** | **26%** | **−0.04** | the shipped default is *below* random |
+
+The shipped structural router does **not** beat length or random on real frontier labels:
+mean skill across the realistic operating band is **−0.049**. The cause is direct — across
+the 86 task buckets, the correlation between a bucket's frontier gap and how often
+Wayfinder escalates it is **−0.51**: the biggest wins (gap ≈ +0.7) are short
+multiple-choice questions (mmlu-moral-scenarios, college-biology) it escalates 0% of the
+time, while long, smaller-gap history passages draw 80%+. Structural heaviness mildly
+*anti*-correlates with difficulty here. Same verdict as every blind set.
+
+**The one surprise — the lexical opt-in helps here.** Turning the lexical signals on
+(`OPTED_IN_WEIGHTS`) lifts mean skill from **−0.049 to +0.039** — from below-random to
+above it, at *every* matched cloud fraction. This does not overturn the off-by-default
+decision; it confirms its logic. RouterBench is math/reasoning/STEM-heavy, where the
+frontier model's edge is largest *and* whose prompts naturally carry the lexicon's
+vocabulary ("prove", "derive", math notation). The blind sets showed the lexicon fails on
+independently-authored prose where hardness is *not* in those words; RouterBench shows it
+helps when it *is*. Both are the same rule: **opt in and calibrate the lexical weights only
+when your own traffic's difficulty lives in its vocabulary.** RouterBench is the favorable
+case, and even there it recovers a fraction of the oracle.
 
 ## The edge that survives a blind test
 
