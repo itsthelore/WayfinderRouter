@@ -9,7 +9,25 @@ tags: [scoring, complexity, calibration, benchmark, accuracy]
 
 ## Status
 
-Accepted
+Accepted — shipped **opt-in, off by default** (see Amendment).
+
+## Amendment (v0.2.0): shipped at weight 0.0 after a double-blind test
+
+The lexical features were implemented as designed, but a cross-provider double-blind
+test (`benchmarks/blind-eval.md`) measured the bias this ADR's own "Risks" section
+flagged. The canonical benchmark and the router shared an author, so prompts written
+by someone who knew the lexicon contained it. On prompts authored independently from a
+scorer-blind brief, the lexicon fired on only **~20% of hard prompts**, false-positived
+on easy prompts using a trigger word, and **lost to a plain length baseline** (PGR 0.16
+vs 0.81 at a realistic cut). A curated keyword list detects an author's vocabulary, not
+difficulty in general.
+
+So the "0.0-default path" named under Consequences → Negative was taken: the four
+features are computed and reported but ship at **weight 0.0**, so default routing is
+unchanged from v0.1.x. They are opt-in — a user who knows their own traffic's
+vocabulary raises the weights and calibrates. The original decision below stands as the
+record of what was built and why; this amendment records that it does not generalize
+and is therefore off by default.
 
 ## Category
 
