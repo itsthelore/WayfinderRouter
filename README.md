@@ -63,14 +63,18 @@ the decision is free and the same every time.
 | LiteLLM | provider proxy (not complexity-routed) | no | yes | n/a |
 
 Wayfinder is not chasing a top accuracy number. It is the one router you can run
-offline, with zero model calls, and tune on your own traffic. The catch is real
-too: it reads lexical cues like proofs, math, and constraints to catch many
-short-but-hard prompts, but a prompt whose difficulty is purely semantic — a
-subtle code snippet, an innocent-looking "what is the 100th prime number?" — has
-no structural or lexical tell, and a semantic router will beat it there. The
-[benchmark](benchmarks/README.md) (`make benchmark`) shows where it wins and where
-it loses, against honest baselines and a perfect oracle. Point it at RouterBench or
-RouterArena for bigger numbers.
+offline, with zero model calls, and tune on your own traffic. Be honest about the
+limit: it reads lexical cues like proofs, math, and constraints, and on prompts that
+use that vocabulary it helps — but a [double-blind test](benchmarks/blind-eval.md)
+on independently-authored prompts shows the lexical lift does *not* generalize
+(it catches ~20% of unseen hard prompts and loses to a plain word-count baseline).
+A prompt whose difficulty is purely semantic — a subtle code snippet, an
+innocent-looking "what is the 100th prime number?" — has no structural or lexical
+tell, and a semantic router will beat it there. The edge that survives the blind
+test is the one to lead with: a deterministic, sub-millisecond, offline routing
+decision with no model call. The [benchmark](benchmarks/README.md) (`make benchmark`)
+shows where it wins and where it loses, against honest baselines and a perfect
+oracle. Point it at RouterBench or RouterArena for graded numbers.
 
 ## Quickstart
 

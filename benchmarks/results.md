@@ -2,6 +2,8 @@
 
 Deterministic and offline; reproduce with `python -m benchmarks.run`. `quality` = mean correctness of the chosen model; `PGR` = performance gap recovered (0 = always-local, 1 = always-cloud); `cost saved` is vs always-cloud; `decide µs` is the per-prompt decision latency (no model call, machine-dependent).
 
+> These prompts were authored by the same person who wrote the router, so the lexical lift below (PGR 0.80 at t≈0.11) flatters the signal. A [cross-provider double-blind test](blind-eval.md) shows that lift does not generalize — read it alongside these numbers.
+
 | router | quality | cost | → cloud | PGR | cost saved | decide µs |
 | --- | --: | --: | --: | --: | --: | --: |
 | oracle (upper bound, not a real router) | 1.00 | 0.70 | 62% | 1.00 | 30% | ~0 |

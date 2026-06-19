@@ -1,0 +1,154 @@
+{"prompt":"What is the capital of Canada?","difficulty":"easy","domain":"geography","form":"plain"}
+{"prompt":"Convert 72 Fahrenheit to Celsius.","difficulty":"easy","domain":"units","form":"plain"}
+{"prompt":"Define photosynthesis in one sentence.","difficulty":"easy","domain":"biology","form":"plain"}
+{"prompt":"Translate 'Good morning, how are you?' into Spanish.","difficulty":"easy","domain":"translation","form":"plain"}
+{"prompt":"What is 17 x 24?","difficulty":"easy","domain":"arithmetic","form":"plain"}
+{"prompt":"Who wrote 'Pride and Prejudice'?","difficulty":"easy","domain":"literature","form":"plain"}
+{"prompt":"What does the acronym HTTP stand for?","difficulty":"easy","domain":"computing","form":"plain"}
+{"prompt":"How many sides does a hexagon have?","difficulty":"easy","domain":"geometry","form":"plain"}
+{"prompt":"Name the largest planet in the Solar System.","difficulty":"easy","domain":"astronomy","form":"plain"}
+{"prompt":"What is the chemical symbol for gold?","difficulty":"easy","domain":"chemistry","form":"plain"}
+{"prompt":"Is a whale a mammal or a fish?","difficulty":"easy","domain":"biology","form":"plain"}
+{"prompt":"What year did World War II end?","difficulty":"easy","domain":"history","form":"plain"}
+{"prompt":"Convert 5 kilometers to meters.","difficulty":"easy","domain":"units","form":"plain"}
+{"prompt":"What is the opposite of 'scarce'?","difficulty":"easy","domain":"vocabulary","form":"plain"}
+{"prompt":"Which ocean lies between Africa and Australia?","difficulty":"easy","domain":"geography","form":"plain"}
+{"prompt":"What is 15% of 200?","difficulty":"easy","domain":"arithmetic","form":"plain"}
+{"prompt":"Name the primary language spoken in Brazil.","difficulty":"easy","domain":"geography","form":"plain"}
+{"prompt":"What does CPU stand for?","difficulty":"easy","domain":"computing","form":"plain"}
+{"prompt":"How many minutes are in 3 hours?","difficulty":"easy","domain":"arithmetic","form":"plain"}
+{"prompt":"What gas do plants absorb from the atmosphere?","difficulty":"easy","domain":"science","form":"plain"}
+{"prompt":"Employee Directory\n\n| ID | Name | Team |\n|---|---|---|\n| 101 | Maya | Sales |\n| 102 | Ben | Finance |\n| 103 | Aisha | Engineering |\n| 104 | Leo | HR |\n\nWhich team is Ben on?","difficulty":"easy","domain":"table_lookup","form":"structured"}
+{"prompt":"Trip Itinerary\n- Monday: Rome\n- Tuesday: Florence\n- Wednesday: Venice\n- Thursday: Milan\n\nWhere am I on Wednesday?","difficulty":"easy","domain":"lookup","form":"structured"}
+{"prompt":"Inventory\n\nItem A: 14 units\nItem B: 9 units\nItem C: 21 units\n\nHow many units of Item B are listed?","difficulty":"easy","domain":"table_lookup","form":"structured"}
+{"prompt":"Project Notes\n\nPhase 1 completed on March 2.\nPhase 2 completed on March 18.\nPhase 3 scheduled for April 5.\n\nWhich phase is scheduled for April 5?","difficulty":"easy","domain":"lookup","form":"structured"}
+{"prompt":"Menu\n\nStarter: Soup\nMain: Pasta\nDessert: Cheesecake\n\nWhat is the dessert?","difficulty":"easy","domain":"lookup","form":"structured"}
+{"prompt":"Conference Agenda\n09:00 Registration\n10:00 Keynote\n11:30 Break\n13:00 Panel\n\nWhat happens at 10:00?","difficulty":"easy","domain":"lookup","form":"structured"}
+{"prompt":"Read the list: apples, oranges, pears, bananas, grapes. How many fruits are listed?","difficulty":"easy","domain":"counting","form":"structured"}
+{"prompt":"Warehouse Log\n\nBox 1: Red\nBox 2: Blue\nBox 3: Green\nBox 4: Yellow\n\nWhat color is Box 3?","difficulty":"easy","domain":"lookup","form":"structured"}
+{"prompt":"Recipe\n- 2 eggs\n- 100 g flour\n- 250 ml milk\n\nHow many eggs are required?","difficulty":"easy","domain":"lookup","form":"structured"}
+{"prompt":"Team Scores\nA: 12\nB: 18\nC: 9\n\nWhich team has the highest score?","difficulty":"easy","domain":"comparison","form":"structured"}
+{"prompt":"Customer Records\n\nName: Sarah\nCity: Leeds\nMember Since: 2021\n\nWhich city does Sarah live in?","difficulty":"easy","domain":"lookup","form":"structured"}
+{"prompt":"Library Shelf\nRow 1: History\nRow 2: Science\nRow 3: Fiction\n\nWhich genre is on Row 2?","difficulty":"easy","domain":"lookup","form":"structured"}
+{"prompt":"Budget\nRent: $900\nFood: $250\nTransport: $80\n\nHow much is allocated to transport?","difficulty":"easy","domain":"lookup","form":"structured"}
+{"prompt":"Schedule\nMonday: Gym\nTuesday: Study\nWednesday: Rest\nThursday: Work\n\nWhat is planned for Tuesday?","difficulty":"easy","domain":"lookup","form":"structured"}
+{"prompt":"Product Catalog\n\nP1 - Laptop\nP2 - Mouse\nP3 - Keyboard\n\nWhat item corresponds to P2?","difficulty":"easy","domain":"lookup","form":"structured"}
+{"prompt":"Translate the French word 'chat' into English.","difficulty":"easy","domain":"translation","form":"plain"}
+{"prompt":"What is the square root of 81?","difficulty":"easy","domain":"math","form":"plain"}
+{"prompt":"Name the currency used in Japan.","difficulty":"easy","domain":"geography","form":"plain"}
+{"prompt":"Which month comes after September?","difficulty":"easy","domain":"calendar","form":"plain"}
+{"prompt":"What is the boiling point of water at sea level in degrees Celsius?","difficulty":"easy","domain":"science","form":"plain"}
+{"prompt":"Prove that every finite group of order p^2, where p is prime, is abelian.","difficulty":"hard","domain":"abstract_algebra","form":"plain"}
+{"prompt":"Given a directed graph with up to 10^5 vertices and edges added online, design a data structure that reports after each insertion whether the graph still admits a topological ordering, and analyze the complexity.","difficulty":"hard","domain":"algorithms","form":"plain"}
+{"prompt":"Why does gradient descent with momentum sometimes escape shallow local minima more effectively than vanilla gradient descent?","difficulty":"hard","domain":"machine_learning","form":"plain"}
+{"prompt":"A startup can choose either a high-price/low-volume strategy or a low-price/high-volume strategy under uncertain demand. Build a quantitative framework for deciding between them.","difficulty":"hard","domain":"economics","form":"plain"}
+{"prompt":"Derive the Black-Scholes PDE from a self-financing replicating portfolio argument.","difficulty":"hard","domain":"finance","form":"plain"}
+{"prompt":"Show that there are infinitely many primes congruent to 1 modulo 4.","difficulty":"hard","domain":"number_theory","form":"plain"}
+{"prompt":"A patient has fever, rash, eosinophilia, recent medication exposure, and elevated liver enzymes. Compare the leading differential diagnoses and explain the discriminating findings.","difficulty":"hard","domain":"medicine","form":"plain"}
+{"prompt":"Design a globally distributed rate-limiting service with strict per-user quotas and low latency.","difficulty":"hard","domain":"systems","form":"plain"}
+{"prompt":"Why can Simpson's paradox reverse the apparent direction of an association?","difficulty":"hard","domain":"statistics","form":"plain"}
+{"prompt":"Find all continuous functions f satisfying f(x+y)=f(x)f(y).","difficulty":"hard","domain":"analysis","form":"plain"}
+{"prompt":"A cache shows 99% hit rate but overall latency barely improves. What are the most plausible explanations?","difficulty":"hard","domain":"systems","form":"plain"}
+{"prompt":"Explain how one could distinguish genetic drift from natural selection using population-genetic data.","difficulty":"hard","domain":"biology","form":"plain"}
+{"prompt":"Under what conditions does a constitutional amendment process become vulnerable to strategic manipulation by political actors?","difficulty":"hard","domain":"political_science","form":"plain"}
+{"prompt":"You have a binary classifier with excellent ROC-AUC but poor business outcomes after deployment. Diagnose possible causes.","difficulty":"hard","domain":"machine_learning","form":"plain"}
+{"prompt":"Why does the compactness theorem imply the existence of nonstandard models of arithmetic?","difficulty":"hard","domain":"logic","form":"plain"}
+{"prompt":"Determine whether every norm on a finite-dimensional vector space is equivalent and justify the claim rigorously.","difficulty":"hard","domain":"linear_algebra","form":"plain"}
+{"prompt":"A company wants active-active deployment across continents with zero data loss during regional failures. Evaluate feasibility and tradeoffs.","difficulty":"hard","domain":"distributed_systems","form":"plain"}
+{"prompt":"What failure modes arise when reinforcement learning agents optimize misspecified reward functions?","difficulty":"hard","domain":"ai","form":"plain"}
+{"prompt":"Why is proving P != NP considered difficult despite extensive evidence?","difficulty":"hard","domain":"theoretical_cs","form":"plain"}
+{"prompt":"A judge must weigh statistical evidence against eyewitness testimony. Construct a principled Bayesian analysis.","difficulty":"hard","domain":"law","form":"plain"}
+{"prompt":"Explain whether a civilization could detect the expansion of the universe using only local experiments.","difficulty":"hard","domain":"physics","form":"plain"}
+{"prompt":"Given only pairwise preferences from millions of users, infer a global ranking robust to manipulation.","difficulty":"hard","domain":"algorithms","form":"plain"}
+{"prompt":"When does increasing model capacity worsen out-of-distribution robustness?","difficulty":"hard","domain":"machine_learning","form":"plain"}
+{"prompt":"Can two economies with identical fundamentals sustain different long-run equilibria? Analyze formally.","difficulty":"hard","domain":"economics","form":"plain"}
+{"prompt":"Why do some cryptographic protocols remain secure even when components are publicly known?","difficulty":"hard","domain":"cryptography","form":"plain"}
+{"prompt":"Show that the harmonic series diverges.","difficulty":"hard","domain":"analysis","form":"plain"}
+{"prompt":"A database query became 100x slower after an index was added. Explain how that can happen.","difficulty":"hard","domain":"databases","form":"plain"}
+{"prompt":"Explain the relationship between entropy and information gain in decision trees.","difficulty":"hard","domain":"machine_learning","form":"plain"}
+{"prompt":"How can a legal rule be simultaneously overinclusive and underinclusive?","difficulty":"hard","domain":"law","form":"plain"}
+{"prompt":"Why are randomized algorithms sometimes faster than deterministic ones for the same problem?","difficulty":"hard","domain":"algorithms","form":"plain"}
+{"prompt":"A country's debt-to-GDP ratio is falling while its total debt is rising. Explain the mechanisms that could cause this.","difficulty":"hard","domain":"economics","form":"plain"}
+{"prompt":"Derive the Euler-Lagrange equation from a variational principle.","difficulty":"hard","domain":"physics","form":"plain"}
+{"prompt":"Explain why correlation matrices must be positive semidefinite.","difficulty":"hard","domain":"statistics","form":"plain"}
+{"prompt":"Assess the strongest arguments for and against originalism in constitutional interpretation.","difficulty":"hard","domain":"law","form":"plain"}
+{"prompt":"Can a perfectly competitive market produce inefficient outcomes? Discuss rigorously.","difficulty":"hard","domain":"economics","form":"plain"}
+{"prompt":"A model's training loss falls steadily while validation performance oscillates. What hypotheses best explain this pattern?","difficulty":"hard","domain":"machine_learning","form":"plain"}
+{"prompt":"def f(xs):\n    out=[]\n    for i in range(len(xs)):\n        out.append(sum(xs[:i]))\n    return out\n\nRefactor this for asymptotically better performance, prove correctness, and analyze complexity.","difficulty":"hard","domain":"programming","form":"structured"}
+{"prompt":"Network Requirements\n- 50 million daily users\n- Global low latency\n- Offline support\n- Strong consistency for payments\n- Eventual consistency acceptable for social features\n\nDesign the architecture and justify each major component.","difficulty":"hard","domain":"systems","form":"structured"}
+{"prompt":"Research Summary\n1. Study A reports a large effect with n=40.\n2. Study B reports no effect with n=400.\n3. Study C reports a moderate effect with n=120.\n\nEvaluate what conclusions, if any, are warranted.","difficulty":"hard","domain":"statistics","form":"structured"}
+{"prompt":"Contract Clause A grants broad discretion to a regulator. Clause B guarantees predictable treatment for firms. Analyze potential conflicts and propose interpretive approaches.","difficulty":"hard","domain":"law","form":"structured"}
+{"prompt":"Table:\n| Year | Revenue | Users |\n|---|---|---|\n|1|10|1|\n|2|18|2|\n|3|27|6|\n|4|38|20|\nDevelop plausible business explanations for the changing revenue-per-user trend.","difficulty":"hard","domain":"business","form":"structured"}
+{"prompt":"A language has productive reduplication, free word order, and extensive case marking. Predict challenges for machine translation and propose solutions.","difficulty":"hard","domain":"linguistics","form":"plain"}
+{"prompt":"Why can maximum likelihood estimation become unreliable in high-dimensional settings?","difficulty":"hard","domain":"statistics","form":"plain"}
+{"prompt":"Compare Paxos and Raft from the perspective of understandability, safety, and operational behavior.","difficulty":"hard","domain":"distributed_systems","form":"plain"}
+{"prompt":"Show that every finite integral domain is a field.","difficulty":"hard","domain":"algebra","form":"plain"}
+{"prompt":"A medical screening test has high sensitivity and specificity but produces many false positives in practice. Explain quantitatively.","difficulty":"hard","domain":"medicine","form":"plain"}
+{"prompt":"What assumptions are necessary for difference-in-differences estimation to identify a causal effect?","difficulty":"hard","domain":"econometrics","form":"plain"}
+{"prompt":"Explain how a compiler can optimize code while preserving observable behavior.","difficulty":"hard","domain":"compilers","form":"plain"}
+{"prompt":"Can a voting system satisfy all seemingly reasonable fairness criteria simultaneously?","difficulty":"hard","domain":"social_choice","form":"plain"}
+{"prompt":"Design a storage engine optimized for time-series telemetry at planetary scale.","difficulty":"hard","domain":"databases","form":"plain"}
+{"prompt":"Why do adversarial examples exist in modern neural networks?","difficulty":"hard","domain":"machine_learning","form":"plain"}
+{"prompt":"Derive the Kalman filter update equations and explain the intuition behind them.","difficulty":"hard","domain":"control","form":"plain"}
+{"prompt":"Explain why some historical technological advances diffused rapidly while others took decades.","difficulty":"hard","domain":"history","form":"plain"}
+{"prompt":"A cryptographic hash collision is discovered for a legacy system. Plan a migration strategy with minimal disruption.","difficulty":"hard","domain":"security","form":"plain"}
+{"prompt":"Under what circumstances can a monopolist increase both output and profit?","difficulty":"hard","domain":"economics","form":"plain"}
+{"prompt":"Show that the real numbers are uncountable.","difficulty":"hard","domain":"set_theory","form":"plain"}
+{"prompt":"Explain the CAP theorem and common misconceptions about it.","difficulty":"hard","domain":"distributed_systems","form":"plain"}
+{"prompt":"How would you infer latent customer segments from sparse behavioral data?","difficulty":"hard","domain":"data_science","form":"plain"}
+{"prompt":"Assess the strengths and weaknesses of using GDP as a measure of welfare.","difficulty":"hard","domain":"economics","form":"plain"}
+{"prompt":"Why can legal compliance still leave an organization exposed to significant risk?","difficulty":"hard","domain":"risk","form":"plain"}
+{"prompt":"Analyze the tradeoffs between interpretable models and highly expressive models in high-stakes settings.","difficulty":"hard","domain":"machine_learning","form":"plain"}
+{"prompt":"Construct a proof that every convergent sequence in a metric space is Cauchy.","difficulty":"hard","domain":"analysis","form":"plain"}
+{"prompt":"A recommender system increased click-through rate but reduced long-term retention. Explain possible mechanisms.","difficulty":"hard","domain":"product","form":"plain"}
+{"prompt":"What makes causation fundamentally harder to establish than correlation?","difficulty":"hard","domain":"statistics","form":"plain"}
+{"prompt":"Design a fair auction mechanism for allocating scarce cloud resources.","difficulty":"hard","domain":"mechanism_design","form":"plain"}
+{"prompt":"Why can adding more data sometimes hurt predictive performance?","difficulty":"hard","domain":"machine_learning","form":"plain"}
+{"prompt":"Explain how isotope evidence can reconstruct ancient migration patterns.","difficulty":"hard","domain":"archaeology","form":"plain"}
+{"prompt":"Derive the relationship between eigenvalues and long-run behavior of a Markov chain.","difficulty":"hard","domain":"probability","form":"plain"}
+{"prompt":"A software team ships faster after deleting 30% of its codebase. Analyze why.","difficulty":"hard","domain":"software_engineering","form":"plain"}
+{"prompt":"When can diversification fail to reduce risk?","difficulty":"hard","domain":"finance","form":"plain"}
+{"prompt":"Explain why language change can occur even without external contact.","difficulty":"hard","domain":"linguistics","form":"plain"}
+{"prompt":"Show that any two bases of a finite-dimensional vector space have the same cardinality.","difficulty":"hard","domain":"linear_algebra","form":"plain"}
+{"prompt":"A nation experiences low inflation, low unemployment, and stagnant wages simultaneously. Offer coherent explanations.","difficulty":"hard","domain":"economics","form":"plain"}
+{"prompt":"What architectural choices would you make for a fault-tolerant event-sourcing platform?","difficulty":"hard","domain":"systems","form":"plain"}
+{"prompt":"Employee Handbook\n\nSection A: Vacation requests require manager approval.\nSection B: Contractors are not eligible for vacation benefits.\nSection C: Full-time employees receive 20 vacation days.\n\nHow many vacation days do full-time employees receive?","difficulty":"easy","domain":"lookup","form":"structured"}
+{"prompt":"Course List\nCS101 Intro Programming\nCS205 Data Structures\nCS330 Databases\n\nWhich course is CS205?","difficulty":"easy","domain":"lookup","form":"structured"}
+{"prompt":"What is the past tense of the verb 'go'?","difficulty":"easy","domain":"grammar","form":"plain"}
+{"prompt":"How many centimeters are in 2.5 meters?","difficulty":"easy","domain":"units","form":"plain"}
+{"prompt":"Which continent is Egypt located on?","difficulty":"easy","domain":"geography","form":"plain"}
+{"prompt":"What is H2O commonly called?","difficulty":"easy","domain":"chemistry","form":"plain"}
+{"prompt":"Convert 90 minutes into hours.","difficulty":"easy","domain":"units","form":"plain"}
+{"prompt":"What is the first month of the year?","difficulty":"easy","domain":"calendar","form":"plain"}
+{"prompt":"Name the process by which water vapor becomes liquid water.","difficulty":"easy","domain":"science","form":"plain"}
+{"prompt":"What is 1000 divided by 25?","difficulty":"easy","domain":"arithmetic","form":"plain"}
+{"prompt":"Translate 'merci' into English.","difficulty":"easy","domain":"translation","form":"plain"}
+{"prompt":"Which animal is known as the 'king of the jungle'?","difficulty":"easy","domain":"general_knowledge","form":"plain"}
+{"prompt":"What is the largest mammal on Earth?","difficulty":"easy","domain":"biology","form":"plain"}
+{"prompt":"Convert 3 kilograms to grams.","difficulty":"easy","domain":"units","form":"plain"}
+{"prompt":"What color do you get by mixing blue and yellow?","difficulty":"easy","domain":"art","form":"plain"}
+{"prompt":"Meeting Notes\nAttendees: Kim, Raj, Elena, Marcus, Zoe\nAction Owner: Raj\nDeadline: Friday\n\nWho owns the action item?","difficulty":"easy","domain":"lookup","form":"structured"}
+{"prompt":"Store Hours\nMon-Fri: 9-5\nSat: 10-4\nSun: Closed\n\nIs the store open on Sunday?","difficulty":"easy","domain":"lookup","form":"structured"}
+{"prompt":"Roster\n#7 Patel\n#10 Gomez\n#12 Reed\n\nWhich player wears number 10?","difficulty":"easy","domain":"lookup","form":"structured"}
+{"prompt":"Shipping Options\nStandard: 5 days\nExpress: 2 days\nOvernight: 1 day\n\nWhich option is fastest?","difficulty":"easy","domain":"lookup","form":"structured"}
+{"prompt":"What is the freezing point of water in Celsius?","difficulty":"easy","domain":"science","form":"plain"}
+{"prompt":"Explain why consensus becomes harder as the number of unreliable nodes increases.","difficulty":"hard","domain":"distributed_systems","form":"plain"}
+{"prompt":"A lender uses an ML model for credit decisions. Evaluate fairness, calibration, and regulatory tradeoffs.","difficulty":"hard","domain":"finance","form":"plain"}
+{"prompt":"Derive the bias-variance decomposition for squared error loss.","difficulty":"hard","domain":"statistics","form":"plain"}
+{"prompt":"Why might a perfectly rational agent choose to randomize its actions?","difficulty":"hard","domain":"game_theory","form":"plain"}
+{"prompt":"Show that breadth-first search finds shortest paths in an unweighted graph.","difficulty":"hard","domain":"algorithms","form":"plain"}
+{"prompt":"Design an experiment to separate placebo effects from treatment effects when blinding is imperfect.","difficulty":"hard","domain":"medicine","form":"plain"}
+{"prompt":"How can constitutional systems balance democratic accountability with protection of minority rights?","difficulty":"hard","domain":"law","form":"plain"}
+{"prompt":"Explain the tradeoffs between row-oriented and column-oriented database storage.","difficulty":"hard","domain":"databases","form":"plain"}
+{"prompt":"Why do some optimization landscapes contain large flat regions, and what are the implications?","difficulty":"hard","domain":"machine_learning","form":"plain"}
+{"prompt":"Construct an argument for when open-source ecosystems outperform proprietary ones and when they do not.","difficulty":"hard","domain":"technology","form":"plain"}
+{"prompt":"A central bank raises interest rates yet housing prices continue rising. Analyze possible explanations.","difficulty":"hard","domain":"economics","form":"plain"}
+{"prompt":"Show that the composition of continuous functions is continuous.","difficulty":"hard","domain":"analysis","form":"plain"}
+{"prompt":"Evaluate whether privacy can be guaranteed in a federated learning system.","difficulty":"hard","domain":"security","form":"plain"}
+{"prompt":"Explain how historical contingency complicates causal claims in history.","difficulty":"hard","domain":"history","form":"plain"}
+{"prompt":"A marketplace suffers from both adverse selection and moral hazard. Propose interventions.","difficulty":"hard","domain":"economics","form":"plain"}
+{"prompt":"Why are some NP-complete problems easy in practice despite worst-case hardness?","difficulty":"hard","domain":"theoretical_cs","form":"plain"}
+{"prompt":"Design a monitoring strategy that detects silent data corruption in distributed storage.","difficulty":"hard","domain":"systems","form":"plain"}
+{"prompt":"Compare textualism, purposivism, and pragmatism as methods of statutory interpretation.","difficulty":"hard","domain":"law","form":"plain"}
+{"prompt":"Explain how identifiability issues arise in latent-variable models.","difficulty":"hard","domain":"statistics","form":"plain"}
+{"prompt":"A company wants one metric to evaluate every team. Analyze why this may fail and suggest alternatives.","difficulty":"hard","domain":"management","form":"plain"}
