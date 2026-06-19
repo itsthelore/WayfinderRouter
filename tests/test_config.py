@@ -90,11 +90,29 @@ def test_tiers_are_parsed_and_sorted(tmp_path):
         ),  # duplicate
         "[[routing.tiers]]\nmin_score = 0.0\nmodel = \"\"\n",  # empty model
         "[[routing.tiers]]\nmin_score = 2.0\nmodel = \"a\"\n",  # out of range
+        "[[routing.tiers]]\nmin_score = 0.0\nmodel = \"a\"\ncost = -1.0\n",  # negative cost
+        "[[routing.tiers]]\nmin_score = 0.0\nmodel = \"a\"\ncost = \"free\"\n",  # non-number cost
     ],
 )
 def test_malformed_tiers_are_rejected(tmp_path, body):
     with pytest.raises(WayfinderConfigError):
         load_routing_config(_write(tmp_path, body))
+
+
+def test_optional_tier_cost_is_parsed(tmp_path):
+    body = (
+        "[[routing.tiers]]\nmin_score = 0.0\nmodel = \"local\"\ncost = 0.2\n\n"
+        "[[routing.tiers]]\nmin_score = 0.4\nmodel = \"cloud\"\ncost = 1.0\n"
+    )
+    config = load_routing_config(_write(tmp_path, body))
+    assert [t.cost for t in config.tiers] == [0.2, 1.0]
+
+
+def test_tier_cost_is_optional(tmp_path):
+    # A tier without cost keeps cost None — the metadata is purely opt-in.
+    body = "[[routing.tiers]]\nmin_score = 0.0\nmodel = \"local\"\n"
+    config = load_routing_config(_write(tmp_path, body))
+    assert config.tiers[0].cost is None
 
 
 # --- classifier -------------------------------------------------------------
