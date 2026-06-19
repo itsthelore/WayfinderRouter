@@ -80,3 +80,16 @@ def test_run_report_has_the_expected_sections():
     assert "# Benchmark results" in report
     assert "cost-quality curve" in report
     assert "by difficulty" in report
+
+
+def test_per_row_cost_overrides_the_flat_default():
+    # A dataset row may carry real per-call costs (the RouterBench / RouterArena adapters
+    # emit them); when present the harness uses them and falls back to the flat COST
+    # otherwise. Backward-compatible: existing cost-less rows are unchanged.
+    flat = [harness.Row("p", "d", {"local": 1, "cloud": 1})]
+    assert harness.evaluate("x", always_cloud, flat).cost == harness.COST["cloud"]
+
+    priced = [harness.Row("p", "d", {"local": 0, "cloud": 1}, cost={"local": 2.0, "cloud": 0.5})]
+    m = harness.evaluate("x", always_cloud, priced)
+    assert m.cost == 0.5  # the real cloud cost, not the flat 1.0
+    assert m.cost_savings == 0.0  # always-cloud saves nothing vs the always-cloud baseline
