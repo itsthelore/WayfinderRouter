@@ -82,7 +82,7 @@ def test_trivial_prompt_routes_local_by_default():
 
 def test_default_to_dict_is_versioned_contract():
     payload = score_complexity(COMPLEX).to_dict()
-    assert payload["schema_version"] == "2"
+    assert payload["schema_version"] == "3"
     assert payload["mode"] == "tiered"
     assert set(payload["features"]) == set(FEATURE_ORDER)
     assert [t["model"] for t in payload["tiers"]] == ["local", "cloud"]
@@ -104,6 +104,59 @@ def test_code_fence_contents_are_not_counted_as_structure():
     assert features["list_item_count"] == 0
     assert features["table_row_count"] == 0
     assert features["code_block_count"] == 1
+
+
+# --- lexical difficulty signals (WF-ADR-0016) -------------------------------
+
+
+def test_reasoning_terms_are_counted_case_insensitively():
+    # "prove" and "irrational" are both in the curated reasoning lexicon.
+    assert extract_features("Prove that the square root of 2 is irrational.")[
+        "reasoning_term_count"
+    ] == 2
+    assert extract_features("PROVE THE THEOREM")["reasoning_term_count"] == 2
+
+
+def test_reasoning_terms_match_whole_words_not_substrings():
+    # "approve" / "proverbial" must not trip the "prove" term.
+    assert extract_features("approve the proverbial change")["reasoning_term_count"] == 0
+
+
+def test_math_symbols_count_glyphs_and_latex_tokens():
+    # LaTeX-ish backslash tokens: \int, \le, \frac.
+    assert extract_features(r"Show that $\int x\,dx \le 5$ and \frac{1}{2}.")[
+        "math_symbol_count"
+    ] == 3
+    # Unicode math/logic glyphs: ∑, ∫, ≤.
+    assert extract_features("Bound it by ∑ and ∫ where x ≤ y.")["math_symbol_count"] == 3
+
+
+def test_constraint_and_question_markers_are_counted():
+    f = extract_features("It must run without locks, only once. Done? Sure?")
+    assert f["constraint_term_count"] == 3  # must, without, only
+    assert f["question_count"] == 2
+
+
+def test_lexical_signals_lift_a_short_hard_prompt_over_a_short_easy_one():
+    # The documented benchmark hole: a short, structureless but hard prompt used to
+    # score ~0 and route local. The lexical signals separate it from short-easy.
+    easy = score_complexity("What is the capital of France?")
+    hard = score_complexity("Prove that the square root of 2 is irrational.")
+    assert easy.score == 0.0
+    assert hard.score > easy.score
+    # At a low cost-aware cut the hard prompt routes up; the easy one stays local.
+    assert score_complexity(
+        "Prove that the square root of 2 is irrational.",
+        config=RoutingConfig.binary(threshold=0.1),
+    ).recommendation == "cloud"
+    assert score_complexity(
+        "What is the capital of France?", config=RoutingConfig.binary(threshold=0.1)
+    ).recommendation == "local"
+
+
+def test_question_marks_alone_do_not_raise_the_score_by_default():
+    # question_count ships at weight 0.0 — an interrogative is not, by itself, hard.
+    assert score_complexity("Is it? Really? You sure? Truly?").score == 0.0
 
 
 # --- tiers ------------------------------------------------------------------
