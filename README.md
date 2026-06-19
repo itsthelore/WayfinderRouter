@@ -7,6 +7,7 @@
 [![Python versions](https://img.shields.io/pypi/pyversions/wayfinder-router.svg)](https://pypi.org/project/wayfinder-router/)
 [![License: Apache 2.0](https://img.shields.io/pypi/l/wayfinder-router.svg)](https://github.com/itsthelore/wayfinder-router/blob/main/LICENSE)
 [![CI](https://github.com/itsthelore/wayfinder-router/actions/workflows/ci.yml/badge.svg)](https://github.com/itsthelore/wayfinder-router/actions/workflows/ci.yml)
+[![Typed](https://img.shields.io/badge/types-Mypy-blue.svg)](https://mypy-lang.org/)
 
 A deterministic prompt-complexity router. Hand it a prompt, get back a
 reproducible structural complexity score and a recommendation:
