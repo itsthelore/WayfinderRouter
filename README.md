@@ -128,6 +128,31 @@ The score is a **structural proxy**, not a verdict on difficulty: whether it
 tracks "this prompt needs the cloud model" is your calibration, which is exactly
 why the threshold is yours to set.
 
+## How it compares
+
+Most LLM routers decide by **calling a model** — a trained classifier (RouteLLM), an
+LLM-as-judge, or a hosted service (NotDiamond, Martian, OpenRouter's auto-router) — which
+adds latency, cost, and non-determinism to the routing decision itself. Wayfinder is the
+one that decides by **scanning text structure**: offline, in microseconds, with no model
+call, and **calibrated on your own traffic**.
+
+| router | decides by | model call to decide? | offline / self-host | calibrate on your data |
+| --- | --- | :-: | :-: | :-: |
+| **Wayfinder** | deterministic structural score | **no** | **yes** | **yes** |
+| RouteLLM | trained classifier (preference data) | yes | yes | retrain |
+| NotDiamond / Martian | learned, hosted | yes | no | via platform |
+| OpenRouter (Auto) | hosted auto-router | yes | no | — |
+| LiteLLM | provider proxy (not complexity-routed) | no | yes | n/a |
+
+The claim is precise — not "best accuracy", but the **only offline, zero-model-call,
+calibrate-on-your-data, self-hosted** structural router. The trade-off is honest too: a
+structural proxy can't tell a short-but-hard prompt from a short-easy one, so it won't
+match a semantic router there. The reproducible [benchmark](benchmarks/README.md)
+(`make benchmark`) reports the full cost-quality curve, honest baselines (a tuned length
+heuristic is competitive on short prompts), and where Wayfinder sits versus an oracle —
+on a small illustrative set you can swap for [RouterBench](https://arxiv.org/pdf/2403.12031)
+or [RouterArena](https://github.com/RouteWorks/RouterArena) (WF-ADR-0015).
+
 ## Run it (offline, no install)
 
 ```bash
