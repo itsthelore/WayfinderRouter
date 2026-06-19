@@ -1,10 +1,13 @@
 """Deterministic prompt-complexity scoring and model routing.
 
 Scores a prompt's *structural* complexity and maps it to a model recommendation.
-Pure and offline: it reads only structural signals from the text — length,
-headings, steps, links, code blocks, tables — with no model, key, or network. The
-result is a *fact* (like a classifier's confidence), never a semantic verdict, and
-Wayfinder never invokes a model: it recommends, the caller runs inference.
+Pure and offline: it reads structural signals from the text — length, headings,
+steps, links, code blocks, tables — plus deterministic *lexical* signals
+(reasoning terms, math symbols, constraint markers, questions) that separate a
+short-but-hard prompt from a short-easy one (WF-ADR-0016). No model, key, or
+network is touched. The result is a *fact* (like a classifier's confidence),
+never a semantic verdict, and Wayfinder never invokes a model: it recommends, the
+caller runs inference.
 
 Two routing modes, both deterministic given the config:
 
@@ -39,6 +42,10 @@ FEATURE_ORDER = (
     "link_count",
     "code_block_count",
     "table_row_count",
+    "reasoning_term_count",
+    "math_symbol_count",
+    "constraint_term_count",
+    "question_count",
 )
 
 # Relative importance of each feature in the scalar score. Length and step count
@@ -51,6 +58,10 @@ DEFAULT_WEIGHTS: dict[str, float] = {
     "table_row_count": 1.0,
     "link_count": 1.0,
     "max_heading_depth": 1.0,
+    "reasoning_term_count": 5.0,
+    "math_symbol_count": 3.0,
+    "constraint_term_count": 1.5,
+    "question_count": 0.0,
 }
 
 # The feature value at which a feature contributes its full weight. Beyond it the
@@ -64,6 +75,10 @@ SATURATION: dict[str, float] = {
     "link_count": 10.0,
     "code_block_count": 4.0,
     "table_row_count": 12.0,
+    "reasoning_term_count": 2.0,
+    "math_symbol_count": 6.0,
+    "constraint_term_count": 3.0,
+    "question_count": 3.0,
 }
 
 _HEADING_RE = re.compile(r"^(#{1,6})\s+\S")
@@ -72,6 +87,29 @@ _TABLE_ROW_RE = re.compile(r"^\s*\|.*\|\s*$")
 _FENCE_RE = re.compile(r"^\s*(?:```|~~~)")
 _LINK_RE = re.compile(r"\[[^\]]+\]\([^)]+\)")
 
+# Lexical difficulty signals (WF-ADR-0016): deterministic word/symbol scans that
+# separate short-but-hard prompts (structurally invisible) from short-easy ones.
+# Still pure text, no model call. A curated lexicon of hard-reasoning verbs and
+# concepts, math/logic glyphs and LaTeX-ish tokens, multi-constraint markers, and
+# interrogatives.
+_REASONING_TERMS = frozenset({
+    "prove", "proof", "proofs", "proven", "derive", "derives", "derivation",
+    "theorem", "theorems", "lemma", "lemmas", "corollary", "axiom", "axioms",
+    "irrational", "undecidable", "undecidability", "decidable", "infinitely",
+    "asymptotic", "complexity", "invariant", "invariants", "concurrency",
+    "concurrent", "deadlock", "induction", "contradiction", "optimal",
+    "optimality", "optimize", "optimise", "minimise", "minimize", "maximise",
+    "maximize", "recurrence", "halting", "eigenvalue", "eigenvalues", "integral",
+    "derivative", "polynomial", "prime", "primes", "modulo", "isomorphism",
+    "monotonic", "bijection", "injective", "surjective", "combinatorial",
+})
+_CONSTRAINT_TERMS = frozenset({
+    "must", "without", "only", "ensure", "exactly", "guarantee", "constraint",
+    "constraints", "subject", "preserving", "preserve",
+})
+_WORD_TOKEN_RE = re.compile(r"[a-zA-Z][a-zA-Z'\-]*")
+_MATH_SYMBOL_RE = re.compile(r"[∑∫√≤≥≠≈∞∂∈∉∀∃⊆⊂∪∩∇±×÷πθλμσΣΠ]|\\[a-zA-Z]+")
+
 _FRONTMATTER_DELIMITER = "---"
 _FRONTMATTER_CLOSERS = ("---", "...")
 
@@ -79,10 +117,16 @@ _FRONTMATTER_CLOSERS = ("---", "...")
 @dataclass(frozen=True)
 class Tier:
     """One band of the tiered router: route to ``model`` when the score is at
-    least ``min_score``. The first tier of a config has ``min_score`` 0.0."""
+    least ``min_score``. The first tier of a config has ``min_score`` 0.0.
+
+    ``cost`` is optional, informational per-call cost metadata (WF-ADR-0017): a
+    relative unit consumed by cost-aware calibration and surfaced in the
+    dashboard and metrics. It never enters the per-request scoring path.
+    """
 
     min_score: float
     model: str
+    cost: float | None = None
 
 
 @dataclass(frozen=True)
@@ -158,9 +202,10 @@ DEFAULT_CONFIG = RoutingConfig()
 class ComplexityScore:
     """A prompt's structural score and its routing recommendation.
 
-    ``to_dict`` is the stable JSON contract (schema_version 2): the score, the
-    recommended model, the active mode, and the boundary used (tiers or the model
-    list), plus the raw feature values — so the recommendation is explainable.
+    ``to_dict`` is the stable JSON contract (schema_version 3 — the feature set
+    grew with the lexical signals of WF-ADR-0016): the score, the recommended
+    model, the active mode, and the boundary used (tiers or the model list), plus
+    the raw feature values — so the recommendation is explainable.
     """
 
     score: float  # 0.0 – 1.0, rounded to 2dp — the structural heaviness
@@ -172,14 +217,18 @@ class ComplexityScore:
 
     def to_dict(self) -> dict:
         payload: dict = {
-            "schema_version": "2",
+            "schema_version": "3",
             "score": self.score,
             "recommendation": self.recommendation,
             "mode": self.mode,
             "features": dict(self.features),
         }
         if self.tiers is not None:
-            payload["tiers"] = [{"min_score": t.min_score, "model": t.model} for t in self.tiers]
+            payload["tiers"] = [
+                {"min_score": t.min_score, "model": t.model}
+                | ({"cost": t.cost} if t.cost is not None else {})
+                for t in self.tiers
+            ]
         if self.models is not None:
             payload["models"] = list(self.models)
         return payload
@@ -237,6 +286,13 @@ def extract_features(text: str) -> dict[str, int]:
             table_row_count += 1
         link_count += len(_LINK_RE.findall(line))
 
+    # Lexical signals scan the whole body (these are prose signals, not structure).
+    tokens = _WORD_TOKEN_RE.findall(body.lower())
+    reasoning_term_count = sum(token in _REASONING_TERMS for token in tokens)
+    constraint_term_count = sum(token in _CONSTRAINT_TERMS for token in tokens)
+    math_symbol_count = len(_MATH_SYMBOL_RE.findall(body))
+    question_count = body.count("?")
+
     return {
         "word_count": word_count,
         "heading_count": heading_count,
@@ -245,6 +301,10 @@ def extract_features(text: str) -> dict[str, int]:
         "link_count": link_count,
         "code_block_count": code_block_count,
         "table_row_count": table_row_count,
+        "reasoning_term_count": reasoning_term_count,
+        "math_symbol_count": math_symbol_count,
+        "constraint_term_count": constraint_term_count,
+        "question_count": question_count,
     }
 
 
