@@ -61,12 +61,13 @@ prompts and asks you to pick, to establish the initial cut.
 
 ## Honest limits
 
-- It routes on **observable cues, not meaning** — structure and difficulty
-  wording are a fast proxy for difficulty, not a judge of the answer. It catches
-  many short-but-hard prompts through lexical cues, but one whose difficulty is
-  purely semantic (a subtle code snippet, "the 100th prime") has no tell and can
-  slip through. That's why the threshold is yours to calibrate; the default cut is
-  a starting guess, not a guarantee.
+- It routes on **observable cues, not meaning** — structure is a fast proxy for
+  difficulty, not a judge of the answer. By default it scores structure only; a
+  short-but-hard prompt with no structural tell (a subtle code snippet, "the 100th
+  prime") has no signal and can slip through, and a semantic router will beat it
+  there. (Optional lexical cues exist but ship off by default — they don't
+  generalize; see `benchmarks/blind-eval.md`.) That's why the threshold is yours to
+  calibrate; the default cut is a starting guess, not a guarantee.
 - It only routes among **models you've configured** — it doesn't discover or host
   anything.
 - It **decides and forwards; it doesn't judge quality** — the thumbs-up/down comes

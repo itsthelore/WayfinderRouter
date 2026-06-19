@@ -43,12 +43,13 @@ metadata-only. Ship first.
 
 ### Initiative 2 — Lexical difficulty signals (`wayfinder-router` v0.2.0, WF-ADR-0016)
 
-The headline. New deterministic lexical features (reasoning terms, math symbols,
-constraints, questions) attack the benchmark's short-hard hole, flowing through the
-existing `FEATURE_ORDER`-driven machinery. Behaviour-changing if the default
-weights are turned on, so it is benchmark-gated and its own minor release. The
-default-weights and `schema_version` sub-decisions are taken with the maintainer at
-implementation time.
+New deterministic lexical features (reasoning terms, math symbols, constraints,
+questions) attack the benchmark's short-hard hole, flowing through the existing
+`FEATURE_ORDER`-driven machinery. Outcome (see WF-ADR-0016 amendment): a
+cross-provider double-blind test showed the lift does not generalize — the lexicon
+catches an author's vocabulary, not difficulty — so the features ship **opt-in, at
+weight 0.0**, and default routing is unchanged from v0.1.x. Cost-aware routing
+(Initiative 3) became the v0.2.0 headline instead.
 
 ### Initiative 3 — Cost-aware routing (`wayfinder-router` v0.2.1, WF-ADR-0017)
 

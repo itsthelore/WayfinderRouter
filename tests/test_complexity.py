@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from wayfinder_router.complexity import (
     DEFAULT_THRESHOLD,
+    DEFAULT_WEIGHTS,
     FEATURE_ORDER,
     extract_features,
     recommend_tier,
@@ -106,7 +107,7 @@ def test_code_fence_contents_are_not_counted_as_structure():
     assert features["code_block_count"] == 1
 
 
-# --- lexical difficulty signals (WF-ADR-0016) -------------------------------
+# --- lexical difficulty signals (WF-ADR-0016, opt-in/off by default) ---------
 
 
 def test_reasoning_terms_are_counted_case_insensitively():
@@ -137,24 +138,33 @@ def test_constraint_and_question_markers_are_counted():
     assert f["question_count"] == 2
 
 
-def test_lexical_signals_lift_a_short_hard_prompt_over_a_short_easy_one():
-    # The documented benchmark hole: a short, structureless but hard prompt used to
-    # score ~0 and route local. The lexical signals separate it from short-easy.
-    easy = score_complexity("What is the capital of France?")
-    hard = score_complexity("Prove that the square root of 2 is irrational.")
-    assert easy.score == 0.0
-    assert hard.score > easy.score
-    # At a low cost-aware cut the hard prompt routes up; the easy one stays local.
+def test_lexical_signals_are_off_by_default():
+    # The lexical features ship at weight 0.0 (WF-ADR-0016): they did not generalize
+    # on a cross-provider double-blind test, so by default they do not move the score
+    # and a short hard prompt with no structural tell routes local like a short easy one.
+    easy = "What is the capital of France?"
+    hard = "Prove that the square root of 2 is irrational."  # "prove", "irrational"
+    assert score_complexity(hard).to_dict()["features"]["reasoning_term_count"] == 2
+    low_cut = RoutingConfig.binary(threshold=0.1)
+    assert score_complexity(hard, config=low_cut).recommendation == "local"
+    assert score_complexity(easy, config=low_cut).recommendation == "local"
+
+
+def test_lexical_signals_lift_a_short_hard_prompt_when_opted_in():
+    # Opt in by raising the lexical weights (calibrated to your own traffic's
+    # vocabulary): the same short hard prompt now clears a low cost-aware cut while
+    # the short easy one stays local.
+    opted_in = dict(DEFAULT_WEIGHTS) | {"reasoning_term_count": 5.0}
+    cfg = RoutingConfig.binary(threshold=0.1, weights=opted_in)
     assert score_complexity(
-        "Prove that the square root of 2 is irrational.",
-        config=RoutingConfig.binary(threshold=0.1),
+        "Prove that the square root of 2 is irrational.", config=cfg
     ).recommendation == "cloud"
     assert score_complexity(
-        "What is the capital of France?", config=RoutingConfig.binary(threshold=0.1)
+        "What is the capital of France?", config=cfg
     ).recommendation == "local"
 
 
-def test_question_marks_alone_do_not_raise_the_score_by_default():
+def test_question_marks_alone_do_not_raise_the_score():
     # question_count ships at weight 0.0 — an interrogative is not, by itself, hard.
     assert score_complexity("Is it? Really? You sure? Truly?").score == 0.0
 

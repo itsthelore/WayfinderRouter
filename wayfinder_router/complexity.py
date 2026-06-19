@@ -50,6 +50,14 @@ FEATURE_ORDER = (
 
 # Relative importance of each feature in the scalar score. Length and step count
 # dominate because they track how much the prompt asks the model to hold and do.
+#
+# The lexical features (reasoning/math/constraint/question) ship at weight 0.0 —
+# *computed and reported, but off by default*. A curated keyword lexicon detects an
+# author's vocabulary, not difficulty in general: on a cross-provider double-blind
+# test it fired on only ~20% of independently-authored hard prompts, false-positived
+# on easy prompts that happened to use the words, and lost to a length baseline (see
+# benchmarks/blind-eval.md, WF-ADR-0016). They are opt-in: a user who knows their own
+# traffic's vocabulary raises these weights in their routing config and calibrates.
 DEFAULT_WEIGHTS: dict[str, float] = {
     "word_count": 3.0,
     "list_item_count": 2.0,
@@ -58,10 +66,10 @@ DEFAULT_WEIGHTS: dict[str, float] = {
     "table_row_count": 1.0,
     "link_count": 1.0,
     "max_heading_depth": 1.0,
-    "reasoning_term_count": 5.0,
-    "math_symbol_count": 3.0,
-    "constraint_term_count": 1.5,
-    "question_count": 0.0,
+    "reasoning_term_count": 0.0,  # opt-in (see note above)
+    "math_symbol_count": 0.0,  # opt-in
+    "constraint_term_count": 0.0,  # opt-in
+    "question_count": 0.0,  # opt-in
 }
 
 # The feature value at which a feature contributes its full weight. Beyond it the

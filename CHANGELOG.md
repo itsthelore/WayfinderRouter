@@ -6,27 +6,25 @@ details, release history over commit history.
 
 ## v0.2.0 — 2026-06-19
 
-This release makes the router smarter on short prompts and lets you calibrate it
-to a cost target. The scorer now reads **lexical** difficulty signals as well as
-structure, which **changes routing decisions** — see "Changed" below.
+This release adds cost-aware calibration and an opt-in lexical signal to the scorer.
+Default routing is unchanged from v0.1.x — the new lexical features ship off.
 
 ### Added
 
-- **Lexical difficulty signals in the scorer** (WF-ADR-0016). The scorer reads
-  four new deterministic, offline features alongside the structural ones:
-  `reasoning_term_count` (a curated lexicon of hard-task verbs and concepts —
-  prove, derive, optimize, theorem, invariant, concurrency, …), `math_symbol_count`
-  (math/logic glyphs and LaTeX-ish tokens), `constraint_term_count` (multi-constraint
-  markers), and `question_count`. They close the benchmark's documented hole: a
-  short-but-hard prompt like "Prove √2 is irrational" used to have no structure,
-  score ~0, and route local. On the bundled benchmark the `hard-short` bucket rises
-  from **0.00 to 1.00 accuracy** and the cost-aware operating point improves from
-  **PGR 0.60 to 0.80**, clearing the tuned length baseline (0.67) — measured, not
-  asserted (`make benchmark`). Still no model call, no key, no network on the scored
-  path (WF-ADR-0001). The honest limit remains: a prompt whose difficulty is purely
-  semantic with no lexical or structural tell (a subtle code snippet, "the 100th
-  prime") can still be missed — the score is a proxy, not a verdict, so calibrate on
-  your data.
+- **Lexical difficulty signals in the scorer, opt-in / off by default**
+  (WF-ADR-0016). The scorer computes and reports four new deterministic, offline
+  features alongside the structural ones — `reasoning_term_count` (a curated lexicon
+  of hard-task verbs and concepts — prove, derive, optimize, theorem, invariant,
+  concurrency, …), `math_symbol_count` (math/logic glyphs and LaTeX-ish tokens),
+  `constraint_term_count` (multi-constraint markers), and `question_count` — but they
+  ship at **weight 0.0**, so they do not affect routing until you opt in. Why off: on
+  the author's own prompts they lifted the cost-aware operating point from PGR 0.60 to
+  0.80, but a [cross-provider double-blind test](benchmarks/blind-eval.md) showed the
+  lift does not generalize — the lexicon fired on only ~20% of independently-authored
+  hard prompts and lost to a plain word-count baseline. A curated keyword list detects
+  an author's vocabulary, not difficulty in general. If your traffic uses a known
+  vocabulary, raise these weights in your routing config and calibrate. Still no model
+  call, no key, no network on the scored path (WF-ADR-0001).
 - **Cost-aware routing** (WF-ADR-0017). Optional, informational cost metadata —
   `cost` on a `[[routing.tiers]]` entry and `cost_per_1k` on a `[gateway.models.*]`
   endpoint — surfaced on the `/metrics` endpoint as a gauge. A new calibration
@@ -39,16 +37,11 @@ structure, which **changes routing decisions** — see "Changed" below.
 
 ### Changed
 
-- **Routing decisions change on upgrade.** The new lexical features ship with
-  non-zero default weights (benchmark-gated: only weights that measurably beat the
-  length baseline without regressing the easy buckets), so a prompt rich in
-  reasoning terms or math now scores higher than on v0.1.x and may route to the
-  high tier where it previously stayed local. The default `0.5` threshold and the
-  easy/short prompts are unaffected. If you calibrated a threshold on your own data,
-  re-run `calibrate` to re-fit it to the new feature set.
 - **The JSON contract is now `schema_version` `"3"`** (was `"2"`). The `features`
-  object gains the four lexical keys; everything else is unchanged. A tier in the
-  JSON also carries `cost` when one is configured.
+  object gains the four lexical keys (reported, but weight 0.0 by default, so routing
+  is unchanged); a tier in the JSON also carries `cost` when one is configured.
+  Default routing decisions are **identical to v0.1.x** — the lexical features are
+  off unless you opt in.
 
 ## v0.1.7 — 2026-06-19
 
