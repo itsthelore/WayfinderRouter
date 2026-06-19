@@ -4,6 +4,17 @@ User-visible changes to Wayfinder, by release. Follows the spirit of
 [Keep a Changelog](https://keepachangelog.com/): user impact over implementation
 details, release history over commit history.
 
+## v0.1.7 — 2026-06-19
+
+### Added
+
+- **A Prometheus `GET /metrics` endpoint** on the gateway (WF-ADR-0018): request
+  counts by model and mode, decision-latency and upstream-latency histograms,
+  upstream-error and config-reload-failure counters, and build info. Hand-rolled in
+  the text exposition format with **no new dependency**, incremented at the same
+  decision hook as the `/router` ring — so it carries **metadata only, never prompt
+  text**, and stays off the scored path (no key, no model call, no network).
+
 ## v0.1.6 — 2026-06-18
 
 ### Added
