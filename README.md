@@ -1,13 +1,39 @@
+<div align="center">
+
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="docs/banner-dark.png">
-  <img alt="Wayfinder — choose your path to your answers. Deterministic. Calibrated. No RAG, no guessing." src="docs/banner-light.png">
+  <img alt="Wayfinder" src="docs/banner-light.png" width="640">
 </picture>
 
-[![PyPI](https://img.shields.io/pypi/v/wayfinder-router.svg)](https://pypi.org/project/wayfinder-router/)
-[![Python versions](https://img.shields.io/pypi/pyversions/wayfinder-router.svg)](https://pypi.org/project/wayfinder-router/)
-[![License: Apache 2.0](https://img.shields.io/pypi/l/wayfinder-router.svg)](https://github.com/itsthelore/wayfinder-router/blob/main/LICENSE)
-[![CI](https://github.com/itsthelore/wayfinder-router/actions/workflows/ci.yml/badge.svg)](https://github.com/itsthelore/wayfinder-router/actions/workflows/ci.yml)
-[![Typed](https://img.shields.io/badge/types-Mypy-blue.svg)](https://mypy-lang.org/)
+<p><strong>Deterministic prompt-complexity routing — send each prompt to your
+local or cloud model, offline, with no model call to decide.</strong></p>
+
+<p>
+  <a href="#quickstart-gateway">Quickstart</a> ·
+  <a href="benchmarks/README.md">Benchmark</a> ·
+  <a href="#how-it-compares">How it compares</a> ·
+  <a href="EXPLAINER.md">Explainer</a> ·
+  <a href="CHANGELOG.md">Changelog</a>
+</p>
+
+<p>
+  <a href="https://pypi.org/project/wayfinder-router/"><img src="https://img.shields.io/pypi/v/wayfinder-router.svg" alt="PyPI"></a>
+  <a href="https://pypi.org/project/wayfinder-router/"><img src="https://img.shields.io/pypi/pyversions/wayfinder-router.svg" alt="Python versions"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/pypi/l/wayfinder-router.svg" alt="License"></a>
+  <a href="https://github.com/itsthelore/wayfinder-router/actions/workflows/ci.yml"><img src="https://github.com/itsthelore/wayfinder-router/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
+  <a href="https://mypy-lang.org/"><img src="https://img.shields.io/badge/types-Mypy-blue.svg" alt="Typed"></a>
+</p>
+
+</div>
+
+<table align="center">
+<tr>
+<td align="center"><b>No model call</b><br>to decide the route</td>
+<td align="center"><b>Deterministic</b><br>and fully offline</td>
+<td align="center"><b>Calibrate</b><br>on your own data</td>
+<td align="center"><b>BYO-key</b><br>self-hosted</td>
+</tr>
+</table>
 
 A deterministic prompt-complexity router. Hand it a prompt, get back a
 reproducible structural complexity score and a recommendation:
