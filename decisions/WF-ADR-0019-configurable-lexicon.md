@@ -9,7 +9,16 @@ tags: [scoring, lexicon, config, ui, calibration]
 
 ## Status
 
-Proposed
+Accepted
+
+> Implemented in v0.2.0: `Lexicon`/`DEFAULT_LEXICON` in `complexity.py`, the `lexicon`
+> argument on `extract_features`/`score_complexity`, `RoutingConfig.lexicon`, the
+> `[routing.lexicon]` parse/emit round-trip in `config.py` (validated, size-capped), and
+> threading through `calibrate.parse_dataset`/`load_dataset`. Off-by-default is preserved
+> (default lexicon + 0.0 weights). The Explain/Playground UI affordance (decision 5)
+> remains tracked with the UI work. A data-driven *miner* (`benchmarks/mine_lexicon.py`)
+> demonstrates the deferred "learn the lexicon" alternative as an offline analysis tool;
+> promoting it to a shipped `calibrate` capability would warrant its own ADR.
 
 ## Category
 

@@ -27,13 +27,18 @@ from pathlib import Path
 
 from .complexity import DEFAULT_THRESHOLD as _DEFAULT_THRESHOLD
 from .complexity import (
+    DEFAULT_LEXICON,
     DEFAULT_WEIGHTS,
     FEATURE_ORDER,
     ClassifierModel,
+    Lexicon,
     RoutingConfig,
     Tier,
     binary_tiers,
 )
+
+# A sane cap so a config can't smuggle a pathological term list (WF-ADR-0019 risk).
+_MAX_LEXICON_TERMS = 2000
 
 CONFIG_FILE = "wayfinder-router.toml"
 # Convenience override for one-off runs of the binary router without editing the
@@ -71,16 +76,17 @@ def routing_config_from_toml(text: str, where: str = CONFIG_FILE) -> RoutingConf
         raise WayfinderConfigError(f"{where}: '[routing]' must be a table")
     routing = section or {}
     weights = _parse_weights(where, routing.get("weights"))
+    lexicon = _parse_lexicon(where, routing["lexicon"]) if "lexicon" in routing else DEFAULT_LEXICON
 
     if "classifier" in routing:
         classifier = _parse_classifier(where, routing["classifier"])
-        return RoutingConfig(weights=weights, classifier=classifier)
+        return RoutingConfig(weights=weights, classifier=classifier, lexicon=lexicon)
     if "tiers" in routing:
-        return RoutingConfig(weights=weights, tiers=_parse_tiers(where, routing["tiers"]))
+        return RoutingConfig(weights=weights, tiers=_parse_tiers(where, routing["tiers"]), lexicon=lexicon)
 
     threshold = _parse_threshold(where, routing.get("threshold"), _DEFAULT_THRESHOLD)
     threshold = _apply_env_threshold(threshold)
-    return RoutingConfig(weights=weights, tiers=binary_tiers(threshold))
+    return RoutingConfig(weights=weights, tiers=binary_tiers(threshold), lexicon=lexicon)
 
 
 def load_routing_config(start_dir: str = ".") -> RoutingConfig:
@@ -126,6 +132,34 @@ def _parse_weights(where: str, value: object) -> dict[str, float]:
             )
         weights[name] = float(weight)
     return weights
+
+
+def _term_list(where: str, label: str, value: object) -> frozenset[str]:
+    if not isinstance(value, list) or any(not isinstance(t, str) or not t.strip() for t in value):
+        raise WayfinderConfigError(f"{where}: '{label}' must be a list of non-empty strings")
+    if len(value) > _MAX_LEXICON_TERMS:
+        raise WayfinderConfigError(f"{where}: '{label}' has more than {_MAX_LEXICON_TERMS} terms")
+    return frozenset(t.strip().lower() for t in value)
+
+
+def _parse_lexicon(where: str, value: object) -> Lexicon:
+    """Parse ``[routing.lexicon]`` — custom trigger words (WF-ADR-0019). Either key may
+    be omitted to keep its built-in default; terms are lower-cased to match the scanner."""
+    if not isinstance(value, dict):
+        raise WayfinderConfigError(f"{where}: '[routing.lexicon]' must be a table")
+    known = {"reasoning_terms", "constraint_terms"}
+    unknown = set(value) - known
+    if unknown:
+        raise WayfinderConfigError(
+            f"{where}: unknown 'routing.lexicon' keys: {', '.join(sorted(unknown))} "
+            f"(known: {', '.join(sorted(known))})"
+        )
+    kwargs = {
+        key: _term_list(where, f"routing.lexicon.{key}", value[key])
+        for key in known
+        if key in value
+    }
+    return Lexicon(**kwargs)
 
 
 def _parse_tiers(where: str, value: object) -> tuple[Tier, ...]:
@@ -234,6 +268,15 @@ def dump_routing_toml(config: RoutingConfig) -> str:
     if dict(config.weights) != dict(DEFAULT_WEIGHTS):
         items = ", ".join(f"{name} = {_fmt_num(config.weights[name])}" for name in FEATURE_ORDER)
         blocks.append("[routing]\nweights = { " + items + " }")
+    if config.lexicon != DEFAULT_LEXICON:
+        lines = ["[routing.lexicon]"]
+        for key, terms, default in (
+            ("reasoning_terms", config.lexicon.reasoning_terms, DEFAULT_LEXICON.reasoning_terms),
+            ("constraint_terms", config.lexicon.constraint_terms, DEFAULT_LEXICON.constraint_terms),
+        ):
+            if terms != default:  # emit only the overridden set, sorted for byte-stability
+                lines.append(f"{key} = [" + ", ".join(f'"{t}"' for t in sorted(terms)) + "]")
+        blocks.append("\n".join(lines))
     if config.classifier is not None:
         clf = config.classifier
         models = ", ".join(f'"{m}"' for m in clf.models)

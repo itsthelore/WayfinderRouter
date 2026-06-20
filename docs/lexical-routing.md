@@ -79,6 +79,46 @@ wayfinder-router onboard your-prompts.jsonl --arms local,cloud --calibrate > way
 Aim for a few hundred labels before trusting the cut; recalibrate as your traffic drifts
 (`wayfinder-router recalibrate`).
 
+## Bring your own lexicon (configurable trigger words)
+
+The trigger words are configuration, not code (WF-ADR-0019). Supply your own under
+`[routing.lexicon]` — e.g. the subject-matter-expertise vocabulary your traffic's hard
+prompts actually use:
+
+```toml
+[routing.lexicon]
+reasoning_terms = ["differential", "contraindication", "etiology", "pathophysiology"]
+# constraint_terms = [...]   # omit a family to keep its built-in default
+```
+
+It stays off until you also weight it (`reasoning_term_count`), and it round-trips through
+the config loader like everything else. Math symbols and the `?` count stay built-in (they
+aren't vocabulary you curate).
+
+### Mine the words from your own labels
+
+Guessing a wordlist re-introduces author bias. `benchmarks/mine_lexicon.py` instead picks
+the terms that, in *your* labeled data, appear far more in cloud-labeled prompts than
+local-labeled ones (a deterministic smoothed log-odds on a held-out train split), and emits
+a ready `[routing.lexicon]` config:
+
+```bash
+python -m benchmarks.mine_lexicon your-data.jsonl
+```
+
+Read the output with eyes open — on RouterBench it taught two honest lessons:
+
+- **Global mining captures task-surface words, not difficulty.** The top cloud-signal terms
+  came out as `homework, mile, preheat, flour, dough, laundry` — i.e. "this looks like a
+  grade-school-math or hellaswag prompt," which overfits *which benchmark* a prompt is from,
+  not how hard it is. **Mine per-domain** for sensible expert vocabulary (RouterBench's
+  per-domain mine gives science → `hypertension, cardiac`; general → `legislative, voting`).
+- **Mined words beat the built-in list but words alone aren't the signal.** Held-out, the
+  mined reasoning words scored a touch above the built-in ones (+0.02 skill) yet both sat
+  *below* random with reasoning-only weight — because the lexical win in the recipe above
+  comes mostly from the **math symbols**, not the word list. So mine to *augment* the
+  symbol/structure signal for your domain, and always re-check held-out before trusting it.
+
 ## Verify it on your data
 
 Point the benchmark harness at your labeled set to see the held-out skill for the structural

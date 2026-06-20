@@ -135,3 +135,14 @@ def test_lexical_recipe_loads_and_opts_in():
     assert cfg.weights["word_count"] == DEFAULT_WEIGHTS["word_count"]  # structural defaults kept
     assert cfg.tiers[-1].min_score == 0.09 and cfg.tiers[-1].model == "cloud"
 
+
+
+def test_mine_terms_finds_a_discriminating_word_deterministically():
+    from benchmarks.mine_lexicon import mine_terms
+    rows = (
+        [Row(f"telophase mitosis {i}", "science", {"local": 0.0, "cloud": 1.0}) for i in range(30)]
+        + [Row(f"easy {i}?", "general", {"local": 1.0, "cloud": 1.0}) for i in range(30)]
+    )
+    terms = mine_terms(rows, top_k=5, min_support=5)
+    assert "telophase" in terms  # appears only in cloud-labeled prompts
+    assert terms == mine_terms(rows, top_k=5, min_support=5)  # deterministic

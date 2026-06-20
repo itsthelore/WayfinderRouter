@@ -123,6 +123,24 @@ _FRONTMATTER_CLOSERS = ("---", "...")
 
 
 @dataclass(frozen=True)
+class Lexicon:
+    """The user-tunable trigger words behind the lexical features (WF-ADR-0019).
+
+    The reasoning/constraint term sets ship as the built-in defaults but can be
+    overridden per deployment — so "calibrate on your own traffic" finally applies to
+    the *words* too, e.g. a domain lexicon mined from your labels. Math symbols and the
+    question count stay built-in (they are not vocabulary). Frozen and hashable so a
+    ``RoutingConfig`` stays immutable.
+    """
+
+    reasoning_terms: frozenset[str] = _REASONING_TERMS
+    constraint_terms: frozenset[str] = _CONSTRAINT_TERMS
+
+
+DEFAULT_LEXICON = Lexicon()
+
+
+@dataclass(frozen=True)
 class Tier:
     """One band of the tiered router: route to ``model`` when the score is at
     least ``min_score``. The first tier of a config has ``min_score`` 0.0.
@@ -191,15 +209,18 @@ class RoutingConfig:
     weights: dict[str, float] = field(default_factory=lambda: dict(DEFAULT_WEIGHTS))
     tiers: tuple[Tier, ...] = DEFAULT_TIERS
     classifier: ClassifierModel | None = None
+    lexicon: Lexicon = DEFAULT_LEXICON
 
     @classmethod
     def binary(
-        cls, threshold: float = DEFAULT_THRESHOLD, weights: dict[str, float] | None = None
+        cls, threshold: float = DEFAULT_THRESHOLD, weights: dict[str, float] | None = None,
+        lexicon: Lexicon | None = None,
     ) -> RoutingConfig:
         """A binary local/cloud config at ``threshold`` (ergonomic constructor)."""
         return cls(
             weights=dict(weights) if weights is not None else dict(DEFAULT_WEIGHTS),
             tiers=binary_tiers(threshold),
+            lexicon=lexicon if lexicon is not None else DEFAULT_LEXICON,
         )
 
 
@@ -258,12 +279,13 @@ def strip_frontmatter(text: str) -> str:
     return text
 
 
-def extract_features(text: str) -> dict[str, int]:
+def extract_features(text: str, *, lexicon: Lexicon = DEFAULT_LEXICON) -> dict[str, int]:
     """Scan structural feature counts from a prompt body, frontmatter stripped.
 
     Pure and deterministic. Lines inside fenced code blocks are not scanned for
     headings, lists, tables, or links (the fence itself is counted as a code
-    block), so a code sample's contents do not masquerade as structure.
+    block), so a code sample's contents do not masquerade as structure. ``lexicon``
+    supplies the reasoning/constraint trigger words (defaults to the built-ins).
     """
     body = strip_frontmatter(text)
 
@@ -296,8 +318,8 @@ def extract_features(text: str) -> dict[str, int]:
 
     # Lexical signals scan the whole body (these are prose signals, not structure).
     tokens = _WORD_TOKEN_RE.findall(body.lower())
-    reasoning_term_count = sum(token in _REASONING_TERMS for token in tokens)
-    constraint_term_count = sum(token in _CONSTRAINT_TERMS for token in tokens)
+    reasoning_term_count = sum(token in lexicon.reasoning_terms for token in tokens)
+    constraint_term_count = sum(token in lexicon.constraint_terms for token in tokens)
     math_symbol_count = len(_MATH_SYMBOL_RE.findall(body))
     question_count = body.count("?")
 
@@ -357,7 +379,7 @@ def recommend_tier(score: float, tiers: tuple[Tier, ...]) -> str:
 def score_complexity(text: str, *, config: RoutingConfig = DEFAULT_CONFIG) -> ComplexityScore:
     """Score ``text`` and recommend a model. The score is always reported; the
     recommendation comes from the classifier when configured, else the tiers."""
-    features = extract_features(text)
+    features = extract_features(text, lexicon=config.lexicon)
     score = scalar_score(features, config.weights)
     if config.classifier is not None:
         return ComplexityScore(
