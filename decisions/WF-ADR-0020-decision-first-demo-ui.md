@@ -9,7 +9,17 @@ tags: [ui, gateway, demo, chat, routing-visibility]
 
 ## Status
 
-Proposed
+Accepted
+
+> Implemented: a self-contained page served at `GET /demo` (inline `_DEMO_HTML` in
+> `gateway.py`, no build/CDN/deps, neutral ChatGPT-desktop aesthetic, light/dark,
+> reduced-motion). The decision payload (`model`/`score`/`mode`/`features`/`contributions`/
+> `tiers`/`cost`) is built only in the dry-run and `X-Wayfinder-Debug` branches — a
+> `test_scored_path_runs_no_explain` guard keeps `explain_score` off the scored relay path.
+> Cost falls back to relative units (flagged `estimated`) when no `cost_per_1k`/`Tier.cost`
+> is configured, so the keyless `--dry-run` demo still tells a saved-vs-cloud story. The
+> request/response contract is captured in `tests/test_gateway.py` as the spec for the
+> eventual LibreChat upstreaming. Streaming and chat-app features remain out of scope.
 
 ## Category
 
