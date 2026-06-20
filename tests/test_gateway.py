@@ -1017,3 +1017,17 @@ def test_demo_page_exposes_advanced_tuning(client):
     text = test_client.get("/demo").text
     assert 'id="lex"' in text and 'id="weights"' in text  # advanced controls present
     assert "/router/config" in text  # export wired
+
+
+def test_router_profiles_endpoint_lists_curated_and_mined(client):
+    test_client, _ = client
+    data = test_client.get("/router/profiles").json()["profiles"]
+    assert len(data) >= 4
+    assert {"id", "name", "source", "reasoning_terms", "note"} <= set(data[0])
+    assert any(p["source"] == "curated" for p in data)
+    assert any(p["source"] == "mined" for p in data)
+
+
+def test_demo_page_has_profile_picker(client):
+    text = client[0].get("/demo").text
+    assert 'id="profile"' in text and "/router/profiles" in text
