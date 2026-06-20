@@ -215,9 +215,10 @@ form{position:sticky;bottom:0;background:linear-gradient(to top,var(--bg) 72%,tr
 .composer{max-width:760px;margin:0 auto;display:flex;gap:.5rem;align-items:flex-end;
   background:var(--elev);border:1px solid var(--line-strong);border-radius:24px;
   padding:.4rem .4rem .4rem .95rem;box-shadow:var(--shadow);transition:box-shadow .15s,border-color .15s}
-.composer:focus-within{border-color:color-mix(in srgb,var(--accent) 55%,var(--line-strong));box-shadow:var(--ring)}
+.composer:focus-within{border-color:color-mix(in srgb,var(--accent) 60%,var(--line-strong))}
 textarea{flex:1;border:0;background:transparent;color:var(--text);font:inherit;resize:none;
   max-height:40vh;padding:.5rem 0;outline:none;line-height:1.5}
+textarea:focus-visible{box-shadow:none}
 textarea::placeholder{color:var(--muted)}
 #send{flex:none;width:34px;height:34px;border:0;border-radius:50%;background:var(--btn);color:var(--btn-text);
   font-size:1.05rem;line-height:1;cursor:pointer;display:grid;place-items:center;transition:transform .05s,opacity .15s}
