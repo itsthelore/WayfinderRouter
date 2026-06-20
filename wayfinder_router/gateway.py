@@ -222,6 +222,16 @@ main::-webkit-scrollbar-thumb{background:var(--line-strong);border-radius:999px;
 .settings select:disabled{opacity:.4;cursor:not-allowed}
 .set-hint{font-size:.72rem;color:var(--muted);opacity:.9;line-height:1.4}
 .set-foot{font-size:.72rem;color:var(--muted);opacity:.8;border-top:1px solid var(--line);padding-top:.6rem}
+.models{display:flex;flex-direction:column}
+.mrow{display:flex;align-items:center;gap:.45rem;padding:.32rem 0;font-size:.73rem;border-top:1px solid var(--line)}
+.mrow:first-child{border-top:0}
+.mdot{width:8px;height:8px;border-radius:50%;flex:none;background:var(--muted)}
+.mdot.ok{background:var(--accent)}
+.mdot.warn{background:#d97706}
+.mname{font-weight:600;color:var(--text)}
+.mendpoint{color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0}
+.mkey{margin-left:auto;white-space:nowrap;font-size:.66rem;color:var(--muted)}
+.mkey.warn{color:#d97706}
 .adv{border-top:1px solid var(--line);padding-top:.6rem}
 .adv>summary{cursor:pointer;color:var(--text);font-weight:600;list-style:none;display:flex;align-items:center;gap:.4rem}
 .adv>summary::-webkit-details-marker{display:none}
@@ -359,6 +369,13 @@ textarea::placeholder{color:var(--muted)}
         <option value="3">After 3 Calm Turns</option>
       </select>
     </div>
+    <div class="set-row">
+      <div class="set-head">
+        <span class="set-name">Models</span>
+        <button class="help" type="button" data-tip="Endpoints this gateway routes to, and whether each model's API key is present. Keys live in environment variables &mdash; set the named var and restart. They're never entered here.">?</button>
+      </div>
+      <div class="models" id="models"><div class="set-hint">Loading&hellip;</div></div>
+    </div>
     <details class="adv">
       <summary>Advanced Tuning</summary>
       <div class="adv-body">
@@ -435,6 +452,22 @@ function syncLex(){lexw.disabled=!lex.checked;lexv.textContent=lex.checked?(lexw
 lex.addEventListener('change',()=>{syncLex();touch();});
 lexw.addEventListener('input',()=>{syncLex();touch();}); syncLex();
 rterms.addEventListener('input',touch); cterms.addEventListener('input',touch);
+
+// Read-only Models / key status (WF-ADR-0025): names, endpoints, and whether each
+// model's key env var is set — never the secret itself.
+const mhost=u=>{try{return new URL(u).host;}catch(e){return u;}};
+fetch('/router/models').then(r=>r.json()).then(d=>{
+  const box=document.getElementById('models'); box.innerHTML='';
+  if(!d.models||!d.models.length){box.innerHTML='<div class="set-hint">'+(d.dry_run?'Dry-run &mdash; no models configured.':'No models configured.')+'</div>'; return;}
+  d.models.forEach(m=>{const ok=m.key_ok,row=el('mrow');
+    row.appendChild(el('mdot '+(ok?'ok':'warn')));
+    const nm=document.createElement('span');nm.className='mname';nm.textContent=m.name;row.appendChild(nm);
+    const ep=document.createElement('span');ep.className='mendpoint';ep.textContent=mhost(m.endpoint);row.appendChild(ep);
+    const k=document.createElement('span');k.className='mkey'+(ok?'':' warn');
+    k.textContent=m.api_key_env?(m.api_key_env+(ok?' ✓':' · missing')):'no key';
+    row.appendChild(k);box.appendChild(row);});
+}).catch(()=>{const b=document.getElementById('models');if(b)b.innerHTML='<div class="set-hint">Status unavailable.</div>';});
+
 const profileEl=document.getElementById('profile'),profnote=document.getElementById('profnote'),PROF={};
 fetch('/router/profiles').then(r=>r.json()).then(d=>{
   const labels={curated:'Curated',mined:'RouterBench (mined)'},groups={};
@@ -1405,6 +1438,24 @@ def build_app(
         """Stock lexicon profiles (WF-ADR-0024) the demo can load to seed the term lists.
         Static, read-only metadata — no model call, no prompt text."""
         return {"profiles": [p.to_dict() for p in PROFILES]}
+
+    @app.get("/router/models")
+    def router_models() -> dict:
+        """Read-only view of the configured endpoints and whether each model's key is
+        present (WF-ADR-0025). Returns only the env-var *name* and a boolean — never a
+        secret. Keys live in the environment: set the named var and restart."""
+        _, gw = holder.current()
+        models = [
+            {
+                "name": name,
+                "endpoint": m.base_url,
+                "model": m.model,
+                "api_key_env": m.api_key_env,
+                "key_ok": m.api_key_env is None or bool(os.environ.get(m.api_key_env)),
+            }
+            for name, m in gw.models.items()
+        ]
+        return {"models": models, "dry_run": dry_run}
 
     @app.post("/router/config", response_class=PlainTextResponse)
     def export_config(body: dict = Body(default={})) -> Response:  # noqa: B008 - FastAPI default
