@@ -182,3 +182,63 @@ def test_malformed_env_threshold_is_rejected(tmp_path, monkeypatch):
     monkeypatch.setenv(THRESHOLD_ENV, "nope")
     with pytest.raises(WayfinderConfigError):
         load_routing_config(str(tmp_path))
+
+
+# --- configurable lexicon (WF-ADR-0019) -------------------------------------
+
+
+def test_lexicon_terms_parse_and_lower_case(tmp_path):
+    body = (
+        "[routing]\nthreshold = 0.1\n\n"
+        "[routing.lexicon]\n"
+        'reasoning_terms = ["Differential", "contraindication"]\n'
+    )
+    config = load_routing_config(_write(tmp_path, body))
+    assert "differential" in config.lexicon.reasoning_terms  # lower-cased to match the scanner
+    assert "contraindication" in config.lexicon.reasoning_terms
+    # an omitted family keeps its built-in default
+    from wayfinder_router.complexity import DEFAULT_LEXICON
+    assert config.lexicon.constraint_terms == DEFAULT_LEXICON.constraint_terms
+
+
+def test_lexicon_round_trips_and_default_is_omitted():
+    from wayfinder_router import Lexicon, dump_routing_toml, routing_config_from_toml
+    from wayfinder_router.complexity import DEFAULT_WEIGHTS
+
+    lex = Lexicon(reasoning_terms=frozenset({"tort", "estoppel"}))
+    cfg = RoutingConfig(weights=dict(DEFAULT_WEIGHTS), lexicon=lex)
+    dumped = dump_routing_toml(cfg)
+    assert "[routing.lexicon]" in dumped
+    assert routing_config_from_toml(dumped).lexicon == lex
+    # a default-lexicon config emits no lexicon block
+    assert "[routing.lexicon]" not in dump_routing_toml(RoutingConfig())
+
+
+def test_custom_lexicon_is_off_until_weighted():
+    # Off-by-default (WF-ADR-0016): custom terms count, but at weight 0.0 they change nothing.
+    from wayfinder_router import Lexicon, score_complexity
+    from wayfinder_router.complexity import DEFAULT_WEIGHTS, binary_tiers
+
+    lex = Lexicon(reasoning_terms=frozenset({"indemnify"}))
+    weights = dict(DEFAULT_WEIGHTS)
+    prompt = "Please indemnify the party."
+    base = score_complexity(prompt, config=RoutingConfig(weights=weights, tiers=binary_tiers(0.05)))
+    cust = score_complexity(
+        prompt, config=RoutingConfig(weights=weights, tiers=binary_tiers(0.05), lexicon=lex)
+    )
+    assert base.recommendation == cust.recommendation  # weight 0.0 -> no effect
+    # raising the weight makes the custom term escalate where the default lexicon would not
+    hot = dict(DEFAULT_WEIGHTS, reasoning_term_count=8.0)
+    on = score_complexity(prompt, config=RoutingConfig(weights=hot, tiers=binary_tiers(0.05), lexicon=lex))
+    off = score_complexity(prompt, config=RoutingConfig(weights=hot, tiers=binary_tiers(0.05)))
+    assert on.recommendation == "cloud" and off.recommendation == "local"
+
+
+def test_invalid_lexicon_is_rejected(tmp_path):
+    for body in (
+        '[routing.lexicon]\nreasoning_terms = "tort"\n',          # not a list
+        '[routing.lexicon]\nreasoning_terms = ["ok", ""]\n',      # empty term
+        '[routing.lexicon]\nunknown_family = ["x"]\n',            # unknown key
+    ):
+        with pytest.raises(WayfinderConfigError):
+            load_routing_config(_write(tmp_path, body))

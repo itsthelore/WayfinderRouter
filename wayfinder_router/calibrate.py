@@ -27,8 +27,10 @@ from collections.abc import Callable
 from dataclasses import dataclass
 
 from .complexity import (
+    DEFAULT_LEXICON,
     FEATURE_ORDER,
     ClassifierModel,
+    Lexicon,
     Tier,
     extract_features,
     normalized_features,
@@ -58,11 +60,14 @@ class CalibrationResult:
     summary: dict
 
 
-def parse_dataset(text: str, where: str = "<dataset>") -> list[Sample]:
+def parse_dataset(
+    text: str, where: str = "<dataset>", *, lexicon: Lexicon = DEFAULT_LEXICON
+) -> list[Sample]:
     """Parse a JSONL dataset of ``{"text": ..., "label": ...}`` rows from a string.
 
     The in-memory counterpart of :func:`load_dataset`, so the UI can calibrate
-    pasted data without a file. Each row's prompt is scored to features once.
+    pasted data without a file. Each row's prompt is scored to features once;
+    ``lexicon`` selects the trigger words used for the lexical features.
     """
     samples: list[Sample] = []
     for lineno, raw in enumerate(text.splitlines(), start=1):
@@ -79,21 +84,22 @@ def parse_dataset(text: str, where: str = "<dataset>") -> list[Sample]:
             raise CalibrationError(
                 f"{where}:{lineno}: each row needs string 'text' and non-empty 'label'"
             )
-        features = extract_features(prompt)
+        features = extract_features(prompt, lexicon=lexicon)
         samples.append(Sample(features=features, label=label, score=_default_score(features)))
     if not samples:
         raise CalibrationError(f"{where}: no labeled rows found")
     return samples
 
 
-def load_dataset(path: str) -> list[Sample]:
+def load_dataset(path: str, *, lexicon: Lexicon = DEFAULT_LEXICON) -> list[Sample]:
     """Read a JSONL dataset of ``{"text": ..., "label": ...}`` rows from a file.
 
     Each row's prompt is scored to features once; the label is the model the row
     should route to (for ``threshold`` mode, the two labels are the two arms).
+    ``lexicon`` selects the trigger words used for the lexical features.
     """
     with open(path, encoding="utf-8") as handle:
-        return parse_dataset(handle.read(), where=path)
+        return parse_dataset(handle.read(), where=path, lexicon=lexicon)
 
 
 def _default_score(features: dict[str, int]) -> float:

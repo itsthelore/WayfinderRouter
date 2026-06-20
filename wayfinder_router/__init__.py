@@ -27,9 +27,11 @@ from .calibrate import (
     sweep_curve,
 )
 from .complexity import (
+    DEFAULT_LEXICON,
     ClassifierModel,
     ComplexityScore,
     FeatureContribution,
+    Lexicon,
     RoutingConfig,
     Tier,
     explain_score,
@@ -63,6 +65,8 @@ __all__ = [
     "RoutingConfig",
     "Tier",
     "ClassifierModel",
+    "Lexicon",
+    "DEFAULT_LEXICON",
     # Config.
     "load_routing_config",
     "routing_config_from_toml",
