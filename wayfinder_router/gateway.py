@@ -200,6 +200,16 @@ main::-webkit-scrollbar-thumb{background:var(--line-strong);border-radius:999px;
 .settings::-webkit-scrollbar{width:10px}
 .settings::-webkit-scrollbar-thumb{background:var(--line-strong);border-radius:999px;border:3px solid var(--elev)}
 .set-row{display:flex;flex-direction:column;gap:.4rem}
+.set-head{display:flex;align-items:center;gap:.4rem}
+.help{flex:none;width:15px;height:15px;padding:0;border-radius:50%;border:1px solid var(--line-strong);
+  background:transparent;color:var(--muted);font:600 .66rem/1 var(--font);text-transform:none;
+  letter-spacing:0;cursor:help;display:inline-grid;place-items:center}
+.help:hover,.help:focus-visible{color:var(--accent);border-color:var(--accent);outline:none}
+.tip{position:fixed;z-index:60;max-width:230px;background:var(--text);color:var(--bg);
+  font:400 .72rem/1.45 var(--font);padding:.5rem .62rem;border-radius:8px;
+  box-shadow:0 10px 28px rgba(0,0,0,.24);pointer-events:none;opacity:0;transition:opacity .12s}
+.tip.show{opacity:1}
+.tip[hidden]{display:none}
 .set-name{display:flex;align-items:center;gap:.45rem;color:var(--text);font-weight:550;cursor:pointer;user-select:none}
 .set-name input{accent-color:var(--accent)}
 .set-ctl{display:flex;align-items:center;gap:.6rem}
@@ -218,7 +228,7 @@ main::-webkit-scrollbar-thumb{background:var(--line-strong);border-radius:999px;
 .adv>summary::before{content:"\\25B8";color:var(--muted);font-size:.7rem;transition:transform .15s}
 .adv[open]>summary::before{transform:rotate(90deg)}
 .adv-body{display:flex;flex-direction:column;gap:.7rem;margin-top:.7rem}
-.adv-grp{font-size:.62rem;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);margin-top:.2rem}
+.adv-grp{display:flex;align-items:center;gap:.4rem;font-size:.62rem;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);margin-top:.2rem}
 .wrow{display:grid;grid-template-columns:6.3rem 1fr 2.1rem;align-items:center;gap:.5rem;font-size:.74rem}
 .wrow span{color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .wrow output{font-variant-numeric:tabular-nums;color:var(--text);text-align:right;font-weight:600}
@@ -304,11 +314,17 @@ textarea::placeholder{color:var(--muted)}
   <button class="gear" id="gear" type="button" aria-label="Routing settings" aria-expanded="false" title="Routing settings">&#9881;</button>
   <div class="settings" id="settings" hidden>
     <div class="set-row">
-      <label class="set-name"><input type="checkbox" id="useT"> Threshold</label>
+      <div class="set-head">
+        <label class="set-name"><input type="checkbox" id="useT"> Threshold</label>
+        <button class="help" type="button" data-tip="Move the local-to-cloud cut for this chat. Higher keeps more on the local model; lower sends more to cloud. Unchecked uses the server's configured threshold.">?</button>
+      </div>
       <div class="set-ctl"><input type="range" id="t" min="0" max="100" value="50" disabled><output id="tv">config</output></div>
     </div>
     <div class="set-row">
-      <label class="set-name" for="scope">Routing Scope</label>
+      <div class="set-head">
+        <label class="set-name" for="scope">Routing Scope</label>
+        <button class="help" type="button" data-tip="Which text is scored in a multi-turn chat: the current turn (system + latest message) by default, or the latest message only, all your messages, or the whole transcript.">?</button>
+      </div>
       <select id="scope">
         <option value="">Server Config</option>
         <option value="turn">Turn &mdash; System + Latest</option>
@@ -318,30 +334,36 @@ textarea::placeholder{color:var(--muted)}
       </select>
     </div>
     <div class="set-row">
-      <label class="set-name"><input type="checkbox" id="sticky"> Sticky</label>
-      <span class="set-hint">Keep the chat on the big model once any turn needs it.</span>
+      <div class="set-head">
+        <label class="set-name"><input type="checkbox" id="sticky"> Sticky</label>
+        <button class="help" type="button" data-tip="Once any turn needs the big model, keep the whole chat there &mdash; so a short follow-up after a hard question doesn't drop back to local.">?</button>
+      </div>
     </div>
     <div class="set-row">
-      <label class="set-name" for="cooldown">Cool-Down</label>
+      <div class="set-head">
+        <label class="set-name" for="cooldown">Cool-Down</label>
+        <button class="help" type="button" data-tip="Release a sticky chat back to local after this many calm (low-score) turns. 'Never' keeps it latched for the rest of the conversation.">?</button>
+      </div>
       <select id="cooldown" disabled>
         <option value="0">Never Decay</option>
         <option value="1">After 1 Calm Turn</option>
         <option value="2">After 2 Calm Turns</option>
         <option value="3">After 3 Calm Turns</option>
       </select>
-      <span class="set-hint">Drift back to local once the chat goes quiet.</span>
     </div>
     <details class="adv">
       <summary>Advanced Tuning</summary>
       <div class="adv-body">
         <div class="set-row">
-          <label class="set-name"><input type="checkbox" id="lex"> Lexical Signals</label>
-          <span class="set-hint">Score difficulty vocabulary (prove, theorem, &sum;) &mdash; catches a short, hard prompt that has no structure. Off by default.</span>
+          <div class="set-head">
+            <label class="set-name"><input type="checkbox" id="lex"> Lexical Signals</label>
+            <button class="help" type="button" data-tip="Score difficulty vocabulary (prove, theorem, &sum;) so a short, structureless prompt can still route up. Off by default &mdash; it detects vocabulary, not meaning.">?</button>
+          </div>
           <div class="set-ctl"><input type="range" id="lexw" min="0" max="100" value="40" disabled><output id="lexv">4.0</output></div>
         </div>
-        <div class="adv-grp">Feature weights</div>
+        <div class="adv-grp">Feature Weights <button class="help" type="button" data-tip="How much each structural feature adds to the score. Drag to re-weight; the decision and its 'why' update on your next message.">?</button></div>
         <div id="weights"></div>
-        <div class="adv-grp">Lexicon terms (blank = built-in)</div>
+        <div class="adv-grp">Lexicon Terms <button class="help" type="button" data-tip="Trigger words for the lexical signal. Load a starter profile, then edit; leave blank to use the built-in defaults.">?</button></div>
         <select id="profile"><option value="">&mdash; Starter Profile &mdash;</option></select>
         <span class="set-hint" id="profnote"></span>
         <label class="set-name" for="rterms">Reasoning</label>
@@ -426,6 +448,22 @@ exportBtn.addEventListener('click',async()=>{
     cfgEl.textContent=await res.text();}catch(e){cfgEl.textContent='export failed: '+e.message;}
   cfgEl.hidden=false;
 });
+
+// Help tooltips: one floating element positioned with JS so it escapes the
+// settings popover's scroll clipping. Driven by hover and keyboard focus.
+const tip=document.createElement('div');tip.className='tip';tip.setAttribute('role','tooltip');tip.hidden=true;document.body.appendChild(tip);
+function showTip(btn){const text=btn.getAttribute('data-tip');if(!text)return;
+  tip.textContent=text;tip.hidden=false;
+  const r=btn.getBoundingClientRect(),tw=tip.offsetWidth,th=tip.offsetHeight;
+  const left=Math.max(8,Math.min(r.left+r.width/2-tw/2,innerWidth-tw-8));
+  let top=r.bottom+6; if(top+th>innerHeight-8) top=r.top-th-6;
+  tip.style.left=left+'px';tip.style.top=top+'px';tip.classList.add('show');}
+function hideTip(){tip.classList.remove('show');tip.hidden=true;}
+document.addEventListener('pointerover',e=>{const b=e.target.closest('.help');if(b)showTip(b);});
+document.addEventListener('pointerout',e=>{if(e.target.closest('.help'))hideTip();});
+document.addEventListener('focusin',e=>{const b=e.target.closest('.help');if(b)showTip(b);});
+document.addEventListener('focusout',e=>{if(e.target.closest('.help'))hideTip();});
+document.querySelectorAll('.help').forEach(b=>b.addEventListener('click',e=>{e.preventDefault();e.stopPropagation();showTip(b);}));
 
 function setSettings(open){settings.toggleAttribute('hidden',!open);gear.classList.toggle('on',open);gear.setAttribute('aria-expanded',open?'true':'false');}
 gear.addEventListener('click',e=>{e.stopPropagation();setSettings(settings.hasAttribute('hidden'));});
