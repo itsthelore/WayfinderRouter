@@ -43,6 +43,10 @@ weights = { reasoning_term_count = 5.0, math_symbol_count = 3.0, constraint_term
 # sticky = false
 # sticky_cooldown = 0
 #
+# Any OpenAI-compatible endpoint works (the gateway forwards an OpenAI-style request and
+# sends the key as `Authorization: Bearer $<api_key_env>`). Two common setups:
+#
+# (a) local Ollama + OpenAI cloud:
 # [gateway.models.local]
 # base_url = "http://localhost:11434/v1"
 # model = "mistral:7b"
@@ -50,4 +54,16 @@ weights = { reasoning_term_count = 5.0, math_symbol_count = 3.0, constraint_term
 # [gateway.models.cloud]
 # base_url = "https://api.openai.com/v1"
 # model = "gpt-4-1106-preview"
-# api_key_env = "OPENAI_API_KEY"
+# api_key_env = "OPENAI_API_KEY"        # export OPENAI_API_KEY=... before `serve`
+#
+# (b) two-tier Anthropic via its OpenAI-compatible endpoint — cheap Haiku for the local
+#     tier, capable Sonnet for cloud (verified against api.anthropic.com):
+# [gateway.models.local]
+# base_url = "https://api.anthropic.com/v1"   # Anthropic's OpenAI-compatible base
+# model = "claude-haiku-4-5-20251001"
+# api_key_env = "ANTHROPIC_API_KEY"           # export ANTHROPIC_API_KEY=... before `serve`
+#
+# [gateway.models.cloud]
+# base_url = "https://api.anthropic.com/v1"
+# model = "claude-sonnet-4-6"
+# api_key_env = "ANTHROPIC_API_KEY"
