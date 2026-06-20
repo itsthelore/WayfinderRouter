@@ -39,25 +39,44 @@ _TOP_K = 40
 _MIN_SUPPORT = 25       # a term must appear in at least this many cloud prompts to qualify
 _MIN_LEN = 3            # drop 1-2 char tokens (mostly function words / noise)
 _REASONING_WEIGHT = 5.0  # weight on reasoning_term_count for the isolated lexicon comparison
-# A few function words that survive the length filter; log-odds demotes most, this is belt-and-braces.
+# Function words that survive the length filter; log-odds demotes most, this is belt-and-braces.
 _STOP = frozenset("the and for are was were has had have not you your with this that from "
                   "what which when where who whom how why into out over under than then".split())
+# Instruction / boilerplate vocabulary that rides along with cloud-needed tasks (answer the
+# question, provide the steps, …). Dropped only for the per-domain *expertise* lists so the
+# domain's own vocabulary shows through — global mining keeps using just _STOP.
+_BOILERPLATE = frozenset("""
+answer answers question questions problem problems following follow provide given give using used use
+based write written return returns output input solve find select choose option options correct incorrect
+true false explain explanation step steps example examples format final number numbers list lists value
+values check whether will would should could can may might must each between among about above below text
+sentence word words name names letter letters line lines case cases set sets group groups type types part
+parts please first second third next last also more most some many much very just only then there their
+they them its his her our additional addition older current upper fails getting respond indicate addressing
+assistant called include included according main clearly close free another less started trying obtain
+provided provides resulting print user range sign signs subject described allows expected larger view acts
+""".split())
+_DOMAIN_STOP = _STOP | _BOILERPLATE
 
 
-def _doc_terms(prompt: str) -> set[str]:
+def _doc_terms(prompt: str, *, min_len: int = _MIN_LEN, stop: frozenset[str] = _STOP) -> set[str]:
     """The distinct lower-cased word tokens of a prompt (the scorer's tokenizer)."""
-    return {t for t in _TOKEN.findall(prompt.lower()) if len(t) >= _MIN_LEN and t not in _STOP}
+    return {t for t in _TOKEN.findall(prompt.lower()) if len(t) >= min_len and t not in stop}
 
 
-def mine_terms(rows: list[Row], *, top_k: int = _TOP_K, min_support: int = _MIN_SUPPORT) -> list[str]:
+def mine_terms(
+    rows: list[Row], *, top_k: int = _TOP_K, min_support: int = _MIN_SUPPORT,
+    min_len: int = _MIN_LEN, stop: frozenset[str] = _STOP, min_log_odds: float | None = None,
+) -> list[str]:
     """Top words by smoothed log-odds of appearing in cloud-labeled vs local-labeled prompts.
 
-    Deterministic: ranked by (score desc, term asc). A term needs ``min_support`` cloud docs."""
+    Deterministic: ranked by (score desc, term asc). A term needs ``min_support`` cloud docs;
+    ``min_log_odds`` (when set) keeps only terms skewed at least that much toward cloud."""
     df_cloud: Counter[str] = Counter()
     df_local: Counter[str] = Counter()
     n_cloud = n_local = 0
     for r in rows:
-        terms = _doc_terms(r.prompt)
+        terms = _doc_terms(r.prompt, min_len=min_len, stop=stop)
         if oracle_label(r) == CLOUD:
             n_cloud += 1
             df_cloud.update(terms)
@@ -70,11 +89,62 @@ def mine_terms(rows: list[Row], *, top_k: int = _TOP_K, min_support: int = _MIN_
     for term, c in df_cloud.items():
         if c < min_support:
             continue
-        p_cloud = (c + 1) / (n_cloud + 2)
-        p_local = (df_local.get(term, 0) + 1) / (n_local + 2)
-        scored.append((math.log(p_cloud / p_local), term))
+        log_odds = math.log(((c + 1) / (n_cloud + 2)) / ((df_local.get(term, 0) + 1) / (n_local + 2)))
+        if min_log_odds is not None and log_odds < min_log_odds:
+            continue
+        scored.append((log_odds, term))
     scored.sort(key=lambda s: (-s[0], s[1]))
     return [term for _, term in scored[:top_k]]
+
+
+def mine_per_domain(
+    rows: list[Row], *, top_k: int = 20, min_len: int = 4, min_log_odds: float = 0.6,
+) -> dict[str, list[str]]:
+    """Per-domain expertise term lists mined from labelled traffic.
+
+    Groups by :func:`domain_of`, drops instruction boilerplate (``_DOMAIN_STOP``) so the
+    domain's vocabulary shows through, and keeps only strongly cloud-skewed terms with
+    support scaled to the domain's size. Domains that yield nothing (too few/too uniform
+    prompts) are omitted. Deterministic."""
+    by_domain: dict[str, list[Row]] = {}
+    for r in rows:
+        by_domain.setdefault(domain_of(r.difficulty), []).append(r)
+    out: dict[str, list[str]] = {}
+    for domain, dom_rows in by_domain.items():
+        n_cloud = sum(1 for r in dom_rows if oracle_label(r) == CLOUD)
+        min_support = max(10, n_cloud // 100)
+        terms = mine_terms(dom_rows, top_k=top_k, min_support=min_support, min_len=min_len,
+                           stop=_DOMAIN_STOP, min_log_odds=min_log_odds)
+        if terms:
+            out[domain] = terms
+    return out
+
+
+_DOMAIN_FILE_HEADER = """\
+# Per-domain trigger-word lists mined from RouterBench labelled traffic (WF-ADR-0019).
+#
+# Each list is the vocabulary that, in RouterBench, appears far more in cloud-needed prompts
+# than local-ok ones (deterministic smoothed log-odds on a held-out train split). These are
+# STARTER templates, not a universal lexicon: copy the block for your domain into your
+# wayfinder-router.toml as `[routing.lexicon] reasoning_terms = [...]`, raise the
+# `reasoning_term_count` weight, and recalibrate the knee on your own data.
+#
+# Honest about quality: science / general / humanities give real subject-matter vocabulary;
+# math / multilingual / commonsense skew to task-surface nouns (RouterBench's tasks there are
+# word-problems / templated), and sparse domains (e.g. code) may be absent. The right move is
+# to mine YOUR traffic: `python -m benchmarks.mine_lexicon your-data.jsonl --emit-domains out.toml`.
+#
+# Reproduce: python -m benchmarks.mine_lexicon benchmarks/routerbench.jsonl \\
+#                --emit-domains benchmarks/seed/domain-lexicons.toml
+"""
+
+
+def _emit_domain_file(path: Path, per_domain: dict[str, list[str]]) -> None:
+    blocks = [_DOMAIN_FILE_HEADER]
+    for domain in sorted(per_domain):
+        terms = ", ".join(f'"{t}"' for t in per_domain[domain])
+        blocks.append(f"[{domain}]\nreasoning_terms = [{terms}]")
+    path.write_text("\n\n".join(blocks) + "\n", encoding="utf-8")
 
 
 def _samples(rows: list[Row], lexicon: Lexicon) -> list[Sample]:
@@ -101,6 +171,11 @@ def _skill(m) -> float:
 
 def main(argv: list[str] | None = None) -> int:
     argv = sys.argv[1:] if argv is None else argv
+    emit_to: Path | None = None
+    if "--emit-domains" in argv:
+        i = argv.index("--emit-domains")
+        emit_to = Path(argv[i + 1])
+        argv = argv[:i] + argv[i + 2:]
     path = Path(argv[0]) if argv else Path(__file__).parent / "routerbench.jsonl"
     rows = load_dataset(path)
     train, test = split_rows(rows, test_frac=0.5, salt="mine")
@@ -110,13 +185,14 @@ def main(argv: list[str] | None = None) -> int:
     print(f"=== Top {len(mined)} cloud-signal terms mined from the TRAIN split (log-odds) ===")
     print("  " + ", ".join(mined) + "\n")
 
-    print("=== Per-domain mined terms (top 8 each) — the 'subject-matter-expertise' lexicons ===")
-    by_domain: dict[str, list[Row]] = {}
-    for r in train:
-        by_domain.setdefault(domain_of(r.difficulty), []).append(r)
-    for domain in sorted(by_domain):
-        terms = mine_terms(by_domain[domain], top_k=8, min_support=8)
-        print(f"  {domain:13s} {', '.join(terms) if terms else '(too few rows)'}")
+    per_domain = mine_per_domain(train)
+    print("=== Per-domain mined terms — the 'subject-matter-expertise' lexicons ===")
+    for domain in sorted(per_domain):
+        print(f"  {domain:13s} {', '.join(per_domain[domain])}")
+    if emit_to is not None:
+        _emit_domain_file(emit_to, per_domain)
+        print(f"\nwrote per-domain lexicons to {emit_to}")
+        return 0
 
     print("\n=== Held-out skill: built-in vs mined reasoning lexicon (reasoning-only weight) ===")
     print("(same weight, knee-calibrated on train, scored on test; only the word list differs)\n")
