@@ -170,29 +170,58 @@ body{margin:0;background:var(--bg);color:var(--text);font-family:var(--font);
   font-size:15px;line-height:1.55;display:flex;flex-direction:row;height:100vh;overflow:hidden;
   -webkit-font-smoothing:antialiased;-moz-osx-font-smoothing:grayscale}
 .app{flex:1;min-width:0;display:flex;flex-direction:column;height:100vh}
-.sidebar{width:248px;flex:none;display:flex;flex-direction:column;gap:.55rem;padding:.7rem .6rem;
-  background:var(--panel);border-right:1px solid var(--line);height:100vh;overflow-y:auto;transition:margin-left .2s ease}
-body.sidebar-collapsed .sidebar{margin-left:-249px}
-.newchat{display:flex;align-items:center;justify-content:center;gap:.4rem;font:inherit;font-size:.82rem;font-weight:600;
-  color:var(--text);background:var(--elev);border:1px solid var(--line-strong);border-radius:10px;padding:.5rem .7rem;cursor:pointer}
-.newchat:hover{border-color:var(--accent);background:var(--accent-weak)}
+/* Sidebar is an overlay drawer: the burger slides it in over the content (with a
+   scrim); the top bar never shifts. Closed by default. */
+.scrim{position:fixed;inset:0;background:rgba(20,20,22,.34);opacity:0;visibility:hidden;
+  transition:opacity .2s,visibility .2s;z-index:45}
+body.sidebar-open .scrim{opacity:1;visibility:visible}
+.sidebar{position:fixed;top:0;left:0;height:100vh;width:266px;z-index:46;box-sizing:border-box;
+  display:flex;flex-direction:column;gap:.55rem;padding:.7rem .6rem;background:var(--panel);
+  border-right:1px solid var(--line);box-shadow:var(--shadow);
+  transform:translateX(-100%);transition:transform .2s ease}
+body.sidebar-open .sidebar{transform:translateX(0)}
 .side-search{font:inherit;font-size:.8rem;color:var(--text);background:var(--bg);border:1px solid var(--line-strong);
   border-radius:9px;padding:.42rem .55rem;outline:none}
 .side-search:focus{border-color:color-mix(in srgb,var(--accent) 55%,var(--line-strong))}
-.side-label{font-size:.62rem;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);padding:.3rem .3rem 0}
-.threads{display:flex;flex-direction:column;gap:.1rem;overflow-y:auto;flex:1;min-height:0}
-.thread{display:flex;align-items:center;gap:.4rem;padding:.45rem .55rem;border-radius:9px;cursor:pointer;font-size:.82rem;color:var(--text)}
+.side-scroll{display:flex;flex-direction:column;gap:.1rem;overflow-y:auto;flex:1;min-height:0}
+.side-label{font-size:.62rem;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);padding:.45rem .3rem .15rem}
+.folder-head{display:flex;align-items:center;gap:.35rem;padding:.42rem .5rem;border-radius:9px;cursor:pointer;
+  font-size:.79rem;font-weight:600;color:var(--text);user-select:none}
+.folder-head:hover{background:var(--elev)}
+.folder-caret{font-size:.6rem;color:var(--muted);transition:transform .15s;width:.7rem;text-align:center}
+.folder.open .folder-caret{transform:rotate(90deg)}
+.folder-count{margin-left:auto;color:var(--muted);font-size:.66rem;font-weight:600}
+.folder-del{flex:none;border:0;background:transparent;color:var(--muted);font-size:1rem;line-height:1;cursor:pointer;opacity:0;padding:0 .1rem}
+.folder-head:hover .folder-del{opacity:.6}
+.folder-del:hover{opacity:1;color:var(--text)}
+.folder-chats{display:flex;flex-direction:column;gap:.1rem;padding-left:.55rem}
+.folder:not(.open) .folder-chats{display:none}
+.thread{display:flex;align-items:center;gap:.3rem;padding:.45rem .55rem;border-radius:9px;cursor:pointer;font-size:.82rem;color:var(--text)}
 .thread:hover{background:var(--elev)}
 .thread.active{background:var(--accent-weak)}
 .t-title{flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0}
-.t-del{flex:none;border:0;background:transparent;color:var(--muted);font-size:1.05rem;line-height:1;cursor:pointer;opacity:0;padding:0 .1rem}
-.thread:hover .t-del,.thread.active .t-del{opacity:.65}
-.t-del:hover{opacity:1;color:var(--text)}
+.t-menu{flex:none;border:0;background:transparent;color:var(--muted);font-size:1rem;line-height:1;cursor:pointer;opacity:0;padding:0 .15rem}
+.thread:hover .t-menu,.thread.active .t-menu{opacity:.6}
+.t-menu:hover{opacity:1;color:var(--text)}
 .side-empty{color:var(--muted);font-size:.78rem;padding:.5rem .4rem;opacity:.85}
+.side-foot{display:flex;flex-direction:column;gap:.4rem;border-top:1px solid var(--line);padding-top:.55rem}
+.side-act,.newchat{display:flex;align-items:center;justify-content:center;gap:.4rem;font:inherit;font-size:.82rem;
+  border-radius:10px;padding:.5rem .7rem;cursor:pointer;font-weight:600}
+.side-act{color:var(--muted);background:transparent;border:1px solid var(--line-strong)}
+.side-act:hover{color:var(--text);border-color:var(--accent)}
+.newchat{color:var(--btn-text);background:var(--btn);border:0}
+.newchat:active,.side-act:active{transform:translateY(1px)}
 .side-toggle{flex:none;width:30px;height:30px;border:1px solid var(--line);background:var(--panel);color:var(--muted);
   border-radius:9px;cursor:pointer;display:grid;place-items:center;font-size:1rem;margin-right:.1rem}
 .side-toggle:hover{color:var(--text);border-color:var(--line-strong)}
-@media(max-width:720px){.sidebar{position:fixed;z-index:40;box-shadow:var(--shadow)}body:not(.sidebar-collapsed) .app{filter:brightness(.97)}}
+.menu{position:fixed;z-index:60;min-width:158px;background:var(--elev);border:1px solid var(--line-strong);
+  border-radius:10px;box-shadow:0 10px 28px rgba(0,0,0,.2);padding:.3rem;display:flex;flex-direction:column;gap:.04rem;font-size:.78rem}
+.menu[hidden]{display:none}
+.menu button{text-align:left;font:inherit;font-size:.78rem;color:var(--text);background:transparent;border:0;border-radius:7px;padding:.4rem .5rem;cursor:pointer;white-space:nowrap}
+.menu button:hover{background:var(--accent-weak)}
+.menu button.danger:hover{background:color-mix(in srgb,#d97706 18%,transparent);color:#9a3412}
+.menu .mlabel{font-size:.58rem;text-transform:uppercase;letter-spacing:.07em;color:var(--muted);padding:.3rem .5rem .1rem}
+.menu .sep{height:1px;background:var(--line);margin:.18rem .25rem}
 ::selection{background:color-mix(in srgb,var(--accent) 22%,transparent)}
 main::-webkit-scrollbar{width:11px}
 main::-webkit-scrollbar-thumb{background:var(--line-strong);border-radius:999px;border:3px solid var(--bg)}
@@ -350,11 +379,14 @@ textarea::placeholder{color:var(--muted)}
 @media(prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important;scroll-behavior:auto!important}}
 </style></head><body class="intro">
 <aside class="sidebar" id="sidebar">
-  <button class="newchat" id="newchat" type="button">&#43; New chat</button>
   <input class="side-search" id="search" type="search" placeholder="Search chats" aria-label="Search chats">
-  <div class="side-label">Chats</div>
-  <div class="threads" id="threads"></div>
+  <div class="side-scroll" id="threads"></div>
+  <div class="side-foot">
+    <button class="side-act" id="newfolder" type="button">&#43; New folder</button>
+    <button class="newchat" id="newchat" type="button">&#43; New chat</button>
+  </div>
 </aside>
+<div class="scrim" id="scrim"></div>
 <div class="app">
 <div class="bar">
   <button class="side-toggle" id="sideToggle" type="button" aria-label="Toggle sidebar" title="Toggle sidebar">&#9776;</button>
@@ -466,6 +498,7 @@ stickyEl.addEventListener('change',syncSticky); syncSticky();
 let savedTotal=0, savedUnit='', pretty=s=>s.replace(/_/g,' ');
 const newchat=document.getElementById('newchat'),searchEl=document.getElementById('search');
 const listEl=document.getElementById('threads'),sideToggle=document.getElementById('sideToggle');
+const newfolder=document.getElementById('newfolder'),scrim=document.getElementById('scrim');
 const titleCase=s=>s.replace(/\\b[a-z]/g,c=>c.toUpperCase());
 
 function syncT(){const on=useT.checked; tEl.disabled=!on; tv.textContent=on?(tEl.value/100).toFixed(2):'config'; tv.classList.toggle('on',on);}
@@ -601,10 +634,12 @@ function routing(wf){
   return r;
 }
 
-// --- conversation threads, persisted client-side in localStorage (WF-ADR-0026) ---
-const LS='wf.threads'; let threads=[]; let currentId=null; let lastTurn=null;
+// --- conversation threads + folders, persisted client-side (WF-ADR-0026) ---
+const LS='wf.threads', LF='wf.folders';
+let threads=[], folders=[], currentId=null, lastTurn=null;
 try{threads=JSON.parse(localStorage.getItem(LS)||'[]')||[];}catch(e){threads=[];}
-const persist=()=>{try{localStorage.setItem(LS,JSON.stringify(threads));}catch(e){}};
+try{folders=JSON.parse(localStorage.getItem(LF)||'[]')||[];}catch(e){folders=[];}
+const persist=()=>{try{localStorage.setItem(LS,JSON.stringify(threads));localStorage.setItem(LF,JSON.stringify(folders));}catch(e){}};
 const cur=()=>threads.find(t=>t.id===currentId)||null;
 const apiMessages=t=>(t?t.items:[]).filter(i=>i.role==='user'||(i.role==='assistant'&&i.content)).map(i=>({role:i.role,content:i.content}));
 const titleFrom=text=>{const s=(text||'').replace(/\\s+/g,' ').trim();return s.length>42?s.slice(0,42)+'…':(s||'New chat');};
@@ -621,20 +656,55 @@ function renderItem(it){
 function recomputeSaved(){const t=cur();let tot=0,unit='$';
   if(t)t.items.forEach(i=>{if(i.wf&&i.wf.cost&&typeof i.wf.cost.saved==='number'){tot+=i.wf.cost.saved;unit=i.wf.cost.estimated?'units':'$';}});
   savedTotal=tot;savedUnit=unit;savedEl.innerHTML=tot?('Saved <b>'+tot.toFixed(3)+'</b> '+unit+' vs always-cloud'):'';}
-function renderSidebar(){const q=(searchEl.value||'').toLowerCase();listEl.innerHTML='';
-  const shown=threads.filter(t=>!q||(t.title||'').toLowerCase().includes(q)||(t.items||[]).some(i=>(i.content||'').toLowerCase().includes(q)));
-  if(!shown.length){listEl.appendChild(el('side-empty',threads.length?'No matches':'No chats yet'));return;}
-  shown.forEach(t=>{const row=el('thread'+(t.id===currentId?' active':''));
-    row.appendChild(el('t-title',t.title||'New chat'));
-    const del=document.createElement('button');del.className='t-del';del.type='button';del.textContent='×';del.setAttribute('aria-label','Delete chat');del.title='Delete chat';
-    del.addEventListener('click',e=>{e.stopPropagation();deleteThread(t.id);});
-    row.appendChild(del);row.addEventListener('click',()=>openThread(t.id));listEl.appendChild(row);});}
+
+// floating per-chat menu: move to a folder, or delete
+const menu=document.createElement('div');menu.className='menu';menu.hidden=true;document.body.appendChild(menu);
+const closeMenu=()=>{menu.hidden=true;menu.innerHTML='';};
+function openMenu(btn,t){menu.innerHTML='';
+  const mk=(name,fn,cls)=>{const b=document.createElement('button');b.type='button';b.textContent=name;if(cls)b.className=cls;
+    b.addEventListener('click',e=>{e.stopPropagation();closeMenu();fn();});return b;};
+  menu.appendChild(el('mlabel','Move to'));
+  if(t.folder)menu.appendChild(mk('— No folder —',()=>{t.folder=null;persist();renderSidebar();}));
+  folders.forEach(f=>{if(f.id!==t.folder)menu.appendChild(mk(f.name,()=>{t.folder=f.id;f.open=true;persist();renderSidebar();}));});
+  menu.appendChild(mk('+ New folder…',()=>{const f=addFolder();if(f){t.folder=f.id;persist();renderSidebar();}}));
+  menu.appendChild(el('sep'));
+  menu.appendChild(mk('Delete chat',()=>deleteThread(t.id),'danger'));
+  menu.hidden=false;
+  const r=btn.getBoundingClientRect(),mw=menu.offsetWidth,mh=menu.offsetHeight;
+  let top=r.bottom+4; if(top+mh>innerHeight-8)top=r.top-mh-4;
+  menu.style.left=Math.max(8,Math.min(r.left,innerWidth-mw-8))+'px'; menu.style.top=top+'px';}
+document.addEventListener('click',e=>{if(!menu.hidden&&!menu.contains(e.target))closeMenu();});
+
+const matchThread=(t,q)=>!q||(t.title||'').toLowerCase().includes(q)||(t.items||[]).some(i=>(i.content||'').toLowerCase().includes(q));
+function threadRow(t){const row=el('thread'+(t.id===currentId?' active':''));
+  row.appendChild(el('t-title',t.title||'New chat'));
+  const m=document.createElement('button');m.className='t-menu';m.type='button';m.textContent='⋯';m.setAttribute('aria-label','Chat options');m.title='Chat options';
+  m.addEventListener('click',e=>{e.stopPropagation();openMenu(m,t);});
+  row.appendChild(m); row.addEventListener('click',()=>openThread(t.id)); return row;}
+function renderSidebar(){const q=(searchEl.value||'').toLowerCase();listEl.innerHTML='';let any=false;
+  folders.forEach(f=>{const chats=threads.filter(t=>t.folder===f.id&&matchThread(t,q));
+    if(q&&!chats.length)return; any=any||chats.length>0;
+    const fd=el('folder'+(f.open?' open':'')),head=el('folder-head');
+    head.appendChild(el('folder-caret','\\u25B8')); head.appendChild(el('t-title',f.name)); head.appendChild(el('folder-count',String(chats.length)));
+    const del=document.createElement('button');del.className='folder-del';del.type='button';del.textContent='×';del.title='Delete folder';
+    del.addEventListener('click',e=>{e.stopPropagation();deleteFolder(f.id);});
+    head.appendChild(del); head.addEventListener('click',()=>{f.open=!f.open;persist();renderSidebar();});
+    fd.appendChild(head);
+    const box=el('folder-chats'); chats.forEach(t=>box.appendChild(threadRow(t))); fd.appendChild(box);
+    listEl.appendChild(fd);});
+  const loose=threads.filter(t=>!t.folder&&matchThread(t,q));
+  if(loose.length){any=true; if(folders.length)listEl.appendChild(el('side-label','Chats')); loose.forEach(t=>listEl.appendChild(threadRow(t)));}
+  if(!threads.length)listEl.appendChild(el('side-empty','No chats yet'));
+  else if(!any)listEl.appendChild(el('side-empty','No matches'));}
+function addFolder(){const name=(prompt('Folder name')||'').trim();if(!name)return null;
+  const f={id:'f'+Date.now().toString(36),name:name,open:true};folders.unshift(f);persist();renderSidebar();return f;}
+function deleteFolder(id){threads.forEach(t=>{if(t.folder===id)t.folder=null;});folders=folders.filter(f=>f.id!==id);persist();renderSidebar();}
+
 function openThread(id){currentId=id;const t=cur();wrap.querySelectorAll('.turn').forEach(n=>n.remove());lastTurn=null;
   if(!t||!t.items.length){document.body.classList.add('intro');empty.style.display='';card.classList.remove('started');modeEl.textContent='ready';}
   else{document.body.classList.remove('intro');empty.style.display='none';card.classList.add('started');t.items.forEach(renderItem);}
-  recomputeSaved();renderSidebar();scroll();
-  if(matchMedia('(max-width:720px)').matches)document.body.classList.add('sidebar-collapsed');}
-function newThread(){const t={id:'t'+Date.now().toString(36)+Math.random().toString(36).slice(2,5),title:'New chat',created:Date.now(),items:[]};
+  recomputeSaved();renderSidebar();scroll();document.body.classList.remove('sidebar-open');}
+function newThread(){const t={id:'t'+Date.now().toString(36)+Math.random().toString(36).slice(2,5),title:'New chat',created:Date.now(),items:[],folder:null};
   threads.unshift(t);persist();openThread(t.id);inEl.focus();}
 function deleteThread(id){threads=threads.filter(t=>t.id!==id);persist();
   if(currentId===id){threads.length?openThread(threads[0].id):newThread();}else renderSidebar();}
@@ -681,9 +751,11 @@ const EGS={
 document.querySelectorAll('.eg').forEach(b=>b.addEventListener('click',()=>send(EGS[b.dataset.eg]||b.dataset.eg)));
 
 newchat.addEventListener('click',newThread);
+newfolder.addEventListener('click',addFolder);
 searchEl.addEventListener('input',renderSidebar);
-sideToggle.addEventListener('click',()=>document.body.classList.toggle('sidebar-collapsed'));
-if(matchMedia('(max-width:720px)').matches)document.body.classList.add('sidebar-collapsed');
+sideToggle.addEventListener('click',e=>{e.stopPropagation();document.body.classList.toggle('sidebar-open');});
+scrim.addEventListener('click',()=>document.body.classList.remove('sidebar-open'));
+document.addEventListener('keydown',e=>{if(e.key==='Escape')document.body.classList.remove('sidebar-open');});
 if(threads.length)openThread(threads[0].id); else newThread();
 </script></body></html>"""
 
