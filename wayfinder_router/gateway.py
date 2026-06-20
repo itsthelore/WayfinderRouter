@@ -135,7 +135,7 @@ _DEMO_HTML = """<!doctype html><html lang="en"><head><meta charset="utf-8">
 <title>Wayfinder</title><style>
 :root{
   color-scheme: light dark;
-  --bg:#ffffff; --panel:#f9f9fa; --elev:#ffffff; --text:#0d0d0d; --muted:#8a8a99;
+  --bg:#ffffff; --panel:#f9f9fa; --elev:#ffffff; --text:#0d0d0d; --muted:#6b6b78;
   --line:#ececef; --line-strong:#e2e2e6; --user:#f4f4f5; --accent:#10a37f; --accent-weak:#eaf6f2;
   --cloud:#bd6a13; --cloud-weak:#fbf0e3; --btn:#0d0d0d; --btn-text:#ffffff; --track:#ececed;
   --radius:18px; --radius-sm:13px; --pill:999px;
@@ -169,18 +169,24 @@ main::-webkit-scrollbar-thumb{background:var(--line-strong);border-radius:999px;
   text-transform:uppercase;letter-spacing:.09em}
 .saved{margin-left:auto;font-size:.78rem;color:var(--muted);font-variant-numeric:tabular-nums;text-align:right}
 .saved b{color:var(--text);font-weight:600}
-.controls{display:flex;align-items:center;gap:.7rem;padding:.55rem 1.1rem;border-bottom:1px solid var(--line);
+.controls{display:flex;align-items:center;gap:.7rem;padding:.5rem 1.1rem .65rem;
   font-size:.8rem;color:var(--muted);flex-wrap:wrap}
 .controls input[type=range]{flex:1;min-width:140px;max-width:300px;accent-color:var(--accent);height:4px}
-.controls output{font-variant-numeric:tabular-nums;color:var(--text);min-width:3em;font-weight:600}
+.controls input[type=range]:disabled{opacity:.4;cursor:not-allowed}
+.controls output{font-variant-numeric:tabular-nums;color:var(--muted);min-width:3em;font-weight:600}
+.controls output.on{color:var(--text)}
 .controls label{display:flex;align-items:center;gap:.4rem;cursor:pointer;user-select:none}
 .controls label input{accent-color:var(--accent)}
 .hint{font-size:.72rem;color:var(--muted);opacity:.85}
 main{flex:1;overflow-y:auto;padding:1.5rem 1.1rem 2rem;scroll-behavior:smooth}
 .wrap{max-width:760px;margin:0 auto;display:flex;flex-direction:column;gap:1.4rem}
-.empty{margin:16vh auto 0;max-width:30rem;text-align:center;color:var(--muted)}
+.empty{margin:13vh auto 0;max-width:32rem;text-align:center;color:var(--muted)}
 .empty h2{color:var(--text);font-size:1.2rem;font-weight:650;letter-spacing:-.01em;margin:0 0 .4rem}
 .empty code{font-family:var(--mono);font-size:.85em;background:var(--panel);padding:.1rem .35rem;border-radius:6px}
+.egs{display:flex;flex-wrap:wrap;gap:.5rem;justify-content:center;margin-top:1.2rem}
+.eg{font:inherit;font-size:.82rem;color:var(--text);background:var(--panel);border:1px solid var(--line-strong);
+  border-radius:var(--pill);padding:.4rem .85rem;cursor:pointer;transition:border-color .15s,background .15s}
+.eg:hover{border-color:var(--accent);background:var(--accent-weak)}
 .turn{display:flex;flex-direction:column;gap:.6rem;animation:rise .18s cubic-bezier(.2,.7,.3,1) both}
 @keyframes rise{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:none}}
 .msg{padding:.7rem 1rem;border-radius:var(--radius);max-width:84%;white-space:pre-wrap;word-wrap:break-word;line-height:1.5}
@@ -188,7 +194,7 @@ main{flex:1;overflow-y:auto;padding:1.5rem 1.1rem 2rem;scroll-behavior:smooth}
 .msg.bot{align-self:flex-start;background:var(--elev);border:1px solid var(--line)}
 .msg.note{align-self:flex-start;color:var(--muted);font-size:.82rem;background:transparent;padding:.1rem 0}
 .card{align-self:stretch;background:var(--panel);border:1px solid var(--line);
-  border-radius:var(--radius-sm);box-shadow:var(--shadow);padding:.9rem 1rem;font-size:.82rem;
+  border-radius:var(--radius-sm);box-shadow:var(--shadow);padding:1rem 1.1rem;font-size:.82rem;
   transition:border-color .15s}
 .card:hover{border-color:var(--line-strong)}
 .card .head{display:flex;align-items:center;gap:.55rem;margin-bottom:.7rem}
@@ -199,6 +205,7 @@ main{flex:1;overflow-y:auto;padding:1.5rem 1.1rem 2rem;scroll-behavior:smooth}
 .meta{color:var(--muted);font-variant-numeric:tabular-nums}
 .tag{margin-left:auto;font-size:.6rem;font-weight:600;letter-spacing:.09em;text-transform:uppercase;
   color:var(--muted);border:1px solid var(--line-strong);border-radius:var(--pill);padding:.1rem .45rem}
+.why{font-size:.62rem;font-weight:600;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);margin-bottom:.4rem}
 .rows{display:flex;flex-direction:column;gap:.4rem;margin:.1rem 0 .7rem}
 .row{display:grid;grid-template-columns:9rem 1fr 2.6rem;align-items:center;gap:.6rem}
 .row .nm{color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;text-transform:capitalize}
@@ -210,7 +217,6 @@ main{flex:1;overflow-y:auto;padding:1.5rem 1.1rem 2rem;scroll-behavior:smooth}
 .cost{display:flex;justify-content:space-between;gap:.5rem;color:var(--muted);
   border-top:1px solid var(--line);padding-top:.6rem;font-variant-numeric:tabular-nums}
 .cost b{color:var(--text);font-weight:600}
-.rid{font-family:var(--mono);font-size:.68rem;color:var(--muted);opacity:.6;margin-top:.55rem}
 form{position:sticky;bottom:0;background:linear-gradient(to top,var(--bg) 72%,transparent);padding:.5rem 1.1rem 1.1rem}
 .composer{max-width:760px;margin:0 auto;display:flex;gap:.5rem;align-items:flex-end;
   background:var(--elev);border:1px solid var(--line-strong);border-radius:24px;
@@ -240,7 +246,11 @@ textarea::placeholder{color:var(--muted)}
 </div>
 <main><div class="wrap" id="wrap">
   <div class="empty" id="empty"><h2>Ask anything</h2>
-  <div>Each message shows where it routed, the complexity score and why, and the cost saved. Run the gateway with <code>--dry-run</code> for a keyless demo.</div></div>
+  <div>Each message shows where it routed, the complexity score and why, and the cost saved. Run the gateway with <code>--dry-run</code> for a keyless demo.</div>
+  <div class="egs">
+    <button class="eg" data-eg="What's 2 + 2?">What's 2 + 2?</button>
+    <button class="eg" data-eg="Outline a zero-downtime Postgres migration: list the steps, include a SQL snippet, and a risk table.">A structured migration plan</button>
+  </div></div>
 </div></main>
 <form id="composer"><div class="composer">
   <textarea id="in" rows="1" placeholder="Message Wayfinder..." autofocus></textarea>
@@ -253,7 +263,7 @@ const useT=document.getElementById('useT'),tEl=document.getElementById('t'),tv=d
 const modeEl=document.getElementById('mode'),savedEl=document.getElementById('saved');
 const messages=[]; let savedTotal=0, savedUnit='', pretty=s=>s.replace(/_/g,' ');
 
-function syncT(){tEl.disabled=!useT.checked; tv.textContent=useT.checked?(tEl.value/100).toFixed(2):'config';}
+function syncT(){const on=useT.checked; tEl.disabled=!on; tv.textContent=on?(tEl.value/100).toFixed(2):'config'; tv.classList.toggle('on',on);}
 useT.addEventListener('change',syncT); tEl.addEventListener('input',syncT); syncT();
 
 inEl.addEventListener('input',()=>{inEl.style.height='auto';inEl.style.height=Math.min(inEl.scrollHeight,window.innerHeight*0.4)+'px';});
@@ -269,11 +279,12 @@ function card(wf){
   const pill=el('pill '+(wf.model==='cloud'?'cloud':''));
   pill.appendChild(el('dot')); pill.appendChild(document.createTextNode(' '+wf.model));
   head.appendChild(pill);
-  head.appendChild(el('meta','score '+Number(wf.score).toFixed(2)+' · '+wf.mode));
+  head.appendChild(el('meta','score '+Number(wf.score).toFixed(2)+(wf.mode!=='scored'?' · '+wf.mode:'')));
   if(wf.dry_run) head.appendChild(el('tag','dry-run'));
   c.appendChild(head);
   const cons=(wf.contributions||[]).filter(x=>x.contribution>0).sort((a,b)=>b.contribution-a.contribution).slice(0,4);
   if(cons.length){
+    c.appendChild(el('why','why'));
     const max=cons[0].contribution||1, rows=el('rows');
     cons.forEach(x=>{
       const r=el('row');
@@ -286,16 +297,14 @@ function card(wf){
     c.appendChild(rows);
   }
   if(wf.cost){
-    const k=wf.cost, est=k.estimated?' (est)':'', u=k.estimated?'units':(k.unit&&k.unit[0]==='$'?'$':'');
-    const cost=el('cost');
-    const left=el('');left.innerHTML='this call <b>'+(+k.per_call).toFixed(3)+'</b> '+(k.unit||'')+est;
-    cost.appendChild(left);
-    cost.appendChild(el('','saved '+(+k.saved).toFixed(3)+' vs always-cloud'));
-    c.appendChild(cost);
-    if(typeof k.saved==='number'){savedTotal+=k.saved;savedUnit=u||savedUnit;
+    const k=wf.cost, u=k.estimated?'units':'$';
+    const cost=el('cost'); cost.title=(k.unit||'')+(k.estimated?' (estimated)':'');
+    const left=el(''); left.innerHTML='&#8776; <b>'+(+k.per_call).toFixed(3)+'</b> '+u;
+    const right=el(''); right.innerHTML='saved <b>'+(+k.saved).toFixed(3)+'</b>';
+    cost.appendChild(left); cost.appendChild(right); c.appendChild(cost);
+    if(typeof k.saved==='number'){savedTotal+=k.saved;savedUnit=u;
       savedEl.innerHTML='Saved <b>'+savedTotal.toFixed(3)+'</b> '+savedUnit+' vs always-cloud';}
   }
-  c.appendChild(el('rid',wf.request_id||''));
   return c;
 }
 
@@ -321,6 +330,7 @@ async function send(text){
 }
 composer.addEventListener('submit',e=>{e.preventDefault();const v=inEl.value.trim();if(!v)return;
   inEl.value='';inEl.style.height='auto';send(v);});
+document.querySelectorAll('.eg').forEach(b=>b.addEventListener('click',()=>send(b.dataset.eg)));
 </script></body></html>"""
 
 # --- metrics (WF-ADR-0018) --------------------------------------------------
