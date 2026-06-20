@@ -32,8 +32,13 @@ weights = { reasoning_term_count = 5.0, math_symbol_count = 3.0, constraint_term
 # conversation grows (WF-ADR-0021). Override with route_on: "turn" (default) |
 # "last_user" | "user" | "all" (legacy: score the whole transcript).
 #
+# sticky = true latches a conversation to the highest tier any of its turns has needed,
+# so a chat that goes hard stays on the big model even on short follow-ups (WF-ADR-0022).
+# Off by default. Per-request equivalents: X-Wayfinder-Route-On / X-Wayfinder-Sticky.
+#
 # [gateway]
 # route_on = "turn"
+# sticky = false
 #
 # [gateway.models.local]
 # base_url = "http://localhost:11434/v1"
