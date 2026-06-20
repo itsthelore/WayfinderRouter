@@ -41,6 +41,10 @@ Manage threads **entirely client-side, in `localStorage`**. The gateway gains no
   Folders render as collapsible groups (caret, count, delete); ungrouped chats fall under **Chats**.
   A chat is filed via its **⋯ menu → Move to / + New folder**; deleting a folder un-files its chats.
   Folders persist in `localStorage` alongside threads.
+- **Organising chats**: each chat has a **⋯ menu** (Pin/Unpin, Rename, Move to folder, Delete) and is
+  **draggable** — drop onto a folder to file it, onto "Chats" to un-file, or onto another chat to
+  reorder. **Pinned** chats float to a section at the top; **rename** is inline (Enter/Esc), and a
+  manual title is sticky (the first message no longer overwrites it). Folders rename on double-click.
 - Per-thread vs global: routing **settings stay global** (apply to the active thread) for now; the
   **latch is naturally per-thread** because it reads that thread's transcript — switching threads
   gives correct per-conversation latching with no extra state.

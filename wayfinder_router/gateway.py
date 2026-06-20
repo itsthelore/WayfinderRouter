@@ -199,6 +199,12 @@ body.sidebar-open .sidebar{transform:translateX(0)}
 .thread{display:flex;align-items:center;gap:.3rem;padding:.45rem .55rem;border-radius:9px;cursor:pointer;font-size:.82rem;color:var(--text)}
 .thread:hover{background:var(--elev)}
 .thread.active{background:var(--accent-weak)}
+.thread.dragging{opacity:.4}
+.thread.drag-over,.folder-head.drag-over,.folder-chats.drag-over,.side-label.drag-over{
+  outline:2px dashed color-mix(in srgb,var(--accent) 55%,transparent);outline-offset:-2px;border-radius:9px}
+.t-pin{flex:none;color:var(--accent);font-size:.66rem;line-height:1}
+.t-rename{flex:1;min-width:0;font:inherit;font-size:.82rem;color:var(--text);background:var(--bg);
+  border:1px solid var(--accent);border-radius:6px;padding:.1rem .3rem;outline:none}
 .t-title{flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0}
 .t-menu{flex:none;border:0;background:transparent;color:var(--muted);font-size:1rem;line-height:1;cursor:pointer;opacity:0;padding:0 .15rem}
 .thread:hover .t-menu,.thread.active .t-menu{opacity:.6}
@@ -657,13 +663,27 @@ function recomputeSaved(){const t=cur();let tot=0,unit='$';
   if(t)t.items.forEach(i=>{if(i.wf&&i.wf.cost&&typeof i.wf.cost.saved==='number'){tot+=i.wf.cost.saved;unit=i.wf.cost.estimated?'units':'$';}});
   savedTotal=tot;savedUnit=unit;savedEl.innerHTML=tot?('Saved <b>'+tot.toFixed(3)+'</b> '+unit+' vs always-cloud'):'';}
 
-// floating per-chat menu: move to a folder, or delete
+// inline rename: swap a title element for an input, commit on Enter/blur
+function renameInline(titleEl,current,commit){
+  const inp=document.createElement('input');inp.className='t-rename';inp.value=current;
+  titleEl.replaceWith(inp);inp.focus();inp.select();let done=false;
+  const fin=save=>{if(done)return;done=true;const v=inp.value.trim();if(save&&v)commit(v);renderSidebar();};
+  inp.addEventListener('keydown',e=>{e.stopPropagation();if(e.key==='Enter'){e.preventDefault();fin(true);}else if(e.key==='Escape'){e.preventDefault();fin(false);}});
+  inp.addEventListener('blur',()=>fin(true));
+  inp.addEventListener('click',e=>e.stopPropagation());
+  inp.addEventListener('dblclick',e=>e.stopPropagation());
+}
+
+// floating per-chat menu: pin, rename, move to a folder, delete
 const menu=document.createElement('div');menu.className='menu';menu.hidden=true;document.body.appendChild(menu);
 const closeMenu=()=>{menu.hidden=true;menu.innerHTML='';};
 function openMenu(btn,t){menu.innerHTML='';
   const mk=(name,fn,cls)=>{const b=document.createElement('button');b.type='button';b.textContent=name;if(cls)b.className=cls;
     b.addEventListener('click',e=>{e.stopPropagation();closeMenu();fn();});return b;};
-  menu.appendChild(el('mlabel','Move to'));
+  menu.appendChild(mk(t.pinned?'Unpin':'Pin',()=>{t.pinned=!t.pinned;persist();renderSidebar();}));
+  menu.appendChild(mk('Rename',()=>{const row=btn.closest('.thread'),ttl=row&&row.querySelector('.t-title');
+    if(ttl)renameInline(ttl,t.title||'',v=>{t.title=v;t.named=true;persist();});}));
+  menu.appendChild(el('sep')); menu.appendChild(el('mlabel','Move to'));
   if(t.folder)menu.appendChild(mk('— No folder —',()=>{t.folder=null;persist();renderSidebar();}));
   folders.forEach(f=>{if(f.id!==t.folder)menu.appendChild(mk(f.name,()=>{t.folder=f.id;f.open=true;persist();renderSidebar();}));});
   menu.appendChild(mk('+ New folder…',()=>{const f=addFolder();if(f){t.folder=f.id;persist();renderSidebar();}}));
@@ -675,25 +695,51 @@ function openMenu(btn,t){menu.innerHTML='';
   menu.style.left=Math.max(8,Math.min(r.left,innerWidth-mw-8))+'px'; menu.style.top=top+'px';}
 document.addEventListener('click',e=>{if(!menu.hidden&&!menu.contains(e.target))closeMenu();});
 
+// drag & drop: file a chat into a folder, unfile to "Chats", or reorder
+let dragId=null;
+const clearDrag=()=>document.querySelectorAll('.drag-over').forEach(n=>n.classList.remove('drag-over'));
+function dropFolder(e,folderId){e.preventDefault();e.stopPropagation();clearDrag();const t=threads.find(x=>x.id===dragId);
+  if(t){t.folder=folderId;if(folderId){const f=folders.find(y=>y.id===folderId);if(f)f.open=true;}persist();renderSidebar();}}
+function makeDrop(node,folderId){
+  node.addEventListener('dragover',e=>{e.preventDefault();node.classList.add('drag-over');});
+  node.addEventListener('dragleave',()=>node.classList.remove('drag-over'));
+  node.addEventListener('drop',e=>dropFolder(e,folderId));}
+
 const matchThread=(t,q)=>!q||(t.title||'').toLowerCase().includes(q)||(t.items||[]).some(i=>(i.content||'').toLowerCase().includes(q));
-function threadRow(t){const row=el('thread'+(t.id===currentId?' active':''));
+function threadRow(t){const row=el('thread'+(t.id===currentId?' active':''));row.draggable=true;
+  if(t.pinned)row.appendChild(el('t-pin','★'));
   row.appendChild(el('t-title',t.title||'New chat'));
   const m=document.createElement('button');m.className='t-menu';m.type='button';m.textContent='⋯';m.setAttribute('aria-label','Chat options');m.title='Chat options';
   m.addEventListener('click',e=>{e.stopPropagation();openMenu(m,t);});
-  row.appendChild(m); row.addEventListener('click',()=>openThread(t.id)); return row;}
+  row.appendChild(m); row.addEventListener('click',()=>openThread(t.id));
+  row.addEventListener('dragstart',e=>{dragId=t.id;e.dataTransfer.effectAllowed='move';try{e.dataTransfer.setData('text/plain',t.id);}catch(_){}row.classList.add('dragging');});
+  row.addEventListener('dragend',()=>{row.classList.remove('dragging');dragId=null;clearDrag();});
+  row.addEventListener('dragover',e=>{e.preventDefault();row.classList.add('drag-over');});
+  row.addEventListener('dragleave',()=>row.classList.remove('drag-over'));
+  row.addEventListener('drop',e=>{e.preventDefault();e.stopPropagation();clearDrag();
+    const t2=threads.find(x=>x.id===dragId);if(!t2||t2.id===t.id)return;
+    t2.folder=t.folder;t2.pinned=t.pinned;threads=threads.filter(x=>x.id!==t2.id);
+    const idx=threads.findIndex(x=>x.id===t.id);threads.splice(idx,0,t2);persist();renderSidebar();});
+  return row;}
 function renderSidebar(){const q=(searchEl.value||'').toLowerCase();listEl.innerHTML='';let any=false;
-  folders.forEach(f=>{const chats=threads.filter(t=>t.folder===f.id&&matchThread(t,q));
+  const pinned=threads.filter(t=>t.pinned&&matchThread(t,q));
+  if(pinned.length){any=true;listEl.appendChild(el('side-label','Pinned'));pinned.forEach(t=>listEl.appendChild(threadRow(t)));}
+  folders.forEach(f=>{const chats=threads.filter(t=>!t.pinned&&t.folder===f.id&&matchThread(t,q));
     if(q&&!chats.length)return; any=any||chats.length>0;
     const fd=el('folder'+(f.open?' open':'')),head=el('folder-head');
     head.appendChild(el('folder-caret','\\u25B8')); head.appendChild(el('t-title',f.name)); head.appendChild(el('folder-count',String(chats.length)));
     const del=document.createElement('button');del.className='folder-del';del.type='button';del.textContent='×';del.title='Delete folder';
     del.addEventListener('click',e=>{e.stopPropagation();deleteFolder(f.id);});
-    head.appendChild(del); head.addEventListener('click',()=>{f.open=!f.open;persist();renderSidebar();});
+    head.appendChild(del);
+    head.addEventListener('click',()=>{f.open=!f.open;persist();renderSidebar();});
+    head.addEventListener('dblclick',e=>{e.stopPropagation();const ttl=head.querySelector('.t-title');if(ttl)renameInline(ttl,f.name,v=>{f.name=v;persist();});});
     fd.appendChild(head);
     const box=el('folder-chats'); chats.forEach(t=>box.appendChild(threadRow(t))); fd.appendChild(box);
+    makeDrop(head,f.id); makeDrop(box,f.id);
     listEl.appendChild(fd);});
-  const loose=threads.filter(t=>!t.folder&&matchThread(t,q));
-  if(loose.length){any=true; if(folders.length)listEl.appendChild(el('side-label','Chats')); loose.forEach(t=>listEl.appendChild(threadRow(t)));}
+  const loose=threads.filter(t=>!t.pinned&&!t.folder&&matchThread(t,q));
+  const lbl=el('side-label','Chats'); makeDrop(lbl,null);
+  if(loose.length||folders.length){any=any||loose.length>0; listEl.appendChild(lbl); loose.forEach(t=>listEl.appendChild(threadRow(t)));}
   if(!threads.length)listEl.appendChild(el('side-empty','No chats yet'));
   else if(!any)listEl.appendChild(el('side-empty','No matches'));}
 function addFolder(){const name=(prompt('Folder name')||'').trim();if(!name)return null;
