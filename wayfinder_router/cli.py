@@ -120,6 +120,24 @@ def _parse_costs(raw: str | None) -> dict[str, float] | None:
     return costs
 
 
+def _parse_weights_arg(raw: str | None) -> dict[str, float] | None:
+    """Parse ``--weights reasoning_term_count=5,math_symbol_count=3`` into a
+    feature->weight map (or None). Feature names are validated by the calibrator."""
+    if not raw:
+        return None
+    weights: dict[str, float] = {}
+    for item in raw.split(","):
+        name, _, value = item.partition("=")
+        name = name.strip()
+        if not name or not value.strip():
+            raise CalibrationError(f"--weights must be feature=number pairs, got {item!r}")
+        try:
+            weights[name] = float(value)
+        except ValueError as exc:
+            raise CalibrationError(f"--weights value for {name!r} must be a number") from exc
+    return weights
+
+
 def _cmd_calibrate(args: argparse.Namespace) -> int:
     if not Path(args.dataset).is_file():
         print(f"wayfinder-router: file not found: {args.dataset}", file=sys.stderr)
@@ -127,6 +145,7 @@ def _cmd_calibrate(args: argparse.Namespace) -> int:
     models = [m.strip() for m in args.models.split(",")] if args.models else None
     try:
         costs = _parse_costs(args.costs)
+        weights = _parse_weights_arg(args.weights)
         samples = load_dataset(args.dataset)
         result = calibrate(
             samples,
@@ -137,6 +156,7 @@ def _cmd_calibrate(args: argparse.Namespace) -> int:
             objective=args.objective,
             costs=costs,
             target_savings=args.target_savings,
+            weights=weights,
         )
     except CalibrationError as exc:
         print(f"wayfinder-router: {exc}", file=sys.stderr)
@@ -327,10 +347,11 @@ def build_parser() -> argparse.ArgumentParser:
     )
     p_cal.add_argument(
         "--objective",
-        choices=["accuracy", "cost-quality"],
+        choices=["accuracy", "knee", "cost-quality"],
         default="accuracy",
-        help="threshold mode: maximize accuracy (default) or accuracy at a savings "
-        "target (cost-quality, needs --target-savings).",
+        help="threshold mode: maximize accuracy (default); 'knee' for the cost-aware "
+        "knee (quality x savings, no target needed); or 'cost-quality' for accuracy at "
+        "a --target-savings.",
     )
     p_cal.add_argument(
         "--target-savings",
@@ -341,7 +362,13 @@ def build_parser() -> argparse.ArgumentParser:
     p_cal.add_argument(
         "--costs",
         default=None,
-        help="Per-arm cost for cost-quality, e.g. local=0.2,cloud=1.0 (default: 0.2/1.0).",
+        help="Per-arm cost for knee/cost-quality, e.g. local=0.2,cloud=1.0 (default: 0.2/1.0).",
+    )
+    p_cal.add_argument(
+        "--weights",
+        default=None,
+        help="Custom feature weights to score with and emit (threshold/tiers), e.g. "
+        "reasoning_term_count=5,math_symbol_count=3,constraint_term_count=1.5 (the lexical opt-in).",
     )
     p_cal.set_defaults(func=_cmd_calibrate)
 

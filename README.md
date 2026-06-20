@@ -285,13 +285,19 @@ The fragment drops straight into `wayfinder-router.toml`; the accuracy and chose
 breakpoints print to stderr. The classifier is fit by deterministic L2-regularized
 Newton/IRLS, pure Python, converging in a handful of iterations.
 
-To pick a cut in cost terms instead of bare accuracy, give per-arm costs and a
-savings target: Wayfinder chooses the most accurate cut that still saves at least
-that much against always routing to the expensive model.
+To pick a cut in cost terms instead of bare accuracy, use a cost-aware objective.
+`--objective knee` chooses the cost-aware knee automatically (it maximizes
+quality-recovered × cost-saved — no target to guess, and it can't collapse to
+always-routing-to-the-expensive-model the way pure accuracy does on skewed labels);
+`--objective cost-quality --target-savings X` instead holds a specific savings floor.
+Add `--weights` to score with — and emit — custom feature weights, e.g. the lexical
+opt-in, so the output is a complete, deployable config (see
+[`docs/lexical-routing.md`](docs/lexical-routing.md)):
 
 ```bash
-wayfinder-router calibrate data.jsonl --mode threshold \
-  --objective cost-quality --target-savings 0.4 --costs local=0.2,cloud=1.0
+wayfinder-router calibrate data.jsonl --mode threshold --objective knee \
+  --costs local=0.2,cloud=1.0 \
+  --weights reasoning_term_count=5,math_symbol_count=3,constraint_term_count=1.5
 ```
 
 Cost is metadata only — it shapes the calibrated cut and is reported on the
