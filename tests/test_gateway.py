@@ -919,3 +919,101 @@ def test_cooldown_config_rejects_negative_and_round_trips():
     dumped = gateway.dump_gateway_toml(gateway.GatewayConfig(sticky=True, sticky_cooldown=3))
     assert "sticky_cooldown = 3" in dumped
     assert gateway.gateway_config_from_toml(dumped).sticky_cooldown == 3
+
+
+# --- in-demo scoring overrides + export (WF-ADR-0023) -----------------------
+
+# Structurally trivial but lexically hard — the cold-start case sticky can't catch.
+_COLD = {"model": "auto", "messages": [{"role": "user", "content": "Prove the halting problem is undecidable."}]}
+
+
+def test_lexical_weight_override_catches_a_short_hard_prompt(tmp_path):
+    client = _dry_run_client(tmp_path)  # threshold 0.2, lexical weights default 0.0
+    base = client.post("/v1/chat/completions", json=_COLD).json()["wayfinder"]
+    assert base["model"] == "local"  # no structure, no lexical -> cheap
+    tuned = client.post(
+        "/v1/chat/completions",
+        json={**_COLD, "wayfinder_tuning": {"weights": {"reasoning_term_count": 6.0}}},
+    ).json()["wayfinder"]
+    assert tuned["model"] == "cloud"
+    assert any(c["name"] == "reasoning_term_count" and c["contribution"] > 0 for c in tuned["contributions"])
+
+
+def test_custom_lexicon_terms_override(tmp_path):
+    client = _dry_run_client(tmp_path)
+    # A word that isn't a default reasoning term; only fires once we add it.
+    msg = {"model": "auto", "messages": [{"role": "user", "content": "Please frobnicate the widget."}]}
+    tuned = client.post(
+        "/v1/chat/completions",
+        json={**msg, "wayfinder_tuning": {
+            "weights": {"reasoning_term_count": 9.0},
+            "lexicon": {"reasoning_terms": ["frobnicate"]},
+        }},
+    ).json()["wayfinder"]
+    assert tuned["model"] == "cloud"
+
+
+def test_apply_scoring_overrides_validates_and_is_pure():
+    from wayfinder_router.complexity import RoutingConfig
+
+    routing = RoutingConfig()
+    assert gateway.apply_scoring_overrides(routing, None) is routing  # absent -> unchanged
+    tuned = gateway.apply_scoring_overrides(routing, {"weights": {"word_count": 5.0}})
+    assert tuned.weights["word_count"] == 5.0
+    assert routing.weights["word_count"] != 5.0  # original untouched (pure)
+    for bad in ({"weights": {"nope": 1.0}}, {"weights": {"word_count": -1}},
+                {"weights": {"word_count": "x"}}, {"lexicon": {"reasoning_terms": [1, 2]}}, []):
+        with pytest.raises(gateway.BadOverride):
+            gateway.apply_scoring_overrides(routing, bad)
+
+
+def test_tuning_is_not_forwarded_upstream(client, monkeypatch):
+    test_client, _ = client
+    seen = {}
+
+    async def _spy(url, headers, json_body, timeout=60.0):
+        seen.update(json_body)
+        return 200, b'{"choices":[{"message":{"content":"ok"}}]}', "application/json"
+
+    monkeypatch.setattr(gateway, "aforward_request", _spy)
+    test_client.post(
+        "/v1/chat/completions",
+        json={**COMPLEX, "wayfinder_tuning": {"weights": {"word_count": 4.0}}},
+    )
+    assert "wayfinder_tuning" not in seen  # popped before the relay
+
+
+def test_bad_tuning_returns_400(tmp_path):
+    resp = _dry_run_client(tmp_path).post(
+        "/v1/chat/completions", json={**_COLD, "wayfinder_tuning": {"weights": {"ghost": 1.0}}}
+    )
+    assert resp.status_code == 400
+    assert resp.json()["error"]["type"] == "wayfinder_router_bad_override"
+
+
+def test_export_config_renders_tuned_routing_toml(tmp_path):
+    client = _dry_run_client(tmp_path)
+    toml = client.post(
+        "/router/config",
+        json={"weights": {"reasoning_term_count": 6.0}, "lexicon": {"reasoning_terms": ["prove", "qed"]}},
+    ).text
+    assert "[routing]" in toml and "reasoning_term_count = 6.0" in toml
+    assert "[routing.lexicon]" in toml and '"prove"' in toml and '"qed"' in toml
+    # round-trips back through the config parser
+    from wayfinder_router.config import routing_config_from_toml
+
+    cfg = routing_config_from_toml(toml)
+    assert cfg.weights["reasoning_term_count"] == 6.0
+    assert "prove" in cfg.lexicon.reasoning_terms
+
+
+def test_export_config_rejects_bad_tuning(tmp_path):
+    resp = _dry_run_client(tmp_path).post("/router/config", json={"weights": {"word_count": -3}})
+    assert resp.status_code == 400
+
+
+def test_demo_page_exposes_advanced_tuning(client):
+    test_client, _ = client
+    text = test_client.get("/demo").text
+    assert 'id="lex"' in text and 'id="weights"' in text  # advanced controls present
+    assert "/router/config" in text  # export wired
