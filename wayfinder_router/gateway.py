@@ -241,9 +241,14 @@ main::-webkit-scrollbar-thumb{background:var(--line-strong);border-radius:999px;
 .cfg{margin:0;font-family:var(--mono);font-size:.68rem;color:var(--text);background:var(--panel);
   border:1px solid var(--line);border-radius:9px;padding:.6rem .7rem;white-space:pre-wrap;word-break:break-word;
   max-height:11rem;overflow:auto}
+.stage{flex:1;min-height:0;display:flex;flex-direction:column}
 main{flex:1;overflow-y:auto;padding:1.5rem 1.1rem 2rem;scroll-behavior:smooth}
+/* Launch state: centre the heading + composer as a group; drops to the bottom on the first message. */
+body.intro .stage{justify-content:center}
+body.intro main{flex:0 1 auto;overflow:visible}
+body.intro form{background:none}
 .wrap{max-width:760px;margin:0 auto;display:flex;flex-direction:column;gap:1.4rem}
-.empty{margin:13vh auto 0;max-width:32rem;text-align:center;color:var(--muted)}
+.empty{margin:0 auto 1.4rem;max-width:32rem;text-align:center;color:var(--muted)}
 .empty h2{color:var(--text);font-size:1.2rem;font-weight:650;letter-spacing:-.01em;margin:0 0 .4rem}
 .empty code{font-family:var(--mono);font-size:.85em;background:var(--panel);padding:.1rem .35rem;border-radius:6px}
 .eg{font:inherit;font-size:.78rem;color:var(--muted);background:transparent;border:1px solid var(--line-strong);
@@ -309,7 +314,7 @@ textarea::placeholder{color:var(--muted)}
 #send:disabled{opacity:.35;cursor:default}
 :focus-visible{outline:none;box-shadow:var(--ring);border-radius:10px}
 @media(prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important;scroll-behavior:auto!important}}
-</style></head><body>
+</style></head><body class="intro">
 <div class="bar">
   <span class="brand">Wayfinder<span class="dot">.</span></span>
   <span class="mode" id="mode">ready</span>
@@ -380,6 +385,7 @@ textarea::placeholder{color:var(--muted)}
     <div class="set-foot">Applies to your next message.</div>
   </div>
 </div>
+<div class="stage">
 <main><div class="wrap" id="wrap">
   <div class="empty" id="empty"><h2>Ask anything</h2>
   <div>Every reply shows where it routed; open the <b>?</b> for the score, the features behind it, and the cost saved. Run the gateway with <code>--dry-run</code> for a keyless demo.</div>
@@ -395,6 +401,7 @@ textarea::placeholder{color:var(--muted)}
     <button id="send" type="submit" aria-label="Send" title="Send">&#8593;</button>
   </div>
 </div></form>
+</div>
 <script>
 const wrap=document.getElementById('wrap'),empty=document.getElementById('empty');
 const inEl=document.getElementById('in'),sendBtn=document.getElementById('send');
@@ -529,7 +536,7 @@ function routing(wf){
 }
 
 async function send(text){
-  empty.style.display='none'; card.classList.add('started');
+  empty.style.display='none'; card.classList.add('started'); document.body.classList.remove('intro');
   const t=turn(); t.appendChild(el('msg user',text)); scroll();
   messages.push({role:'user',content:text});
   sendBtn.disabled=true;
