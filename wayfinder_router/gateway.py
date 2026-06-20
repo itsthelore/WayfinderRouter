@@ -79,7 +79,6 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 from .complexity import (
-    DEFAULT_WEIGHTS,
     RoutingConfig,
     Tier,
     explain_score,
