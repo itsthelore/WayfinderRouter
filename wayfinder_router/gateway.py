@@ -193,18 +193,27 @@ main{flex:1;overflow-y:auto;padding:1.5rem 1.1rem 2rem;scroll-behavior:smooth}
 .msg.user{align-self:flex-end;background:var(--user)}
 .msg.bot{align-self:flex-start;background:var(--elev);border:1px solid var(--line)}
 .msg.note{align-self:flex-start;color:var(--muted);font-size:.82rem;background:transparent;padding:.1rem 0}
-.card{align-self:stretch;background:var(--panel);border:1px solid var(--line);
-  border-radius:var(--radius-sm);box-shadow:var(--shadow);padding:1rem 1.1rem;font-size:.82rem;
-  transition:border-color .15s}
-.card:hover{border-color:var(--line-strong)}
-.card .head{display:flex;align-items:center;gap:.55rem;margin-bottom:.7rem}
+.answer{align-self:flex-start;max-width:84%;display:flex;flex-direction:column;gap:.45rem}
+.answer .msg.bot{max-width:100%;align-self:stretch}
+.msg.bot.dry{color:var(--muted);font-size:.88rem;background:var(--panel)}
+.routing{position:relative;display:flex;align-items:center;gap:.5rem;padding-left:.15rem;
+  font-size:.78rem;color:var(--muted)}
 .pill{font-weight:600;border-radius:var(--pill);padding:.14rem .62rem;font-size:.78rem;text-transform:capitalize;
   background:var(--accent-weak);color:var(--accent);display:inline-flex;align-items:center;gap:.4rem}
 .pill.cloud{color:var(--cloud);background:var(--cloud-weak)}
 .pill .dot{width:.46rem;height:.46rem;border-radius:50%;background:currentColor}
 .meta{color:var(--muted);font-variant-numeric:tabular-nums}
-.tag{margin-left:auto;font-size:.6rem;font-weight:600;letter-spacing:.09em;text-transform:uppercase;
+.tag{font-size:.6rem;font-weight:600;letter-spacing:.09em;text-transform:uppercase;
   color:var(--muted);border:1px solid var(--line-strong);border-radius:var(--pill);padding:.1rem .45rem}
+.why-btn{margin-left:auto;flex:none;font:inherit;font-size:.72rem;font-weight:700;width:1.2rem;height:1.2rem;
+  border-radius:50%;border:1px solid var(--line-strong);background:var(--panel);color:var(--muted);
+  cursor:pointer;display:grid;place-items:center;line-height:1;padding:0;transition:border-color .15s,color .15s}
+.why-btn:hover,.why-btn[aria-expanded=true]{border-color:var(--accent);color:var(--accent)}
+.why-pop{position:absolute;top:calc(100% + .5rem);left:0;z-index:8;min-width:17rem;max-width:21rem;
+  background:var(--elev);border:1px solid var(--line-strong);border-radius:var(--radius-sm);
+  box-shadow:0 8px 28px rgba(13,13,13,.14),var(--shadow);padding:.85rem .95rem;font-size:.82rem;
+  opacity:0;visibility:hidden;transform:translateY(-4px);transition:opacity .15s,transform .15s,visibility .15s}
+.routing:hover .why-pop,.why-pop.open{opacity:1;visibility:visible;transform:none}
 .why{font-size:.62rem;font-weight:600;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);margin-bottom:.4rem}
 .rows{display:flex;flex-direction:column;gap:.4rem;margin:.1rem 0 .7rem}
 .row{display:grid;grid-template-columns:9rem 1fr 2.6rem;align-items:center;gap:.6rem}
@@ -217,6 +226,7 @@ main{flex:1;overflow-y:auto;padding:1.5rem 1.1rem 2rem;scroll-behavior:smooth}
 .cost{display:flex;justify-content:space-between;gap:.5rem;color:var(--muted);
   border-top:1px solid var(--line);padding-top:.6rem;font-variant-numeric:tabular-nums}
 .cost b{color:var(--text);font-weight:600}
+.cost.solo{border-top:0;padding-top:0}
 form{position:sticky;bottom:0;background:linear-gradient(to top,var(--bg) 72%,transparent);padding:.5rem 1.1rem 1.1rem}
 .composer{max-width:760px;margin:0 auto;display:flex;gap:.5rem;align-items:flex-end;
   background:var(--elev);border:1px solid var(--line-strong);border-radius:24px;
@@ -246,10 +256,10 @@ textarea::placeholder{color:var(--muted)}
 </div>
 <main><div class="wrap" id="wrap">
   <div class="empty" id="empty"><h2>Ask anything</h2>
-  <div>Each message shows where it routed, the complexity score and why, and the cost saved. Run the gateway with <code>--dry-run</code> for a keyless demo.</div>
+  <div>Every reply shows where it routed; open the <b>?</b> for the score, the features behind it, and the cost saved. Run the gateway with <code>--dry-run</code> for a keyless demo.</div>
   <div class="egs">
-    <button class="eg" data-eg="What's 2 + 2?">What's 2 + 2?</button>
-    <button class="eg" data-eg="Outline a zero-downtime Postgres migration: list the steps, include a SQL snippet, and a risk table.">A structured migration plan</button>
+    <button class="eg" data-eg="trivial">What's 2 + 2?</button>
+    <button class="eg" data-eg="plan">A structured migration plan</button>
   </div></div>
 </div></main>
 <form id="composer"><div class="composer">
@@ -273,39 +283,47 @@ function el(cls,txt){const d=document.createElement('div');d.className=cls;if(tx
 function turn(){const t=el('turn');wrap.appendChild(t);return t;}
 function scroll(){requestAnimationFrame(()=>{const m=document.querySelector('main');m.scrollTop=m.scrollHeight;});}
 
-function card(wf){
-  const c=el('card');
-  const head=el('head');
+// A compact routing strip under each reply: model + score always visible, with the
+// full "why" breakdown and cost tucked behind a hover/click "?" popover.
+function routing(wf){
+  const r=el('routing');
   const pill=el('pill '+(wf.model==='cloud'?'cloud':''));
   pill.appendChild(el('dot')); pill.appendChild(document.createTextNode(' '+wf.model));
-  head.appendChild(pill);
-  head.appendChild(el('meta','score '+Number(wf.score).toFixed(2)+(wf.mode!=='scored'?' · '+wf.mode:'')));
-  if(wf.dry_run) head.appendChild(el('tag','dry-run'));
-  c.appendChild(head);
+  r.appendChild(pill);
+  r.appendChild(el('meta','score '+Number(wf.score).toFixed(2)+(wf.mode!=='scored'?' · '+wf.mode:'')));
+  if(wf.dry_run) r.appendChild(el('tag','dry-run'));
+
   const cons=(wf.contributions||[]).filter(x=>x.contribution>0).sort((a,b)=>b.contribution-a.contribution).slice(0,4);
-  if(cons.length){
-    c.appendChild(el('why','why'));
-    const max=cons[0].contribution||1, rows=el('rows');
-    cons.forEach(x=>{
-      const r=el('row');
-      r.appendChild(el('nm',pretty(x.name)));
-      const tr=el('track'),bar=document.createElement('i');bar.style.width=Math.round(100*x.contribution/max)+'%';tr.appendChild(bar);
-      r.appendChild(tr);
-      r.appendChild(el('val',String(x.value)));
-      rows.appendChild(r);
-    });
-    c.appendChild(rows);
+  if(cons.length||wf.cost){
+    const btn=document.createElement('button');btn.className='why-btn';btn.type='button';btn.textContent='?';
+    btn.setAttribute('aria-label','Why this route'); btn.setAttribute('aria-expanded','false');
+    const pop=el('why-pop');
+    if(cons.length){
+      pop.appendChild(el('why','why'));
+      const max=cons[0].contribution||1, rows=el('rows');
+      cons.forEach(x=>{
+        const row=el('row');
+        row.appendChild(el('nm',pretty(x.name)));
+        const tr=el('track'),bar=document.createElement('i');bar.style.width=Math.round(100*x.contribution/max)+'%';tr.appendChild(bar);
+        row.appendChild(tr);
+        row.appendChild(el('val',String(x.value)));
+        rows.appendChild(row);
+      });
+      pop.appendChild(rows);
+    }
+    if(wf.cost){
+      const k=wf.cost, u=k.estimated?'units':'$';
+      const cost=el('cost'+(cons.length?'':' solo')); cost.title=(k.unit||'')+(k.estimated?' (estimated)':'');
+      const left=el(''); left.innerHTML='&#8776; <b>'+(+k.per_call).toFixed(3)+'</b> '+u;
+      const right=el(''); right.innerHTML='saved <b>'+(+k.saved).toFixed(3)+'</b>';
+      cost.appendChild(left); cost.appendChild(right); pop.appendChild(cost);
+    }
+    btn.addEventListener('click',()=>{const open=pop.classList.toggle('open');btn.setAttribute('aria-expanded',open?'true':'false');if(open)scroll();});
+    r.appendChild(btn); r.appendChild(pop);
   }
-  if(wf.cost){
-    const k=wf.cost, u=k.estimated?'units':'$';
-    const cost=el('cost'); cost.title=(k.unit||'')+(k.estimated?' (estimated)':'');
-    const left=el(''); left.innerHTML='&#8776; <b>'+(+k.per_call).toFixed(3)+'</b> '+u;
-    const right=el(''); right.innerHTML='saved <b>'+(+k.saved).toFixed(3)+'</b>';
-    cost.appendChild(left); cost.appendChild(right); c.appendChild(cost);
-    if(typeof k.saved==='number'){savedTotal+=k.saved;savedUnit=u;
-      savedEl.innerHTML='Saved <b>'+savedTotal.toFixed(3)+'</b> '+savedUnit+' vs always-cloud';}
-  }
-  return c;
+  if(wf.cost&&typeof wf.cost.saved==='number'){savedTotal+=wf.cost.saved;savedUnit=wf.cost.estimated?'units':'$';
+    savedEl.innerHTML='Saved <b>'+savedTotal.toFixed(3)+'</b> '+savedUnit+' vs always-cloud';}
+  return r;
 }
 
 async function send(text){
@@ -320,17 +338,26 @@ async function send(text){
       body:JSON.stringify({model:'auto',messages,stream:false})});
     const data=await res.json().catch(()=>({}));
     const wf=data.wayfinder||null;
-    if(wf){modeEl.textContent=wf.dry_run?'dry-run':'live'; t.appendChild(card(wf));}
+    if(wf) modeEl.textContent=wf.dry_run?'dry-run':'live';
     const content=data&&data.choices&&data.choices[0]&&data.choices[0].message&&data.choices[0].message.content;
-    if(content){t.appendChild(el('msg bot',content));messages.push({role:'assistant',content});}
-    else if(data&&data.error){t.appendChild(el('msg note',(data.error.message||'error')));}
-    else if(!(wf&&wf.dry_run)){t.appendChild(el('msg note','No content returned.'));}
+    const ans=el('answer');
+    if(content){ans.appendChild(el('msg bot',content));messages.push({role:'assistant',content});}
+    else if(data&&data.error){ans.appendChild(el('msg note',(data.error.message||'error')));}
+    else if(wf&&wf.dry_run){ans.appendChild(el('msg bot dry',
+      'Routed to the '+wf.model+' model — no model was called in --dry-run mode. Configure a model (or drop --dry-run) to see the reply.'));}
+    else{ans.appendChild(el('msg note','No content returned.'));}
+    if(wf) ans.appendChild(routing(wf));
+    t.appendChild(ans);
   }catch(e){t.appendChild(el('msg note','Gateway unreachable: '+e.message));}
   sendBtn.disabled=false; scroll(); inEl.focus();
 }
 composer.addEventListener('submit',e=>{e.preventDefault();const v=inEl.value.trim();if(!v)return;
   inEl.value='';inEl.style.height='auto';send(v);});
-document.querySelectorAll('.eg').forEach(b=>b.addEventListener('click',()=>send(b.dataset.eg)));
+const EGS={
+  trivial:"What's 2 + 2?",
+  plan:"# Migration plan\\n\\nWrite a zero-downtime plan to migrate our Postgres database to a new region.\\n\\n## Requirements\\n\\n- enumerate prerequisites and risks\\n- detail the cutover sequence\\n- provide rollback steps\\n- estimate the maintenance window\\n\\n```sql\\nSELECT pg_create_logical_replication_slot('mig','pgoutput');\\n```\\n\\n| phase | risk |\\n| --- | --- |\\n| dual-write | medium |\\n| cutover | high |"
+};
+document.querySelectorAll('.eg').forEach(b=>b.addEventListener('click',()=>send(EGS[b.dataset.eg]||b.dataset.eg)));
 </script></body></html>"""
 
 # --- metrics (WF-ADR-0018) --------------------------------------------------
