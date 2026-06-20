@@ -77,6 +77,10 @@ decision with no model call. The [benchmark](benchmarks/README.md) (`make benchm
 shows where it wins and where it loses, against honest baselines and a perfect
 oracle. Point it at RouterBench or RouterArena for graded numbers.
 
+New here, or weighing it up? The [FAQ](docs/faq.md) gives straight answers —
+including where it loses (it's no better than random on RouterBench's short-but-hard
+items) and why you'd still run it.
+
 ## Quickstart
 
 Put Wayfinder in front of your models. Your app keeps speaking the OpenAI API; you
@@ -500,6 +504,7 @@ wayfinder-router/
   tests/              scorer, config, calibration, explain, feedback, onboard,
                       recalibrate, CLI, gateway, and UI coverage
   decisions/          design notes behind the tool's own choices
+  docs/               the FAQ and the lexical-routing guide
   Dockerfile, docker-compose.example.yml   deploy the gateway as a service
 ```
 
