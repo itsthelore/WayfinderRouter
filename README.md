@@ -87,9 +87,14 @@ See the routing decision for yourself — no API keys, no models, nothing on the
 
 ```bash
 pip install "wayfinder-router[gateway]"
-wayfinder-router serve --dry-run
-# open http://127.0.0.1:8088/demo
+wayfinder-router chat --dry-run
+# opens http://127.0.0.1:8088/demo in your browser
 ```
+
+`chat` launches the demo UI and opens it for you (`--no-open` to skip, `--port` to change,
+`--host 0.0.0.0` to expose it). It's a thin launcher over `serve` — the gateway and its
+`/demo` page — so `wayfinder-router serve --dry-run` then visiting `/demo` works too, and
+`serve` is the command to use headless.
 
 A small chat UI that, for every message, shows where it routed (local vs cloud), the
 complexity score and *why* (the feature breakdown), and the cost saved vs always-cloud —

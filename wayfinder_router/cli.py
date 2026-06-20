@@ -33,6 +33,9 @@ EXIT_OK = 0
 EXIT_CONFIG = 1
 EXIT_USAGE = 2
 
+# Seconds to wait before opening the browser for `chat`, so the server is listening first.
+_CHAT_OPEN_DELAY = 1.0
+
 
 def _render_human(result: ComplexityScore, weights: dict[str, float] | None = None) -> str:
     lines = [
@@ -203,6 +206,43 @@ def _cmd_serve(args: argparse.Namespace) -> int:
             timeout=args.timeout,
         )
     except GatewayUnavailable as exc:
+        print(f"wayfinder-router: {exc}", file=sys.stderr)
+        return EXIT_USAGE
+    return EXIT_OK
+
+
+def _demo_url(host: str, port: int) -> str:
+    """The browsable URL for the demo UI. A wildcard bind isn't navigable, so show loopback."""
+    display = "127.0.0.1" if host in ("0.0.0.0", "::", "") else host
+    return f"http://{display}:{port}/demo"
+
+
+def _cmd_chat(args: argparse.Namespace) -> int:
+    import threading
+    import webbrowser
+
+    from .gateway import GatewayUnavailable, run
+
+    url = _demo_url(args.host, args.port)
+    note = "  (dry-run: routing decisions only, no model calls)" if args.dry_run else ""
+    print(f"wayfinder-router chat → {url}{note}  (Ctrl-C to stop)")
+    # uvicorn.run blocks, so open the browser from a short timer once the server is up.
+    timer = None
+    if not args.no_open:
+        timer = threading.Timer(_CHAT_OPEN_DELAY, webbrowser.open, args=(url,))
+        timer.daemon = True
+        timer.start()
+    try:
+        run(
+            start_dir=".",
+            host=args.host,
+            port=args.port,
+            dry_run=args.dry_run,
+            timeout=args.timeout,
+        )
+    except GatewayUnavailable as exc:
+        if timer is not None:
+            timer.cancel()
         print(f"wayfinder-router: {exc}", file=sys.stderr)
         return EXIT_USAGE
     return EXIT_OK
@@ -390,6 +430,30 @@ def build_parser() -> argparse.ArgumentParser:
         help="Upstream request timeout in seconds (default: WAYFINDER_ROUTER_TIMEOUT or 60).",
     )
     p_serve.set_defaults(func=_cmd_serve)
+
+    p_chat = sub.add_parser(
+        "chat",
+        help="Launch the chat demo UI (the gateway, opened at /demo; needs the [gateway] extra).",
+    )
+    p_chat.add_argument("--host", default="127.0.0.1", help="Bind host (default: 127.0.0.1).")
+    p_chat.add_argument("--port", type=int, default=8088, help="Bind port (default: 8088).")
+    p_chat.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Show routing decisions without calling an upstream (no backends needed).",
+    )
+    p_chat.add_argument(
+        "--timeout",
+        type=float,
+        default=None,
+        help="Upstream request timeout in seconds (default: WAYFINDER_ROUTER_TIMEOUT or 60).",
+    )
+    p_chat.add_argument(
+        "--no-open",
+        action="store_true",
+        help="Do not open the demo in a browser on startup.",
+    )
+    p_chat.set_defaults(func=_cmd_chat)
 
     p_ui = sub.add_parser(
         "ui",
