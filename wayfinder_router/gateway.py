@@ -246,10 +246,10 @@ main{flex:1;overflow-y:auto;padding:1.5rem 1.1rem 2rem;scroll-behavior:smooth}
 .empty{margin:13vh auto 0;max-width:32rem;text-align:center;color:var(--muted)}
 .empty h2{color:var(--text);font-size:1.2rem;font-weight:650;letter-spacing:-.01em;margin:0 0 .4rem}
 .empty code{font-family:var(--mono);font-size:.85em;background:var(--panel);padding:.1rem .35rem;border-radius:6px}
-.egs{display:flex;flex-wrap:wrap;gap:.5rem;justify-content:center;margin-top:1.2rem}
-.eg{font:inherit;font-size:.82rem;color:var(--text);background:var(--panel);border:1px solid var(--line-strong);
-  border-radius:var(--pill);padding:.4rem .85rem;cursor:pointer;transition:border-color .15s,background .15s}
-.eg:hover{border-color:var(--accent);background:var(--accent-weak)}
+.eg{font:inherit;font-size:.78rem;color:var(--muted);background:transparent;border:1px solid var(--line-strong);
+  border-radius:var(--pill);padding:.32rem .7rem;cursor:pointer;white-space:nowrap;max-width:100%;
+  overflow:hidden;text-overflow:ellipsis;transition:border-color .15s,background .15s,color .15s}
+.eg:hover{border-color:var(--accent);background:var(--accent-weak);color:var(--text)}
 .turn{display:flex;flex-direction:column;gap:.6rem;animation:rise .18s cubic-bezier(.2,.7,.3,1) both}
 @keyframes rise{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:none}}
 .msg{padding:.7rem 1rem;border-radius:var(--radius);max-width:84%;white-space:pre-wrap;word-wrap:break-word;line-height:1.5}
@@ -292,15 +292,18 @@ main{flex:1;overflow-y:auto;padding:1.5rem 1.1rem 2rem;scroll-behavior:smooth}
 .cost b{color:var(--text);font-weight:600}
 .cost.solo{border-top:0;padding-top:0}
 form{position:sticky;bottom:0;background:linear-gradient(to top,var(--bg) 72%,transparent);padding:.5rem 1.1rem 1.1rem}
-.composer{max-width:760px;margin:0 auto;display:flex;gap:.5rem;align-items:flex-end;
-  background:var(--elev);border:1px solid var(--line-strong);border-radius:24px;
-  padding:.4rem .4rem .4rem .95rem;box-shadow:var(--shadow);transition:box-shadow .15s,border-color .15s}
+.composer{max-width:760px;margin:0 auto;display:flex;flex-direction:column;gap:.35rem;
+  background:var(--elev);border:1px solid var(--line-strong);border-radius:26px;
+  padding:.7rem .9rem .6rem;box-shadow:var(--shadow);transition:box-shadow .15s,border-color .15s}
 .composer:focus-within{border-color:color-mix(in srgb,var(--accent) 60%,var(--line-strong))}
-textarea{flex:1;border:0;background:transparent;color:var(--text);font:inherit;resize:none;
-  max-height:40vh;padding:.5rem 0;outline:none;line-height:1.5}
+.composer-bar{display:flex;align-items:center;gap:.5rem;justify-content:space-between}
+.tools{display:flex;align-items:center;gap:.4rem;flex-wrap:wrap;min-width:0}
+.composer.started .tools{display:none}
+textarea{width:100%;border:0;background:transparent;color:var(--text);font:inherit;resize:none;
+  max-height:40vh;padding:.4rem .25rem .15rem;outline:none;line-height:1.5}
 textarea:focus-visible{box-shadow:none}
 textarea::placeholder{color:var(--muted)}
-#send{flex:none;width:34px;height:34px;border:0;border-radius:50%;background:var(--btn);color:var(--btn-text);
+#send{flex:none;margin-left:auto;width:34px;height:34px;border:0;border-radius:50%;background:var(--btn);color:var(--btn-text);
   font-size:1.05rem;line-height:1;cursor:pointer;display:grid;place-items:center;transition:transform .05s,opacity .15s}
 #send:active{transform:translateY(1px)}
 #send:disabled{opacity:.35;cursor:default}
@@ -380,18 +383,22 @@ textarea::placeholder{color:var(--muted)}
 <main><div class="wrap" id="wrap">
   <div class="empty" id="empty"><h2>Ask anything</h2>
   <div>Every reply shows where it routed; open the <b>?</b> for the score, the features behind it, and the cost saved. Run the gateway with <code>--dry-run</code> for a keyless demo.</div>
-  <div class="egs">
-    <button class="eg" data-eg="trivial">What's 2 + 2?</button>
-    <button class="eg" data-eg="plan">A structured migration plan</button>
-  </div></div>
+  </div>
 </div></main>
 <form id="composer"><div class="composer">
-  <textarea id="in" rows="1" placeholder="Message Wayfinder..." autofocus></textarea>
-  <button id="send" type="submit" aria-label="Send" title="Send">&#8593;</button>
+  <textarea id="in" rows="1" placeholder="Message Wayfinder&hellip;" autofocus></textarea>
+  <div class="composer-bar">
+    <div class="tools" id="tools">
+      <button class="eg" type="button" data-eg="trivial">What's 2 + 2?</button>
+      <button class="eg" type="button" data-eg="plan">A structured migration plan</button>
+    </div>
+    <button id="send" type="submit" aria-label="Send" title="Send">&#8593;</button>
+  </div>
 </div></form>
 <script>
 const wrap=document.getElementById('wrap'),empty=document.getElementById('empty');
 const inEl=document.getElementById('in'),sendBtn=document.getElementById('send');
+const card=document.querySelector('.composer');
 const useT=document.getElementById('useT'),tEl=document.getElementById('t'),tv=document.getElementById('tv');
 const modeEl=document.getElementById('mode'),savedEl=document.getElementById('saved');
 const gear=document.getElementById('gear'),settings=document.getElementById('settings');
@@ -522,7 +529,7 @@ function routing(wf){
 }
 
 async function send(text){
-  empty.style.display='none';
+  empty.style.display='none'; card.classList.add('started');
   const t=turn(); t.appendChild(el('msg user',text)); scroll();
   messages.push({role:'user',content:text});
   sendBtn.disabled=true;
