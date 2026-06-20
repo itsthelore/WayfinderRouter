@@ -81,6 +81,21 @@ New here, or weighing it up? The [FAQ](docs/faq.md) gives straight answers —
 including where it loses (it's no better than random on RouterBench's short-but-hard
 items) and why you'd still run it.
 
+## Try the demo (no keys)
+
+See the routing decision for yourself — no API keys, no models, nothing on the network:
+
+```bash
+pip install "wayfinder-router[gateway]"
+wayfinder-router serve --dry-run
+# open http://127.0.0.1:8088/demo
+```
+
+A small chat UI that, for every message, shows where it routed (local vs cloud), the
+complexity score and *why* (the feature breakdown), and the cost saved vs always-cloud —
+with a live threshold slider. `--dry-run` makes the routing decision without calling a
+model, so you can poke at it with zero setup.
+
 ## Quickstart
 
 Put Wayfinder in front of your models. Your app keeps speaking the OpenAI API; you
