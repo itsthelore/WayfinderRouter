@@ -120,3 +120,18 @@ def test_seed_set_is_valid_and_two_class():
     labels = [json.loads(line)["label"] for line in seed.read_text().splitlines() if line.strip()]
     assert set(labels) == {"local", "cloud"}
     assert len(labels) >= 20
+
+
+def test_lexical_recipe_loads_and_opts_in():
+    # The shipped recipe (docs/lexical-routing.md) must keep parsing into a config that
+    # turns the lexical features on over the structural defaults.
+    from wayfinder_router.complexity import DEFAULT_WEIGHTS
+    from wayfinder_router.config import routing_config_from_toml
+
+    recipe = Path(__file__).parent.parent / "examples" / "wayfinder-router.lexical.toml"
+    cfg = routing_config_from_toml(recipe.read_text())
+    for feature in ("reasoning_term_count", "math_symbol_count", "constraint_term_count"):
+        assert cfg.weights[feature] > 0.0  # lexicon switched on
+    assert cfg.weights["word_count"] == DEFAULT_WEIGHTS["word_count"]  # structural defaults kept
+    assert cfg.tiers[-1].min_score == 0.09 and cfg.tiers[-1].model == "cloud"
+

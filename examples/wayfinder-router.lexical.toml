@@ -1,0 +1,37 @@
+# Wayfinder routing recipe — lexical opt-in at the cost-aware knee.
+#
+# The default scorer is structural-only and, on real frontier traffic (RouterBench:
+# mistral-7b as local vs gpt-4 as cloud), does NOT beat stable-random — see
+# benchmarks/calibration-eval.md. The one deterministic, held-out improvement is to
+# OPT IN to the lexical features (reasoning / math / constraint vocabulary) and cut at
+# the cost-aware knee:
+#
+#   structural default (threshold 0.14):  skill -0.038,  cost saved 50%   (loses to random)
+#   THIS recipe        (threshold 0.09):  skill +0.057,  cost saved 61%   (beats chance)
+#
+#   (skill = PGR - frac_cloud; > 0 means it beats routing the same fraction at random.)
+#
+# Lexical signals help only when your traffic's difficulty lives in its vocabulary
+# (RouterBench is math/reasoning-heavy). They ship OFF by default (WF-ADR-0016); this
+# file turns them on deliberately. The 0.09 cut is RouterBench's knee, NOT a universal
+# constant — recalibrate it to your own traffic (see docs/lexical-routing.md).
+
+[routing]
+threshold = 0.09
+# Only the lexical weights are raised here; the loader keeps the structural defaults
+# (word_count = 3.0, list_item_count = 2.0, …), so this is the shipped DEFAULT_WEIGHTS
+# with the lexicon switched on.
+weights = { reasoning_term_count = 5.0, math_symbol_count = 3.0, constraint_term_count = 1.5 }
+
+# The gateway maps the two routed names ("local" / "cloud", the binary router's tiers)
+# to real upstreams. Keys live in environment variables, never in this file. Fill these
+# in for your own models; the scorer and threshold above are unaffected.
+#
+# [gateway.models.local]
+# base_url = "http://localhost:11434/v1"
+# model = "mistral:7b"
+#
+# [gateway.models.cloud]
+# base_url = "https://api.openai.com/v1"
+# model = "gpt-4-1106-preview"
+# api_key_env = "OPENAI_API_KEY"
