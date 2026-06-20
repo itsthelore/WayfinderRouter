@@ -840,3 +840,82 @@ def test_sticky_round_trips_through_dump_gateway_toml():
 def test_sticky_config_rejects_non_boolean(tmp_path):
     with pytest.raises(gateway.WayfinderConfigError):
         gateway.gateway_config_from_toml('[gateway]\nsticky = "yes"\n')
+
+
+# --- conversation latch cool-down (WF-ADR-0022) -----------------------------
+
+def _hard_then_calm(*calm):
+    convo = [{"role": "user", "content": COMPLEX_TEXT}, {"role": "assistant", "content": "ok"}]
+    for c in calm:
+        convo += [{"role": "user", "content": c}, {"role": "assistant", "content": "ok"}]
+    return convo
+
+
+def test_cooldown_decays_the_latch_after_n_calm_turns():
+    from wayfinder_router.complexity import RoutingConfig, binary_tiers
+
+    tiers = binary_tiers(0.2)
+    routing = RoutingConfig(tiers=tiers)
+    hwm = lambda convo, cd: gateway.conversation_high_water(convo, routing, tiers, cooldown=cd)
+    # monotonic: never steps down
+    assert hwm(_hard_then_calm("thanks", "ok", "more"), 0) == "cloud"
+    # cooldown=2: holds through 1 calm turn, decays on the 2nd
+    assert hwm(_hard_then_calm("thanks"), 2) == "cloud"
+    assert hwm(_hard_then_calm("thanks", "ok"), 2) == "local"
+    # a fresh hard turn re-arms the latch after it has decayed
+    rearmed = _hard_then_calm("thanks", "ok") + [
+        {"role": "user", "content": COMPLEX_TEXT}, {"role": "assistant", "content": "ok"},
+        {"role": "user", "content": "thanks"},
+    ]
+    assert hwm(rearmed, 2) == "cloud"
+
+
+def test_cooldown_via_header_releases_a_quiet_chat(tmp_path):
+    client = _dry_run_client(tmp_path)
+    convo = _hard_then_calm("thanks", "ok")  # heavy turn, then two calm turns
+    latched = client.post(
+        "/v1/chat/completions", json={"model": "auto", "messages": convo},
+        headers={"X-Wayfinder-Sticky": "true"},
+    ).json()["wayfinder"]
+    assert latched["model"] == "cloud" and latched["mode"] == "sticky"
+    cooled = client.post(
+        "/v1/chat/completions", json={"model": "auto", "messages": convo},
+        headers={"X-Wayfinder-Sticky": "true", "X-Wayfinder-Sticky-Cooldown": "2"},
+    ).json()["wayfinder"]
+    assert cooled["model"] == "local" and cooled["mode"] == "scored"
+
+
+def test_cooldown_from_config(tmp_path):
+    client = _dry_run_client(
+        tmp_path,
+        config='[routing]\nthreshold = 0.2\n\n[gateway]\nsticky = true\nsticky_cooldown = 2\n',
+    )
+    wf = client.post(
+        "/v1/chat/completions", json={"model": "auto", "messages": _hard_then_calm("thanks", "ok")}
+    ).json()["wayfinder"]
+    assert wf["model"] == "local"  # decayed back after two calm turns
+
+
+def test_resolve_sticky_cooldown_header():
+    assert gateway.resolve_sticky_cooldown(None, 3) == 3  # absent -> default
+    assert gateway.resolve_sticky_cooldown("0", 3) == 0
+    assert gateway.resolve_sticky_cooldown(" 5 ", 0) == 5
+    with pytest.raises(gateway.BadOverride):
+        gateway.resolve_sticky_cooldown("-1", 0)
+    with pytest.raises(gateway.BadOverride):
+        gateway.resolve_sticky_cooldown("soon", 0)
+
+
+def test_bad_cooldown_header_returns_400(tmp_path):
+    resp = _dry_run_client(tmp_path).post(
+        "/v1/chat/completions", json=TRIVIAL, headers={"X-Wayfinder-Sticky-Cooldown": "lots"}
+    )
+    assert resp.status_code == 400
+
+
+def test_cooldown_config_rejects_negative_and_round_trips():
+    with pytest.raises(gateway.WayfinderConfigError):
+        gateway.gateway_config_from_toml("[gateway]\nsticky_cooldown = -2\n")
+    dumped = gateway.dump_gateway_toml(gateway.GatewayConfig(sticky=True, sticky_cooldown=3))
+    assert "sticky_cooldown = 3" in dumped
+    assert gateway.gateway_config_from_toml(dumped).sticky_cooldown == 3
