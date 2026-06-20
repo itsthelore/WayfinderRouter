@@ -237,6 +237,14 @@ weights = { word_count = 4.0, list_item_count = 2.5 }
 `--threshold N` overrides it for one run; `WAYFINDER_ROUTER_THRESHOLD` overrides it
 from the environment.
 
+To switch the lexical cues on, raise their `weights` and cut at the knee — the one
+held-out improvement over the structural default on real frontier traffic (skill
+−0.038 → +0.057, 61% cost saved on RouterBench). See
+[`docs/lexical-routing.md`](docs/lexical-routing.md) and the ready-to-edit
+[`examples/wayfinder-router.lexical.toml`](examples/wayfinder-router.lexical.toml);
+recalibrate the threshold to your own traffic (a ~20-prompt bootstrap is only a smoke
+test — see [`benchmarks/calibration-eval.md`](benchmarks/calibration-eval.md)).
+
 **Tiered** routes ordered score bands to any number of models:
 
 ```toml
