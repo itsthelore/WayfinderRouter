@@ -643,3 +643,90 @@ def test_prefer_directive_falls_through_to_scoring_under_a_classifier(tmp_path, 
     )
     assert resp.status_code == 200
     assert resp.headers["x-wayfinder-router-mode"] == "scored"
+
+
+# --- multi-turn routing scope (WF-ADR-0021) ---------------------------------
+
+_MULTI = [
+    {"role": "system", "content": "You are a terse assistant."},
+    {"role": "user", "content": COMPLEX_TEXT},
+    {"role": "assistant", "content": "Here is a long structured answer.\n" + "- point\n" * 20},
+    {"role": "user", "content": "thanks!"},
+]
+
+
+def test_extract_prompt_turn_scopes_to_system_plus_latest_user():
+    text = gateway.extract_prompt(_MULTI, route_on="turn")
+    assert "terse assistant" in text  # standing system context kept
+    assert "thanks!" in text  # the new ask kept
+    assert "# Plan" not in text  # earlier user turn dropped
+    assert "structured answer" not in text  # assistant reply never scored
+
+
+def test_extract_prompt_last_user_is_just_the_newest_user_turn():
+    assert gateway.extract_prompt(_MULTI, route_on="last_user") == "thanks!"
+
+
+def test_extract_prompt_user_keeps_all_user_turns_only():
+    text = gateway.extract_prompt(_MULTI, route_on="user")
+    assert "# Plan" in text and "thanks!" in text
+    assert "terse assistant" not in text and "structured answer" not in text
+
+
+def test_extract_prompt_all_is_the_legacy_whole_transcript():
+    text = gateway.extract_prompt(_MULTI, route_on="all")
+    assert all(s in text for s in ("terse assistant", "# Plan", "structured answer", "thanks!"))
+
+
+def test_extract_prompt_falls_back_to_last_message_when_no_user_turn():
+    # A role-less or assistant-only payload must not score empty and route blind.
+    assert gateway.extract_prompt([{"role": "assistant", "content": "orphan"}]) == "orphan"
+    assert gateway.extract_prompt("not a list") == ""
+
+
+def test_extract_prompt_handles_array_of_parts_content():
+    msgs = [{"role": "user", "content": [{"type": "text", "text": "part one"}, {"text": "part two"}]}]
+    assert gateway.extract_prompt(msgs, route_on="last_user") == "part one\npart two"
+
+
+def test_default_scope_does_not_drift_over_a_chat(tmp_path):
+    # The bug this fixes: a trivial follow-up after a heavy exchange inherited the
+    # heavy transcript and routed cloud. Default "turn" scores system+latest user.
+    client = _dry_run_client(tmp_path)  # threshold 0.2
+    wf = client.post("/v1/chat/completions", json={"model": "auto", "messages": _MULTI}).json()[
+        "wayfinder"
+    ]
+    assert wf["model"] == "local"  # the "thanks!" turn is trivial
+    solo = client.post(
+        "/v1/chat/completions",
+        json={"model": "auto", "messages": [_MULTI[0], _MULTI[-1]]},
+    ).json()["wayfinder"]
+    assert abs(wf["score"] - solo["score"]) < 1e-9  # no drift from the back-scroll
+
+
+def test_all_scope_restores_legacy_whole_transcript_scoring(tmp_path):
+    client = _dry_run_client(
+        tmp_path, config='[routing]\nthreshold = 0.2\n\n[gateway]\nroute_on = "all"\n'
+    )
+    wf = client.post("/v1/chat/completions", json={"model": "auto", "messages": _MULTI}).json()[
+        "wayfinder"
+    ]
+    assert wf["model"] == "cloud"  # the heavy transcript pushes the same turn to cloud
+
+
+def test_route_on_parses_and_defaults_to_turn():
+    assert gateway.gateway_config_from_toml("[routing]\nthreshold=0.2\n").route_on == "turn"
+    assert gateway.gateway_config_from_toml('[gateway]\nroute_on = "user"\n').route_on == "user"
+
+
+def test_route_on_rejects_unknown_scope():
+    with pytest.raises(gateway.WayfinderConfigError):
+        gateway.gateway_config_from_toml('[gateway]\nroute_on = "everything"\n')
+
+
+def test_dump_gateway_toml_round_trips_route_on():
+    dumped = gateway.dump_gateway_toml(gateway.GatewayConfig(models={}, route_on="last_user"))
+    assert 'route_on = "last_user"' in dumped
+    assert gateway.gateway_config_from_toml(dumped).route_on == "last_user"
+    # the default scope stays out of the dump, keeping configs clean
+    assert "route_on" not in gateway.dump_gateway_toml(gateway.GatewayConfig(route_on="turn"))

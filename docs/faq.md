@@ -82,12 +82,16 @@ Wayfinder is the deterministic, free, offline option for the serving path.
 ## Does it handle streaming, chat, and multi-turn?
 
 The routing decision is made once, up front, then the request is proxied to the chosen model — so
-streaming passes straight through (it's the upstream's stream; routing doesn't buffer it). The real limit
-is conversation state: Wayfinder scores the request you hand it and does not model a chat getting harder
-over turns. For chat you'd route per-message, or pin a conversation to one model via the `model` field
+streaming passes straight through (it's the upstream's stream; routing doesn't buffer it). For multi-turn
+chat the gateway scores the **current turn** by default — the system prompt plus the latest user message,
+not the whole transcript — so the score doesn't drift toward cloud as a conversation grows, and the
+model's own (often long) replies are never fed back into the decision
+([WF-ADR-0021](../decisions/WF-ADR-0021-multi-turn-routing-scope.md)). The scope is a `[gateway] route_on`
+knob (`turn` (default) / `last_user` / `user` / `all`) if you'd rather score every user turn or the entire
+payload. What it still won't do is notice that a *short* follow-up is semantically hard — it reads
+structure, not meaning — so to keep a chat on the big model once it gets hard, pin it via the `model` field
 (`auto` / `prefer-local` / `prefer-hosted`) or an `X-Wayfinder-Threshold` header (see the README,
-["Steer a single request"](../README.md#steer-a-single-request)). Conversation-aware routing is out of
-scope — it reads structure, not meaning.
+["Steer a single request"](../README.md#steer-a-single-request)).
 
 ## Is it production-ready? Who maintains it? What are the dependencies?
 

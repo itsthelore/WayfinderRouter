@@ -515,9 +515,20 @@ class GatewayModel:
 
 @dataclass(frozen=True)
 class GatewayConfig:
-    """Maps recommended model names to upstream endpoints (from `[gateway.models]`)."""
+    """Maps recommended model names to upstream endpoints (from `[gateway.models]`).
+
+    ``route_on`` selects which part of a multi-turn chat the router scores
+    (WF-ADR-0021); see :func:`extract_prompt`. Default ``"turn"``.
+    """
 
     models: dict[str, GatewayModel] = field(default_factory=dict)
+    route_on: str = "turn"
+
+
+# Which chat-message text the router scores. The deterministic core scores
+# whatever string it is handed (WF-ADR-0001); this only chooses that string so a
+# multi-turn chat does not drift toward cloud as the transcript grows.
+ROUTE_ON_SCOPES = ("turn", "last_user", "user", "all")
 
 
 def load_gateway_config(start_dir: str = ".") -> GatewayConfig:
@@ -543,6 +554,11 @@ def gateway_config_from_toml(text: str, where: str = "wayfinder-router.toml") ->
         return GatewayConfig()
     if not isinstance(gateway, dict):
         raise WayfinderConfigError(f"{where}: '[gateway]' must be a table")
+    route_on = gateway.get("route_on", "turn")
+    if route_on not in ROUTE_ON_SCOPES:
+        raise WayfinderConfigError(
+            f"{where}: 'gateway.route_on' must be one of {', '.join(ROUTE_ON_SCOPES)}"
+        )
     raw_models = gateway.get("models") or {}
     if not isinstance(raw_models, dict):
         raise WayfinderConfigError(f"{where}: '[gateway.models]' must be a table")
@@ -578,7 +594,7 @@ def gateway_config_from_toml(text: str, where: str = "wayfinder-router.toml") ->
             api_key_env=api_key_env,
             cost_per_1k=float(cost_per_1k) if cost_per_1k is not None else None,
         )
-    return GatewayConfig(models=models)
+    return GatewayConfig(models=models, route_on=route_on)
 
 
 def dump_gateway_toml(gateway: GatewayConfig) -> str:
@@ -588,6 +604,8 @@ def dump_gateway_toml(gateway: GatewayConfig) -> str:
     routing section. Emits ``api_key_env`` (the env-var *name*) — never a secret.
     """
     blocks: list[str] = []
+    if gateway.route_on != "turn":
+        blocks.append(f'[gateway]\nroute_on = "{gateway.route_on}"')
     for name, model in gateway.models.items():
         lines = [
             f"[gateway.models.{name}]",
@@ -602,24 +620,54 @@ def dump_gateway_toml(gateway: GatewayConfig) -> str:
     return "\n\n".join(blocks)
 
 
-def extract_prompt(messages: object) -> str:
-    """Deterministically join the text of OpenAI-style chat messages for scoring.
+def _message_text(message: dict) -> str | None:
+    """Text of one OpenAI-style message — plain string or array-of-parts — or None."""
+    content = message.get("content")
+    if isinstance(content, str):
+        return content
+    if isinstance(content, list):
+        parts = [p["text"] for p in content if isinstance(p, dict) and isinstance(p.get("text"), str)]
+        return "\n".join(parts) if parts else None
+    return None
 
-    Handles both plain string content and the array-of-parts content form.
+
+def extract_prompt(messages: object, *, route_on: str = "turn") -> str:
+    """Deterministically join the chat-message text the router should score.
+
+    ``route_on`` selects the scope (WF-ADR-0021), so a multi-turn chat does not
+    drift toward cloud as its transcript (and the assistant's own replies) grows:
+
+    - ``"turn"`` (default): the system message(s) plus the latest user message —
+      the standing instructions and the new ask. Stable across turns.
+    - ``"last_user"``: the latest user message only.
+    - ``"user"``: every user message (excludes system and assistant).
+    - ``"all"``: every message, all roles (legacy; the score ratchets upward over
+      a conversation).
+
+    Falls back to the last message when role-filtering finds nothing (e.g. a
+    role-less or assistant-only payload), so the router never scores an empty
+    string and silently routes local. Handles string and array-of-parts content.
     """
-    parts: list[str] = []
-    if isinstance(messages, list):
-        for message in messages:
-            if not isinstance(message, dict):
-                continue
-            content = message.get("content")
-            if isinstance(content, str):
-                parts.append(content)
-            elif isinstance(content, list):
-                for part in content:
-                    if isinstance(part, dict) and isinstance(part.get("text"), str):
-                        parts.append(part["text"])
-    return "\n".join(parts)
+    if not isinstance(messages, list):
+        return ""
+    typed = [m for m in messages if isinstance(m, dict)]
+
+    if route_on == "all":
+        chosen: list[dict] = typed
+    elif route_on == "user":
+        chosen = [m for m in typed if m.get("role") == "user"]
+    elif route_on == "last_user":
+        last = next((m for m in reversed(typed) if m.get("role") == "user"), None)
+        chosen = [last] if last is not None else []
+    else:  # "turn" (default): standing system context + the new ask
+        systems = [m for m in typed if m.get("role") == "system"]
+        last = next((m for m in reversed(typed) if m.get("role") == "user"), None)
+        chosen = systems + ([last] if last is not None else [])
+
+    if not chosen and typed and route_on != "all":
+        chosen = [typed[-1]]
+
+    return "\n".join(t for t in (_message_text(m) for m in chosen) if t is not None)
 
 
 # Per-request override transport (WF-ADR-0011). These are pure and offline: they
@@ -991,7 +1039,9 @@ def build_app(
         # endpoint the score routes to, never how it is computed (WF-ADR-0011). The
         # scoring time is the decision-latency metric (WF-ADR-0018).
         score_started = time.perf_counter()
-        decision = score_complexity(extract_prompt(body.get("messages")), config=routing)
+        decision = score_complexity(
+            extract_prompt(body.get("messages"), route_on=gw.route_on), config=routing
+        )
         decision_seconds = time.perf_counter() - score_started
 
         pin = resolve_pin(body.get("model"), routing, gw)

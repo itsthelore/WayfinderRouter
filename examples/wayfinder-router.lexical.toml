@@ -27,6 +27,14 @@ weights = { reasoning_term_count = 5.0, math_symbol_count = 3.0, constraint_term
 # to real upstreams. Keys live in environment variables, never in this file. Fill these
 # in for your own models; the scorer and threshold above are unaffected.
 #
+# In a multi-turn chat the gateway scores the *current turn* by default (the system
+# prompt + the latest user message), so the score does not drift toward cloud as the
+# conversation grows (WF-ADR-0021). Override with route_on: "turn" (default) |
+# "last_user" | "user" | "all" (legacy: score the whole transcript).
+#
+# [gateway]
+# route_on = "turn"
+#
 # [gateway.models.local]
 # base_url = "http://localhost:11434/v1"
 # model = "mistral:7b"
