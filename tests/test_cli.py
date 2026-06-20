@@ -167,3 +167,80 @@ def test_calibrate_unreachable_savings_is_config_error(tmp_path, capsys):
     ])
     assert rc == 1
     assert "target savings" in capsys.readouterr().err
+
+
+# --- chat (demo launcher) ---------------------------------------------------
+
+import threading  # noqa: E402
+import webbrowser  # noqa: E402
+
+from wayfinder_router.cli import _demo_url  # noqa: E402
+
+
+class _FakeTimer:
+    instances: list = []
+
+    def __init__(self, delay, fn, args=()):
+        self.delay, self.fn, self.args = delay, fn, args
+        self.started = self.cancelled = False
+        _FakeTimer.instances.append(self)
+
+    def start(self):
+        self.started = True
+
+    def cancel(self):
+        self.cancelled = True
+
+
+@pytest.fixture
+def gw():
+    return pytest.importorskip("wayfinder_router.gateway")
+
+
+@pytest.fixture
+def fake_browser(monkeypatch):
+    _FakeTimer.instances.clear()
+    monkeypatch.setattr(threading, "Timer", _FakeTimer)
+    monkeypatch.setattr(webbrowser, "open", lambda url: None)
+
+
+def test_demo_url_maps_wildcard_to_loopback():
+    assert _demo_url("127.0.0.1", 8088) == "http://127.0.0.1:8088/demo"
+    assert _demo_url("0.0.0.0", 9000) == "http://127.0.0.1:9000/demo"
+    assert _demo_url("::", 8088) == "http://127.0.0.1:8088/demo"
+    assert _demo_url("example.internal", 80) == "http://example.internal:80/demo"
+
+
+def test_chat_runs_gateway_and_opens_browser(monkeypatch, gw, fake_browser, capsys):
+    captured: dict = {}
+    monkeypatch.setattr(gw, "run", lambda **kw: captured.update(kw))
+    rc = main(["chat"])
+    assert rc == 0
+    assert captured == {"start_dir": ".", "host": "127.0.0.1", "port": 8088,
+                        "dry_run": False, "timeout": None}
+    assert "http://127.0.0.1:8088/demo" in capsys.readouterr().out
+    assert _FakeTimer.instances[-1].args == ("http://127.0.0.1:8088/demo",)
+    assert _FakeTimer.instances[-1].started is True
+
+
+def test_chat_honours_port_and_dry_run(monkeypatch, gw, fake_browser):
+    captured: dict = {}
+    monkeypatch.setattr(gw, "run", lambda **kw: captured.update(kw))
+    assert main(["chat", "--port", "9000", "--dry-run"]) == 0
+    assert captured["port"] == 9000 and captured["dry_run"] is True
+
+
+def test_chat_no_open_skips_browser(monkeypatch, gw, fake_browser):
+    monkeypatch.setattr(gw, "run", lambda **kw: None)
+    assert main(["chat", "--no-open"]) == 0
+    assert _FakeTimer.instances == []  # no browser timer scheduled
+
+
+def test_chat_missing_extra_returns_usage_and_cancels_open(monkeypatch, gw, fake_browser, capsys):
+    def boom(**kw):
+        raise gw.GatewayUnavailable("the gateway needs its extra: pip install 'wayfinder-router[gateway]'")
+    monkeypatch.setattr(gw, "run", boom)
+    rc = main(["chat"])
+    assert rc == 2  # EXIT_USAGE
+    assert "gateway needs its extra" in capsys.readouterr().err
+    assert _FakeTimer.instances[-1].cancelled is True  # scheduled open was cancelled
