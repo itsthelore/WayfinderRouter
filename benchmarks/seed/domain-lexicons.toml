@@ -1,0 +1,34 @@
+# Per-domain trigger-word lists mined from RouterBench labelled traffic (WF-ADR-0019).
+#
+# Each list is the vocabulary that, in RouterBench, appears far more in cloud-needed prompts
+# than local-ok ones (deterministic smoothed log-odds on a held-out train split). These are
+# STARTER templates, not a universal lexicon: copy the block for your domain into your
+# wayfinder-router.toml as `[routing.lexicon] reasoning_terms = [...]`, raise the
+# `reasoning_term_count` weight, and recalibrate the knee on your own data.
+#
+# Honest about quality: science / general / humanities give real subject-matter vocabulary;
+# math / multilingual / commonsense skew to task-surface nouns (RouterBench's tasks there are
+# word-problems / templated), and sparse domains (e.g. code) may be absent. The right move is
+# to mine YOUR traffic: `python -m benchmarks.mine_lexicon your-data.jsonl --emit-domains out.toml`.
+#
+# Reproduce: python -m benchmarks.mine_lexicon benchmarks/routerbench.jsonl \
+#                --emit-domains benchmarks/seed/domain-lexicons.toml
+
+
+[commonsense]
+reasoning_terms = ["carry", "sheet", "morally", "scenarios", "scenario", "standards", "moral", "character", "ordinary", "wrong", "buying", "wedding", "oven", "major", "adjust", "growth"]
+
+[general]
+reasoning_terms = ["committee", "planning", "taxes", "measure", "identity", "punishment", "procedures", "cultural", "industry", "areas", "ethics", "organization", "share", "falls", "local", "skills", "curve", "identify", "unemployment", "spending"]
+
+[humanities]
+reasoning_terms = ["classes", "function", "expression", "extension", "latin", "russia", "yard", "facilities", "famous", "republics", "settlement", "socialist", "materials", "morality", "western", "colonial", "fallacy", "consequences", "cultural", "nations"]
+
+[math]
+reasoning_terms = ["candy", "sunday", "mother", "saturday", "mile", "weighs", "cards", "birthday"]
+
+[multilingual]
+reasoning_terms = ["dragon", "animal", "approximate", "birth", "digit", "estimated", "exact", "guesses", "sentences", "subject's", "wishing", "without", "year", "zodiac", "zones", "monkey", "chinese", "other", "translate", "snake"]
+
+[science]
+reasoning_terms = ["hypertension", "center", "learning", "objects", "cardiac", "pyruvate", "mild", "parents", "phase", "region", "products", "membrane", "anterior", "element", "orbit", "chain", "atoms", "neck", "rapid", "potential"]

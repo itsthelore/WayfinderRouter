@@ -146,3 +146,17 @@ def test_mine_terms_finds_a_discriminating_word_deterministically():
     terms = mine_terms(rows, top_k=5, min_support=5)
     assert "telophase" in terms  # appears only in cloud-labeled prompts
     assert terms == mine_terms(rows, top_k=5, min_support=5)  # deterministic
+
+
+def test_mined_domain_lexicons_file_is_valid_and_usable():
+    import tomllib
+
+    from wayfinder_router import Lexicon
+    path = Path(__file__).parent.parent / "benchmarks" / "seed" / "domain-lexicons.toml"
+    data = tomllib.loads(path.read_text())
+    assert {"science", "general", "humanities"} <= set(data)  # the SME-quality domains
+    for domain, block in data.items():
+        terms = block["reasoning_terms"]
+        assert terms and all(isinstance(t, str) and t for t in terms)
+        Lexicon(reasoning_terms=frozenset(terms))  # each block builds a valid Lexicon
+    assert "cardiac" in data["science"]["reasoning_terms"]

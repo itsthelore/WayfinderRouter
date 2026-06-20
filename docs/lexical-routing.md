@@ -119,6 +119,27 @@ Read the output with eyes open — on RouterBench it taught two honest lessons:
   comes mostly from the **math symbols**, not the word list. So mine to *augment* the
   symbol/structure signal for your domain, and always re-check held-out before trusting it.
 
+### Per-domain starter lists
+
+[`benchmarks/seed/domain-lexicons.toml`](../benchmarks/seed/domain-lexicons.toml) ships the
+per-domain term lists mined from RouterBench, one `reasoning_terms` block per domain. Copy
+the block for your domain into your config and weight it:
+
+```toml
+[routing.lexicon]
+# from the [science] block of benchmarks/seed/domain-lexicons.toml
+reasoning_terms = ["hypertension", "cardiac", "pyruvate", "membrane", "anterior", "atoms", "orbit"]
+
+[routing]
+weights = { reasoning_term_count = 5.0 }
+threshold = 0.09   # then recalibrate to your traffic
+```
+
+These are *starters*, and honestly uneven: the `science`, `general`, and `humanities` blocks
+are real subject-matter vocabulary; `math`, `multilingual`, and `commonsense` skew to
+task-surface nouns (RouterBench's tasks there are word-problems / templated). Treat them as a
+worked example and regenerate from your own labelled traffic with `--emit-domains`.
+
 ## Verify it on your data
 
 Point the benchmark harness at your labeled set to see the held-out skill for the structural
