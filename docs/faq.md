@@ -70,6 +70,17 @@ never touched by the scorer. The gateway is the only component that holds a key 
 the decision layer structurally cannot. It's self-hosted and Apache-2.0, and the scored path is small
 enough to audit.
 
+## What models or providers can I route between?
+
+Any two OpenAI-compatible endpoints. The gateway maps the two routed tiers (`local` / `cloud`) to
+upstreams in `[gateway.models.*]`, forwards an OpenAI-style request, and sends the key as
+`Authorization: Bearer $<api_key_env>` — so it works with local servers (Ollama, vLLM, LM Studio…)
+and hosted APIs (OpenAI, and **Anthropic via its OpenAI-compatible endpoint**, `https://api.anthropic.com/v1`)
+alike. The tiers don't have to be local-vs-cloud: a cheap **Haiku** local tier and a capable **Sonnet**
+cloud tier (both on `api.anthropic.com`) is a verified two-tier setup. Keys are set as environment
+variables named by `api_key_env` — never written into the config. Copy-paste examples (Ollama+OpenAI and
+two-tier Anthropic) are in [`examples/wayfinder-router.lexical.toml`](../examples/wayfinder-router.lexical.toml).
+
 ## Why not an LLM-as-judge router instead?
 
 An LLM-as-judge will likely *rank* difficulty better than a structural scan — for fuzzy tasks it almost
