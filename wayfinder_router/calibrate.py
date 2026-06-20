@@ -172,32 +172,58 @@ def calibrate_threshold(
     objective: str = "accuracy",
     costs: dict[str, float] | None = None,
     target_savings: float | None = None,
+    weights: dict[str, float] | None = None,
 ) -> CalibrationResult:
     """Binary calibration: sweep the local/cloud-style cut between two labels.
 
     ``objective="accuracy"`` (the default) picks the most accurate cut.
-    ``objective="cost-quality"`` (WF-ADR-0017) picks the most accurate cut that
-    still reaches ``target_savings`` against always-routing-high, with per-arm
-    cost from ``costs`` (defaulting to the benchmark's 0.2 / 1.0 units). Cost only
-    moves where the cut is placed; the scored path is untouched.
+    ``objective="knee"`` (WF-ADR-0017) picks the *cost-aware knee* — the cut that
+    maximizes quality-recovered × cost-saved, with no savings target to guess. On
+    skewed labels (one model usually right) the accuracy objective collapses to
+    always-routing-high; the knee balances quality and cost on its own.
+    ``objective="cost-quality"`` picks the most accurate cut that still reaches
+    ``target_savings`` against always-routing-high. All cost objectives take per-arm
+    ``costs`` (defaulting to the benchmark's 0.2 / 1.0 units). Cost only moves where
+    the cut is placed; the scored path is untouched.
+
+    ``weights`` re-scores the prompts with custom feature weights (e.g. the lexical
+    opt-in) before sweeping, and emits them alongside the cut, so the result is a
+    complete, deployable config rather than a cut over the default structural score.
     """
+    if weights is not None:
+        samples = [Sample(s.features, s.label, scalar_score(s.features, weights)) for s in samples]
+    prefix = _weights_block(weights)
     labels = _labels_by_mean_score(samples)
     if len(labels) != 2:
         raise CalibrationError(
             f"threshold mode needs exactly two labels, found {len(labels)}: {labels}"
         )
-    low, high = labels
-    scored = [(s.score, s.label == high) for s in samples]
+    # Cost objectives route the *expensive* arm above the cut, so order arms by cost
+    # (not by mean score, which can tie/invert under custom weights and flip the
+    # savings direction); accuracy is symmetric and keeps the mean-score order.
+    if objective == "knee":
+        cost_low, cost_high, low, high = _cost_ordered_arms(labels, costs)
+        scored = [(s.score, s.label == high) for s in samples]
+        threshold, accuracy, savings, recall = _sweep_cut_knee(scored, cost_low, cost_high)
+        tiers = (Tier(0.0, low, cost_low), Tier(threshold, high, cost_high))
+        return CalibrationResult(
+            toml=prefix + _tiers_toml(tiers),
+            summary={"mode": "threshold", "objective": "knee", "threshold": threshold,
+                     "models": [low, high], "accuracy": round(accuracy, 4),
+                     "quality_recovered": round(recall, 4), "cost_savings": round(savings, 4),
+                     "samples": len(samples)},
+        )
     if objective == "cost-quality":
         if target_savings is None:
             raise CalibrationError("cost-quality objective needs a target_savings")
-        cost_low, cost_high = _resolve_costs(costs, low, high)
+        cost_low, cost_high, low, high = _cost_ordered_arms(labels, costs)
+        scored = [(s.score, s.label == high) for s in samples]
         threshold, accuracy, savings = _sweep_cut_cost_aware(
             scored, cost_low, cost_high, target_savings
         )
         tiers = (Tier(0.0, low, cost_low), Tier(threshold, high, cost_high))
         return CalibrationResult(
-            toml=_tiers_toml(tiers),
+            toml=prefix + _tiers_toml(tiers),
             summary={"mode": "threshold", "objective": "cost-quality",
                      "threshold": threshold, "models": [low, high],
                      "accuracy": round(accuracy, 4), "cost_savings": round(savings, 4),
@@ -206,30 +232,38 @@ def calibrate_threshold(
         )
     if objective != "accuracy":
         raise CalibrationError(f"unknown objective: {objective!r}")
+    low, high = labels
+    scored = [(s.score, s.label == high) for s in samples]
     threshold, accuracy = _sweep_cut(scored)
     tiers = (Tier(0.0, low), Tier(threshold, high))
     return CalibrationResult(
-        toml=_tiers_toml(tiers),
+        toml=prefix + _tiers_toml(tiers),
         summary={"mode": "threshold", "threshold": threshold, "models": [low, high],
                  "accuracy": round(accuracy, 4), "samples": len(samples)},
     )
 
 
-def _resolve_costs(
-    costs: dict[str, float] | None, low: str, high: str
-) -> tuple[float, float]:
-    """The (low-arm, high-arm) per-call cost, defaulting to the benchmark units."""
+def _cost_ordered_arms(
+    labels: list[str], costs: dict[str, float] | None
+) -> tuple[float, float, str, str]:
+    """``(cost_low, cost_high, low, high)`` for a cost objective: the cheap arm is routed
+    below the cut, the expensive arm above it. With explicit ``costs`` the arms are ordered
+    by cost (robust to score ties/inversions); with the default units the mean-score order
+    is kept (the low-score arm is assumed cheap, as before)."""
     if costs is None:
-        return _DEFAULT_COST_LOW, _DEFAULT_COST_HIGH
-    missing = [label for label in (low, high) if label not in costs]
+        low, high = labels
+        return _DEFAULT_COST_LOW, _DEFAULT_COST_HIGH, low, high
+    a, b = labels
+    missing = [label for label in (a, b) if label not in costs]
     if missing:
         raise CalibrationError(
             f"--costs must give a cost for each label; missing: {', '.join(missing)}"
         )
+    low, high = (a, b) if float(costs[a]) <= float(costs[b]) else (b, a)
     cost_low, cost_high = float(costs[low]), float(costs[high])
     if cost_high <= 0:
         raise CalibrationError(f"the high-cost arm ('{high}') must have a positive cost")
-    return cost_low, cost_high
+    return cost_low, cost_high, low, high
 
 
 def _savings_at(
@@ -273,10 +307,51 @@ def _sweep_cut_cost_aware(
     return chosen, best_acc, _savings_at(scored, chosen, cost_low, cost_high)
 
 
+def _sweep_cut_knee(
+    scored: list[tuple[float, bool]], cost_low: float, cost_high: float
+) -> tuple[float, float, float, float]:
+    """The cost-aware knee: the cut maximizing quality-recovered × cost-saved.
+
+    ``quality recovered`` is the recall of the high arm — the fraction of prompts that
+    belong on the strong/expensive model that the cut actually routes there: 1.0 when
+    routing everything high, 0.0 when routing everything low. ``cost saved`` is the
+    saving vs always-high: 0.0 when routing everything high, maximal when routing
+    everything low. Their product is 0 at both ends and peaks at the efficient knee, so
+    — unlike the accuracy objective, which collapses to always-high when one model is
+    usually right — it trades quality against cost on its own, no ``target_savings`` to
+    guess. This mirrors the benchmark knee (WF-ADR-0015); ties break to the median cut.
+
+    Returns ``(threshold, accuracy, savings, recall)``.
+    """
+    candidates = sorted({0.0, *(round(score, 4) for score, _ in scored)})
+    total = len(scored)
+    n_high = sum(1 for _, is_high in scored if is_high)
+    best_obj = -1.0
+    best_cuts: list[float] = []
+    for cut in candidates:
+        recall = sum(1 for score, is_high in scored if is_high and score >= cut) / n_high
+        obj = recall * _savings_at(scored, cut, cost_low, cost_high)
+        if obj > best_obj:
+            best_obj, best_cuts = obj, [cut]
+        elif obj == best_obj:
+            best_cuts.append(cut)
+    chosen = best_cuts[len(best_cuts) // 2]
+    accuracy = sum(1 for score, is_high in scored if (score >= chosen) == is_high) / total
+    recall = sum(1 for score, is_high in scored if is_high and score >= chosen) / n_high
+    return chosen, accuracy, _savings_at(scored, chosen, cost_low, cost_high), recall
+
+
 def calibrate_tiers(
-    samples: list[Sample], models_order: list[str] | None = None
+    samples: list[Sample], models_order: list[str] | None = None,
+    *, weights: dict[str, float] | None = None,
 ) -> CalibrationResult:
-    """Ordinal multi-class calibration: order models, sweep each breakpoint."""
+    """Ordinal multi-class calibration: order models, sweep each breakpoint.
+
+    ``weights`` re-scores the prompts with custom feature weights and emits them with the
+    breakpoints (as in :func:`calibrate_threshold`)."""
+    if weights is not None:
+        samples = [Sample(s.features, s.label, scalar_score(s.features, weights)) for s in samples]
+    score_with = (lambda f: scalar_score(f, weights)) if weights is not None else _default_score
     order = models_order or _labels_by_mean_score(samples)
     present = set(s.label for s in samples)
     if set(order) != present:
@@ -294,9 +369,9 @@ def calibrate_tiers(
         tiers.append(Tier(cut, hi))
         previous = cut
     tiers_tuple = tuple(tiers)
-    accuracy = _accuracy(samples, lambda f: recommend_tier(_default_score(f), tiers_tuple))
+    accuracy = _accuracy(samples, lambda f: recommend_tier(score_with(f), tiers_tuple))
     return CalibrationResult(
-        toml=_tiers_toml(tiers_tuple),
+        toml=_weights_block(weights) + _tiers_toml(tiers_tuple),
         summary={"mode": "tiers", "models": list(order),
                  "breakpoints": [t.min_score for t in tiers_tuple[1:]],
                  "accuracy": round(accuracy, 4), "samples": len(samples)},
@@ -440,6 +515,21 @@ def _fmt(value: float) -> str:
     return repr(round(value, 6))
 
 
+def _weights_block(weights: dict[str, float] | None) -> str:
+    """A ``[routing]`` weights table for the non-default weights, or '' when there are
+    none — so a calibrated cut over custom (e.g. lexical) weights emits a complete config.
+    Sorted for byte-stable output."""
+    if not weights:
+        return ""
+    from .complexity import DEFAULT_WEIGHTS
+
+    diff = {name: w for name, w in weights.items() if DEFAULT_WEIGHTS.get(name) != w}
+    if not diff:
+        return ""
+    inner = ", ".join(f"{name} = {_fmt(diff[name])}" for name in sorted(diff))
+    return f"[routing]\nweights = {{ {inner} }}\n\n"
+
+
 def _tiers_toml(tiers: tuple[Tier, ...]) -> str:
     blocks = []
     for tier in tiers:
@@ -480,11 +570,14 @@ def calibrate(
     objective: str = "accuracy",
     costs: dict[str, float] | None = None,
     target_savings: float | None = None,
+    weights: dict[str, float] | None = None,
 ) -> CalibrationResult:
     """Dispatch to the requested calibration mode.
 
     The cost-aware objective (WF-ADR-0017) is scoped to ``threshold`` mode in v1 —
-    the binary cut is where a savings target is well defined.
+    the binary cut is where a savings target is well defined. ``weights`` (custom
+    feature weights, e.g. the lexical opt-in) applies to the score-based modes
+    (threshold, tiers); the classifier fits its own weights and ignores it.
     """
     if objective != "accuracy" and mode != "threshold":
         raise CalibrationError(
@@ -492,10 +585,11 @@ def calibrate(
         )
     if mode == "threshold":
         return calibrate_threshold(
-            samples, objective=objective, costs=costs, target_savings=target_savings
+            samples, objective=objective, costs=costs, target_savings=target_savings,
+            weights=weights,
         )
     if mode == "tiers":
-        return calibrate_tiers(samples, models_order=models_order)
+        return calibrate_tiers(samples, models_order=models_order, weights=weights)
     if mode == "classifier":
         return fit_classifier(samples, models_order=models_order, iterations=iterations, l2=l2)
     raise CalibrationError(f"unknown calibration mode: {mode!r}")

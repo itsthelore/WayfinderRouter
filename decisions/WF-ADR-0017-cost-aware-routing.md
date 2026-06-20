@@ -42,6 +42,20 @@ The scored path stays deterministic and free. Cost only affects *where the cut i
 placed* (at calibration time) and *what is reported*; it never enters the
 per-request decision. The WF-ADR-0001/0004 boundary holds.
 
+### Amendment (v0.2.0): the `knee` objective and weight emission
+
+The held-out RouterBench evaluation (`benchmarks/calibration-eval.md`) showed the
+`accuracy` objective *collapses to always-routing-high* when one model is usually
+right (high accuracy, ~0 savings), and that `cost-quality` forces the operator to
+guess a `--target-savings`. So `calibrate --objective knee` is added: it picks the
+cut maximizing **quality-recovered × cost-saved** directly — the benchmark knee
+(WF-ADR-0015), now with no target to guess. It orders the two arms by *cost* (the
+expensive arm routes above the cut), which is robust to score ties that the
+mean-score order inverts. Separately, `calibrate --weights …` re-scores the prompts
+with custom feature weights (e.g. the lexical opt-in) and emits them with the cut,
+so the result is a complete, deployable config rather than a cut over the default
+structural score. Both are still offline, deterministic, and outside the scored path.
+
 Explicitly out of scope for v1: live spend metering and token-level costing (which
 would need a tokenizer dependency and per-provider price tables). v1 uses a flat
 per-request or per-1k-words cost so the harness stays deterministic and

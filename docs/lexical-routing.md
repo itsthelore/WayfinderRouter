@@ -54,14 +54,21 @@ Two things the evidence is clear about:
 ## Recalibrate the threshold to your traffic
 
 Label a representative sample of *your* prompts (`{"text": ..., "label": "local"|"cloud"}` —
-the model each prompt should have gone to), then let the shipped calibrator place the cut:
+the model each prompt should have gone to), then let the calibrator place the cut at the
+**cost-aware knee** with the lexicon switched on — one command emits the whole config
+(weights + threshold + per-arm cost):
 
 ```bash
-wayfinder-router calibrate your-data.jsonl --mode threshold --out wayfinder-router.toml
+wayfinder-router calibrate your-data.jsonl --mode threshold --objective knee \
+  --costs local=0.0001,cloud=0.003 \
+  --weights reasoning_term_count=5,math_symbol_count=3,constraint_term_count=1.5 \
+  --out wayfinder-router.toml
 ```
 
-Then add the lexical `weights` line from the recipe to the emitted `[routing]` block. To
-bootstrap a labeled set interactively, start from the domain-tagged starter prompts in
+`--objective knee` maximizes quality-recovered × cost-saved, so — unlike the default
+`accuracy` objective, which on skewed traffic collapses to always-routing-cloud — it finds
+the balanced cut on its own (no savings target to guess). To bootstrap a labeled set
+interactively, start from the domain-tagged starter prompts in
 [`../benchmarks/seed/domain-seed.jsonl`](../benchmarks/seed/domain-seed.jsonl) (science /
 maths / general / code / commonsense) and judge each arm:
 

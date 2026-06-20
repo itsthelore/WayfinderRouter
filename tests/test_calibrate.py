@@ -106,6 +106,54 @@ def test_cost_quality_needs_a_target(tmp_path):
         calibrate(samples, "threshold", objective="cost-quality")
 
 
+# --- cost-aware knee (WF-ADR-0017) ------------------------------------------
+
+
+def _skewed_samples():
+    """Cloud dominates and the score only weakly separates the arms — the case where the
+    accuracy objective collapses toward always-routing-cloud (cf. benchmarks/calibration-eval.md)."""
+    from wayfinder_router.calibrate import Sample
+
+    return (
+        [Sample({}, "cloud", 0.1) for _ in range(30)]
+        + [Sample({}, "cloud", 0.2) for _ in range(50)]
+        + [Sample({}, "local", 0.0) for _ in range(10)]
+        + [Sample({}, "local", 0.1) for _ in range(10)]
+    )
+
+
+def test_knee_saves_more_than_accuracy_on_skewed_labels():
+    samples = _skewed_samples()
+    acc = calibrate(samples, "threshold", objective="accuracy")
+    knee = calibrate(samples, "threshold", objective="knee")
+    assert knee.summary["objective"] == "knee"
+    # accuracy puts the cut low (routes almost everything to cloud); the knee cuts higher
+    # and keeps a real share local, so it saves materially more cost.
+    assert knee.summary["threshold"] > acc.summary["threshold"]
+    assert knee.summary["cost_savings"] >= 0.3
+    assert 0.0 < knee.summary["quality_recovered"] <= 1.0
+
+
+def test_knee_is_deterministic():
+    samples = _skewed_samples()
+    assert calibrate(samples, "threshold", objective="knee").toml == \
+        calibrate(samples, "threshold", objective="knee").toml
+
+
+def test_knee_needs_no_target_and_emits_cost(tmp_path):
+    result = calibrate(_skewed_samples(), "threshold", objective="knee")  # no target_savings
+    (tmp_path / "wayfinder-router.toml").write_text(result.toml, encoding="utf-8")
+    config = load_routing_config(str(tmp_path))
+    assert [t.cost for t in config.tiers] == [0.2, 1.0]
+    assert config.tiers[-1].model == "cloud"
+
+
+def test_knee_is_threshold_only():
+    with pytest.raises(CalibrationError):
+        calibrate(_skewed_samples(), "classifier", objective="knee")
+
+
+
 def test_cost_quality_only_in_threshold_mode(tmp_path):
     samples = load_dataset(_dataset(tmp_path, _binary_rows()))
     with pytest.raises(CalibrationError):
