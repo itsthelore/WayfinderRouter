@@ -20,6 +20,14 @@ Accepted
 > is configured, so the keyless `--dry-run` demo still tells a saved-vs-cloud story. The
 > request/response contract is captured in `tests/test_gateway.py` as the spec for the
 > eventual LibreChat upstreaming. Streaming and chat-app features remain out of scope.
+>
+> Layout (refined post-build): the model **reply** is the primary content of each turn —
+> the proxied completion when a model is configured, or an explicit "routed, not answered"
+> note under `--dry-run`. The decision stays surfaced via an always-inline `model`+`score`
+> chip, while the feature breakdown ("why") and cost tuck behind a per-reply `?` popover
+> (hover or click). This keeps the page chat-shaped without hiding the decision: it's one
+> glance for the route, one click for the reasoning — still decision-first, just not
+> decision-*only*.
 
 ## Category
 
