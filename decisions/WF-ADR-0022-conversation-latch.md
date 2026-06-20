@@ -38,10 +38,15 @@ conversation has needed, so a chat that goes hard stays on the big model.
 
 - Config flag `[gateway] sticky` (default `false`), with a per-request override header
   `X-Wayfinder-Sticky: true|false` mirroring the threshold header (WF-ADR-0011).
-- `conversation_high_water(messages, routing, tiers)` scores **each user turn independently** (with
-  the standing system context) and returns the highest tier reached. It is a *max over turns*, not
-  a sum, so — unlike the old whole-transcript scoring — it does not inflate with conversation
-  length: fifty trivial turns stay local; one hard turn latches cloud.
+- `conversation_high_water(messages, routing, tiers, *, cooldown)` scores **each user turn
+  independently** (with the standing system context) and walks them oldest→newest. It is computed
+  from per-turn tiers — a *max over turns*, not a sum — so, unlike the old whole-transcript scoring,
+  it does not inflate with conversation length: fifty trivial turns stay local; one hard turn
+  latches cloud.
+- **Cool-down** (`[gateway] sticky_cooldown`, default `0`; header `X-Wayfinder-Sticky-Cooldown`):
+  with `0` the latch is monotonic (escalate and stay). With `N >= 1` the latch *decays* — after `N`
+  consecutive turns below the current latch it steps down to that lower tier, so a chat that goes
+  hard and then stays light drifts back toward local. A later hard turn re-arms it.
 - When the latch raises the tier above what the current turn alone would pick, the decision routes
   to the latched tier and reports `mode = "sticky"`. The reported `score` stays the *current*
   turn's, so the "why" breakdown remains honest (a low score with a `sticky` mode is exactly the
@@ -52,11 +57,12 @@ conversation has needed, so a chat that goes hard stays on the big model.
 A per-request `X-Wayfinder-Route-On` header was added alongside, so a client (notably the demo's
 settings panel) can move the scope and the latch for one request without touching server config.
 
-We chose a **monotonic latch** (escalate and stay) over a windowed or decaying scheme for the first
-cut: it is the simplest fully-deterministic rule, trivially explainable ("this chat went cloud at
-turn 3 and stayed"), and matches the intent — keep a hard conversation on the capable model. A
-cool-down window is possible future work if "stays cloud forever after one hard turn" proves too
-sticky in practice.
+The default is a **monotonic latch** (cool-down `0`: escalate and stay) — the simplest
+fully-deterministic rule, trivially explainable ("this chat went cloud at turn 3 and stayed"). The
+**cool-down** addresses its one downside ("stays cloud forever after a single hard turn"): set it to
+the number of calm turns after which a quiet conversation should drift back, trading a little
+stickiness for cost when a hard thread cools off. Both are deterministic functions of the
+client-sent transcript — no server-side conversation state.
 
 ## Consequences
 
@@ -75,7 +81,7 @@ sticky in practice.
   is no earlier turn to latch from and it still routes cheap. That residue is structural and is
   covered only by opt-in lexical signals (WF-ADR-0016) or by pinning.
 - "Escalate and stay" can over-route a chat that had one hard question then many trivial ones; the
-  cost is bounded by being opt-in, and a cool-down is left as future work.
+  cost is bounded by being opt-in, and the `sticky_cooldown` knob lets a quiet chat drift back.
 - Re-scoring every user turn per request is O(turns) scorer calls — negligible (microseconds each,
   chats are short), but it is no longer a single score per request.
 
@@ -94,7 +100,10 @@ sticky in practice.
 - **Server-side conversation state keyed by a conversation id.** Rejected: adds memory and a store
   to a component whose whole value is being stateless and deterministic. The client-sent transcript
   already carries the history we need.
-- **Windowed / decaying stickiness.** Deferred; monotonic latch first for simplicity.
+- **Decaying vs. windowed stickiness.** Both express "forget old hard turns." We implemented a
+  *calm-turn decay* (`sticky_cooldown`: step down after N consecutive calm turns) rather than a
+  fixed trailing window, because it re-arms naturally on a fresh hard turn and reads exactly as the
+  intent ("drift back after the chat goes quiet"). Monotonic (`0`) remains the default.
 
 ## Related Decisions
 

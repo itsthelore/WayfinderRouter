@@ -188,6 +188,7 @@ main::-webkit-scrollbar-thumb{background:var(--line-strong);border-radius:999px;
 .settings output.on{color:var(--text)}
 .settings select{font:inherit;font-size:.8rem;color:var(--text);background:var(--elev);
   border:1px solid var(--line-strong);border-radius:9px;padding:.3rem .5rem;cursor:pointer}
+.settings select:disabled{opacity:.4;cursor:not-allowed}
 .set-hint{font-size:.74rem;color:var(--muted);opacity:.9}
 .set-foot{font-size:.72rem;color:var(--muted);opacity:.8;border-top:1px solid var(--line);padding-top:.55rem}
 main{flex:1;overflow-y:auto;padding:1.5rem 1.1rem 2rem;scroll-behavior:smooth}
@@ -282,6 +283,16 @@ textarea::placeholder{color:var(--muted)}
     <label class="set-name"><input type="checkbox" id="sticky"> Sticky</label>
     <span class="set-hint">Keep the chat on the big model once any turn needs it.</span>
   </div>
+  <div class="set-row">
+    <label class="set-name" for="cooldown">Cool-down</label>
+    <select id="cooldown" disabled>
+      <option value="0">never decay</option>
+      <option value="1">after 1 calm turn</option>
+      <option value="2">after 2 calm turns</option>
+      <option value="3">after 3 calm turns</option>
+    </select>
+    <span class="set-hint">Drift back to local once the chat goes quiet.</span>
+  </div>
   <div class="set-foot">Applies to your next message.</div>
 </div>
 <main><div class="wrap" id="wrap">
@@ -303,6 +314,9 @@ const useT=document.getElementById('useT'),tEl=document.getElementById('t'),tv=d
 const modeEl=document.getElementById('mode'),savedEl=document.getElementById('saved');
 const gear=document.getElementById('gear'),settings=document.getElementById('settings');
 const scopeEl=document.getElementById('scope'),stickyEl=document.getElementById('sticky');
+const cooldownEl=document.getElementById('cooldown');
+function syncSticky(){cooldownEl.disabled=!stickyEl.checked;}
+stickyEl.addEventListener('change',syncSticky); syncSticky();
 const messages=[]; let savedTotal=0, savedUnit='', pretty=s=>s.replace(/_/g,' ');
 
 function syncT(){const on=useT.checked; tEl.disabled=!on; tv.textContent=on?(tEl.value/100).toFixed(2):'config'; tv.classList.toggle('on',on);}
@@ -369,6 +383,7 @@ async function send(text){
   if(useT.checked) headers['X-Wayfinder-Threshold']=(tEl.value/100).toFixed(2);
   if(scopeEl.value) headers['X-Wayfinder-Route-On']=scopeEl.value;
   headers['X-Wayfinder-Sticky']=stickyEl.checked?'true':'false';
+  if(stickyEl.checked) headers['X-Wayfinder-Sticky-Cooldown']=cooldownEl.value;
   try{
     const res=await fetch('/v1/chat/completions',{method:'POST',headers,
       body:JSON.stringify({model:'auto',messages,stream:false})});
@@ -557,11 +572,14 @@ class GatewayConfig:
     (WF-ADR-0021); see :func:`extract_prompt`. Default ``"turn"``. ``sticky``
     latches a conversation to the highest tier any of its turns has needed
     (WF-ADR-0022), so a chat that goes hard stays on the big model. Default off.
+    ``sticky_cooldown`` is the number of calm turns after which the latch decays
+    back down (``0`` = never; monotonic).
     """
 
     models: dict[str, GatewayModel] = field(default_factory=dict)
     route_on: str = "turn"
     sticky: bool = False
+    sticky_cooldown: int = 0
 
 
 # Which chat-message text the router scores. The deterministic core scores
@@ -601,6 +619,9 @@ def gateway_config_from_toml(text: str, where: str = "wayfinder-router.toml") ->
     sticky = gateway.get("sticky", False)
     if not isinstance(sticky, bool):
         raise WayfinderConfigError(f"{where}: 'gateway.sticky' must be a boolean")
+    cooldown = gateway.get("sticky_cooldown", 0)
+    if isinstance(cooldown, bool) or not isinstance(cooldown, int) or cooldown < 0:
+        raise WayfinderConfigError(f"{where}: 'gateway.sticky_cooldown' must be a non-negative integer")
     raw_models = gateway.get("models") or {}
     if not isinstance(raw_models, dict):
         raise WayfinderConfigError(f"{where}: '[gateway.models]' must be a table")
@@ -636,7 +657,7 @@ def gateway_config_from_toml(text: str, where: str = "wayfinder-router.toml") ->
             api_key_env=api_key_env,
             cost_per_1k=float(cost_per_1k) if cost_per_1k is not None else None,
         )
-    return GatewayConfig(models=models, route_on=route_on, sticky=sticky)
+    return GatewayConfig(models=models, route_on=route_on, sticky=sticky, sticky_cooldown=cooldown)
 
 
 def dump_gateway_toml(gateway: GatewayConfig) -> str:
@@ -646,12 +667,14 @@ def dump_gateway_toml(gateway: GatewayConfig) -> str:
     routing section. Emits ``api_key_env`` (the env-var *name*) — never a secret.
     """
     blocks: list[str] = []
-    if gateway.route_on != "turn" or gateway.sticky:
+    if gateway.route_on != "turn" or gateway.sticky or gateway.sticky_cooldown:
         lines = ["[gateway]"]
         if gateway.route_on != "turn":
             lines.append(f'route_on = "{gateway.route_on}"')
         if gateway.sticky:
             lines.append("sticky = true")
+        if gateway.sticky_cooldown:
+            lines.append(f"sticky_cooldown = {gateway.sticky_cooldown}")
         blocks.append("\n".join(lines))
     for name, model in gateway.models.items():
         lines = [
@@ -793,6 +816,7 @@ def threshold_tiers(routing: RoutingConfig, threshold: float) -> tuple[Tier, ...
 # request without touching server config. Still pure and offline.
 ROUTE_ON_HEADER = "x-wayfinder-route-on"
 STICKY_HEADER = "x-wayfinder-sticky"
+STICKY_COOLDOWN_HEADER = "x-wayfinder-sticky-cooldown"
 _TRUE_TOKENS = frozenset({"1", "true", "yes", "on"})
 _FALSE_TOKENS = frozenset({"0", "false", "no", "off"})
 
@@ -824,6 +848,25 @@ def resolve_sticky(value: str | None, default: bool) -> bool:
     raise BadOverride(f"{STICKY_HEADER} must be true or false, got {value!r}")
 
 
+def resolve_sticky_cooldown(value: str | None, default: int) -> int:
+    """Resolve the latch cool-down (calm turns to release) from the header, else the default.
+
+    ``0`` means the latch never decays (monotonic). Raises :class:`BadOverride` for a
+    non-integer or negative value.
+    """
+    if value is None or not value.strip():
+        return default
+    try:
+        cooldown = int(value.strip())
+    except ValueError as exc:
+        raise BadOverride(
+            f"{STICKY_COOLDOWN_HEADER} must be a non-negative integer, got {value!r}"
+        ) from exc
+    if cooldown < 0:
+        raise BadOverride(f"{STICKY_COOLDOWN_HEADER} must be >= 0, got {cooldown}")
+    return cooldown
+
+
 def _tier_rank(model: str, tiers: tuple[Tier, ...]) -> int:
     """Index of ``model`` in the ordered tier ladder, or -1 if it is not a tier."""
     for i, tier in enumerate(tiers):
@@ -833,27 +876,43 @@ def _tier_rank(model: str, tiers: tuple[Tier, ...]) -> int:
 
 
 def conversation_high_water(
-    messages: object, routing: RoutingConfig, tiers: tuple[Tier, ...]
+    messages: object, routing: RoutingConfig, tiers: tuple[Tier, ...], *, cooldown: int = 0
 ) -> str | None:
-    """The highest tier any single user turn in the conversation reaches (WF-ADR-0022).
+    """The tier the conversation latches to (WF-ADR-0022).
 
-    Each user turn is scored on its own (with the standing system context), so the
-    figure is a *max over turns*, not a sum — it does not inflate with conversation
-    length the way concatenating the transcript would. Returns the tier's model
-    name, or ``None`` when there are no user turns to score.
+    Each user turn is scored on its own (with the standing system context), so this
+    is computed from per-turn tiers — a *max over turns*, not a sum, so it does not
+    inflate with conversation length the way concatenating the transcript would.
+
+    With ``cooldown == 0`` the latch is monotonic: the highest tier any turn reached,
+    and it never steps down. With ``cooldown == N`` (N >= 1) the latch *decays*: after
+    ``N`` consecutive turns below the current latch, it steps down to that lower tier —
+    so a chat that goes hard then stays light drifts back toward local. Returns the
+    tier's model name, or ``None`` when there are no user turns to score.
     """
     if not isinstance(messages, list):
         return None
     systems = [m for m in messages if isinstance(m, dict) and m.get("role") == "system"]
-    best_model, best_rank = None, -2
+    ranks: list[int] = []
     for message in messages:
         if isinstance(message, dict) and message.get("role") == "user":
             text = extract_prompt(systems + [message], route_on="turn")
             model = recommend_tier(score_complexity(text, config=routing).score, tiers)
-            rank = _tier_rank(model, tiers)
-            if rank > best_rank:
-                best_model, best_rank = model, rank
-    return best_model
+            ranks.append(max(0, _tier_rank(model, tiers)))
+    if not ranks:
+        return None
+    # Walk the turns oldest->newest: a turn at or above the latch holds (and resets the
+    # calm counter); a turn below it counts as calm, and once `cooldown` calm turns
+    # accumulate the latch steps down to that turn's tier.
+    latched, calm = 0, 0
+    for rank in ranks:
+        if rank >= latched:
+            latched, calm = rank, 0
+        else:
+            calm += 1
+            if cooldown and calm >= cooldown:
+                latched, calm = rank, 0
+    return tiers[latched].model
 
 
 def forward_request(
@@ -1148,6 +1207,7 @@ def build_app(
         x_wayfinder_threshold: str | None = Header(default=None),
         x_wayfinder_route_on: str | None = Header(default=None),
         x_wayfinder_sticky: str | None = Header(default=None),
+        x_wayfinder_sticky_cooldown: str | None = Header(default=None),
         x_wayfinder_debug: str | None = Header(default=None),
     ) -> Response:
         request_id = uuid.uuid4().hex[:12]
@@ -1165,6 +1225,7 @@ def build_app(
         try:
             route_on = parse_route_on_header(x_wayfinder_route_on) or gw.route_on
             sticky = resolve_sticky(x_wayfinder_sticky, gw.sticky)
+            cooldown = resolve_sticky_cooldown(x_wayfinder_sticky_cooldown, gw.sticky_cooldown)
         except BadOverride as exc:
             return _reject(exc)
 
@@ -1191,7 +1252,9 @@ def build_app(
                 # Conversation latch (WF-ADR-0022): escalate to the highest tier any single
                 # turn in this chat has needed, so a hard conversation stays on the big model.
                 if sticky and routing.classifier is None and len(effective_tiers) >= 2:
-                    latched = conversation_high_water(messages, routing, effective_tiers)
+                    latched = conversation_high_water(
+                        messages, routing, effective_tiers, cooldown=cooldown
+                    )
                     if latched is not None and _tier_rank(latched, effective_tiers) > _tier_rank(
                         chosen, effective_tiers
                     ):

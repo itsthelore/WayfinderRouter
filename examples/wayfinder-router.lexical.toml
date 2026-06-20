@@ -34,11 +34,14 @@ weights = { reasoning_term_count = 5.0, math_symbol_count = 3.0, constraint_term
 #
 # sticky = true latches a conversation to the highest tier any of its turns has needed,
 # so a chat that goes hard stays on the big model even on short follow-ups (WF-ADR-0022).
-# Off by default. Per-request equivalents: X-Wayfinder-Route-On / X-Wayfinder-Sticky.
+# Off by default. sticky_cooldown = N lets the latch decay back to local after N calm
+# turns (0 = never; monotonic). Per-request equivalents: X-Wayfinder-Route-On,
+# X-Wayfinder-Sticky, X-Wayfinder-Sticky-Cooldown.
 #
 # [gateway]
 # route_on = "turn"
 # sticky = false
+# sticky_cooldown = 0
 #
 # [gateway.models.local]
 # base_url = "http://localhost:11434/v1"

@@ -93,7 +93,9 @@ payload. What a structural scan still can't do on its own is notice that a *shor
 chat, turn on the **conversation latch** (`[gateway] sticky`, or the `X-Wayfinder-Sticky` header): it
 routes by the hardest turn the conversation has seen — a max over turns, so it doesn't drift with length —
 so once any turn crosses over, the thread stays on the capable model
-([WF-ADR-0022](../decisions/WF-ADR-0022-conversation-latch.md)). The latch can't help the *cold-start*
+([WF-ADR-0022](../decisions/WF-ADR-0022-conversation-latch.md)). Set `sticky_cooldown` (or
+`X-Wayfinder-Sticky-Cooldown`) to let the latch decay back to local after N calm turns, so a chat
+that goes hard then quiet drifts back to the cheap model. The latch can't help the *cold-start*
 case (a first message that's short but hard), which only opt-in lexical signals or an explicit pin
 (the `model` field `auto` / `prefer-local` / `prefer-hosted`, or `X-Wayfinder-Threshold`; see the README,
 ["Steer a single request"](../README.md#steer-a-single-request)) will catch.
