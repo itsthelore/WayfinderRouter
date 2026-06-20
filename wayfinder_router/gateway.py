@@ -78,7 +78,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from .complexity import RoutingConfig, Tier, recommend_tier, score_complexity
+from .complexity import RoutingConfig, Tier, explain_score, recommend_tier, score_complexity
 from .config import WayfinderConfigError, find_config_file, load_routing_config
 from .feedback import DEFAULT_LOG, record_label
 
@@ -123,6 +123,185 @@ async function tick(){
   }catch(e){counts.textContent='gateway unreachable';}
 }
 tick();setInterval(tick,2000);
+</script></body></html>"""
+
+# The decision-first chat demo (WF-ADR-0020). One self-contained page: no build, no CDN,
+# no fonts fetched (system stack only). It calls /v1/chat/completions with model="auto" +
+# X-Wayfinder-Debug so it can show the decision (model / score / why / cost); pair with
+# --dry-run for a keyless demo. Richer chat features are the trigger to upstream into
+# LibreChat, not to grow this page.
+_DEMO_HTML = """<!doctype html><html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Wayfinder</title><style>
+:root{
+  color-scheme: light dark;
+  --bg:#ffffff; --panel:#f7f7f8; --elev:#ffffff; --text:#0d0d0d; --muted:#6e6e80;
+  --line:#e6e6e8; --user:#f4f4f4; --accent:#10a37f; --accent-weak:#e7f5f1;
+  --cloud:#b8690f; --btn:#0d0d0d; --btn-text:#ffffff; --track:#ececf1;
+  --radius:16px; --radius-sm:10px; --shadow:0 1px 2px rgba(13,13,13,.06);
+  --font:ui-sans-serif,-apple-system,"SF Pro Text","Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+  --mono:ui-monospace,"SF Mono","Cascadia Code",Menlo,Consolas,monospace;
+}
+@media(prefers-color-scheme:dark){:root{
+  --bg:#212121; --panel:#2a2a2a; --elev:#2f2f2f; --text:#ececec; --muted:#a8a8b3;
+  --line:rgba(255,255,255,.12); --user:#2f2f2f; --accent:#19c89b; --accent-weak:#16312b;
+  --cloud:#e0a25c; --btn:#ececec; --btn-text:#0d0d0d; --track:#3a3a3a;
+  --shadow:0 1px 2px rgba(0,0,0,.3);
+}}
+*{box-sizing:border-box}
+html,body{height:100%}
+body{margin:0;background:var(--bg);color:var(--text);font-family:var(--font);
+  font-size:15px;line-height:1.55;display:flex;flex-direction:column;height:100vh}
+.bar{position:sticky;top:0;z-index:5;display:flex;align-items:center;gap:.75rem;
+  padding:.6rem 1rem;background:color-mix(in srgb,var(--bg) 80%,transparent);
+  backdrop-filter:saturate(1.6) blur(10px);border-bottom:1px solid var(--line)}
+.brand{font-weight:600;letter-spacing:-.01em}
+.brand .dot{color:var(--accent)}
+.mode{font-size:.72rem;color:var(--muted);border:1px solid var(--line);border-radius:999px;
+  padding:.08rem .5rem;text-transform:uppercase;letter-spacing:.05em}
+.saved{margin-left:auto;font-size:.8rem;color:var(--muted);font-variant-numeric:tabular-nums;text-align:right}
+.saved b{color:var(--text)}
+.controls{display:flex;align-items:center;gap:.6rem;padding:.5rem 1rem;border-bottom:1px solid var(--line);
+  font-size:.82rem;color:var(--muted);flex-wrap:wrap}
+.controls input[type=range]{flex:1;min-width:140px;max-width:320px;accent-color:var(--accent);height:4px}
+.controls output{font-variant-numeric:tabular-nums;color:var(--text);min-width:2.6em}
+.controls label{display:flex;align-items:center;gap:.4rem;cursor:pointer}
+.hint{font-size:.74rem;color:var(--muted)}
+main{flex:1;overflow-y:auto;padding:1.25rem 1rem 2rem}
+.wrap{max-width:768px;margin:0 auto;display:flex;flex-direction:column;gap:1.1rem}
+.empty{margin:18vh auto 0;max-width:30rem;text-align:center;color:var(--muted)}
+.empty h2{color:var(--text);font-size:1.15rem;font-weight:600;margin:0 0 .35rem}
+.turn{display:flex;flex-direction:column;gap:.55rem;animation:rise .16s ease both}
+@keyframes rise{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:none}}
+.msg{padding:.7rem .95rem;border-radius:var(--radius);max-width:86%;white-space:pre-wrap;word-wrap:break-word}
+.msg.user{align-self:flex-end;background:var(--user)}
+.msg.bot{align-self:flex-start;background:var(--elev);border:1px solid var(--line)}
+.msg.note{align-self:flex-start;color:var(--muted);font-style:italic;background:transparent;padding-left:0}
+.card{align-self:flex-start;width:100%;background:var(--panel);border:1px solid var(--line);
+  border-radius:var(--radius-sm);box-shadow:var(--shadow);padding:.8rem .9rem;font-size:.82rem}
+.card .head{display:flex;align-items:center;gap:.5rem;margin-bottom:.6rem;flex-wrap:wrap}
+.pill{font-weight:600;border-radius:999px;padding:.12rem .6rem;font-size:.8rem;
+  background:var(--accent-weak);color:var(--accent);display:inline-flex;align-items:center;gap:.35rem}
+.pill.cloud{color:var(--cloud);background:color-mix(in srgb,var(--cloud) 14%,transparent)}
+.pill .dot{width:.5rem;height:.5rem;border-radius:50%;background:currentColor}
+.meta{color:var(--muted);font-variant-numeric:tabular-nums}
+.rows{display:flex;flex-direction:column;gap:.32rem;margin:.2rem 0 .55rem}
+.row{display:grid;grid-template-columns:8.5rem 1fr 3rem;align-items:center;gap:.5rem}
+.row .nm{color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.row .val{font-variant-numeric:tabular-nums;text-align:right;color:var(--muted)}
+.track{height:6px;background:var(--track);border-radius:999px;overflow:hidden}
+.track i{display:block;height:100%;background:var(--accent);border-radius:999px}
+.cost{display:flex;justify-content:space-between;gap:.5rem;color:var(--muted);
+  border-top:1px solid var(--line);padding-top:.5rem;font-variant-numeric:tabular-nums}
+.cost b{color:var(--text)}
+.rid{font-family:var(--mono);font-size:.72rem;color:var(--muted)}
+form{position:sticky;bottom:0;background:var(--bg);border-top:1px solid var(--line);padding:.75rem 1rem 1rem}
+.composer{max-width:768px;margin:0 auto;display:flex;gap:.5rem;align-items:flex-end;
+  background:var(--elev);border:1px solid var(--line);border-radius:var(--radius);
+  padding:.45rem .45rem .45rem .85rem;box-shadow:var(--shadow)}
+textarea{flex:1;border:0;background:transparent;color:var(--text);font:inherit;resize:none;
+  max-height:40vh;padding:.35rem 0;outline:none}
+button{border:0;border-radius:12px;background:var(--btn);color:var(--btn-text);font:inherit;
+  font-weight:600;padding:.5rem .9rem;cursor:pointer;transition:transform .04s,opacity .15s}
+button:active{transform:translateY(1px)}
+button:disabled{opacity:.4;cursor:default}
+:focus-visible{outline:none;box-shadow:0 0 0 3px color-mix(in srgb,var(--accent) 40%,transparent);border-radius:8px}
+@media(prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}}
+</style></head><body>
+<div class="bar">
+  <span class="brand">Wayfinder<span class="dot">.</span></span>
+  <span class="mode" id="mode">ready</span>
+  <span class="saved" id="saved"></span>
+</div>
+<div class="controls">
+  <label><input type="checkbox" id="useT"> threshold</label>
+  <input type="range" id="t" min="0" max="100" value="50" disabled>
+  <output id="tv">config</output>
+  <span class="hint">applies to your next message</span>
+</div>
+<main><div class="wrap" id="wrap">
+  <div class="empty" id="empty"><h2>Ask anything</h2>
+  <div>Each message shows where it routed, the complexity score and why, and the cost saved. Run the gateway with <code>--dry-run</code> for a keyless demo.</div></div>
+</div></main>
+<form id="composer"><div class="composer">
+  <textarea id="in" rows="1" placeholder="Message Wayfinder..." autofocus></textarea>
+  <button id="send" type="submit">Send</button>
+</div></form>
+<script>
+const wrap=document.getElementById('wrap'),empty=document.getElementById('empty');
+const inEl=document.getElementById('in'),sendBtn=document.getElementById('send');
+const useT=document.getElementById('useT'),tEl=document.getElementById('t'),tv=document.getElementById('tv');
+const modeEl=document.getElementById('mode'),savedEl=document.getElementById('saved');
+const messages=[]; let savedTotal=0, savedUnit='', pretty=s=>s.replace(/_/g,' ');
+
+function syncT(){tEl.disabled=!useT.checked; tv.textContent=useT.checked?(tEl.value/100).toFixed(2):'config';}
+useT.addEventListener('change',syncT); tEl.addEventListener('input',syncT); syncT();
+
+inEl.addEventListener('input',()=>{inEl.style.height='auto';inEl.style.height=Math.min(inEl.scrollHeight,window.innerHeight*0.4)+'px';});
+inEl.addEventListener('keydown',e=>{if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();composer.requestSubmit();}});
+
+function el(cls,txt){const d=document.createElement('div');d.className=cls;if(txt!=null)d.textContent=txt;return d;}
+function turn(){const t=el('turn');wrap.appendChild(t);return t;}
+function scroll(){requestAnimationFrame(()=>{const m=document.querySelector('main');m.scrollTop=m.scrollHeight;});}
+
+function card(wf){
+  const c=el('card');
+  const head=el('head');
+  const pill=el('pill '+(wf.model==='cloud'?'cloud':''));
+  pill.appendChild(el('dot')); pill.appendChild(document.createTextNode(' '+wf.model));
+  head.appendChild(pill);
+  head.appendChild(el('meta','score '+Number(wf.score).toFixed(2)+' · '+wf.mode));
+  c.appendChild(head);
+  const cons=(wf.contributions||[]).filter(x=>x.contribution>0).sort((a,b)=>b.contribution-a.contribution).slice(0,4);
+  if(cons.length){
+    const max=cons[0].contribution||1, rows=el('rows');
+    cons.forEach(x=>{
+      const r=el('row');
+      r.appendChild(el('nm',pretty(x.name)));
+      const tr=el('track'),bar=el('');bar.style.width=Math.round(100*x.contribution/max)+'%';tr.appendChild(bar);
+      r.appendChild(tr);
+      r.appendChild(el('val',String(x.value)));
+      rows.appendChild(r);
+    });
+    c.appendChild(rows);
+  }
+  if(wf.cost){
+    const k=wf.cost, est=k.estimated?' (est)':'', u=k.estimated?'units':(k.unit&&k.unit[0]==='$'?'$':'');
+    const cost=el('cost');
+    const left=el('');left.innerHTML='this call <b>'+(+k.per_call).toFixed(3)+'</b> '+(k.unit||'')+est;
+    cost.appendChild(left);
+    cost.appendChild(el('','saved '+(+k.saved).toFixed(3)+' vs always-cloud'));
+    c.appendChild(cost);
+    if(typeof k.saved==='number'){savedTotal+=k.saved;savedUnit=u||savedUnit;
+      savedEl.innerHTML='Saved <b>'+savedTotal.toFixed(3)+'</b> '+savedUnit+' vs always-cloud';}
+  }
+  c.appendChild(el('rid',wf.request_id||''));
+  return c;
+}
+
+async function send(text){
+  empty.style.display='none';
+  const t=turn(); t.appendChild(el('msg user',text)); scroll();
+  messages.push({role:'user',content:text});
+  sendBtn.disabled=true;
+  const headers={'Content-Type':'application/json','X-Wayfinder-Debug':'true'};
+  if(useT.checked) headers['X-Wayfinder-Threshold']=(tEl.value/100).toFixed(2);
+  try{
+    const res=await fetch('/v1/chat/completions',{method:'POST',headers,
+      body:JSON.stringify({model:'auto',messages,stream:false})});
+    const data=await res.json().catch(()=>({}));
+    const wf=data.wayfinder||null;
+    if(wf){modeEl.textContent=wf.dry_run?'dry-run':'live'; t.appendChild(card(wf));}
+    const content=data&&data.choices&&data.choices[0]&&data.choices[0].message&&data.choices[0].message.content;
+    if(content){t.appendChild(el('msg bot',content));messages.push({role:'assistant',content});}
+    else if(wf&&wf.dry_run){t.appendChild(el('msg note','Dry-run: no model was called — the panel above is the routing decision.'));}
+    else if(data&&data.error){t.appendChild(el('msg note',(data.error.message||'error')));}
+    else{t.appendChild(el('msg note','No content returned.'));}
+  }catch(e){t.appendChild(el('msg note','Gateway unreachable: '+e.message));}
+  sendBtn.disabled=false; scroll(); inEl.focus();
+}
+composer.addEventListener('submit',e=>{e.preventDefault();const v=inEl.value.trim();if(!v)return;
+  inEl.value='';inEl.style.height='auto';send(v);});
 </script></body></html>"""
 
 # --- metrics (WF-ADR-0018) --------------------------------------------------
@@ -719,6 +898,13 @@ def build_app(
         """A tiny self-contained dashboard that polls /router/recent."""
         return _DASHBOARD_HTML
 
+    @app.get("/demo", response_class=HTMLResponse)
+    def demo_page() -> str:
+        """The decision-first chat demo (WF-ADR-0020): shows the routing decision,
+        the score and why, and the cost saved, with a live threshold slider. Pairs
+        with ``--dry-run`` for a keyless demo. Self-contained; no build, no CDN."""
+        return _DEMO_HTML
+
     @app.post("/v1/feedback")
     def feedback(  # noqa: B008 - FastAPI default
         body: dict = Body(...),
@@ -794,18 +980,67 @@ def build_app(
         # (default stays byte-clean for strict clients). The headers always carry it.
         debug = (x_wayfinder_debug or "").strip().lower() in ("1", "true", "yes")
 
+        # The decision payload for the demo UI / debug clients. Built ONLY here and in the
+        # debug/dry-run branches below — explain_score never runs on the scored relay path
+        # (WF-ADR-0001/0020), so the default response stays byte-clean.
+        def _cost_block() -> dict:
+            wc = int(decision.features.get("word_count", 0))
+            costs: dict[str, float] = {
+                name: model.cost_per_1k
+                for name, model in gw.models.items()
+                if model.cost_per_1k is not None
+            }
+            if decision.tiers:
+                for tier in decision.tiers:
+                    if tier.cost is not None:
+                        costs.setdefault(tier.model, tier.cost)
+            estimated = not costs
+            if estimated:
+                # No cost metadata configured (e.g. a keyless dry-run demo): fall back to
+                # the benchmark's relative units across the tier ladder (cheapest 0.2 ..
+                # dearest 1.0) so the saved-vs-cloud story still renders. Clearly flagged.
+                ladder = [t.model for t in (decision.tiers or ())] or [chosen]
+                lo, hi = 0.2, 1.0
+                step = (hi - lo) / max(1, len(ladder) - 1)
+                costs = {m: round(lo + i * step, 3) for i, m in enumerate(ladder)}
+            scale = wc / 1000.0
+            chosen_per1k = costs.get(chosen, max(costs.values()))
+            baseline_per1k = max(costs.values())  # always-route-to-the-dearest = "always-cloud"
+            per_call = round(chosen_per1k * scale, 6)
+            baseline = round(baseline_per1k * scale, 6)
+            return {
+                "per_call": per_call,
+                "baseline": baseline,
+                "saved": round(baseline - per_call, 6),
+                "unit": "relative units / 1k words" if estimated else "$ / 1k words",
+                "estimated": estimated,
+                "word_count": wc,
+            }
+
+        def _explain_payload() -> dict:
+            return {
+                "model": chosen,
+                "score": round(decision.score, 2),
+                "mode": mode,
+                "request_id": request_id,
+                "features": dict(decision.features),
+                "contributions": [fc.to_dict() for fc in explain_score(decision.features, routing.weights)],
+                "tiers": (
+                    [
+                        {"min_score": t.min_score, "model": t.model}
+                        | ({"cost": t.cost} if t.cost is not None else {})
+                        for t in decision.tiers
+                    ]
+                    if decision.tiers
+                    else None
+                ),
+                "cost": _cost_block(),
+            }
+
         if dry_run:
             return JSONResponse(
                 status_code=200,
-                content={
-                    "wayfinder": {
-                        "model": chosen,
-                        "score": round(decision.score, 2),
-                        "mode": mode,
-                        "request_id": request_id,
-                        "dry_run": True,
-                    }
-                },
+                content={"wayfinder": {**_explain_payload(), "dry_run": True}},
                 headers=wf_headers,
             )
 
@@ -839,14 +1074,7 @@ def build_app(
                         yield chunk
                     metrics.observe_upstream(chosen, time.perf_counter() - upstream_started)
                     if debug:
-                        meta = json.dumps(
-                            {
-                                "model": chosen,
-                                "score": round(decision.score, 2),
-                                "mode": mode,
-                                "request_id": request_id,
-                            }
-                        )
+                        meta = json.dumps(_explain_payload())
                         yield f"event: wayfinder\ndata: {meta}\n\n".encode()
                 except UpstreamError as exc:
                     metrics.observe_upstream_error(chosen)
@@ -879,12 +1107,7 @@ def build_app(
             except json.JSONDecodeError:
                 data = None
             if isinstance(data, dict):
-                data["wayfinder"] = {
-                    "model": chosen,
-                    "score": round(decision.score, 2),
-                    "mode": mode,
-                    "request_id": request_id,
-                }
+                data["wayfinder"] = _explain_payload()
                 content = json.dumps(data).encode()
         return Response(
             content=content, status_code=status, media_type=content_type, headers=wf_headers

@@ -301,6 +301,87 @@ def test_default_response_body_omits_the_decision(client):
     assert "wayfinder" not in resp.json()
 
 
+# --- decision-first demo UI (WF-ADR-0020) -----------------------------------
+
+_CONTRIB_KEYS = {"name", "value", "normalized", "weight", "contribution"}
+
+
+def test_demo_page_is_served(client):
+    test_client, _ = client
+    resp = test_client.get("/demo")
+    assert resp.status_code == 200
+    assert resp.headers["content-type"].startswith("text/html")
+    assert "Wayfinder" in resp.text
+    assert "/v1/chat/completions" in resp.text  # the page calls the routing endpoint
+    assert "X-Wayfinder-Debug" in resp.text  # it opts into the decision payload
+
+
+def _dry_run_client(tmp_path, config="[routing]\nthreshold = 0.2\n"):
+    (tmp_path / "wayfinder-router.toml").write_text(config, encoding="utf-8")
+    return TestClient(gateway.build_app(start_dir=str(tmp_path), dry_run=True))
+
+
+def test_dry_run_decision_carries_explain_for_the_demo(tmp_path):
+    # Keyless: no [gateway.models] at all. The demo still gets the full "why".
+    resp = _dry_run_client(tmp_path).post("/v1/chat/completions", json=COMPLEX)
+    wf = resp.json()["wayfinder"]
+    assert wf["dry_run"] is True
+    contribs = wf["contributions"]
+    assert isinstance(contribs, list) and contribs
+    assert all(_CONTRIB_KEYS <= set(c) for c in contribs)
+    assert any(c["contribution"] > 0 for c in contribs)  # a heavy prompt has real signal
+    assert "word_count" in wf["features"]
+    assert wf["cost"]["estimated"] is True  # no cost metadata configured -> relative units
+    assert wf["cost"]["saved"] >= 0
+
+
+def test_debug_payload_carries_contributions_on_relayed_responses(client):
+    test_client, _ = client
+    resp = test_client.post(
+        "/v1/chat/completions", json=COMPLEX, headers={"X-Wayfinder-Debug": "true"}
+    )
+    wf = resp.json()["wayfinder"]
+    assert wf["contributions"] and all(_CONTRIB_KEYS <= set(c) for c in wf["contributions"])
+    assert resp.json()["id"] == "resp-1"  # the relayed upstream body is preserved
+
+
+def test_threshold_override_is_visible_in_the_decision(tmp_path):
+    resp = _dry_run_client(tmp_path).post(
+        "/v1/chat/completions", json=TRIVIAL, headers={"X-Wayfinder-Threshold": "0.95"}
+    )
+    wf = resp.json()["wayfinder"]
+    assert wf["mode"] == "threshold-override"
+    assert isinstance(wf["contributions"], list)
+
+
+def test_cost_block_uses_configured_cost_when_present(tmp_path):
+    config = (
+        "[routing]\nthreshold = 0.2\n\n"
+        "[gateway.models.local]\n"
+        'base_url = "http://x/v1"\nmodel = "s"\ncost_per_1k = 0.1\n\n'
+        "[gateway.models.cloud]\n"
+        'base_url = "http://y/v1"\nmodel = "b"\ncost_per_1k = 2.0\n'
+    )
+    resp = _dry_run_client(tmp_path, config).post("/v1/chat/completions", json=COMPLEX)
+    cost = resp.json()["wayfinder"]["cost"]
+    assert cost["estimated"] is False
+    assert cost["unit"].startswith("$")
+    assert cost["baseline"] >= cost["per_call"] and cost["saved"] >= 0
+
+
+def test_scored_path_runs_no_explain(client, monkeypatch):
+    # Boundary guard (WF-ADR-0001): explain_score must never run on the scored relay path.
+    import wayfinder_router.gateway as gw
+
+    def _boom(*a, **k):
+        raise AssertionError("explain_score ran on the scored path")
+
+    monkeypatch.setattr(gw, "explain_score", _boom)
+    test_client, _ = client
+    resp = test_client.post("/v1/chat/completions", json=COMPLEX)  # no debug header
+    assert resp.status_code == 200 and "wayfinder" not in resp.json()
+
+
 # --- /v1/feedback (the steady-state escalate loop) --------------------------
 
 
