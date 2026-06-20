@@ -1031,3 +1031,29 @@ def test_router_profiles_endpoint_lists_curated_and_mined(client):
 def test_demo_page_has_profile_picker(client):
     text = client[0].get("/demo").text
     assert 'id="profile"' in text and "/router/profiles" in text
+
+
+# --- read-only models / key status (WF-ADR-0025) ----------------------------
+
+def test_router_models_reports_endpoints_and_key_status_without_secrets(monkeypatch, tmp_path):
+    cfg = (
+        "[routing]\nthreshold = 0.2\n\n"
+        '[gateway.models.local]\nbase_url = "http://localhost:11434/v1"\nmodel = "mistral:7b"\n\n'
+        '[gateway.models.cloud]\nbase_url = "https://api.anthropic.com/v1"\nmodel = "claude-x"\n'
+        'api_key_env = "WF_TEST_KEY"\n'
+    )
+    (tmp_path / "wayfinder-router.toml").write_text(cfg, encoding="utf-8")
+    monkeypatch.delenv("WF_TEST_KEY", raising=False)
+    tc = TestClient(gateway.build_app(start_dir=str(tmp_path)))
+    by = {m["name"]: m for m in tc.get("/router/models").json()["models"]}
+    assert by["local"]["api_key_env"] is None and by["local"]["key_ok"] is True  # no key needed
+    assert by["cloud"]["api_key_env"] == "WF_TEST_KEY" and by["cloud"]["key_ok"] is False
+    assert by["cloud"]["endpoint"] == "https://api.anthropic.com/v1"
+    monkeypatch.setenv("WF_TEST_KEY", "secret-value")
+    assert {m["name"]: m["key_ok"] for m in tc.get("/router/models").json()["models"]}["cloud"] is True
+    assert "secret-value" not in tc.get("/router/models").text  # only the env-var name, never the value
+
+
+def test_demo_page_has_models_status(client):
+    text = client[0].get("/demo").text
+    assert 'id="models"' in text and "/router/models" in text
