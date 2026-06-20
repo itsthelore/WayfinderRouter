@@ -175,22 +175,26 @@ main::-webkit-scrollbar-thumb{background:var(--line-strong);border-radius:999px;
 .gear:hover{color:var(--text);border-color:var(--line-strong)}
 .gear.on{background:var(--accent-weak);color:var(--accent);
   border-color:color-mix(in srgb,var(--accent) 40%,var(--line-strong))}
-.settings{border-bottom:1px solid var(--line);background:var(--panel);
-  padding:.85rem 1.1rem 1rem;display:flex;flex-direction:column;gap:.75rem;font-size:.8rem;color:var(--muted)}
+.settings{position:absolute;top:calc(100% + .5rem);right:1.1rem;z-index:20;
+  width:min(300px,calc(100vw - 2rem));background:var(--elev);border:1px solid var(--line-strong);
+  border-radius:var(--radius-sm);box-shadow:0 12px 32px rgba(13,13,13,.16),var(--shadow);
+  padding:.9rem 1rem;display:flex;flex-direction:column;gap:.85rem;font-size:.8rem;color:var(--muted);
+  animation:pop .14s cubic-bezier(.2,.7,.3,1) both}
+@keyframes pop{from{opacity:0;transform:translateY(-6px)}to{opacity:1;transform:none}}
 .settings[hidden]{display:none}
-.set-row{display:flex;align-items:center;gap:.7rem;flex-wrap:wrap}
-.set-name{display:flex;align-items:center;gap:.45rem;color:var(--text);font-weight:550;
-  min-width:9rem;cursor:pointer;user-select:none}
+.set-row{display:flex;flex-direction:column;gap:.4rem}
+.set-name{display:flex;align-items:center;gap:.45rem;color:var(--text);font-weight:550;cursor:pointer;user-select:none}
 .set-name input{accent-color:var(--accent)}
-.settings input[type=range]{flex:1;min-width:140px;max-width:280px;accent-color:var(--accent);height:4px}
+.set-ctl{display:flex;align-items:center;gap:.6rem}
+.settings input[type=range]{flex:1;accent-color:var(--accent);height:4px}
 .settings input[type=range]:disabled{opacity:.4;cursor:not-allowed}
-.settings output{font-variant-numeric:tabular-nums;color:var(--muted);min-width:3em;font-weight:600}
+.settings output{font-variant-numeric:tabular-nums;color:var(--muted);min-width:3em;font-weight:600;text-align:right}
 .settings output.on{color:var(--text)}
-.settings select{font:inherit;font-size:.8rem;color:var(--text);background:var(--elev);
-  border:1px solid var(--line-strong);border-radius:9px;padding:.3rem .5rem;cursor:pointer}
+.settings select{width:100%;font:inherit;font-size:.8rem;color:var(--text);background:var(--panel);
+  border:1px solid var(--line-strong);border-radius:9px;padding:.35rem .5rem;cursor:pointer}
 .settings select:disabled{opacity:.4;cursor:not-allowed}
-.set-hint{font-size:.74rem;color:var(--muted);opacity:.9}
-.set-foot{font-size:.72rem;color:var(--muted);opacity:.8;border-top:1px solid var(--line);padding-top:.55rem}
+.set-hint{font-size:.72rem;color:var(--muted);opacity:.9;line-height:1.4}
+.set-foot{font-size:.72rem;color:var(--muted);opacity:.8;border-top:1px solid var(--line);padding-top:.6rem}
 main{flex:1;overflow-y:auto;padding:1.5rem 1.1rem 2rem;scroll-behavior:smooth}
 .wrap{max-width:760px;margin:0 auto;display:flex;flex-direction:column;gap:1.4rem}
 .empty{margin:13vh auto 0;max-width:32rem;text-align:center;color:var(--muted)}
@@ -262,38 +266,37 @@ textarea::placeholder{color:var(--muted)}
   <span class="mode" id="mode">ready</span>
   <span class="saved" id="saved"></span>
   <button class="gear" id="gear" type="button" aria-label="Routing settings" aria-expanded="false" title="Routing settings">&#9881;</button>
-</div>
-<div class="settings" id="settings" hidden>
-  <div class="set-row">
-    <label class="set-name"><input type="checkbox" id="useT"> Threshold</label>
-    <input type="range" id="t" min="0" max="100" value="50" disabled>
-    <output id="tv">config</output>
+  <div class="settings" id="settings" hidden>
+    <div class="set-row">
+      <label class="set-name"><input type="checkbox" id="useT"> Threshold</label>
+      <div class="set-ctl"><input type="range" id="t" min="0" max="100" value="50" disabled><output id="tv">config</output></div>
+    </div>
+    <div class="set-row">
+      <label class="set-name" for="scope">Routing scope</label>
+      <select id="scope">
+        <option value="">server config</option>
+        <option value="turn">turn &mdash; system + latest</option>
+        <option value="last_user">last_user &mdash; latest only</option>
+        <option value="user">user &mdash; all your messages</option>
+        <option value="all">all &mdash; entire transcript</option>
+      </select>
+    </div>
+    <div class="set-row">
+      <label class="set-name"><input type="checkbox" id="sticky"> Sticky</label>
+      <span class="set-hint">Keep the chat on the big model once any turn needs it.</span>
+    </div>
+    <div class="set-row">
+      <label class="set-name" for="cooldown">Cool-down</label>
+      <select id="cooldown" disabled>
+        <option value="0">never decay</option>
+        <option value="1">after 1 calm turn</option>
+        <option value="2">after 2 calm turns</option>
+        <option value="3">after 3 calm turns</option>
+      </select>
+      <span class="set-hint">Drift back to local once the chat goes quiet.</span>
+    </div>
+    <div class="set-foot">Applies to your next message.</div>
   </div>
-  <div class="set-row">
-    <label class="set-name" for="scope">Routing scope</label>
-    <select id="scope">
-      <option value="">server config</option>
-      <option value="turn">turn &mdash; system + latest message</option>
-      <option value="last_user">last_user &mdash; latest message only</option>
-      <option value="user">user &mdash; all your messages</option>
-      <option value="all">all &mdash; entire transcript</option>
-    </select>
-  </div>
-  <div class="set-row">
-    <label class="set-name"><input type="checkbox" id="sticky"> Sticky</label>
-    <span class="set-hint">Keep the chat on the big model once any turn needs it.</span>
-  </div>
-  <div class="set-row">
-    <label class="set-name" for="cooldown">Cool-down</label>
-    <select id="cooldown" disabled>
-      <option value="0">never decay</option>
-      <option value="1">after 1 calm turn</option>
-      <option value="2">after 2 calm turns</option>
-      <option value="3">after 3 calm turns</option>
-    </select>
-    <span class="set-hint">Drift back to local once the chat goes quiet.</span>
-  </div>
-  <div class="set-foot">Applies to your next message.</div>
 </div>
 <main><div class="wrap" id="wrap">
   <div class="empty" id="empty"><h2>Ask anything</h2>
@@ -321,7 +324,10 @@ const messages=[]; let savedTotal=0, savedUnit='', pretty=s=>s.replace(/_/g,' ')
 
 function syncT(){const on=useT.checked; tEl.disabled=!on; tv.textContent=on?(tEl.value/100).toFixed(2):'config'; tv.classList.toggle('on',on);}
 useT.addEventListener('change',syncT); tEl.addEventListener('input',syncT); syncT();
-gear.addEventListener('click',()=>{const open=settings.hasAttribute('hidden');settings.toggleAttribute('hidden');gear.classList.toggle('on',open);gear.setAttribute('aria-expanded',open?'true':'false');});
+function setSettings(open){settings.toggleAttribute('hidden',!open);gear.classList.toggle('on',open);gear.setAttribute('aria-expanded',open?'true':'false');}
+gear.addEventListener('click',e=>{e.stopPropagation();setSettings(settings.hasAttribute('hidden'));});
+document.addEventListener('click',e=>{if(!settings.hasAttribute('hidden')&&!settings.contains(e.target))setSettings(false);});
+document.addEventListener('keydown',e=>{if(e.key==='Escape')setSettings(false);});
 
 inEl.addEventListener('input',()=>{inEl.style.height='auto';inEl.style.height=Math.min(inEl.scrollHeight,window.innerHeight*0.4)+'px';});
 inEl.addEventListener('keydown',e=>{if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();composer.requestSubmit();}});
