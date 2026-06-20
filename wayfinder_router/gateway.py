@@ -167,23 +167,20 @@ _DEMO_HTML = """<!doctype html><html lang="en"><head><meta charset="utf-8">
 *{box-sizing:border-box}
 html,body{height:100%}
 body{margin:0;background:var(--bg);color:var(--text);font-family:var(--font);
-  font-size:15px;line-height:1.55;display:flex;flex-direction:row;height:100vh;overflow:hidden;
+  font-size:15px;line-height:1.55;display:flex;flex-direction:column;height:100vh;overflow:hidden;
   -webkit-font-smoothing:antialiased;-moz-osx-font-smoothing:grayscale}
-.app{flex:1;min-width:0;display:flex;flex-direction:column;height:100vh}
-/* Sidebar is an overlay drawer: the burger slides it in over the content (with a
-   scrim); the top bar never shifts. Closed by default. */
-.scrim{position:fixed;inset:0;background:rgba(20,20,22,.34);opacity:0;visibility:hidden;
-  transition:opacity .2s,visibility .2s;z-index:45}
-body.sidebar-open .scrim{opacity:1;visibility:visible}
-.sidebar{position:fixed;top:0;left:0;height:100vh;width:266px;z-index:46;box-sizing:border-box;
-  display:flex;flex-direction:column;gap:.55rem;padding:.7rem .6rem;background:var(--panel);
-  border-right:1px solid var(--line);box-shadow:var(--shadow);
-  transform:translateX(-100%);transition:transform .2s ease}
-body.sidebar-open .sidebar{transform:translateX(0)}
-.side-search{font:inherit;font-size:.8rem;color:var(--text);background:var(--bg);border:1px solid var(--line-strong);
-  border-radius:9px;padding:.42rem .55rem;outline:none}
+.lower{flex:1;min-height:0;display:flex;flex-direction:row}
+.content{flex:1;min-width:0;min-height:0;display:flex;flex-direction:column}
+/* Sidebar: a persistent in-flow panel that collapses to an icon rail (no overlay). */
+.sidebar{flex:none;width:256px;box-sizing:border-box;display:flex;flex-direction:column;gap:.5rem;
+  padding:.6rem .55rem;background:var(--panel);border-right:1px solid var(--line);overflow:hidden;transition:width .18s ease}
+body.sidebar-collapsed .sidebar{width:58px}
+.side-top{flex:none}
+.side-search{width:100%;box-sizing:border-box;font:inherit;font-size:.8rem;color:var(--text);background:var(--bg);
+  border:1px solid var(--line-strong);border-radius:9px;padding:.42rem .55rem;outline:none}
 .side-search:focus{border-color:color-mix(in srgb,var(--accent) 55%,var(--line-strong))}
-.side-scroll{display:flex;flex-direction:column;gap:.1rem;overflow-y:auto;flex:1;min-height:0}
+body.sidebar-collapsed .side-search,body.sidebar-collapsed .side-scroll{display:none}
+.side-scroll{display:flex;flex-direction:column;gap:.1rem;overflow-y:auto;overflow-x:hidden;flex:1;min-height:0}
 .side-label{font-size:.62rem;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);padding:.45rem .3rem .15rem}
 .folder-head{display:flex;align-items:center;gap:.35rem;padding:.42rem .5rem;border-radius:9px;cursor:pointer;
   font-size:.79rem;font-weight:600;color:var(--text);user-select:none}
@@ -210,13 +207,20 @@ body.sidebar-open .sidebar{transform:translateX(0)}
 .thread:hover .t-menu,.thread.active .t-menu{opacity:.6}
 .t-menu:hover{opacity:1;color:var(--text)}
 .side-empty{color:var(--muted);font-size:.78rem;padding:.5rem .4rem;opacity:.85}
-.side-foot{display:flex;flex-direction:column;gap:.4rem;border-top:1px solid var(--line);padding-top:.55rem}
-.side-act,.newchat{display:flex;align-items:center;justify-content:center;gap:.4rem;font:inherit;font-size:.82rem;
-  border-radius:10px;padding:.5rem .7rem;cursor:pointer;font-weight:600}
-.side-act{color:var(--muted);background:transparent;border:1px solid var(--line-strong)}
-.side-act:hover{color:var(--text);border-color:var(--accent)}
-.newchat{color:var(--btn-text);background:var(--btn);border:0}
-.newchat:active,.side-act:active{transform:translateY(1px)}
+.side-foot{flex:none;display:flex;flex-direction:column;gap:.12rem;border-top:1px solid var(--line);padding-top:.4rem;margin-top:.1rem}
+.nav{display:flex;align-items:center;gap:.6rem;width:100%;box-sizing:border-box;font:inherit;font-size:.82rem;font-weight:500;
+  color:var(--text);background:transparent;border:0;border-radius:9px;padding:.5rem .55rem;cursor:pointer;text-align:left;white-space:nowrap}
+.nav:hover{background:var(--elev)}
+.nav.on{background:var(--accent-weak);color:var(--accent)}
+.nav .ico{flex:none;width:18px;height:18px;display:grid;place-items:center}
+.nav .ico svg{width:18px;height:18px;stroke:currentColor;fill:none;stroke-width:1.7;stroke-linecap:round;stroke-linejoin:round}
+.nav-label{overflow:hidden;text-overflow:ellipsis}
+.nav.primary{background:var(--btn);color:var(--btn-text)}
+.nav.primary:hover{background:var(--btn);opacity:.92}
+.searchIcon{display:none}
+body.sidebar-collapsed .nav{justify-content:center;padding:.5rem 0;gap:0}
+body.sidebar-collapsed .nav-label{display:none}
+body.sidebar-collapsed .searchIcon{display:flex}
 .side-toggle{flex:none;width:30px;height:30px;border:1px solid var(--line);background:var(--panel);color:var(--muted);
   border-radius:9px;cursor:pointer;display:grid;place-items:center;font-size:1rem;margin-right:.1rem}
 .side-toggle:hover{color:var(--text);border-color:var(--line-strong)}
@@ -228,6 +232,21 @@ body.sidebar-open .sidebar{transform:translateX(0)}
 .menu button.danger:hover{background:color-mix(in srgb,#d97706 18%,transparent);color:#9a3412}
 .menu .mlabel{font-size:.58rem;text-transform:uppercase;letter-spacing:.07em;color:var(--muted);padding:.3rem .5rem .1rem}
 .menu .sep{height:1px;background:var(--line);margin:.18rem .25rem}
+.modal{position:fixed;inset:0;z-index:70;display:grid;place-items:center;padding:1rem;background:rgba(20,20,22,.42)}
+.modal[hidden]{display:none}
+.modal-card{width:min(560px,100%);max-height:min(82vh,660px);overflow-y:auto;background:var(--elev);
+  border:1px solid var(--line-strong);border-radius:16px;box-shadow:0 24px 60px rgba(0,0,0,.3);padding:1.3rem 1.5rem 1.5rem}
+.modal-head{display:flex;align-items:center;justify-content:space-between;gap:1rem;margin-bottom:.2rem}
+.modal-head h2{margin:0;font-size:1.1rem;letter-spacing:-.01em}
+.modal-x{flex:none;border:0;background:transparent;color:var(--muted);font-size:1.4rem;line-height:1;cursor:pointer;padding:0 .2rem}
+.modal-x:hover{color:var(--text)}
+.modal-card h3{margin:1.15rem 0 .3rem;font-size:.66rem;text-transform:uppercase;letter-spacing:.07em;color:var(--muted)}
+.modal-card p,.modal-card li{font-size:.86rem;color:var(--text);line-height:1.55}
+.modal-card ul{margin:.2rem 0;padding-left:1.15rem}
+.modal-card li{margin:.12rem 0}
+.modal-card code{font-family:var(--mono);font-size:.85em;background:var(--panel);padding:.05rem .3rem;border-radius:5px}
+.modal-card a{color:var(--accent)}
+.modal-links{margin-top:1.1rem;border-top:1px solid var(--line);padding-top:.8rem;color:var(--muted)}
 ::selection{background:color-mix(in srgb,var(--accent) 22%,transparent)}
 main::-webkit-scrollbar{width:11px}
 main::-webkit-scrollbar-thumb{background:var(--line-strong);border-radius:999px;border:3px solid var(--bg)}
@@ -247,7 +266,7 @@ main::-webkit-scrollbar-thumb{background:var(--line-strong);border-radius:999px;
 .gear:hover{color:var(--text);border-color:var(--line-strong)}
 .gear.on{background:var(--accent-weak);color:var(--accent);
   border-color:color-mix(in srgb,var(--accent) 40%,var(--line-strong))}
-.settings{position:absolute;top:calc(100% + .5rem);right:1.1rem;z-index:20;
+.settings{position:fixed;z-index:55;
   width:min(300px,calc(100vw - 2rem));background:var(--elev);border:1px solid var(--line-strong);
   border-radius:var(--radius-sm);box-shadow:0 12px 32px rgba(13,13,13,.16),var(--shadow);
   padding:.9rem 1rem;display:flex;flex-direction:column;gap:.85rem;font-size:.8rem;color:var(--muted);
@@ -310,10 +329,9 @@ main::-webkit-scrollbar-thumb{background:var(--line-strong);border-radius:999px;
 .cfg{margin:0;font-family:var(--mono);font-size:.68rem;color:var(--text);background:var(--panel);
   border:1px solid var(--line);border-radius:9px;padding:.6rem .7rem;white-space:pre-wrap;word-break:break-word;
   max-height:11rem;overflow:auto}
-.stage{flex:1;min-height:0;display:flex;flex-direction:column}
 main{flex:1;overflow-y:auto;padding:1.5rem 1.1rem 2rem;scroll-behavior:smooth}
 /* Launch state: centre the heading + composer as a group; drops to the bottom on the first message. */
-body.intro .stage{justify-content:center}
+body.intro .content{justify-content:center}
 body.intro main{flex:0 1 auto;overflow:visible}
 body.intro form{background:none}
 .wrap{max-width:760px;margin:0 auto;display:flex;flex-direction:column;gap:1.4rem}
@@ -384,22 +402,27 @@ textarea::placeholder{color:var(--muted)}
 :focus-visible{outline:none;box-shadow:var(--ring);border-radius:10px}
 @media(prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important;scroll-behavior:auto!important}}
 </style></head><body class="intro">
-<aside class="sidebar" id="sidebar">
-  <input class="side-search" id="search" type="search" placeholder="Search chats" aria-label="Search chats">
-  <div class="side-scroll" id="threads"></div>
-  <div class="side-foot">
-    <button class="side-act" id="newfolder" type="button">&#43; New folder</button>
-    <button class="newchat" id="newchat" type="button">&#43; New chat</button>
-  </div>
-</aside>
-<div class="scrim" id="scrim"></div>
-<div class="app">
 <div class="bar">
   <button class="side-toggle" id="sideToggle" type="button" aria-label="Toggle sidebar" title="Toggle sidebar">&#9776;</button>
   <span class="brand">Wayfinder<span class="dot">.</span></span>
   <span class="mode" id="mode">ready</span>
   <span class="saved" id="saved"></span>
-  <button class="gear" id="gear" type="button" aria-label="Routing settings" aria-expanded="false" title="Routing settings">&#9881;</button>
+</div>
+<div class="lower">
+<aside class="sidebar" id="sidebar">
+  <div class="side-top">
+    <button class="nav searchIcon" id="searchIcon" type="button" data-tip="Search"><span class="ico"><svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.6-3.6"/></svg></span></button>
+    <input class="side-search" id="search" type="search" placeholder="Search chats" aria-label="Search chats">
+  </div>
+  <div class="side-scroll" id="threads"></div>
+  <div class="side-foot">
+    <button class="nav" id="newfolder" type="button" data-tip="New folder"><span class="ico"><svg viewBox="0 0 24 24"><path d="M3 7a2 2 0 012-2h4l2 2h8a2 2 0 012 2v8a2 2 0 01-2 2H5a2 2 0 01-2-2z"/><path d="M12 11v5M9.5 13.5h5"/></svg></span><span class="nav-label">New folder</span></button>
+    <button class="nav primary" id="newchat" type="button" data-tip="New chat"><span class="ico"><svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg></span><span class="nav-label">New chat</span></button>
+    <button class="nav" id="settingsBtn" type="button" data-tip="Settings"><span class="ico"><svg viewBox="0 0 24 24"><path d="M4 7h9M17 7h3M4 17h3M11 17h9"/><circle cx="15" cy="7" r="2.2"/><circle cx="9" cy="17" r="2.2"/></svg></span><span class="nav-label">Settings</span></button>
+    <button class="nav" id="helpBtn" type="button" data-tip="Help"><span class="ico"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M9.8 9.3a2.3 2.3 0 014.3 1c0 1.6-2.1 2-2.1 3.2"/><circle cx="12" cy="17.2" r="0.7" fill="currentColor" stroke="none"/></svg></span><span class="nav-label">Help</span></button>
+  </div>
+</aside>
+<div class="content">
   <div class="settings" id="settings" hidden>
     <div class="set-row">
       <div class="set-head">
@@ -471,8 +494,6 @@ textarea::placeholder{color:var(--muted)}
     </details>
     <div class="set-foot">Applies to your next message.</div>
   </div>
-</div>
-<div class="stage">
 <main><div class="wrap" id="wrap">
   <div class="empty" id="empty"><h2>Ask anything</h2>
   <div>Every reply shows where it routed; open the <b>?</b> for the score, the features behind it, and the cost saved. Run the gateway with <code>--dry-run</code> for a keyless demo.</div>
@@ -490,13 +511,41 @@ textarea::placeholder{color:var(--muted)}
 </div></form>
 </div>
 </div>
+<div class="modal" id="help" hidden>
+  <div class="modal-card">
+    <div class="modal-head"><h2>Wayfinder &mdash; quick guide</h2><button class="modal-x" id="helpX" type="button" aria-label="Close">&times;</button></div>
+    <p>Wayfinder is a <b>structural router</b>: it scores the shape of your prompt &mdash; length, lists, code, headings, tables &mdash; and sends easy turns to a cheap <b>local</b> model and hard ones to a capable <b>cloud</b> model. The decision is deterministic, with no model call to make it.</p>
+    <h3>Reading a reply</h3>
+    <ul>
+      <li><b>Pill</b> &mdash; where it routed (local or cloud).</li>
+      <li><b>score</b> &mdash; structural complexity (0&ndash;1) against the threshold.</li>
+      <li><b>?</b> &mdash; the features behind the score and the cost saved vs always-cloud.</li>
+      <li><b>latched</b> &mdash; the conversation latch kept a hard chat on the big model.</li>
+    </ul>
+    <h3>Settings</h3>
+    <ul>
+      <li><b>Threshold</b> &mdash; move the local&#8596;cloud cut for this chat.</li>
+      <li><b>Routing scope</b> &mdash; what gets scored in a multi-turn chat.</li>
+      <li><b>Sticky / Cool-down</b> &mdash; keep a hard chat on cloud, then let it drift back.</li>
+      <li><b>Advanced</b> &mdash; tune feature weights, enable lexical signals, load a lexicon profile, and export it as config.</li>
+      <li><b>Models</b> &mdash; which endpoints are wired and whether each API key is set.</li>
+    </ul>
+    <h3>Chats &amp; folders</h3>
+    <p>Conversations live in your browser &mdash; nothing is stored server-side. Start chats, drag them into folders (or use the &#8943; menu), pin, and rename from the sidebar.</p>
+    <h3>API keys</h3>
+    <p>Keys are never entered here: set the environment variable named in <b>Settings &rarr; Models</b> and restart. Run the gateway with <code>--dry-run</code> for a keyless demo.</p>
+    <p class="modal-links">Full docs: <a href="https://github.com/itsthelore/wayfinder-router" target="_blank" rel="noopener">README</a> &middot; <a href="https://github.com/itsthelore/wayfinder-router/blob/HEAD/docs/faq.md" target="_blank" rel="noopener">FAQ</a></p>
+  </div>
+</div>
 <script>
 const wrap=document.getElementById('wrap'),empty=document.getElementById('empty');
 const inEl=document.getElementById('in'),sendBtn=document.getElementById('send');
 const card=document.querySelector('.composer');
 const useT=document.getElementById('useT'),tEl=document.getElementById('t'),tv=document.getElementById('tv');
 const modeEl=document.getElementById('mode'),savedEl=document.getElementById('saved');
-const gear=document.getElementById('gear'),settings=document.getElementById('settings');
+const settingsBtn=document.getElementById('settingsBtn'),settings=document.getElementById('settings');
+const helpBtn=document.getElementById('helpBtn'),helpModal=document.getElementById('help'),helpX=document.getElementById('helpX');
+const searchIcon=document.getElementById('searchIcon');
 const scopeEl=document.getElementById('scope'),stickyEl=document.getElementById('sticky');
 const cooldownEl=document.getElementById('cooldown');
 function syncSticky(){cooldownEl.disabled=!stickyEl.checked;}
@@ -504,7 +553,7 @@ stickyEl.addEventListener('change',syncSticky); syncSticky();
 let savedTotal=0, savedUnit='', pretty=s=>s.replace(/_/g,' ');
 const newchat=document.getElementById('newchat'),searchEl=document.getElementById('search');
 const listEl=document.getElementById('threads'),sideToggle=document.getElementById('sideToggle');
-const newfolder=document.getElementById('newfolder'),scrim=document.getElementById('scrim');
+const newfolder=document.getElementById('newfolder');
 const titleCase=s=>s.replace(/\\b[a-z]/g,c=>c.toUpperCase());
 
 function syncT(){const on=useT.checked; tEl.disabled=!on; tv.textContent=on?(tEl.value/100).toFixed(2):'config'; tv.classList.toggle('on',on);}
@@ -586,8 +635,13 @@ document.addEventListener('focusin',e=>{const b=e.target.closest('.help');if(b)s
 document.addEventListener('focusout',e=>{if(e.target.closest('.help'))hideTip();});
 document.querySelectorAll('.help').forEach(b=>b.addEventListener('click',e=>{e.preventDefault();e.stopPropagation();showTip(b);}));
 
-function setSettings(open){settings.toggleAttribute('hidden',!open);gear.classList.toggle('on',open);gear.setAttribute('aria-expanded',open?'true':'false');}
-gear.addEventListener('click',e=>{e.stopPropagation();setSettings(settings.hasAttribute('hidden'));});
+function setSettings(open){
+  settings.toggleAttribute('hidden',!open);settingsBtn.classList.toggle('on',open);settingsBtn.setAttribute('aria-expanded',open?'true':'false');
+  if(open){const r=settingsBtn.getBoundingClientRect(),pw=settings.offsetWidth,ph=settings.offsetHeight;
+    let left=r.right+8; if(left+pw>innerWidth-8)left=Math.max(8,r.left-pw-8);
+    let top=Math.min(r.bottom-ph,innerHeight-ph-8); top=Math.max(8,top);
+    settings.style.left=left+'px';settings.style.top=top+'px';}}
+settingsBtn.addEventListener('click',e=>{e.stopPropagation();setSettings(settings.hasAttribute('hidden'));});
 document.addEventListener('click',e=>{if(!settings.hasAttribute('hidden')&&!settings.contains(e.target))setSettings(false);});
 document.addEventListener('keydown',e=>{if(e.key==='Escape')setSettings(false);});
 
@@ -749,7 +803,7 @@ function deleteFolder(id){threads.forEach(t=>{if(t.folder===id)t.folder=null;});
 function openThread(id){currentId=id;const t=cur();wrap.querySelectorAll('.turn').forEach(n=>n.remove());lastTurn=null;
   if(!t||!t.items.length){document.body.classList.add('intro');empty.style.display='';card.classList.remove('started');modeEl.textContent='ready';}
   else{document.body.classList.remove('intro');empty.style.display='none';card.classList.add('started');t.items.forEach(renderItem);}
-  recomputeSaved();renderSidebar();scroll();document.body.classList.remove('sidebar-open');}
+  recomputeSaved();renderSidebar();scroll();}
 function newThread(){const t={id:'t'+Date.now().toString(36)+Math.random().toString(36).slice(2,5),title:'New chat',created:Date.now(),items:[],folder:null};
   threads.unshift(t);persist();openThread(t.id);inEl.focus();}
 function deleteThread(id){threads=threads.filter(t=>t.id!==id);persist();
@@ -799,9 +853,21 @@ document.querySelectorAll('.eg').forEach(b=>b.addEventListener('click',()=>send(
 newchat.addEventListener('click',newThread);
 newfolder.addEventListener('click',addFolder);
 searchEl.addEventListener('input',renderSidebar);
-sideToggle.addEventListener('click',e=>{e.stopPropagation();document.body.classList.toggle('sidebar-open');});
-scrim.addEventListener('click',()=>document.body.classList.remove('sidebar-open'));
-document.addEventListener('keydown',e=>{if(e.key==='Escape')document.body.classList.remove('sidebar-open');});
+
+// collapsible sidebar (persisted); search icon expands the rail and focuses search
+function setCollapsed(c){document.body.classList.toggle('sidebar-collapsed',c);try{localStorage.setItem('wf.sidebar',c?'1':'0');}catch(e){}}
+sideToggle.addEventListener('click',()=>setCollapsed(!document.body.classList.contains('sidebar-collapsed')));
+searchIcon.addEventListener('click',()=>{setCollapsed(false);searchEl.focus();});
+const savedCollapse=(()=>{try{return localStorage.getItem('wf.sidebar');}catch(e){return null;}})();
+if(savedCollapse==='1'||(savedCollapse===null&&matchMedia('(max-width:760px)').matches))document.body.classList.add('sidebar-collapsed');
+
+// help modal
+function setHelp(open){helpModal.toggleAttribute('hidden',!open);}
+helpBtn.addEventListener('click',()=>setHelp(true));
+helpX.addEventListener('click',()=>setHelp(false));
+helpModal.addEventListener('click',e=>{if(e.target===helpModal)setHelp(false);});
+document.addEventListener('keydown',e=>{if(e.key==='Escape'){setHelp(false);setSettings(false);}});
+
 if(threads.length)openThread(threads[0].id); else newThread();
 </script></body></html>"""
 

@@ -32,11 +32,16 @@ Manage threads **entirely client-side, in `localStorage`**. The gateway gains no
   (`{role:'user'|'assistant'|'note', content, wf?, dry?}`). The API request body is derived from
   `items` (user turns + assistant turns that have content); the stored `wf` decision lets a thread
   re-render its routing strips and recompute its saved-tally on switch.
-- The sidebar is an **overlay drawer**: a burger in the top bar slides it in *over* the content
-  (with a scrim); the top bar never shifts, and it's closed by default. Search sits at the top, the
-  thread/folder list scrolls, and **New folder + New chat live at the bottom**. Settings stays the
-  top-right gear. Titles derive from the first user message — **no model call to name a thread**
-  (ironic for a cost router, and it's free).
+- **Layout**: a full-width Wayfinder bar on top; below it a **persistent, in-flow collapsible
+  sidebar** (no overlay/scrim) — the burger in the bar toggles it between a labelled panel (~256px)
+  and a **macOS/enterprise-style icon rail** (~58px) with hover tooltips; state persists in
+  `localStorage` (auto-collapsed under 760px). Search at the top; the thread/folder list scrolls;
+  the footer holds **New folder, New chat, Settings, Help**. Titles derive from the first user
+  message — **no model call to name a thread** (ironic for a cost router, and it's free).
+- **Settings & Help live in the sidebar.** The old top-right gear is gone; Settings opens the same
+  panel as a **JS-positioned flyout** anchored to its sidebar button (works collapsed or expanded).
+  Help opens a self-contained **modal** — a concise guide (what Wayfinder is, reading a reply, the
+  settings, chats/folders, keys-in-env) with links out to the full README + FAQ.
 - **Folders**: a `folders` list (`{id, name, open}`), each thread carries a `folder` id (or none).
   Folders render as collapsible groups (caret, count, delete); ungrouped chats fall under **Chats**.
   A chat is filed via its **⋯ menu → Move to / + New folder**; deleting a folder un-files its chats.
