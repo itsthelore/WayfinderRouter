@@ -74,12 +74,24 @@ import tomllib
 import uuid
 from collections import deque
 from collections.abc import AsyncIterator, Callable
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from .complexity import RoutingConfig, Tier, explain_score, recommend_tier, score_complexity
-from .config import WayfinderConfigError, find_config_file, load_routing_config
+from .complexity import (
+    DEFAULT_WEIGHTS,
+    RoutingConfig,
+    Tier,
+    explain_score,
+    recommend_tier,
+    score_complexity,
+)
+from .config import (
+    WayfinderConfigError,
+    dump_routing_toml,
+    find_config_file,
+    load_routing_config,
+)
 from .feedback import DEFAULT_LOG, record_label
 
 if TYPE_CHECKING:  # type-only; the runtime imports these lazily inside build_app
@@ -179,7 +191,7 @@ main::-webkit-scrollbar-thumb{background:var(--line-strong);border-radius:999px;
   width:min(300px,calc(100vw - 2rem));background:var(--elev);border:1px solid var(--line-strong);
   border-radius:var(--radius-sm);box-shadow:0 12px 32px rgba(13,13,13,.16),var(--shadow);
   padding:.9rem 1rem;display:flex;flex-direction:column;gap:.85rem;font-size:.8rem;color:var(--muted);
-  animation:pop .14s cubic-bezier(.2,.7,.3,1) both}
+  max-height:calc(100vh - 4.5rem);overflow-y:auto;animation:pop .14s cubic-bezier(.2,.7,.3,1) both}
 @keyframes pop{from{opacity:0;transform:translateY(-6px)}to{opacity:1;transform:none}}
 .settings[hidden]{display:none}
 .set-row{display:flex;flex-direction:column;gap:.4rem}
@@ -195,6 +207,25 @@ main::-webkit-scrollbar-thumb{background:var(--line-strong);border-radius:999px;
 .settings select:disabled{opacity:.4;cursor:not-allowed}
 .set-hint{font-size:.72rem;color:var(--muted);opacity:.9;line-height:1.4}
 .set-foot{font-size:.72rem;color:var(--muted);opacity:.8;border-top:1px solid var(--line);padding-top:.6rem}
+.adv{border-top:1px solid var(--line);padding-top:.6rem}
+.adv>summary{cursor:pointer;color:var(--text);font-weight:600;list-style:none;display:flex;align-items:center;gap:.4rem}
+.adv>summary::-webkit-details-marker{display:none}
+.adv>summary::before{content:"\\25B8";color:var(--muted);font-size:.7rem;transition:transform .15s}
+.adv[open]>summary::before{transform:rotate(90deg)}
+.adv-body{display:flex;flex-direction:column;gap:.7rem;margin-top:.7rem}
+.adv-grp{font-size:.62rem;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);margin-top:.2rem}
+.wrow{display:grid;grid-template-columns:6.3rem 1fr 2.1rem;align-items:center;gap:.5rem;font-size:.74rem}
+.wrow span{color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.wrow output{font-variant-numeric:tabular-nums;color:var(--text);text-align:right;font-weight:600}
+.settings textarea{width:100%;font:inherit;font-size:.74rem;color:var(--text);background:var(--panel);
+  border:1px solid var(--line-strong);border-radius:9px;padding:.4rem .5rem;resize:vertical;min-height:2.4rem;line-height:1.4}
+.settings textarea::placeholder{color:var(--muted);opacity:.8}
+.export{font:inherit;font-size:.78rem;font-weight:600;color:var(--btn-text);background:var(--btn);border:0;
+  border-radius:9px;padding:.42rem .7rem;cursor:pointer;align-self:flex-start;margin-top:.2rem}
+.export:active{transform:translateY(1px)}
+.cfg{margin:0;font-family:var(--mono);font-size:.68rem;color:var(--text);background:var(--panel);
+  border:1px solid var(--line);border-radius:9px;padding:.6rem .7rem;white-space:pre-wrap;word-break:break-word;
+  max-height:11rem;overflow:auto}
 main{flex:1;overflow-y:auto;padding:1.5rem 1.1rem 2rem;scroll-behavior:smooth}
 .wrap{max-width:760px;margin:0 auto;display:flex;flex-direction:column;gap:1.4rem}
 .empty{margin:13vh auto 0;max-width:32rem;text-align:center;color:var(--muted)}
@@ -295,6 +326,25 @@ textarea::placeholder{color:var(--muted)}
       </select>
       <span class="set-hint">Drift back to local once the chat goes quiet.</span>
     </div>
+    <details class="adv">
+      <summary>Advanced tuning</summary>
+      <div class="adv-body">
+        <div class="set-row">
+          <label class="set-name"><input type="checkbox" id="lex"> Lexical signals</label>
+          <span class="set-hint">Score difficulty vocabulary (prove, theorem, &sum;) &mdash; catches a short, hard prompt that has no structure. Off by default.</span>
+          <div class="set-ctl"><input type="range" id="lexw" min="0" max="100" value="40" disabled><output id="lexv">4.0</output></div>
+        </div>
+        <div class="adv-grp">Feature weights</div>
+        <div id="weights"></div>
+        <div class="adv-grp">Lexicon terms (blank = built-in)</div>
+        <label class="set-name" for="rterms">Reasoning</label>
+        <textarea id="rterms" rows="2" placeholder="prove, theorem, derive, induction&hellip;"></textarea>
+        <label class="set-name" for="cterms">Constraint</label>
+        <textarea id="cterms" rows="2" placeholder="must, exactly, without, guarantee&hellip;"></textarea>
+        <button class="export" id="export" type="button">Export config</button>
+        <pre class="cfg" id="cfg" hidden></pre>
+      </div>
+    </details>
     <div class="set-foot">Applies to your next message.</div>
   </div>
 </div>
@@ -324,6 +374,39 @@ const messages=[]; let savedTotal=0, savedUnit='', pretty=s=>s.replace(/_/g,' ')
 
 function syncT(){const on=useT.checked; tEl.disabled=!on; tv.textContent=on?(tEl.value/100).toFixed(2):'config'; tv.classList.toggle('on',on);}
 useT.addEventListener('change',syncT); tEl.addEventListener('input',syncT); syncT();
+// Advanced tuning (WF-ADR-0023): per-request scoring overrides + export.
+const lex=document.getElementById('lex'),lexw=document.getElementById('lexw'),lexv=document.getElementById('lexv');
+const rterms=document.getElementById('rterms'),cterms=document.getElementById('cterms');
+const exportBtn=document.getElementById('export'),cfgEl=document.getElementById('cfg'),weightsEl=document.getElementById('weights');
+let advTouched=false; const touch=()=>{advTouched=true;};
+const FEATS=[['word_count','word count',3],['heading_count','headings',1.5],['max_heading_depth','heading depth',1],['list_item_count','list items',2],['link_count','links',1],['code_block_count','code blocks',1.5],['table_row_count','table rows',1]];
+FEATS.forEach(([feat,label,def])=>{
+  const row=el('wrow'),sp=document.createElement('span');sp.textContent=label;row.appendChild(sp);
+  const s=document.createElement('input');s.type='range';s.min=0;s.max=100;s.dataset.feat=feat;s.setAttribute('value',Math.round(def*10));
+  const o=document.createElement('output');o.textContent=def.toFixed(1);
+  s.addEventListener('input',()=>{o.textContent=(s.value/10).toFixed(1);touch();});
+  row.appendChild(s);row.appendChild(o);weightsEl.appendChild(row);
+});
+function syncLex(){lexw.disabled=!lex.checked;lexv.textContent=lex.checked?(lexw.value/10).toFixed(1):'off';}
+lex.addEventListener('change',()=>{syncLex();touch();});
+lexw.addEventListener('input',()=>{syncLex();touch();}); syncLex();
+rterms.addEventListener('input',touch); cterms.addEventListener('input',touch);
+const splitTerms=s=>s.split(/[,\\n]/).map(x=>x.trim()).filter(Boolean);
+function buildTuning(){
+  const weights={};
+  weightsEl.querySelectorAll('input[type=range]').forEach(s=>{weights[s.dataset.feat]=+(s.value/10).toFixed(1);});
+  const lw=lex.checked?+(lexw.value/10).toFixed(1):0;
+  ['reasoning_term_count','math_symbol_count','constraint_term_count','question_count'].forEach(f=>weights[f]=lw);
+  const t={weights},r=splitTerms(rterms.value),c=splitTerms(cterms.value);
+  if(r.length||c.length){t.lexicon={};if(r.length)t.lexicon.reasoning_terms=r;if(c.length)t.lexicon.constraint_terms=c;}
+  return t;
+}
+exportBtn.addEventListener('click',async()=>{
+  try{const res=await fetch('/router/config',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(advTouched?buildTuning():{})});
+    cfgEl.textContent=await res.text();}catch(e){cfgEl.textContent='export failed: '+e.message;}
+  cfgEl.hidden=false;
+});
+
 function setSettings(open){settings.toggleAttribute('hidden',!open);gear.classList.toggle('on',open);gear.setAttribute('aria-expanded',open?'true':'false');}
 gear.addEventListener('click',e=>{e.stopPropagation();setSettings(settings.hasAttribute('hidden'));});
 document.addEventListener('click',e=>{if(!settings.hasAttribute('hidden')&&!settings.contains(e.target))setSettings(false);});
@@ -391,8 +474,9 @@ async function send(text){
   headers['X-Wayfinder-Sticky']=stickyEl.checked?'true':'false';
   if(stickyEl.checked) headers['X-Wayfinder-Sticky-Cooldown']=cooldownEl.value;
   try{
-    const res=await fetch('/v1/chat/completions',{method:'POST',headers,
-      body:JSON.stringify({model:'auto',messages,stream:false})});
+    const payload={model:'auto',messages,stream:false};
+    if(advTouched) payload.wayfinder_tuning=buildTuning();
+    const res=await fetch('/v1/chat/completions',{method:'POST',headers,body:JSON.stringify(payload)});
     const data=await res.json().catch(()=>({}));
     const wf=data.wayfinder||null;
     if(wf) modeEl.textContent=wf.dry_run?'dry-run':'live';
@@ -873,6 +957,61 @@ def resolve_sticky_cooldown(value: str | None, default: int) -> int:
     return cooldown
 
 
+# In-demo scoring overrides (WF-ADR-0023): a request body field that tunes the
+# scoring *function* (feature weights + lexicon terms) for this request only. Unlike
+# the header overrides above (which move which threshold/scope/latch applies), this
+# changes how the score is computed — but the scorer stays pure: the gateway only
+# chooses the config it hands over (WF-ADR-0001). Opt-in, additive, never forwarded
+# upstream. Production tuning is still `calibrate`; this is the demo's live knob.
+TUNING_FIELD = "wayfinder_tuning"
+_MAX_LEXICON_TERMS = 2000
+
+
+def apply_scoring_overrides(routing: RoutingConfig, override: object) -> RoutingConfig:
+    """Return a ``RoutingConfig`` variant with per-request weight/lexicon tuning applied.
+
+    ``override`` is the parsed ``wayfinder_tuning`` body field: an optional partial
+    ``weights`` map (merged over the configured weights) and an optional ``lexicon``
+    with ``reasoning_terms`` / ``constraint_terms`` lists (which replace those sets).
+    Returns ``routing`` unchanged when absent; raises :class:`BadOverride` on malformed
+    input so the demo gets a clear 400.
+    """
+    if override is None:
+        return routing
+    if not isinstance(override, dict):
+        raise BadOverride(f"{TUNING_FIELD} must be an object")
+    weights = dict(routing.weights)
+    raw_weights = override.get("weights")
+    if raw_weights is not None:
+        if not isinstance(raw_weights, dict):
+            raise BadOverride(f"{TUNING_FIELD}.weights must be an object")
+        for name, value in raw_weights.items():
+            if name not in weights:
+                raise BadOverride(f"{TUNING_FIELD}.weights: unknown feature {name!r}")
+            if isinstance(value, bool) or not isinstance(value, (int, float)) or value < 0:
+                raise BadOverride(f"{TUNING_FIELD}.weights.{name} must be a non-negative number")
+            weights[name] = float(value)
+    lexicon = routing.lexicon
+    raw_lexicon = override.get("lexicon")
+    if raw_lexicon is not None:
+        if not isinstance(raw_lexicon, dict):
+            raise BadOverride(f"{TUNING_FIELD}.lexicon must be an object")
+        changes: dict[str, frozenset[str]] = {}
+        for key in ("reasoning_terms", "constraint_terms"):
+            if key not in raw_lexicon:
+                continue
+            terms = raw_lexicon[key]
+            if not isinstance(terms, list) or not all(isinstance(t, str) for t in terms):
+                raise BadOverride(f"{TUNING_FIELD}.lexicon.{key} must be a list of strings")
+            cleaned = frozenset(t.strip().lower() for t in terms if t.strip())
+            if len(cleaned) > _MAX_LEXICON_TERMS:
+                raise BadOverride(f"{TUNING_FIELD}.lexicon.{key} exceeds {_MAX_LEXICON_TERMS} terms")
+            changes[key] = cleaned
+        if changes:
+            lexicon = replace(routing.lexicon, **changes)
+    return replace(routing, weights=weights, lexicon=lexicon)
+
+
 def _tier_rank(model: str, tiers: tuple[Tier, ...]) -> int:
     """Index of ``model`` in the ordered tier ladder, or -1 if it is not a tier."""
     for i, tier in enumerate(tiers):
@@ -1189,6 +1328,21 @@ def build_app(
         with ``--dry-run`` for a keyless demo. Self-contained; no build, no CDN."""
         return _DEMO_HTML
 
+    @app.post("/router/config", response_class=PlainTextResponse)
+    def export_config(body: dict = Body(default={})) -> Response:  # noqa: B008 - FastAPI default
+        """Render the configured router as `[routing]` TOML, with any `wayfinder_tuning`
+        body applied (WF-ADR-0023) — the demo's "Export config" so a tuned setup becomes
+        a real, paste-able config. Pure: builds and serializes a config, no model call."""
+        routing, _ = holder.current()
+        try:
+            tuned = apply_scoring_overrides(routing, body.get(TUNING_FIELD, body or None))
+        except BadOverride as exc:
+            return JSONResponse(
+                status_code=400,
+                content={"error": {"message": str(exc), "type": "wayfinder_router_bad_override"}},
+            )
+        return PlainTextResponse(dump_routing_toml(tuned), media_type="text/plain; charset=utf-8")
+
     @app.post("/v1/feedback")
     def feedback(  # noqa: B008 - FastAPI default
         body: dict = Body(...),
@@ -1227,11 +1381,14 @@ def build_app(
                 headers={"x-wayfinder-router-request-id": request_id},
             )
 
-        # Resolve scope/latch overrides before scoring — they change what/how we route.
+        # Resolve scope/latch overrides + any per-request scoring tuning before scoring.
+        # The tuning field is popped so it is never forwarded to the upstream model.
+        tuning = body.pop(TUNING_FIELD, None)
         try:
             route_on = parse_route_on_header(x_wayfinder_route_on) or gw.route_on
             sticky = resolve_sticky(x_wayfinder_sticky, gw.sticky)
             cooldown = resolve_sticky_cooldown(x_wayfinder_sticky_cooldown, gw.sticky_cooldown)
+            routing = apply_scoring_overrides(routing, tuning)
         except BadOverride as exc:
             return _reject(exc)
 
