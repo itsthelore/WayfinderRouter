@@ -140,6 +140,22 @@ are real subject-matter vocabulary; `math`, `multilingual`, and `commonsense` sk
 task-surface nouns (RouterBench's tasks there are word-problems / templated). Treat them as a
 worked example and regenerate from your own labelled traffic with `--emit-domains`.
 
+### Stock profiles (packaged, selectable in the demo)
+
+For a head-start without hand-copying, the library ships **lexicon profiles**
+([`wayfinder_router/profiles.py`](../wayfinder_router/profiles.py), WF-ADR-0024), served at
+`GET /router/profiles` and selectable in the demo's **Advanced** settings — pick one and it
+fills the term lists, turns the lexical signal on, and you tune + **Export config** from there.
+They come in two honestly-labelled flavours:
+
+- **Curated** — hand-authored, defensible vocabulary (Proofs & mathematics, Law & compliance,
+  Code & infrastructure, Science & medicine). A sensible start, but *unvalidated*.
+- **RouterBench-mined** — the per-domain lists above, each carrying its quality note (the
+  `math` / `commonsense` / `multilingual` ones are kept as cautionary examples, not recommendations).
+
+A profile is a starting vocabulary, not a finished router: load it, then **calibrate on your own
+labels**. The lexical caveat above (it reads vocabulary, not difficulty) applies to every profile.
+
 ## Verify it on your data
 
 Point the benchmark harness at your labeled set to see the held-out skill for the structural

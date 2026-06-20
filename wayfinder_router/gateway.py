@@ -93,6 +93,7 @@ from .config import (
     load_routing_config,
 )
 from .feedback import DEFAULT_LOG, record_label
+from .profiles import PROFILES
 
 if TYPE_CHECKING:  # type-only; the runtime imports these lazily inside build_app
     from fastapi import FastAPI, Response
@@ -337,6 +338,8 @@ textarea::placeholder{color:var(--muted)}
         <div class="adv-grp">Feature weights</div>
         <div id="weights"></div>
         <div class="adv-grp">Lexicon terms (blank = built-in)</div>
+        <select id="profile"><option value="">&mdash; starter profile &mdash;</option></select>
+        <span class="set-hint" id="profnote"></span>
         <label class="set-name" for="rterms">Reasoning</label>
         <textarea id="rterms" rows="2" placeholder="prove, theorem, derive, induction&hellip;"></textarea>
         <label class="set-name" for="cterms">Constraint</label>
@@ -391,6 +394,18 @@ function syncLex(){lexw.disabled=!lex.checked;lexv.textContent=lex.checked?(lexw
 lex.addEventListener('change',()=>{syncLex();touch();});
 lexw.addEventListener('input',()=>{syncLex();touch();}); syncLex();
 rterms.addEventListener('input',touch); cterms.addEventListener('input',touch);
+const profileEl=document.getElementById('profile'),profnote=document.getElementById('profnote'),PROF={};
+fetch('/router/profiles').then(r=>r.json()).then(d=>{
+  const labels={curated:'Curated',mined:'RouterBench (mined)'},groups={};
+  (d.profiles||[]).forEach(p=>{PROF[p.id]=p;
+    const g=groups[p.source]||(groups[p.source]=Object.assign(document.createElement('optgroup'),{label:labels[p.source]||p.source}));
+    const o=document.createElement('option');o.value=p.id;o.textContent=p.name;g.appendChild(o);});
+  Object.keys(groups).forEach(k=>profileEl.appendChild(groups[k]));
+}).catch(()=>{});
+profileEl.addEventListener('change',()=>{const p=PROF[profileEl.value];if(!p)return;
+  rterms.value=p.reasoning_terms.join(', ');cterms.value=(p.constraint_terms||[]).join(', ');
+  if(!lex.checked){lex.checked=true;syncLex();}
+  profnote.textContent=p.note||'';touch();});
 const splitTerms=s=>s.split(/[,\\n]/).map(x=>x.trim()).filter(Boolean);
 function buildTuning(){
   const weights={};
@@ -1327,6 +1342,12 @@ def build_app(
         the score and why, and the cost saved, with a live threshold slider. Pairs
         with ``--dry-run`` for a keyless demo. Self-contained; no build, no CDN."""
         return _DEMO_HTML
+
+    @app.get("/router/profiles")
+    def lexicon_profiles() -> dict:
+        """Stock lexicon profiles (WF-ADR-0024) the demo can load to seed the term lists.
+        Static, read-only metadata — no model call, no prompt text."""
+        return {"profiles": [p.to_dict() for p in PROFILES]}
 
     @app.post("/router/config", response_class=PlainTextResponse)
     def export_config(body: dict = Body(default={})) -> Response:  # noqa: B008 - FastAPI default
