@@ -167,8 +167,32 @@ _DEMO_HTML = """<!doctype html><html lang="en"><head><meta charset="utf-8">
 *{box-sizing:border-box}
 html,body{height:100%}
 body{margin:0;background:var(--bg);color:var(--text);font-family:var(--font);
-  font-size:15px;line-height:1.55;display:flex;flex-direction:column;height:100vh;
+  font-size:15px;line-height:1.55;display:flex;flex-direction:row;height:100vh;overflow:hidden;
   -webkit-font-smoothing:antialiased;-moz-osx-font-smoothing:grayscale}
+.app{flex:1;min-width:0;display:flex;flex-direction:column;height:100vh}
+.sidebar{width:248px;flex:none;display:flex;flex-direction:column;gap:.55rem;padding:.7rem .6rem;
+  background:var(--panel);border-right:1px solid var(--line);height:100vh;overflow-y:auto;transition:margin-left .2s ease}
+body.sidebar-collapsed .sidebar{margin-left:-249px}
+.newchat{display:flex;align-items:center;justify-content:center;gap:.4rem;font:inherit;font-size:.82rem;font-weight:600;
+  color:var(--text);background:var(--elev);border:1px solid var(--line-strong);border-radius:10px;padding:.5rem .7rem;cursor:pointer}
+.newchat:hover{border-color:var(--accent);background:var(--accent-weak)}
+.side-search{font:inherit;font-size:.8rem;color:var(--text);background:var(--bg);border:1px solid var(--line-strong);
+  border-radius:9px;padding:.42rem .55rem;outline:none}
+.side-search:focus{border-color:color-mix(in srgb,var(--accent) 55%,var(--line-strong))}
+.side-label{font-size:.62rem;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);padding:.3rem .3rem 0}
+.threads{display:flex;flex-direction:column;gap:.1rem;overflow-y:auto;flex:1;min-height:0}
+.thread{display:flex;align-items:center;gap:.4rem;padding:.45rem .55rem;border-radius:9px;cursor:pointer;font-size:.82rem;color:var(--text)}
+.thread:hover{background:var(--elev)}
+.thread.active{background:var(--accent-weak)}
+.t-title{flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0}
+.t-del{flex:none;border:0;background:transparent;color:var(--muted);font-size:1.05rem;line-height:1;cursor:pointer;opacity:0;padding:0 .1rem}
+.thread:hover .t-del,.thread.active .t-del{opacity:.65}
+.t-del:hover{opacity:1;color:var(--text)}
+.side-empty{color:var(--muted);font-size:.78rem;padding:.5rem .4rem;opacity:.85}
+.side-toggle{flex:none;width:30px;height:30px;border:1px solid var(--line);background:var(--panel);color:var(--muted);
+  border-radius:9px;cursor:pointer;display:grid;place-items:center;font-size:1rem;margin-right:.1rem}
+.side-toggle:hover{color:var(--text);border-color:var(--line-strong)}
+@media(max-width:720px){.sidebar{position:fixed;z-index:40;box-shadow:var(--shadow)}body:not(.sidebar-collapsed) .app{filter:brightness(.97)}}
 ::selection{background:color-mix(in srgb,var(--accent) 22%,transparent)}
 main::-webkit-scrollbar{width:11px}
 main::-webkit-scrollbar-thumb{background:var(--line-strong);border-radius:999px;border:3px solid var(--bg)}
@@ -325,7 +349,15 @@ textarea::placeholder{color:var(--muted)}
 :focus-visible{outline:none;box-shadow:var(--ring);border-radius:10px}
 @media(prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important;scroll-behavior:auto!important}}
 </style></head><body class="intro">
+<aside class="sidebar" id="sidebar">
+  <button class="newchat" id="newchat" type="button">&#43; New chat</button>
+  <input class="side-search" id="search" type="search" placeholder="Search chats" aria-label="Search chats">
+  <div class="side-label">Chats</div>
+  <div class="threads" id="threads"></div>
+</aside>
+<div class="app">
 <div class="bar">
+  <button class="side-toggle" id="sideToggle" type="button" aria-label="Toggle sidebar" title="Toggle sidebar">&#9776;</button>
   <span class="brand">Wayfinder<span class="dot">.</span></span>
   <span class="mode" id="mode">ready</span>
   <span class="saved" id="saved"></span>
@@ -419,6 +451,7 @@ textarea::placeholder{color:var(--muted)}
   </div>
 </div></form>
 </div>
+</div>
 <script>
 const wrap=document.getElementById('wrap'),empty=document.getElementById('empty');
 const inEl=document.getElementById('in'),sendBtn=document.getElementById('send');
@@ -430,7 +463,9 @@ const scopeEl=document.getElementById('scope'),stickyEl=document.getElementById(
 const cooldownEl=document.getElementById('cooldown');
 function syncSticky(){cooldownEl.disabled=!stickyEl.checked;}
 stickyEl.addEventListener('change',syncSticky); syncSticky();
-const messages=[]; let savedTotal=0, savedUnit='', pretty=s=>s.replace(/_/g,' ');
+let savedTotal=0, savedUnit='', pretty=s=>s.replace(/_/g,' ');
+const newchat=document.getElementById('newchat'),searchEl=document.getElementById('search');
+const listEl=document.getElementById('threads'),sideToggle=document.getElementById('sideToggle');
 const titleCase=s=>s.replace(/\\b[a-z]/g,c=>c.toUpperCase());
 
 function syncT(){const on=useT.checked; tEl.disabled=!on; tv.textContent=on?(tEl.value/100).toFixed(2):'config'; tv.classList.toggle('on',on);}
@@ -563,15 +598,54 @@ function routing(wf){
     btn.addEventListener('click',()=>{const open=pop.classList.toggle('open');btn.setAttribute('aria-expanded',open?'true':'false');if(open)scroll();});
     r.appendChild(btn); r.appendChild(pop);
   }
-  if(wf.cost&&typeof wf.cost.saved==='number'){savedTotal+=wf.cost.saved;savedUnit=wf.cost.estimated?'units':'$';
-    savedEl.innerHTML='Saved <b>'+savedTotal.toFixed(3)+'</b> '+savedUnit+' vs always-cloud';}
   return r;
 }
 
+// --- conversation threads, persisted client-side in localStorage (WF-ADR-0026) ---
+const LS='wf.threads'; let threads=[]; let currentId=null; let lastTurn=null;
+try{threads=JSON.parse(localStorage.getItem(LS)||'[]')||[];}catch(e){threads=[];}
+const persist=()=>{try{localStorage.setItem(LS,JSON.stringify(threads));}catch(e){}};
+const cur=()=>threads.find(t=>t.id===currentId)||null;
+const apiMessages=t=>(t?t.items:[]).filter(i=>i.role==='user'||(i.role==='assistant'&&i.content)).map(i=>({role:i.role,content:i.content}));
+const titleFrom=text=>{const s=(text||'').replace(/\\s+/g,' ').trim();return s.length>42?s.slice(0,42)+'…':(s||'New chat');};
+
+function renderItem(it){
+  if(it.role==='user'){lastTurn=turn();lastTurn.appendChild(el('msg user',it.content));return;}
+  const ans=el('answer');
+  if(it.role==='note')ans.appendChild(el('msg note',it.content));
+  else if(it.dry)ans.appendChild(el('msg bot dry',it.content));
+  else ans.appendChild(el('msg bot',it.content));
+  if(it.wf)ans.appendChild(routing(it.wf));
+  (lastTurn||(lastTurn=turn())).appendChild(ans);
+}
+function recomputeSaved(){const t=cur();let tot=0,unit='$';
+  if(t)t.items.forEach(i=>{if(i.wf&&i.wf.cost&&typeof i.wf.cost.saved==='number'){tot+=i.wf.cost.saved;unit=i.wf.cost.estimated?'units':'$';}});
+  savedTotal=tot;savedUnit=unit;savedEl.innerHTML=tot?('Saved <b>'+tot.toFixed(3)+'</b> '+unit+' vs always-cloud'):'';}
+function renderSidebar(){const q=(searchEl.value||'').toLowerCase();listEl.innerHTML='';
+  const shown=threads.filter(t=>!q||(t.title||'').toLowerCase().includes(q)||(t.items||[]).some(i=>(i.content||'').toLowerCase().includes(q)));
+  if(!shown.length){listEl.appendChild(el('side-empty',threads.length?'No matches':'No chats yet'));return;}
+  shown.forEach(t=>{const row=el('thread'+(t.id===currentId?' active':''));
+    row.appendChild(el('t-title',t.title||'New chat'));
+    const del=document.createElement('button');del.className='t-del';del.type='button';del.textContent='×';del.setAttribute('aria-label','Delete chat');del.title='Delete chat';
+    del.addEventListener('click',e=>{e.stopPropagation();deleteThread(t.id);});
+    row.appendChild(del);row.addEventListener('click',()=>openThread(t.id));listEl.appendChild(row);});}
+function openThread(id){currentId=id;const t=cur();wrap.querySelectorAll('.turn').forEach(n=>n.remove());lastTurn=null;
+  if(!t||!t.items.length){document.body.classList.add('intro');empty.style.display='';card.classList.remove('started');modeEl.textContent='ready';}
+  else{document.body.classList.remove('intro');empty.style.display='none';card.classList.add('started');t.items.forEach(renderItem);}
+  recomputeSaved();renderSidebar();scroll();
+  if(matchMedia('(max-width:720px)').matches)document.body.classList.add('sidebar-collapsed');}
+function newThread(){const t={id:'t'+Date.now().toString(36)+Math.random().toString(36).slice(2,5),title:'New chat',created:Date.now(),items:[]};
+  threads.unshift(t);persist();openThread(t.id);inEl.focus();}
+function deleteThread(id){threads=threads.filter(t=>t.id!==id);persist();
+  if(currentId===id){threads.length?openThread(threads[0].id):newThread();}else renderSidebar();}
+
 async function send(text){
+  let t=cur(); if(!t){newThread();t=cur();}
   empty.style.display='none'; card.classList.add('started'); document.body.classList.remove('intro');
-  const t=turn(); t.appendChild(el('msg user',text)); scroll();
-  messages.push({role:'user',content:text});
+  lastTurn=turn(); lastTurn.appendChild(el('msg user',text)); scroll();
+  const first=!t.items.some(i=>i.role==='user');
+  t.items.push({role:'user',content:text}); if(first)t.title=titleFrom(text);
+  persist(); renderSidebar();
   sendBtn.disabled=true;
   const headers={'Content-Type':'application/json','X-Wayfinder-Debug':'true'};
   if(useT.checked) headers['X-Wayfinder-Threshold']=(tEl.value/100).toFixed(2);
@@ -579,22 +653,23 @@ async function send(text){
   headers['X-Wayfinder-Sticky']=stickyEl.checked?'true':'false';
   if(stickyEl.checked) headers['X-Wayfinder-Sticky-Cooldown']=cooldownEl.value;
   try{
-    const payload={model:'auto',messages,stream:false};
+    const payload={model:'auto',messages:apiMessages(t),stream:false};
     if(advTouched) payload.wayfinder_tuning=buildTuning();
     const res=await fetch('/v1/chat/completions',{method:'POST',headers,body:JSON.stringify(payload)});
     const data=await res.json().catch(()=>({}));
     const wf=data.wayfinder||null;
     if(wf) modeEl.textContent=wf.dry_run?'dry-run':'live';
     const content=data&&data.choices&&data.choices[0]&&data.choices[0].message&&data.choices[0].message.content;
-    const ans=el('answer');
-    if(content){ans.appendChild(el('msg bot',content));messages.push({role:'assistant',content});}
-    else if(data&&data.error){ans.appendChild(el('msg note',(data.error.message||'error')));}
-    else if(wf&&wf.dry_run){ans.appendChild(el('msg bot dry',
-      'Routed to the '+wf.model+' model — no model was called in --dry-run mode. Configure a model (or drop --dry-run) to see the reply.'));}
-    else{ans.appendChild(el('msg note','No content returned.'));}
+    const ans=el('answer'); let item;
+    if(content){ans.appendChild(el('msg bot',content));item={role:'assistant',content:content,wf};}
+    else if(data&&data.error){const m=data.error.message||'error';ans.appendChild(el('msg note',m));item={role:'note',content:m};}
+    else if(wf&&wf.dry_run){const m='Routed to the '+wf.model+' model — no model was called in --dry-run mode. Configure a model (or drop --dry-run) to see the reply.';
+      ans.appendChild(el('msg bot dry',m));item={role:'assistant',content:'',wf,dry:true};}
+    else{const m='No content returned.';ans.appendChild(el('msg note',m));item={role:'note',content:m};}
     if(wf) ans.appendChild(routing(wf));
-    t.appendChild(ans);
-  }catch(e){t.appendChild(el('msg note','Gateway unreachable: '+e.message));}
+    lastTurn.appendChild(ans);
+    t.items.push(item); persist(); recomputeSaved(); renderSidebar();
+  }catch(e){const m='Gateway unreachable: '+e.message;const ans=el('answer');ans.appendChild(el('msg note',m));lastTurn.appendChild(ans);t.items.push({role:'note',content:m});persist();}
   sendBtn.disabled=false; scroll(); inEl.focus();
 }
 composer.addEventListener('submit',e=>{e.preventDefault();const v=inEl.value.trim();if(!v)return;
@@ -604,6 +679,12 @@ const EGS={
   plan:"# Migration plan\\n\\nWrite a zero-downtime plan to migrate our Postgres database to a new region.\\n\\n## Requirements\\n\\n- enumerate prerequisites and risks\\n- detail the cutover sequence\\n- provide rollback steps\\n- estimate the maintenance window\\n\\n```sql\\nSELECT pg_create_logical_replication_slot('mig','pgoutput');\\n```\\n\\n| phase | risk |\\n| --- | --- |\\n| dual-write | medium |\\n| cutover | high |"
 };
 document.querySelectorAll('.eg').forEach(b=>b.addEventListener('click',()=>send(EGS[b.dataset.eg]||b.dataset.eg)));
+
+newchat.addEventListener('click',newThread);
+searchEl.addEventListener('input',renderSidebar);
+sideToggle.addEventListener('click',()=>document.body.classList.toggle('sidebar-collapsed'));
+if(matchMedia('(max-width:720px)').matches)document.body.classList.add('sidebar-collapsed');
+if(threads.length)openThread(threads[0].id); else newThread();
 </script></body></html>"""
 
 # --- metrics (WF-ADR-0018) --------------------------------------------------
