@@ -856,7 +856,9 @@ def test_cooldown_decays_the_latch_after_n_calm_turns():
 
     tiers = binary_tiers(0.2)
     routing = RoutingConfig(tiers=tiers)
-    hwm = lambda convo, cd: gateway.conversation_high_water(convo, routing, tiers, cooldown=cd)
+
+    def hwm(convo, cd):
+        return gateway.conversation_high_water(convo, routing, tiers, cooldown=cd)
     # monotonic: never steps down
     assert hwm(_hard_then_calm("thanks", "ok", "more"), 0) == "cloud"
     # cooldown=2: holds through 1 calm turn, decays on the 2nd
