@@ -88,10 +88,15 @@ not the whole transcript — so the score doesn't drift toward cloud as a conver
 model's own (often long) replies are never fed back into the decision
 ([WF-ADR-0021](../decisions/WF-ADR-0021-multi-turn-routing-scope.md)). The scope is a `[gateway] route_on`
 knob (`turn` (default) / `last_user` / `user` / `all`) if you'd rather score every user turn or the entire
-payload. What it still won't do is notice that a *short* follow-up is semantically hard — it reads
-structure, not meaning — so to keep a chat on the big model once it gets hard, pin it via the `model` field
-(`auto` / `prefer-local` / `prefer-hosted`) or an `X-Wayfinder-Threshold` header (see the README,
-["Steer a single request"](../README.md#steer-a-single-request)).
+payload. What a structural scan still can't do on its own is notice that a *short* follow-up
+("now prove that's lossless") is semantically hard — it reads structure, not meaning. For an ongoing hard
+chat, turn on the **conversation latch** (`[gateway] sticky`, or the `X-Wayfinder-Sticky` header): it
+routes by the hardest turn the conversation has seen — a max over turns, so it doesn't drift with length —
+so once any turn crosses over, the thread stays on the capable model
+([WF-ADR-0022](../decisions/WF-ADR-0022-conversation-latch.md)). The latch can't help the *cold-start*
+case (a first message that's short but hard), which only opt-in lexical signals or an explicit pin
+(the `model` field `auto` / `prefer-local` / `prefer-hosted`, or `X-Wayfinder-Threshold`; see the README,
+["Steer a single request"](../README.md#steer-a-single-request)) will catch.
 
 ## Is it production-ready? Who maintains it? What are the dependencies?
 

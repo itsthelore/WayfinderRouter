@@ -730,3 +730,113 @@ def test_dump_gateway_toml_round_trips_route_on():
     assert gateway.gateway_config_from_toml(dumped).route_on == "last_user"
     # the default scope stays out of the dump, keeping configs clean
     assert "route_on" not in gateway.dump_gateway_toml(gateway.GatewayConfig(route_on="turn"))
+
+
+# --- conversation latch / sticky-auto (WF-ADR-0022) -------------------------
+
+_HARD_THEN_TRIVIAL = [
+    {"role": "user", "content": COMPLEX_TEXT},  # heavy -> cloud at threshold 0.2
+    {"role": "assistant", "content": "Here is a long structured answer."},
+    {"role": "user", "content": "thanks!"},  # the current turn is trivial
+]
+
+
+def test_conversation_high_water_is_a_max_over_turns_not_a_sum():
+    from wayfinder_router.complexity import RoutingConfig, binary_tiers
+
+    tiers = binary_tiers(0.2)
+    routing = RoutingConfig(tiers=tiers)
+    assert gateway.conversation_high_water(_HARD_THEN_TRIVIAL, routing, tiers) == "cloud"
+    trivial = [{"role": "user", "content": "hi"}, {"role": "user", "content": "thanks"}]
+    assert gateway.conversation_high_water(trivial, routing, tiers) == "local"
+    assert gateway.conversation_high_water([{"role": "assistant", "content": "x"}], routing, tiers) is None
+
+
+def test_sticky_latches_a_hard_chat_to_cloud_via_header(tmp_path):
+    client = _dry_run_client(tmp_path)  # threshold 0.2
+    off = client.post("/v1/chat/completions", json={"model": "auto", "messages": _HARD_THEN_TRIVIAL})
+    assert off.json()["wayfinder"]["model"] == "local"  # the gap: trivial follow-up routes cheap
+    on = client.post(
+        "/v1/chat/completions",
+        json={"model": "auto", "messages": _HARD_THEN_TRIVIAL},
+        headers={"X-Wayfinder-Sticky": "true"},
+    )
+    wf = on.json()["wayfinder"]
+    assert wf["model"] == "cloud" and wf["mode"] == "sticky"
+    assert wf["score"] == 0.0  # reported score stays the current turn's — the "why" is honest
+
+
+def test_sticky_does_not_escalate_an_all_trivial_chat(tmp_path):
+    client = _dry_run_client(tmp_path)
+    convo = [{"role": "user", "content": "hi"}, {"role": "assistant", "content": "hello"},
+             {"role": "user", "content": "thanks"}]
+    wf = client.post(
+        "/v1/chat/completions", json={"model": "auto", "messages": convo},
+        headers={"X-Wayfinder-Sticky": "true"},
+    ).json()["wayfinder"]
+    assert wf["model"] == "local" and wf["mode"] == "scored"  # nothing to latch onto
+
+
+def test_sticky_from_config_default(tmp_path):
+    client = _dry_run_client(
+        tmp_path, config='[routing]\nthreshold = 0.2\n\n[gateway]\nsticky = true\n'
+    )
+    wf = client.post(
+        "/v1/chat/completions", json={"model": "auto", "messages": _HARD_THEN_TRIVIAL}
+    ).json()["wayfinder"]
+    assert wf["model"] == "cloud" and wf["mode"] == "sticky"
+
+
+def test_explicit_pin_beats_sticky(tmp_path):
+    # A pin is the operator's explicit choice; the latch must not override it.
+    client = _dry_run_client(tmp_path)
+    wf = client.post(
+        "/v1/chat/completions",
+        json={"model": "prefer-local", "messages": _HARD_THEN_TRIVIAL},
+        headers={"X-Wayfinder-Sticky": "true"},
+    ).json()["wayfinder"]
+    assert wf["model"] == "local" and wf["mode"] == "pinned"
+
+
+def test_route_on_header_overrides_the_configured_scope(tmp_path):
+    client = _dry_run_client(tmp_path)  # default scope "turn"
+    # Scoring the whole transcript (heavy) routes the trivial current turn to cloud.
+    wf = client.post(
+        "/v1/chat/completions", json={"model": "auto", "messages": _HARD_THEN_TRIVIAL},
+        headers={"X-Wayfinder-Route-On": "all"},
+    ).json()["wayfinder"]
+    assert wf["model"] == "cloud"
+
+
+def test_resolve_sticky_and_route_on_header_parsers():
+    assert gateway.resolve_sticky(None, True) is True  # absent -> config default
+    assert gateway.resolve_sticky("false", True) is False
+    assert gateway.resolve_sticky("YES", False) is True
+    assert gateway.parse_route_on_header(None) is None
+    assert gateway.parse_route_on_header("  USER ") == "user"
+    with pytest.raises(gateway.BadOverride):
+        gateway.resolve_sticky("maybe", False)
+    with pytest.raises(gateway.BadOverride):
+        gateway.parse_route_on_header("everything")
+
+
+def test_bad_override_headers_return_400(tmp_path):
+    client = _dry_run_client(tmp_path)
+    for header in ({"X-Wayfinder-Sticky": "maybe"}, {"X-Wayfinder-Route-On": "nope"}):
+        resp = client.post("/v1/chat/completions", json=TRIVIAL, headers=header)
+        assert resp.status_code == 400
+        assert resp.json()["error"]["type"] == "wayfinder_router_bad_override"
+
+
+def test_sticky_round_trips_through_dump_gateway_toml():
+    cfg = gateway.GatewayConfig(models={}, route_on="user", sticky=True)
+    dumped = gateway.dump_gateway_toml(cfg)
+    assert "sticky = true" in dumped and 'route_on = "user"' in dumped
+    back = gateway.gateway_config_from_toml(dumped)
+    assert back.sticky is True and back.route_on == "user"
+    assert "sticky" not in gateway.dump_gateway_toml(gateway.GatewayConfig())  # default stays out
+
+
+def test_sticky_config_rejects_non_boolean(tmp_path):
+    with pytest.raises(gateway.WayfinderConfigError):
+        gateway.gateway_config_from_toml('[gateway]\nsticky = "yes"\n')

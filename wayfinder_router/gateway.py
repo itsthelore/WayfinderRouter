@@ -169,15 +169,27 @@ main::-webkit-scrollbar-thumb{background:var(--line-strong);border-radius:999px;
   text-transform:uppercase;letter-spacing:.09em}
 .saved{margin-left:auto;font-size:.78rem;color:var(--muted);font-variant-numeric:tabular-nums;text-align:right}
 .saved b{color:var(--text);font-weight:600}
-.controls{display:flex;align-items:center;gap:.7rem;padding:.5rem 1.1rem .65rem;
-  font-size:.8rem;color:var(--muted);flex-wrap:wrap}
-.controls input[type=range]{flex:1;min-width:140px;max-width:300px;accent-color:var(--accent);height:4px}
-.controls input[type=range]:disabled{opacity:.4;cursor:not-allowed}
-.controls output{font-variant-numeric:tabular-nums;color:var(--muted);min-width:3em;font-weight:600}
-.controls output.on{color:var(--text)}
-.controls label{display:flex;align-items:center;gap:.4rem;cursor:pointer;user-select:none}
-.controls label input{accent-color:var(--accent)}
-.hint{font-size:.72rem;color:var(--muted);opacity:.85}
+.gear{margin-left:.4rem;flex:none;width:30px;height:30px;border-radius:9px;border:1px solid var(--line);
+  background:var(--panel);color:var(--muted);font-size:.95rem;cursor:pointer;display:grid;place-items:center;
+  transition:color .15s,border-color .15s,background .15s}
+.gear:hover{color:var(--text);border-color:var(--line-strong)}
+.gear.on{background:var(--accent-weak);color:var(--accent);
+  border-color:color-mix(in srgb,var(--accent) 40%,var(--line-strong))}
+.settings{border-bottom:1px solid var(--line);background:var(--panel);
+  padding:.85rem 1.1rem 1rem;display:flex;flex-direction:column;gap:.75rem;font-size:.8rem;color:var(--muted)}
+.settings[hidden]{display:none}
+.set-row{display:flex;align-items:center;gap:.7rem;flex-wrap:wrap}
+.set-name{display:flex;align-items:center;gap:.45rem;color:var(--text);font-weight:550;
+  min-width:9rem;cursor:pointer;user-select:none}
+.set-name input{accent-color:var(--accent)}
+.settings input[type=range]{flex:1;min-width:140px;max-width:280px;accent-color:var(--accent);height:4px}
+.settings input[type=range]:disabled{opacity:.4;cursor:not-allowed}
+.settings output{font-variant-numeric:tabular-nums;color:var(--muted);min-width:3em;font-weight:600}
+.settings output.on{color:var(--text)}
+.settings select{font:inherit;font-size:.8rem;color:var(--text);background:var(--elev);
+  border:1px solid var(--line-strong);border-radius:9px;padding:.3rem .5rem;cursor:pointer}
+.set-hint{font-size:.74rem;color:var(--muted);opacity:.9}
+.set-foot{font-size:.72rem;color:var(--muted);opacity:.8;border-top:1px solid var(--line);padding-top:.55rem}
 main{flex:1;overflow-y:auto;padding:1.5rem 1.1rem 2rem;scroll-behavior:smooth}
 .wrap{max-width:760px;margin:0 auto;display:flex;flex-direction:column;gap:1.4rem}
 .empty{margin:13vh auto 0;max-width:32rem;text-align:center;color:var(--muted)}
@@ -205,6 +217,7 @@ main{flex:1;overflow-y:auto;padding:1.5rem 1.1rem 2rem;scroll-behavior:smooth}
 .meta{color:var(--muted);font-variant-numeric:tabular-nums}
 .tag{font-size:.6rem;font-weight:600;letter-spacing:.09em;text-transform:uppercase;
   color:var(--muted);border:1px solid var(--line-strong);border-radius:var(--pill);padding:.1rem .45rem}
+.tag.sticky{color:var(--cloud);border-color:color-mix(in srgb,var(--cloud) 45%,var(--line-strong))}
 .why-btn{margin-left:auto;flex:none;font:inherit;font-size:.72rem;font-weight:700;width:1.2rem;height:1.2rem;
   border-radius:50%;border:1px solid var(--line-strong);background:var(--panel);color:var(--muted);
   cursor:pointer;display:grid;place-items:center;line-height:1;padding:0;transition:border-color .15s,color .15s}
@@ -247,12 +260,29 @@ textarea::placeholder{color:var(--muted)}
   <span class="brand">Wayfinder<span class="dot">.</span></span>
   <span class="mode" id="mode">ready</span>
   <span class="saved" id="saved"></span>
+  <button class="gear" id="gear" type="button" aria-label="Routing settings" aria-expanded="false" title="Routing settings">&#9881;</button>
 </div>
-<div class="controls">
-  <label><input type="checkbox" id="useT"> threshold</label>
-  <input type="range" id="t" min="0" max="100" value="50" disabled>
-  <output id="tv">config</output>
-  <span class="hint">applies to your next message</span>
+<div class="settings" id="settings" hidden>
+  <div class="set-row">
+    <label class="set-name"><input type="checkbox" id="useT"> Threshold</label>
+    <input type="range" id="t" min="0" max="100" value="50" disabled>
+    <output id="tv">config</output>
+  </div>
+  <div class="set-row">
+    <label class="set-name" for="scope">Routing scope</label>
+    <select id="scope">
+      <option value="">server config</option>
+      <option value="turn">turn &mdash; system + latest message</option>
+      <option value="last_user">last_user &mdash; latest message only</option>
+      <option value="user">user &mdash; all your messages</option>
+      <option value="all">all &mdash; entire transcript</option>
+    </select>
+  </div>
+  <div class="set-row">
+    <label class="set-name"><input type="checkbox" id="sticky"> Sticky</label>
+    <span class="set-hint">Keep the chat on the big model once any turn needs it.</span>
+  </div>
+  <div class="set-foot">Applies to your next message.</div>
 </div>
 <main><div class="wrap" id="wrap">
   <div class="empty" id="empty"><h2>Ask anything</h2>
@@ -271,10 +301,13 @@ const wrap=document.getElementById('wrap'),empty=document.getElementById('empty'
 const inEl=document.getElementById('in'),sendBtn=document.getElementById('send');
 const useT=document.getElementById('useT'),tEl=document.getElementById('t'),tv=document.getElementById('tv');
 const modeEl=document.getElementById('mode'),savedEl=document.getElementById('saved');
+const gear=document.getElementById('gear'),settings=document.getElementById('settings');
+const scopeEl=document.getElementById('scope'),stickyEl=document.getElementById('sticky');
 const messages=[]; let savedTotal=0, savedUnit='', pretty=s=>s.replace(/_/g,' ');
 
 function syncT(){const on=useT.checked; tEl.disabled=!on; tv.textContent=on?(tEl.value/100).toFixed(2):'config'; tv.classList.toggle('on',on);}
 useT.addEventListener('change',syncT); tEl.addEventListener('input',syncT); syncT();
+gear.addEventListener('click',()=>{const open=settings.hasAttribute('hidden');settings.toggleAttribute('hidden');gear.classList.toggle('on',open);gear.setAttribute('aria-expanded',open?'true':'false');});
 
 inEl.addEventListener('input',()=>{inEl.style.height='auto';inEl.style.height=Math.min(inEl.scrollHeight,window.innerHeight*0.4)+'px';});
 inEl.addEventListener('keydown',e=>{if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();composer.requestSubmit();}});
@@ -290,7 +323,8 @@ function routing(wf){
   const pill=el('pill '+(wf.model==='cloud'?'cloud':''));
   pill.appendChild(el('dot')); pill.appendChild(document.createTextNode(' '+wf.model));
   r.appendChild(pill);
-  r.appendChild(el('meta','score '+Number(wf.score).toFixed(2)+(wf.mode!=='scored'?' · '+wf.mode:'')));
+  r.appendChild(el('meta','score '+Number(wf.score).toFixed(2)+(wf.mode!=='scored'&&wf.mode!=='sticky'?' · '+wf.mode:'')));
+  if(wf.mode==='sticky') r.appendChild(el('tag sticky','latched'));
   if(wf.dry_run) r.appendChild(el('tag','dry-run'));
 
   const cons=(wf.contributions||[]).filter(x=>x.contribution>0).sort((a,b)=>b.contribution-a.contribution).slice(0,4);
@@ -333,6 +367,8 @@ async function send(text){
   sendBtn.disabled=true;
   const headers={'Content-Type':'application/json','X-Wayfinder-Debug':'true'};
   if(useT.checked) headers['X-Wayfinder-Threshold']=(tEl.value/100).toFixed(2);
+  if(scopeEl.value) headers['X-Wayfinder-Route-On']=scopeEl.value;
+  headers['X-Wayfinder-Sticky']=stickyEl.checked?'true':'false';
   try{
     const res=await fetch('/v1/chat/completions',{method:'POST',headers,
       body:JSON.stringify({model:'auto',messages,stream:false})});
@@ -518,11 +554,14 @@ class GatewayConfig:
     """Maps recommended model names to upstream endpoints (from `[gateway.models]`).
 
     ``route_on`` selects which part of a multi-turn chat the router scores
-    (WF-ADR-0021); see :func:`extract_prompt`. Default ``"turn"``.
+    (WF-ADR-0021); see :func:`extract_prompt`. Default ``"turn"``. ``sticky``
+    latches a conversation to the highest tier any of its turns has needed
+    (WF-ADR-0022), so a chat that goes hard stays on the big model. Default off.
     """
 
     models: dict[str, GatewayModel] = field(default_factory=dict)
     route_on: str = "turn"
+    sticky: bool = False
 
 
 # Which chat-message text the router scores. The deterministic core scores
@@ -559,6 +598,9 @@ def gateway_config_from_toml(text: str, where: str = "wayfinder-router.toml") ->
         raise WayfinderConfigError(
             f"{where}: 'gateway.route_on' must be one of {', '.join(ROUTE_ON_SCOPES)}"
         )
+    sticky = gateway.get("sticky", False)
+    if not isinstance(sticky, bool):
+        raise WayfinderConfigError(f"{where}: 'gateway.sticky' must be a boolean")
     raw_models = gateway.get("models") or {}
     if not isinstance(raw_models, dict):
         raise WayfinderConfigError(f"{where}: '[gateway.models]' must be a table")
@@ -594,7 +636,7 @@ def gateway_config_from_toml(text: str, where: str = "wayfinder-router.toml") ->
             api_key_env=api_key_env,
             cost_per_1k=float(cost_per_1k) if cost_per_1k is not None else None,
         )
-    return GatewayConfig(models=models, route_on=route_on)
+    return GatewayConfig(models=models, route_on=route_on, sticky=sticky)
 
 
 def dump_gateway_toml(gateway: GatewayConfig) -> str:
@@ -604,8 +646,13 @@ def dump_gateway_toml(gateway: GatewayConfig) -> str:
     routing section. Emits ``api_key_env`` (the env-var *name*) — never a secret.
     """
     blocks: list[str] = []
-    if gateway.route_on != "turn":
-        blocks.append(f'[gateway]\nroute_on = "{gateway.route_on}"')
+    if gateway.route_on != "turn" or gateway.sticky:
+        lines = ["[gateway]"]
+        if gateway.route_on != "turn":
+            lines.append(f'route_on = "{gateway.route_on}"')
+        if gateway.sticky:
+            lines.append("sticky = true")
+        blocks.append("\n".join(lines))
     for name, model in gateway.models.items():
         lines = [
             f"[gateway.models.{name}]",
@@ -739,6 +786,74 @@ def threshold_tiers(routing: RoutingConfig, threshold: float) -> tuple[Tier, ...
             "gateway is configured for classifier or multi-tier routing"
         )
     return (Tier(0.0, routing.tiers[0].model), Tier(threshold, routing.tiers[1].model))
+
+
+# Two more per-request overrides (WF-ADR-0011), mirroring the threshold header: they
+# let a client (e.g. the demo's settings) move the routing scope / latch for one
+# request without touching server config. Still pure and offline.
+ROUTE_ON_HEADER = "x-wayfinder-route-on"
+STICKY_HEADER = "x-wayfinder-sticky"
+_TRUE_TOKENS = frozenset({"1", "true", "yes", "on"})
+_FALSE_TOKENS = frozenset({"0", "false", "no", "off"})
+
+
+def parse_route_on_header(value: str | None) -> str | None:
+    """Parse ``X-Wayfinder-Route-On`` into a scope, or ``None`` when absent.
+
+    Raises :class:`BadOverride` for an unknown scope.
+    """
+    if value is None or not value.strip():
+        return None
+    scope = value.strip().lower()
+    if scope not in ROUTE_ON_SCOPES:
+        raise BadOverride(
+            f"{ROUTE_ON_HEADER} must be one of {', '.join(ROUTE_ON_SCOPES)}, got {value!r}"
+        )
+    return scope
+
+
+def resolve_sticky(value: str | None, default: bool) -> bool:
+    """Resolve the conversation-latch flag from ``X-Wayfinder-Sticky``, else the config default."""
+    if value is None or not value.strip():
+        return default
+    token = value.strip().lower()
+    if token in _TRUE_TOKENS:
+        return True
+    if token in _FALSE_TOKENS:
+        return False
+    raise BadOverride(f"{STICKY_HEADER} must be true or false, got {value!r}")
+
+
+def _tier_rank(model: str, tiers: tuple[Tier, ...]) -> int:
+    """Index of ``model`` in the ordered tier ladder, or -1 if it is not a tier."""
+    for i, tier in enumerate(tiers):
+        if tier.model == model:
+            return i
+    return -1
+
+
+def conversation_high_water(
+    messages: object, routing: RoutingConfig, tiers: tuple[Tier, ...]
+) -> str | None:
+    """The highest tier any single user turn in the conversation reaches (WF-ADR-0022).
+
+    Each user turn is scored on its own (with the standing system context), so the
+    figure is a *max over turns*, not a sum — it does not inflate with conversation
+    length the way concatenating the transcript would. Returns the tier's model
+    name, or ``None`` when there are no user turns to score.
+    """
+    if not isinstance(messages, list):
+        return None
+    systems = [m for m in messages if isinstance(m, dict) and m.get("role") == "system"]
+    best_model, best_rank = None, -2
+    for message in messages:
+        if isinstance(message, dict) and message.get("role") == "user":
+            text = extract_prompt(systems + [message], route_on="turn")
+            model = recommend_tier(score_complexity(text, config=routing).score, tiers)
+            rank = _tier_rank(model, tiers)
+            if rank > best_rank:
+                best_model, best_rank = model, rank
+    return best_model
 
 
 def forward_request(
@@ -1031,17 +1146,34 @@ def build_app(
     async def chat_completions(  # noqa: B008 - FastAPI default
         body: dict = Body(...),
         x_wayfinder_threshold: str | None = Header(default=None),
+        x_wayfinder_route_on: str | None = Header(default=None),
+        x_wayfinder_sticky: str | None = Header(default=None),
         x_wayfinder_debug: str | None = Header(default=None),
     ) -> Response:
         request_id = uuid.uuid4().hex[:12]
         routing, gw = holder.current()
+
+        def _reject(exc: BadOverride) -> JSONResponse:
+            logger.info("request %s rejected: %s", request_id, exc)
+            return JSONResponse(
+                status_code=400,
+                content={"error": {"message": str(exc), "type": "wayfinder_router_bad_override"}},
+                headers={"x-wayfinder-router-request-id": request_id},
+            )
+
+        # Resolve scope/latch overrides before scoring — they change what/how we route.
+        try:
+            route_on = parse_route_on_header(x_wayfinder_route_on) or gw.route_on
+            sticky = resolve_sticky(x_wayfinder_sticky, gw.sticky)
+        except BadOverride as exc:
+            return _reject(exc)
+
         # Score once (always reported); a per-request override only changes which
         # endpoint the score routes to, never how it is computed (WF-ADR-0011). The
         # scoring time is the decision-latency metric (WF-ADR-0018).
         score_started = time.perf_counter()
-        decision = score_complexity(
-            extract_prompt(body.get("messages"), route_on=gw.route_on), config=routing
-        )
+        messages = body.get("messages")
+        decision = score_complexity(extract_prompt(messages, route_on=route_on), config=routing)
         decision_seconds = time.perf_counter() - score_started
 
         pin = resolve_pin(body.get("model"), routing, gw)
@@ -1051,17 +1183,21 @@ def build_app(
             try:
                 threshold = parse_threshold_header(x_wayfinder_threshold)
                 if threshold is not None:
-                    chosen = recommend_tier(decision.score, threshold_tiers(routing, threshold))
-                    mode = "threshold-override"
+                    effective_tiers = threshold_tiers(routing, threshold)
+                    chosen, mode = recommend_tier(decision.score, effective_tiers), "threshold-override"
                 else:
+                    effective_tiers = routing.tiers
                     chosen, mode = decision.recommendation, "scored"
+                # Conversation latch (WF-ADR-0022): escalate to the highest tier any single
+                # turn in this chat has needed, so a hard conversation stays on the big model.
+                if sticky and routing.classifier is None and len(effective_tiers) >= 2:
+                    latched = conversation_high_water(messages, routing, effective_tiers)
+                    if latched is not None and _tier_rank(latched, effective_tiers) > _tier_rank(
+                        chosen, effective_tiers
+                    ):
+                        chosen, mode = latched, "sticky"
             except BadOverride as exc:
-                logger.info("request %s rejected: %s", request_id, exc)
-                return JSONResponse(
-                    status_code=400,
-                    content={"error": {"message": str(exc), "type": "wayfinder_router_bad_override"}},
-                    headers={"x-wayfinder-router-request-id": request_id},
-                )
+                return _reject(exc)
 
         wf_headers = {
             "x-wayfinder-router-model": chosen,
