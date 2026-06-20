@@ -192,9 +192,13 @@ main::-webkit-scrollbar-thumb{background:var(--line-strong);border-radius:999px;
   width:min(300px,calc(100vw - 2rem));background:var(--elev);border:1px solid var(--line-strong);
   border-radius:var(--radius-sm);box-shadow:0 12px 32px rgba(13,13,13,.16),var(--shadow);
   padding:.9rem 1rem;display:flex;flex-direction:column;gap:.85rem;font-size:.8rem;color:var(--muted);
-  max-height:calc(100vh - 4.5rem);overflow-y:auto;animation:pop .14s cubic-bezier(.2,.7,.3,1) both}
+  max-height:min(26rem,calc(100vh - 5rem));overflow-y:auto;overscroll-behavior:contain;
+  scrollbar-width:thin;scrollbar-color:var(--line-strong) transparent;
+  animation:pop .14s cubic-bezier(.2,.7,.3,1) both}
 @keyframes pop{from{opacity:0;transform:translateY(-6px)}to{opacity:1;transform:none}}
 .settings[hidden]{display:none}
+.settings::-webkit-scrollbar{width:10px}
+.settings::-webkit-scrollbar-thumb{background:var(--line-strong);border-radius:999px;border:3px solid var(--elev)}
 .set-row{display:flex;flex-direction:column;gap:.4rem}
 .set-name{display:flex;align-items:center;gap:.45rem;color:var(--text);font-weight:550;cursor:pointer;user-select:none}
 .set-name input{accent-color:var(--accent)}
@@ -304,13 +308,13 @@ textarea::placeholder{color:var(--muted)}
       <div class="set-ctl"><input type="range" id="t" min="0" max="100" value="50" disabled><output id="tv">config</output></div>
     </div>
     <div class="set-row">
-      <label class="set-name" for="scope">Routing scope</label>
+      <label class="set-name" for="scope">Routing Scope</label>
       <select id="scope">
-        <option value="">server config</option>
-        <option value="turn">turn &mdash; system + latest</option>
-        <option value="last_user">last_user &mdash; latest only</option>
-        <option value="user">user &mdash; all your messages</option>
-        <option value="all">all &mdash; entire transcript</option>
+        <option value="">Server Config</option>
+        <option value="turn">Turn &mdash; System + Latest</option>
+        <option value="last_user">Last User &mdash; Latest Only</option>
+        <option value="user">User &mdash; All Your Messages</option>
+        <option value="all">All &mdash; Entire Transcript</option>
       </select>
     </div>
     <div class="set-row">
@@ -318,27 +322,27 @@ textarea::placeholder{color:var(--muted)}
       <span class="set-hint">Keep the chat on the big model once any turn needs it.</span>
     </div>
     <div class="set-row">
-      <label class="set-name" for="cooldown">Cool-down</label>
+      <label class="set-name" for="cooldown">Cool-Down</label>
       <select id="cooldown" disabled>
-        <option value="0">never decay</option>
-        <option value="1">after 1 calm turn</option>
-        <option value="2">after 2 calm turns</option>
-        <option value="3">after 3 calm turns</option>
+        <option value="0">Never Decay</option>
+        <option value="1">After 1 Calm Turn</option>
+        <option value="2">After 2 Calm Turns</option>
+        <option value="3">After 3 Calm Turns</option>
       </select>
       <span class="set-hint">Drift back to local once the chat goes quiet.</span>
     </div>
     <details class="adv">
-      <summary>Advanced tuning</summary>
+      <summary>Advanced Tuning</summary>
       <div class="adv-body">
         <div class="set-row">
-          <label class="set-name"><input type="checkbox" id="lex"> Lexical signals</label>
+          <label class="set-name"><input type="checkbox" id="lex"> Lexical Signals</label>
           <span class="set-hint">Score difficulty vocabulary (prove, theorem, &sum;) &mdash; catches a short, hard prompt that has no structure. Off by default.</span>
           <div class="set-ctl"><input type="range" id="lexw" min="0" max="100" value="40" disabled><output id="lexv">4.0</output></div>
         </div>
         <div class="adv-grp">Feature weights</div>
         <div id="weights"></div>
         <div class="adv-grp">Lexicon terms (blank = built-in)</div>
-        <select id="profile"><option value="">&mdash; starter profile &mdash;</option></select>
+        <select id="profile"><option value="">&mdash; Starter Profile &mdash;</option></select>
         <span class="set-hint" id="profnote"></span>
         <label class="set-name" for="rterms">Reasoning</label>
         <textarea id="rterms" rows="2" placeholder="prove, theorem, derive, induction&hellip;"></textarea>
@@ -374,6 +378,7 @@ const cooldownEl=document.getElementById('cooldown');
 function syncSticky(){cooldownEl.disabled=!stickyEl.checked;}
 stickyEl.addEventListener('change',syncSticky); syncSticky();
 const messages=[]; let savedTotal=0, savedUnit='', pretty=s=>s.replace(/_/g,' ');
+const titleCase=s=>s.replace(/\\b[a-z]/g,c=>c.toUpperCase());
 
 function syncT(){const on=useT.checked; tEl.disabled=!on; tv.textContent=on?(tEl.value/100).toFixed(2):'config'; tv.classList.toggle('on',on);}
 useT.addEventListener('change',syncT); tEl.addEventListener('input',syncT); syncT();
@@ -441,7 +446,7 @@ function routing(wf){
   const pill=el('pill '+(wf.model==='cloud'?'cloud':''));
   pill.appendChild(el('dot')); pill.appendChild(document.createTextNode(' '+wf.model));
   r.appendChild(pill);
-  r.appendChild(el('meta','score '+Number(wf.score).toFixed(2)+(wf.mode!=='scored'&&wf.mode!=='sticky'?' · '+wf.mode:'')));
+  r.appendChild(el('meta','score '+Number(wf.score).toFixed(2)+(wf.mode!=='scored'&&wf.mode!=='sticky'?' · '+titleCase(wf.mode):'')));
   if(wf.mode==='sticky') r.appendChild(el('tag sticky','latched'));
   if(wf.dry_run) r.appendChild(el('tag','dry-run'));
 
