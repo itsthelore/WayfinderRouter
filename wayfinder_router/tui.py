@@ -32,8 +32,10 @@ from .complexity import (
 )
 from .config import WayfinderConfigError, load_routing_config
 
-if TYPE_CHECKING:  # type-only; the runtime imports rich lazily inside the renderers
+if TYPE_CHECKING:  # type-only; the runtime imports rich/gateway lazily where used
     from rich.console import Console, RenderableType
+
+    from .gateway import GatewayModel
 
 _INSTALL_HINT = "the terminal UI needs its extra: pip install 'wayfinder-router[tui]'"
 _SCOPES = ("turn", "last_user", "user", "all")
@@ -79,6 +81,7 @@ class TuiState:
     sticky: bool = False
     cooldown: int = 0
     show_why: bool = False  # auto-expand the breakdown on every turn
+    stream: bool = True  # stream replies token-by-token (in-process backend)
     theme: str = "dark"
 
 
@@ -141,6 +144,7 @@ _HELP = (
     "  /scope turn|last_user|user|all what each turn scores\n"
     "  /sticky on|off [N]            keep hard chats on cloud (cooldown N)\n"
     "  /why [on|off|N]               expand the last (or Nth) decision; on/off auto-expands\n"
+    "  /stream on|off                stream replies token-by-token\n"
     "  /theme dark|light|auto        recolour\n"
     "  /settings                     show current settings\n"
     "  /help    /quit\n"
@@ -226,6 +230,7 @@ def render_settings(state: TuiState, palette: dict[str, str]) -> RenderableType:
         ("routing scope", state.scope),
         ("sticky", f"on · cooldown {state.cooldown}" if state.sticky else "off"),
         ("why breakdown", "expanded" if state.show_why else "collapsed"),
+        ("streaming", "on" if state.stream else "off"),
         ("theme", state.theme),
     ]
     grid = Table.grid(padding=(0, 3))
@@ -235,7 +240,7 @@ def render_settings(state: TuiState, palette: dict[str, str]) -> RenderableType:
         grid.add_row(key, val)
 
     hint = Text(
-        "\nchange:  /threshold  /scope  /sticky  /why  /theme   ·   /help for syntax",
+        "\nchange:  /threshold  /scope  /sticky  /why  /stream  /theme   ·   /help",
         style=muted,
     )
     return Panel(
@@ -254,7 +259,8 @@ def model_reply(
     """Call the upstream the decision points at; return its reply, or None if no model maps.
 
     In-process reuse of the gateway's relay (``invoke_messages``) — the same forward path
-    the server uses, without spawning one (WF-DESIGN-0001).
+    the server uses, without spawning one (WF-DESIGN-0001). The streaming loop uses
+    ``stream_messages`` directly; this is the non-streaming convenience.
     """
     from .gateway import invoke_messages
 
@@ -271,6 +277,74 @@ def render_reply(text: str) -> RenderableType:
     return Markdown(text)
 
 
+def decision_from_debug(payload: dict, *, text: str = "") -> Decision:
+    """Build a :class:`Decision` from a gateway ``X-Wayfinder-Debug`` ``wayfinder`` payload.
+
+    Lets the ``--base-url`` thin client render the same decision-first line and "why"
+    breakdown the in-process backend shows, from the remote gateway's response.
+    """
+    tiers = payload.get("tiers") or []
+    model = str(payload.get("model", "?"))
+    is_local = bool(tiers) and model == tiers[0].get("model")
+    contributions = [
+        FeatureContribution(
+            name=str(c["name"]),
+            value=int(c["value"]),
+            normalized=float(c["normalized"]),
+            weight=float(c["weight"]),
+            contribution=float(c["contribution"]),
+        )
+        for c in payload.get("contributions", [])
+    ]
+    return Decision(
+        text=text,
+        model=model,
+        score=float(payload.get("score", 0.0)),
+        mode=str(payload.get("mode", "")),
+        is_local=is_local,
+        contributions=contributions,
+    )
+
+
+def remote_reply(
+    base_url: str, messages: list[dict], *, threshold: float | None = None, timeout: float = 60.0
+) -> tuple[Decision | None, str | None]:
+    """POST to a running gateway's ``/v1/chat/completions``; return ``(decision, reply)``.
+
+    The thin-client backend (WF-DESIGN-0001): the *remote* gateway makes the routing
+    decision (surfaced via ``X-Wayfinder-Debug``) and the reply. Non-streaming.
+    """
+    from .gateway import GatewayUnavailable
+
+    try:
+        import httpx
+    except ImportError as exc:  # pragma: no cover - exercised only without the extra
+        raise GatewayUnavailable(
+            "the --base-url client needs httpx: pip install 'wayfinder-router[gateway]'"
+        ) from exc
+    headers = {"X-Wayfinder-Debug": "1"}
+    if threshold is not None:
+        headers["X-Wayfinder-Threshold"] = f"{threshold}"
+    body = {"model": "auto", "messages": list(messages)}
+    url = base_url.rstrip("/") + "/v1/chat/completions"
+    try:
+        response = httpx.post(url, json=body, headers=headers, timeout=timeout)
+    except httpx.HTTPError as exc:
+        raise RuntimeError(str(exc) or exc.__class__.__name__) from exc
+    try:
+        data = response.json()
+    except ValueError as exc:
+        raise RuntimeError(f"gateway returned non-JSON ({response.status_code})") from exc
+    wf = data.get("wayfinder") if isinstance(data, dict) else None
+    decision = decision_from_debug(wf) if isinstance(wf, dict) else None
+    reply: str | None = None
+    try:
+        reply = str(data["choices"][0]["message"]["content"])
+    except (KeyError, IndexError, TypeError):
+        reply = None
+    return decision, reply
+
+
 def _reply_timeout() -> float:
     raw = os.environ.get("WAYFINDER_ROUTER_TIMEOUT")
     if raw:
@@ -281,38 +355,71 @@ def _reply_timeout() -> float:
     return 60.0
 
 
+def _live_reply(
+    console: Console, model: GatewayModel, messages: list[dict], palette: dict[str, str],
+    *, stream: bool, timeout: float,
+) -> str | None:
+    """Stream (or fetch) one reply, printing it live; return the full text or None."""
+    from .gateway import GatewayUnavailable, UpstreamError, invoke_messages, stream_messages
+
+    try:
+        if stream:
+            parts: list[str] = []
+            for delta in stream_messages(model, messages, timeout=timeout):
+                console.print(
+                    delta, end="", markup=False, highlight=False, soft_wrap=True,
+                    style=palette["text"],
+                )
+                parts.append(delta)
+            if parts:
+                console.print()
+            return "".join(parts) or None
+        reply = invoke_messages(model, messages, timeout=timeout)
+        console.print(render_reply(reply))
+        return reply
+    except (GatewayUnavailable, UpstreamError, RuntimeError) as exc:
+        console.print(f"\nupstream error: {exc}", style=palette["warn"])
+        return None
+
+
 def run_tui(
     *, start_dir: str = ".", theme: str = "auto", show_why: bool = False,
-    threshold: float | None = None, dry_run: bool = False,
+    threshold: float | None = None, dry_run: bool = False, stream: bool = True,
+    base_url: str | None = None,
 ) -> None:
-    """Interactive loop: route each line, render the decision, and — when models are
-    configured — the model's reply. Ctrl-C / /quit to exit."""
+    """Interactive loop: route each line, render the decision, and — when a backend is
+    available — the model's reply (streamed). Ctrl-C / /quit to exit.
+
+    Backends: in-process via the local ``[gateway.models]`` (default), or a remote gateway
+    over HTTP with ``base_url`` (the thin-client form). ``dry_run`` forces decision-only.
+    """
     _require_rich()
     from rich.console import Console
 
     from .gateway import GatewayUnavailable, UpstreamError
 
     console: Console = Console()
-    state = TuiState(threshold=threshold, show_why=show_why, theme=theme)
+    state = TuiState(threshold=threshold, show_why=show_why, stream=stream, theme=theme)
     palette = palette_for(state.theme)
     history: list[Decision] = []
     messages: list[dict] = []
+    timeout = _reply_timeout()
 
     models: dict = {}
-    if not dry_run:
+    if base_url is None and not dry_run:
         try:
             from .gateway import load_gateway_config
 
             models = dict(load_gateway_config(start_dir).models)
         except WayfinderConfigError as exc:
             console.print(str(exc), style=palette["warn"])
-    live = bool(models)
-    timeout = _reply_timeout()
 
     console.print(
         render_welcome(palette, subtitle="decision-first routing · /help · /settings · ctrl-c to quit")
     )
-    if live:
+    if base_url is not None:
+        console.print(f"connected · remote gateway {base_url}", style=palette["muted"])
+    elif models:
         console.print(
             f"connected · routing between {', '.join(sorted(models))}", style=palette["muted"]
         )
@@ -320,6 +427,7 @@ def run_tui(
         console.print(
             "preview · routing decisions only — add [gateway.models] (and drop --dry-run) for replies",
             style=palette["muted"],
+            markup=False,
         )
 
     while True:
@@ -334,7 +442,27 @@ def run_tui(
         cmd, arg = parse_command(line)
         if cmd is None:
             messages.append({"role": "user", "content": line})
-            try:
+
+            if base_url is not None:  # remote gateway makes the decision and the reply
+                try:
+                    decision, reply = remote_reply(
+                        base_url, messages, threshold=state.threshold, timeout=timeout
+                    )
+                except (GatewayUnavailable, UpstreamError, RuntimeError) as exc:
+                    console.print(f"gateway error: {exc}", style=palette["warn"])
+                    messages.pop()
+                    continue
+                if decision is not None:
+                    history.append(decision)
+                    console.print(render_decision(decision, palette, expanded=state.show_why))
+                if reply is not None:
+                    messages.append({"role": "assistant", "content": reply})
+                    console.print(render_reply(reply))
+                else:
+                    messages.pop()
+                continue
+
+            try:  # in-process: score locally, then call the chosen model
                 decision = decide(line, start_dir=start_dir, threshold=state.threshold)
             except WayfinderConfigError as exc:
                 console.print(str(exc), style=palette["warn"])
@@ -342,19 +470,19 @@ def run_tui(
                 continue
             history.append(decision)
             console.print(render_decision(decision, palette, expanded=state.show_why))
-            if live:
-                try:
-                    reply = model_reply(models, decision, messages, timeout=timeout)
-                except (GatewayUnavailable, UpstreamError, RuntimeError) as exc:
-                    console.print(f"upstream error: {exc}", style=palette["warn"])
-                    reply = None
-                if reply is not None:
-                    messages.append({"role": "assistant", "content": reply})
-                    console.print(render_reply(reply))
-                elif decision.model not in models:
-                    console.print(
-                        f"no model configured for '{decision.model}'", style=palette["muted"]
-                    )
+            if not models:
+                continue
+            model = models.get(decision.model)
+            if model is None:
+                console.print(
+                    f"no model configured for '{decision.model}'", style=palette["muted"]
+                )
+                continue
+            reply = _live_reply(
+                console, model, messages, palette, stream=state.stream, timeout=timeout
+            )
+            if reply is not None:
+                messages.append({"role": "assistant", "content": reply})
             continue
 
         if cmd in {"quit", "q", "exit"}:
@@ -408,5 +536,12 @@ def run_tui(
                 console.print("nothing to expand yet", style=palette["muted"])
             else:
                 console.print("why [on|off|N]", style=palette["warn"])
+        elif cmd == "stream":
+            s = arg.strip().lower()
+            if s in {"on", "off", ""}:
+                state.stream = s != "off"
+                console.print(f"stream {'on' if state.stream else 'off'}", style=palette["accent"])
+            else:
+                console.print("stream on|off", style=palette["warn"])
         else:
             console.print(f"unknown command /{cmd} — /help", style=palette["warn"])

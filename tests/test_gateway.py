@@ -162,6 +162,18 @@ def test_invoke_messages_forwards_full_conversation(monkeypatch):
     assert captured["url"].endswith("/chat/completions")
 
 
+def test_parse_sse_deltas_extracts_content_until_done():
+    lines = [
+        'data: {"choices":[{"delta":{"content":"Hel"}}]}',
+        "",  # blank keep-alive
+        'data: {"choices":[{"delta":{"content":"lo"}}]}',
+        'data: {"choices":[{"delta":{"role":"assistant"}}]}',  # no content -> skipped
+        "data: [DONE]",
+        'data: {"choices":[{"delta":{"content":"ignored"}}]}',  # after DONE -> not yielded
+    ]
+    assert "".join(gateway.parse_sse_deltas(lines)) == "Hello"
+
+
 # --- cost metadata (WF-ADR-0017) --------------------------------------------
 
 

@@ -272,6 +272,8 @@ def _cmd_chat(args: argparse.Namespace) -> int:
             show_why=args.why,
             threshold=args.threshold,
             dry_run=args.dry_run,
+            stream=not args.no_stream,
+            base_url=args.base_url,
         )
     except TUIUnavailable as exc:
         print(f"wayfinder-router: {exc}", file=sys.stderr)
@@ -474,6 +476,14 @@ def build_parser() -> argparse.ArgumentParser:
         "--dry-run",
         action="store_true",
         help="Decision-only: never call a model, even if [gateway.models] are configured.",
+    )
+    p_chat.add_argument(
+        "--no-stream", action="store_true", help="Wait for the full reply instead of streaming."
+    )
+    p_chat.add_argument(
+        "--base-url",
+        default=None,
+        help="Talk to a running gateway over HTTP (e.g. http://host:8088) instead of in-process.",
     )
     p_chat.set_defaults(func=_cmd_chat)
 

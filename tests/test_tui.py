@@ -139,3 +139,22 @@ def test_render_reply_smoke():
     con.print(tui.render_reply("**bold** and `code`"))
     out = con.export_text()
     assert "bold" in out and "code" in out
+
+
+def test_decision_from_debug_builds_decision():
+    payload = {
+        "model": "cloud",
+        "score": 0.71,
+        "mode": "scored",
+        "tiers": [{"min_score": 0.0, "model": "local"}, {"min_score": 0.3, "model": "cloud"}],
+        "contributions": [
+            {"name": "reasoning_terms", "value": 2, "normalized": 0.5,
+             "weight": 1.0, "contribution": 0.12},
+        ],
+    }
+    decision = tui.decision_from_debug(payload)
+    assert decision.model == "cloud" and decision.is_local is False
+    assert abs(decision.score - 0.71) < 1e-9
+    assert decision.contributions[0].name == "reasoning_terms"
+    # the lowest tier's model classifies as local
+    assert tui.decision_from_debug({**payload, "model": "local", "score": 0.05}).is_local is True
