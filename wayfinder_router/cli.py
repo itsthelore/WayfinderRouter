@@ -723,7 +723,8 @@ def build_parser() -> argparse.ArgumentParser:
     )
     p_init.add_argument(
         "--preset", default="hybrid",
-        help="Starter preset (default: hybrid — keyless local Ollama → Anthropic cloud).",
+        help="Starter preset: hybrid (default, keyless local Ollama → Anthropic cloud) "
+             "or openai (gpt-4o-mini → gpt-4o).",
     )
     p_init.add_argument(
         "--path", default="wayfinder-router.toml", help="Where to write the config (default: cwd)."

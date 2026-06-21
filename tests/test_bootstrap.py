@@ -19,6 +19,20 @@ def test_hybrid_preset_config_round_trips():
     assert [t.model for t in routing.tiers] == ["local", "cloud"]
 
 
+def test_openai_preset_config_round_trips(monkeypatch):
+    text = bootstrap.render_config(bootstrap.PRESETS["openai"])
+    gw = gateway_config_from_toml(text)
+    assert set(gw.models) == {"small", "large"}
+    assert gw.models["small"].model == "gpt-4o-mini"
+    assert gw.models["large"].model == "gpt-4o"
+    # one provider, one key shared across both tiers
+    assert {m.api_key_env for m in gw.models.values()} == {"OPENAI_API_KEY"}
+    routing = routing_config_from_toml(text)
+    assert [t.model for t in routing.tiers] == ["small", "large"]
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    assert bootstrap.missing_keys(bootstrap.key_status(gw.models)) == ["OPENAI_API_KEY"]  # deduped
+
+
 def test_env_example_lists_names_without_secrets():
     text = bootstrap.render_env_example(bootstrap.PRESETS["hybrid"])
     assert "ANTHROPIC_API_KEY=" in text

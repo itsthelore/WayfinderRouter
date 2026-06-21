@@ -295,6 +295,16 @@ def test_init_print_writes_nothing(tmp_path, monkeypatch, capsys):
     assert not (tmp_path / ".env.example").exists()
 
 
+def test_init_openai_preset(tmp_path, monkeypatch, capsys):
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    assert main(["init", "--preset", "openai"]) == 0
+    cfg = (tmp_path / "wayfinder-router.toml").read_text(encoding="utf-8")
+    assert "gpt-4o-mini" in cfg and "gpt-4o" in cfg
+    out = capsys.readouterr().out
+    assert "OPENAI_API_KEY" in out and 'export OPENAI_API_KEY="..."' in out
+
+
 def test_init_unknown_preset_is_usage_error(tmp_path, monkeypatch, capsys):
     monkeypatch.chdir(tmp_path)
     assert main(["init", "--preset", "nope"]) == 2
