@@ -74,7 +74,7 @@ import time
 import tomllib
 import uuid
 from collections import deque
-from collections.abc import AsyncIterator, Callable
+from collections.abc import AsyncIterator, Callable, Iterable, Iterator
 from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -806,6 +806,53 @@ def invoke_model(model: GatewayModel, prompt: str, timeout: float = _DEFAULT_TIM
     :func:`invoke_messages` so the relay lives in one place.
     """
     return invoke_messages(model, [{"role": "user", "content": prompt}], timeout)
+
+
+def parse_sse_deltas(lines: Iterable[str]) -> Iterator[str]:
+    """Yield assistant text deltas from OpenAI-style SSE ``data:`` lines (pure; testable)."""
+    for line in lines:
+        if not line or not line.startswith("data:"):
+            continue
+        data = line[5:].strip()
+        if data == "[DONE]":
+            return
+        try:
+            obj = json.loads(data)
+            delta = obj["choices"][0]["delta"].get("content")
+        except (json.JSONDecodeError, KeyError, IndexError, TypeError, AttributeError):
+            continue
+        if delta:
+            yield str(delta)
+
+
+def stream_messages(
+    model: GatewayModel, messages: list[dict], timeout: float = _DEFAULT_TIMEOUT
+) -> Iterator[str]:
+    """Stream assistant text deltas from one upstream over SSE (sync; BYO key).
+
+    The streaming counterpart to :func:`invoke_messages` for the terminal chat — sends
+    ``stream: true`` and yields ``delta.content`` chunks as they arrive, reusing the same
+    key/URL handling. Raises :class:`UpstreamError` on transport failure.
+    """
+    try:
+        import httpx
+    except ImportError as exc:  # pragma: no cover - exercised only without the extra
+        raise GatewayUnavailable(_INSTALL_HINT) from exc
+    headers = {"Content-Type": "application/json"}
+    if model.api_key_env:
+        key = os.environ.get(model.api_key_env)
+        if key:
+            headers["Authorization"] = f"Bearer {key}"
+    body = {"model": model.model, "messages": list(messages), "stream": True}
+    url = model.base_url.rstrip("/") + "/chat/completions"
+    try:
+        with httpx.stream("POST", url, headers=headers, json=body, timeout=timeout) as response:
+            if response.status_code >= 400:
+                response.read()
+                raise RuntimeError(f"{model.model} upstream returned {response.status_code}")
+            yield from parse_sse_deltas(response.iter_lines())
+    except httpx.HTTPError as exc:
+        raise UpstreamError(str(exc) or exc.__class__.__name__) from exc
 
 
 def _resolve_timeout() -> float:

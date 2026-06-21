@@ -15,13 +15,12 @@ Proposed
 > experience while surfacing Wayfinder's routing decision, in the Wayfinder palette.
 > Companion to the browser demo (WF-ADR-0020); slots under WF-ROADMAP-0004.
 >
-> Implemented (first cut): `wayfinder-router chat` ships the Rich TUI — collapsible
-> decisions (`/why`), a `/settings` panel, and **in-process replies**: when
-> `[gateway.models]` are configured it calls the chosen model via the gateway's
-> `invoke_messages` relay (no server spawned), printing the reply under each decision;
-> keyless / `--dry-run` stays decision-only. The HTTP thin-client form (attach to a
-> remote gateway via `--base-url`) remains future. The browser surface is
-> `wayfinder-router webchat`.
+> Implemented: `wayfinder-router chat` ships the Rich TUI — collapsible decisions
+> (`/why`), a `/settings` panel, and replies. Two backends: **in-process** (default)
+> calls the chosen `[gateway.models]` model via the gateway relay and **streams** tokens
+> (`stream_messages`); **`--base-url`** is the HTTP thin client to a running gateway
+> (non-streaming, decision rebuilt from `X-Wayfinder-Debug`). Keyless / `--dry-run` stays
+> decision-only. The browser surface is `wayfinder-router webchat`.
 
 ## Context
 
@@ -244,10 +243,10 @@ a full-screen fill.
 
 - **Toolkit:** Rich-only first cut vs Textual from the start — settle in a spike
   against the mockup (binary size, streaming feel, threads-pane need).
-- **Gateway lifecycle:** auto-spawn in-process (like `webchat`) vs require a running
-  gateway vs both (`--base-url`). Default?
-- **Streaming:** token-by-token now (depends on gateway streaming, WF-ADR-0013) or
-  non-streaming with a spinner first?
+- **Gateway lifecycle:** settled — in-process by default (no server), `--base-url` for a
+  running/remote gateway over HTTP.
+- **Streaming:** settled for the in-process backend (token-by-token via `stream_messages`);
+  the `--base-url` HTTP path is non-streaming for now (a later enhancement via SSE).
 - **Theme auto-detection:** OSC 11 background query vs `COLORFGBG` vs default-dark —
   which is reliable enough to default to `auto`?
 - **Command surface:** settled — `wayfinder-router chat` is the terminal chat and
