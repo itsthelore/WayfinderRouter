@@ -310,15 +310,43 @@ def _summarize_routing(config: RoutingConfig) -> str:
     return " · ".join(f"{t.model} ≥{t.min_score:.2f}" for t in config.tiers)
 
 
+def _console_io():
+    """Real terminal I/O for the wizard: prompts to stderr (so stdout stays pipeable),
+    answers from stdin. EOF (piped/exhausted input) falls back to the default."""
+
+    def say(message: str) -> None:
+        print(message, file=sys.stderr)
+
+    def ask(prompt: str, default: str = "") -> str:
+        suffix = f" [{default}]" if default else ""
+        sys.stderr.write(f"{prompt}{suffix}: ")
+        sys.stderr.flush()
+        try:
+            line = input().strip()
+        except EOFError:
+            return default
+        return line or default
+
+    return ask, say
+
+
 def _cmd_init(args: argparse.Namespace) -> int:
     from . import bootstrap
     from .gateway import gateway_config_from_toml
 
-    preset = bootstrap.PRESETS.get(args.preset)
-    if preset is None:
-        choices = ", ".join(sorted(bootstrap.PRESETS))
-        print(f"wayfinder-router: unknown preset '{args.preset}' (choose: {choices})", file=sys.stderr)
-        return EXIT_USAGE
+    if args.interactive:
+        ask, say = _console_io()
+        preset = bootstrap.run_init_wizard(ask, say)
+    else:
+        chosen = bootstrap.PRESETS.get(args.preset)
+        if chosen is None:
+            choices = ", ".join(sorted(bootstrap.PRESETS))
+            print(
+                f"wayfinder-router: unknown preset '{args.preset}' (choose: {choices})",
+                file=sys.stderr,
+            )
+            return EXIT_USAGE
+        preset = chosen
 
     config_text = bootstrap.render_config(preset)
     if args.print:
@@ -688,6 +716,10 @@ def build_parser() -> argparse.ArgumentParser:
     p_init = sub.add_parser(
         "init",
         help="Scaffold a wayfinder-router.toml (+ .env.example) and check your keys.",
+    )
+    p_init.add_argument(
+        "-i", "--interactive", action="store_true",
+        help="Pick providers/models step by step (still never captures a secret).",
     )
     p_init.add_argument(
         "--preset", default="hybrid",
