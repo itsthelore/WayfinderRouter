@@ -105,15 +105,23 @@ wayfinder-router webchat --dry-run
 show, for every message, where it routed (local vs cloud), the complexity score and *why*
 (the feature breakdown), and the cost saved vs always-cloud. With no config both are
 decision-only (`--dry-run` for the web; the terminal's preview), so you can poke at it with
-zero setup; configure `[gateway.models]` (and add the `[gateway]` extra) and each then calls
-the chosen model for a real reply.
+zero setup. To get real replies, run `wayfinder-router init` to scaffold `[gateway.models]`
+(then `wayfinder-router doctor` to confirm your keys resolve) — see [Quickstart](#quickstart).
 
 ## Quickstart
 
 Put Wayfinder in front of your models. Your app keeps speaking the OpenAI API; you
 just change one `base_url`.
 
-1. Describe your two models in `wayfinder-router.toml`:
+1. Scaffold a config — `init` writes a starter `wayfinder-router.toml` (keyless local
+   Ollama → Anthropic cloud) plus a `.env.example`, then checks your keys:
+
+   ```bash
+   pip install "wayfinder-router[gateway]"
+   wayfinder-router init
+   ```
+
+   Or describe your two models in `wayfinder-router.toml` by hand:
 
    ```toml
    [routing]
@@ -129,11 +137,16 @@ just change one `base_url`.
    api_key_env = "OPENAI_API_KEY"   # read from this env var, never stored
    ```
 
-2. Run the gateway:
+   Wayfinder never stores secrets: a model names an env var (`api_key_env`) and the key
+   is read from your environment at request time. There is nothing to "install" — just
+   export the variable.
+
+2. Set your key(s), then run the gateway. `doctor` re-checks the config and whether each
+   model's key resolves (`✓ set` / `✗ not set`) before you start:
 
    ```bash
-   pip install "wayfinder-router[gateway]"
-   export OPENAI_API_KEY=sk-...
+   export ANTHROPIC_API_KEY=sk-...     # or OPENAI_API_KEY, per your config
+   wayfinder-router doctor             # ✓/✗ per model — is each key set?
    wayfinder-router serve --port 8088
    ```
 

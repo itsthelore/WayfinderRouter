@@ -221,11 +221,21 @@ def _cmd_webchat(args: argparse.Namespace) -> int:
     import threading
     import webbrowser
 
-    from .gateway import GatewayUnavailable, run
+    from .gateway import GatewayUnavailable, load_gateway_config, run
 
     url = _demo_url(args.host, args.port)
     note = "  (dry-run: routing decisions only, no model calls)" if args.dry_run else ""
     print(f"wayfinder-router webchat → {url}{note}  (Ctrl-C to stop)")
+    if not args.dry_run:  # first-run nudge: no models means decision-only replies
+        try:
+            if not load_gateway_config(".").models:
+                print(
+                    "note: no [gateway.models] configured — the demo shows routing decisions "
+                    "only. Run `wayfinder-router init` to set up local + cloud.",
+                    file=sys.stderr,
+                )
+        except WayfinderConfigError:
+            pass
     # uvicorn.run blocks, so open the browser from a short timer once the server is up.
     timer = None
     if not args.no_open:
@@ -278,6 +288,120 @@ def _cmd_chat(args: argparse.Namespace) -> int:
     except TUIUnavailable as exc:
         print(f"wayfinder-router: {exc}", file=sys.stderr)
         return EXIT_USAGE
+    return EXIT_OK
+
+
+def _print_key_report(statuses: list) -> None:
+    """Print a per-model key check: keyless, key set (✓), or named-but-unset (✗)."""
+    print("models")
+    for s in statuses:
+        if s.env_var is None:
+            key = "keyless ✓"
+        else:
+            key = f"{s.env_var} " + ("✓ set" if s.ok else "✗ not set")
+        print(f"  {s.name:<7} {s.model:<24} {s.base_url:<30} {key}")
+
+
+def _summarize_routing(config: RoutingConfig) -> str:
+    if config.classifier is not None:
+        return f"classifier ({len(config.classifier.models)} models)"
+    if not config.tiers:
+        return "defaults"
+    return " · ".join(f"{t.model} ≥{t.min_score:.2f}" for t in config.tiers)
+
+
+def _cmd_init(args: argparse.Namespace) -> int:
+    from . import bootstrap
+    from .gateway import gateway_config_from_toml
+
+    preset = bootstrap.PRESETS.get(args.preset)
+    if preset is None:
+        choices = ", ".join(sorted(bootstrap.PRESETS))
+        print(f"wayfinder-router: unknown preset '{args.preset}' (choose: {choices})", file=sys.stderr)
+        return EXIT_USAGE
+
+    config_text = bootstrap.render_config(preset)
+    if args.print:
+        sys.stdout.write(config_text)
+        return EXIT_OK
+
+    target = Path(args.path)
+    if target.exists() and not args.force:
+        print(
+            f"wayfinder-router: {target} already exists — use --force to overwrite, "
+            "or run `wayfinder-router doctor` to check it",
+            file=sys.stderr,
+        )
+        return EXIT_USAGE
+    try:
+        target.write_text(config_text, encoding="utf-8")
+    except OSError as exc:
+        print(f"wayfinder-router: cannot write {target}: {exc}", file=sys.stderr)
+        return EXIT_USAGE
+    print(f"✓ wrote {target}  (preset: {preset.name} — {preset.summary})")
+
+    # .env.example holds env-var NAMES only — never a secret; don't clobber silently.
+    if preset.env_vars:
+        env_path = target.parent / ".env.example"
+        if env_path.exists() and not args.force:
+            print(f"· kept existing {env_path} (use --force to overwrite)")
+        else:
+            try:
+                env_path.write_text(bootstrap.render_env_example(preset), encoding="utf-8")
+                print(f"✓ wrote {env_path}  (env-var names only — no secrets)")
+            except OSError as exc:
+                print(f"wayfinder-router: cannot write {env_path}: {exc}", file=sys.stderr)
+
+    statuses = bootstrap.key_status(gateway_config_from_toml(config_text).models)
+    print()
+    _print_key_report(statuses)
+    print()
+    missing = bootstrap.missing_keys(statuses)
+    if missing:
+        print("set your key(s) — read from the environment at request time, never stored:")
+        for var in missing:
+            print(f'  export {var}="..."')
+        print()
+    print("next:  wayfinder-router chat        # or `wayfinder-router doctor` to re-check")
+    return EXIT_OK
+
+
+def _cmd_doctor(args: argparse.Namespace) -> int:
+    from . import bootstrap
+    from .config import find_config_file
+    from .gateway import load_gateway_config
+
+    path = find_config_file(args.dir)
+    if path is None:
+        print(
+            "no wayfinder-router.toml found — run `wayfinder-router init` to create one",
+            file=sys.stderr,
+        )
+        return EXIT_USAGE
+    try:
+        routing = load_routing_config(args.dir)
+        gateway = load_gateway_config(args.dir)
+    except WayfinderConfigError as exc:
+        print(f"wayfinder-router: {exc}", file=sys.stderr)
+        return EXIT_CONFIG
+
+    print(f"config:  {path}")
+    print(f"routing: {_summarize_routing(routing)}")
+    if not gateway.models:
+        print("models:  none configured — add [gateway.models] (see `wayfinder-router init`)")
+        print("(chat / serve will show routing decisions only)")
+        return EXIT_OK
+    statuses = bootstrap.key_status(gateway.models)
+    print()
+    _print_key_report(statuses)
+    print()
+    missing = bootstrap.missing_keys(statuses)
+    if missing:
+        print("not ready — set the missing key(s):")
+        for var in missing:
+            print(f'  export {var}="..."')
+        return EXIT_CONFIG
+    print("ready:  wayfinder-router chat")
     return EXIT_OK
 
 
@@ -560,6 +684,34 @@ def build_parser() -> argparse.ArgumentParser:
         "--min-labels", type=int, default=2, help="Skip (no write) below this many labels."
     )
     p_recal.set_defaults(func=_cmd_recalibrate)
+
+    p_init = sub.add_parser(
+        "init",
+        help="Scaffold a wayfinder-router.toml (+ .env.example) and check your keys.",
+    )
+    p_init.add_argument(
+        "--preset", default="hybrid",
+        help="Starter preset (default: hybrid — keyless local Ollama → Anthropic cloud).",
+    )
+    p_init.add_argument(
+        "--path", default="wayfinder-router.toml", help="Where to write the config (default: cwd)."
+    )
+    p_init.add_argument(
+        "--force", action="store_true", help="Overwrite an existing config / .env.example."
+    )
+    p_init.add_argument(
+        "--print", action="store_true", help="Print the config to stdout instead of writing files."
+    )
+    p_init.set_defaults(func=_cmd_init)
+
+    p_doctor = sub.add_parser(
+        "doctor",
+        help="Check the nearest wayfinder-router.toml and whether each model's key is set.",
+    )
+    p_doctor.add_argument(
+        "--dir", default=".", help="Where to start the search for wayfinder-router.toml."
+    )
+    p_doctor.set_defaults(func=_cmd_doctor)
     return parser
 
 
