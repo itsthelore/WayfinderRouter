@@ -15,12 +15,21 @@ Proposed
 > experience while surfacing Wayfinder's routing decision, in the Wayfinder palette.
 > Companion to the browser demo (WF-ADR-0020); slots under WF-ROADMAP-0004.
 >
-> Implemented: `wayfinder-router chat` ships the Rich TUI — collapsible decisions
-> (`/why`), a `/settings` panel, and replies. Two backends: **in-process** (default)
-> calls the chosen `[gateway.models]` model via the gateway relay and **streams** tokens
-> (`stream_messages`); **`--base-url`** is the HTTP thin client to a running gateway
-> (non-streaming, decision rebuilt from `X-Wayfinder-Debug`). Keyless / `--dry-run` stays
-> decision-only. The browser surface is `wayfinder-router webchat`.
+> Implemented: `wayfinder-router chat` ships a **full-screen Textual app** (rendered
+> with Rich) — a scrolling transcript headed by the wordmark, inline collapsible
+> decisions (`/why`), a `/settings` panel, a one-line status bar, and a pinned,
+> accent-bordered composer above a footer. Two backends: **in-process** (default) calls
+> the chosen `[gateway.models]` model via the gateway relay and **streams** tokens
+> (`stream_messages`, run on a Textual worker thread so the event loop stays responsive);
+> **`--base-url`** is the HTTP thin client to a running gateway (non-streaming, decision
+> rebuilt from `X-Wayfinder-Debug`). Keyless / `--dry-run` stays decision-only. The extra
+> is `[tui]` (rich + textual), imported lazily. The browser surface is
+> `wayfinder-router webchat`.
+>
+> Toolkit decision resolved: the spike below weighed a Rich-only loop vs Textual; the
+> shipped cut is **Textual** — the fixed chrome (pinned input, status/footer bars, a
+> transcript that scrolls independently) is exactly what Textual's layout gives for free,
+> and it reads like Claude Code / Droid in the terminal.
 
 ## Context
 

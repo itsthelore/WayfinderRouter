@@ -82,7 +82,30 @@ def test_render_welcome_smoke():
 
     con = Console(record=True, width=80)
     con.print(tui.render_welcome(tui.palette_for("dark"), subtitle="decision-first"))
+    out = con.export_text()
+    assert "Wayfinder" in out and "decision-first" in out
+
+
+def test_render_welcome_compact_shows_wordmark_text():
+    from rich.console import Console
+
+    con = Console(record=True, width=40)
+    con.print(tui.render_welcome(tui.palette_for("dark"), subtitle="v0", compact=True))
     assert "Wayfinder" in con.export_text()
+
+
+def test_status_and_footer_bars_smoke():
+    from rich.console import Console
+
+    palette = tui.palette_for("dark")
+    state = tui.TuiState(threshold=0.08, scope="turn")
+    con = Console(record=True, width=80)
+    con.print(tui._status_bar(state, palette))
+    con.print(tui._status_bar(state, palette, note="streaming…"))
+    con.print(tui._footer_bar(palette))
+    out = con.export_text()
+    assert "threshold 0.08" in out and "local" in out and "cloud" in out
+    assert "streaming" in out and "help" in out
 
 
 def test_render_settings_smoke():
@@ -158,3 +181,30 @@ def test_decision_from_debug_builds_decision():
     assert decision.contributions[0].name == "reasoning_terms"
     # the lowest tier's model classifies as local
     assert tui.decision_from_debug({**payload, "model": "local", "score": 0.05}).is_local is True
+
+
+def test_chat_app_routes_decision_in_dry_run(tmp_path):
+    """The full-screen app mounts, routes a typed prompt, and shows a decision line."""
+    import asyncio
+
+    pytest.importorskip("textual")
+
+    app_cls = tui._build_chat_app()
+    app = app_cls(start_dir=str(tmp_path), theme="dark", dry_run=True)
+
+    async def scenario():
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            before = len(app.query("#transcript Static"))
+            assert before >= 1  # the welcome header was written
+            assert not app.history
+            app.query_one("#entry").value = "what is an API?"
+            await pilot.press("enter")
+            await pilot.pause()
+            # the prompt was routed: a decision recorded, the transcript grew, input cleared
+            assert len(app.history) == 1 and app.history[0].model
+            assert len(app.query("#transcript Static")) > before
+            assert app.messages == [{"role": "user", "content": "what is an API?"}]
+            assert app.query_one("#entry").value == ""
+
+    asyncio.run(scenario())
