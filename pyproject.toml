@@ -52,11 +52,13 @@ Issues = "https://github.com/itsthelore/wayfinder-router/issues"
 gateway = ["fastapi>=0.110", "uvicorn>=0.27", "httpx>=0.27"]
 # The local calibration/explain/configure UI (WF-ADR-0005); lazily imported.
 ui = ["fastapi>=0.110", "uvicorn>=0.27"]
-# Convenience: the gateway and the UI together — the common "route my traffic"
-# install. Self-references the two extras so it stays in sync with them.
-all = ["wayfinder-router[gateway,ui]"]
-# Test runner; includes fastapi + httpx so the gateway and UI are exercised in CI.
-dev = ["pytest>=7", "fastapi>=0.110", "httpx>=0.27"]
+# The terminal chat UI (WF-DESIGN-0001); rich is imported lazily only when `tui` runs.
+tui = ["rich>=13"]
+# Convenience: the gateway, the UI, and the terminal UI together. Self-references the
+# extras so it stays in sync with them.
+all = ["wayfinder-router[gateway,ui,tui]"]
+# Test runner; includes fastapi + httpx + rich so the gateway, UI, and TUI are exercised in CI.
+dev = ["pytest>=7", "fastapi>=0.110", "httpx>=0.27", "rich>=13"]
 
 [project.scripts]
 wayfinder-router = "wayfinder_router.cli:main"

@@ -259,6 +259,25 @@ def _cmd_ui(args: argparse.Namespace) -> int:
     return EXIT_OK
 
 
+def _cmd_tui(args: argparse.Namespace) -> int:
+    from .tui import TUIUnavailable, run_tui
+
+    if args.threshold is not None and not 0.0 <= args.threshold <= 1.0:
+        print("wayfinder-router: --threshold must be a number between 0.0 and 1.0", file=sys.stderr)
+        return EXIT_USAGE
+    try:
+        run_tui(
+            start_dir=".",
+            theme=args.theme,
+            show_why=not args.no_why,
+            threshold=args.threshold,
+        )
+    except TUIUnavailable as exc:
+        print(f"wayfinder-router: {exc}", file=sys.stderr)
+        return EXIT_USAGE
+    return EXIT_OK
+
+
 def _load_prompts(path: str) -> list[str]:
     """One prompt per line: a JSON object with a ``text`` field, or raw text."""
     prompts: list[str] = []
@@ -462,6 +481,27 @@ def build_parser() -> argparse.ArgumentParser:
     p_ui.add_argument("--host", default="127.0.0.1", help="Bind host (default: 127.0.0.1).")
     p_ui.add_argument("--port", type=int, default=8099, help="Bind port (default: 8099).")
     p_ui.set_defaults(func=_cmd_ui)
+
+    p_tui = sub.add_parser(
+        "tui",
+        help="Wayfinder terminal chat: decision-first routing in the terminal (needs the [tui] extra).",
+    )
+    p_tui.add_argument(
+        "--theme",
+        choices=["auto", "light", "dark"],
+        default="auto",
+        help="Colour theme (default: auto -> $WAYFINDER_THEME or dark).",
+    )
+    p_tui.add_argument(
+        "--threshold",
+        type=float,
+        default=None,
+        help="Force a binary local/cloud cut at this score (0.0-1.0).",
+    )
+    p_tui.add_argument(
+        "--no-why", action="store_true", help="Hide the per-reply score breakdown."
+    )
+    p_tui.set_defaults(func=_cmd_tui)
 
     p_onboard = sub.add_parser(
         "onboard",
