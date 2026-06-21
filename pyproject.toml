@@ -70,8 +70,9 @@ packages = ["wayfinder_router"]
 version = { attr = "wayfinder_router.__version__" }
 
 [tool.setuptools.package-data]
-# demo.html is the canonical /demo UI (WF-ADR-0020), loaded via importlib.resources.
-wayfinder_router = ["py.typed", "demo.html"]
+# demo.html is the canonical /demo UI (WF-ADR-0020); mascot.ans is the terminal
+# mascot art (WF-DESIGN-0001). Both are loaded via importlib.resources.
+wayfinder_router = ["py.typed", "demo.html", "mascot.ans"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
