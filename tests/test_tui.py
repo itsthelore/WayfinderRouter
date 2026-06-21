@@ -1,7 +1,7 @@
 """Tests for the terminal chat UI (WF-DESIGN-0001).
 
-The pure pieces (palette, mascot, decision classification, command parsing) are
-tested directly; the rich renderers are smoke-tested via a recording Console. The
+The pure pieces (palette, decision classification, command parsing) are tested
+directly; the rich renderers are smoke-tested via a recording Console. The
 interactive loop itself is not unit-tested.
 """
 
@@ -25,13 +25,6 @@ def test_palette_for_resolves_themes(monkeypatch):
     assert tui.palette_for("chartreuse") == tui.THEMES["dark"]  # unknown -> dark
 
 
-def test_mascot_frame_nonempty_and_cycles():
-    frame = tui.mascot(0)
-    assert frame and all(isinstance(row, str) for row in frame)
-    assert tui.mascot(999)  # cycles by index, never IndexError
-    assert tui.mascot(0, ascii_only=True)
-
-
 def test_parse_command():
     assert tui.parse_command("/threshold 0.3") == ("threshold", "0.3")
     assert tui.parse_command("/help") == ("help", "")
@@ -40,7 +33,6 @@ def test_parse_command():
 
 
 def test_decide_threshold_extremes_classify(tmp_path):
-    # threshold 1.0: nothing reaches the cloud tier -> local; 0.0: everything escalates.
     local = tui.decide("anything at all", start_dir=str(tmp_path), threshold=1.0)
     assert local.is_local is True
     assert local.contributions  # the "why" breakdown is present
@@ -50,25 +42,39 @@ def test_decide_threshold_extremes_classify(tmp_path):
     assert cloud.is_local is False
 
 
-def test_render_decision_smoke():
+def test_render_decision_collapses_by_default_expands_on_demand():
     from rich.console import Console
 
-    palette = tui.palette_for("dark")
+    from wayfinder_router.complexity import DEFAULT_WEIGHTS, explain_score, extract_features
 
-    local = tui.Decision(
-        text="x", model="local", score=0.12, mode="tiered", is_local=True, contributions=[]
+    palette = tui.palette_for("dark")
+    contribs = explain_score(extract_features("prove that the limit exists"), DEFAULT_WEIGHTS)
+    top = sorted(contribs, key=lambda c: -c.contribution)[0].name
+    decision = tui.Decision(
+        text="x", model="local", score=0.12, mode="tiered", is_local=True, contributions=contribs
     )
-    con = Console(record=True, width=80)
-    con.print(tui.render_decision(local, palette, show_why=False))
-    out = con.export_text()
-    assert "LOCAL" in out and "local" in out and "0.12" in out
+
+    collapsed = Console(record=True, width=80)
+    collapsed.print(tui.render_decision(decision, palette, expanded=False))
+    ctext = collapsed.export_text()
+    assert "LOCAL" in ctext and "local" in ctext and "0.12" in ctext
+    assert "/why" in ctext  # the expand affordance
+    assert top not in ctext  # breakdown hidden when collapsed
+
+    expanded = Console(record=True, width=80)
+    expanded.print(tui.render_decision(decision, palette, expanded=True))
+    assert top in expanded.export_text()  # breakdown shown when expanded
+
+
+def test_render_decision_cloud_label():
+    from rich.console import Console
 
     cloud = tui.Decision(
         text="x", model="cloud", score=0.88, mode="tiered", is_local=False, contributions=[]
     )
-    con2 = Console(record=True, width=80)
-    con2.print(tui.render_decision(cloud, palette, show_why=False))
-    assert "CLOUD" in con2.export_text()
+    con = Console(record=True, width=80)
+    con.print(tui.render_decision(cloud, tui.palette_for("dark"), expanded=False))
+    assert "CLOUD" in con.export_text()
 
 
 def test_render_welcome_smoke():
@@ -79,12 +85,23 @@ def test_render_welcome_smoke():
     assert "Wayfinder" in con.export_text()
 
 
-def test_cli_tui_help_exits_zero():
+def test_render_settings_smoke():
+    from rich.console import Console
+
+    state = tui.TuiState(threshold=0.3, scope="turn", sticky=True, cooldown=2, theme="dark")
+    con = Console(record=True, width=80)
+    con.print(tui.render_settings(state, tui.palette_for("dark")))
+    out = con.export_text()
+    assert "settings" in out and "threshold" in out and "0.30" in out
+    assert "scope" in out and "turn" in out and "cooldown 2" in out
+
+
+def test_cli_chat_help_exits_zero():
     with pytest.raises(SystemExit) as exc:
-        main(["tui", "--help"])
+        main(["chat", "--help"])
     assert exc.value.code == 0
 
 
-def test_cli_tui_rejects_bad_threshold(capsys):
-    assert main(["tui", "--threshold", "2.0"]) == 2  # EXIT_USAGE, before the loop starts
+def test_cli_chat_rejects_bad_threshold(capsys):
+    assert main(["chat", "--threshold", "2.0"]) == 2  # EXIT_USAGE, before the loop starts
     assert "threshold" in capsys.readouterr().err

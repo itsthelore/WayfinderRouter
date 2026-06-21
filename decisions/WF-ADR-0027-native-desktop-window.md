@@ -23,7 +23,7 @@ Technical
 
 WF-ROADMAP-0004 (Initiative 4) wants the decision-first `/demo` UI to open in a
 native window so Wayfinder feels like a product, not a `localhost` browser tab. The
-gateway already serves `/demo` and `wayfinder-router chat` already boots it and
+gateway already serves `/demo` and `wayfinder-router webchat` already boots it and
 opens a browser (WF-ADR-0020). The open question is *how* to present it as a native
 app without taking on the maintenance tail of a bespoke desktop application — the
 same "don't grow a fork" discipline WF-ADR-0020 applied to the demo itself.
@@ -83,7 +83,7 @@ delivers the native feel at a fraction of the cost.
 
 ### Browser-only (status quo)
 
-`wayfinder-router chat` already opens `/demo` in the default browser. Kept as the
+`wayfinder-router webchat` already opens `/demo` in the default browser. Kept as the
 default; this ADR is only about an *additional* native presentation, not a
 replacement.
 

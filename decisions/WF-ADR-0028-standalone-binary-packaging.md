@@ -22,7 +22,7 @@ Technical
 ## Context
 
 WF-ROADMAP-0004 (Initiative 3) wants a single downloadable executable so people
-with **no Python toolchain** can run `wayfinder-router chat` and reach the demo.
+with **no Python toolchain** can run `wayfinder-router webchat` and reach the demo.
 The base package is deliberately zero-dependency (WF-ADR-0001); only the deployed
 gateway pulls the `[gateway]` extra (FastAPI/uvicorn, WF-ADR-0008). A binary
 therefore has to bundle that extra and an ASGI server while leaving the base wheel
@@ -35,7 +35,7 @@ require a Python interpreter on the target machine**, so they do not satisfy the
 ## Decision
 
 Produce a **self-contained executable** that bundles the `[gateway]` extra and runs
-`wayfinder-router chat`, built **per-OS in CI** (Linux/macOS/Windows) and attached
+`wayfinder-router webchat`, built **per-OS in CI** (Linux/macOS/Windows) and attached
 to the GitHub release (extending the existing tag-driven release workflow). The
 deterministic core stays importable exactly as today; only the distribution
 wrapper is new, and no secret is ever baked into the artifact (WF-ADR-0008).
@@ -62,7 +62,7 @@ outcome and the measured sizes will be recorded as an amendment here.
 ### Risks
 
 - **Bundling fragility.** Freezers can miss uvicorn/anyio dynamic imports.
-  Mitigation: smoke-test the built binary in CI (`chat --dry-run` boots, `/demo`
+  Mitigation: smoke-test the built binary in CI (`webchat --dry-run` boots, `/demo`
   returns 200) on every target OS before attaching it to a release.
 - **Bundle bloat.** Mitigation: measure; consider Nuitka or a slimmer ASGI server;
   the core stays importable without the gateway extra regardless.
@@ -90,7 +90,7 @@ than PyInstaller. Carried into the spike rather than rejected.
 
 ## Success Measures
 
-- A downloaded binary runs `wayfinder-router chat` on each target OS with **no
+- A downloaded binary runs `wayfinder-router webchat` on each target OS with **no
   Python installed**, opening `/demo`.
 - Binary size is measured and documented for the chosen builder.
 - The binary is built and smoke-tested in CI and attached to the release on tag.
@@ -99,6 +99,6 @@ than PyInstaller. Carried into the spike rather than rejected.
 
 - WF-ROADMAP-0004 (Initiative 3 — the binary initiative this decides)
 - WF-ADR-0008 (packaging and integration; the `[gateway]` extra and release path)
-- WF-ADR-0020 (the `wayfinder-router chat` launcher the binary runs)
+- WF-ADR-0020 (the `wayfinder-router webchat` launcher the binary runs)
 - WF-ADR-0004 (the OpenAI-compatible gateway being bundled)
 - WF-ADR-0001 (the zero-dependency core preserved; only the wrapper is new)

@@ -123,8 +123,8 @@ the existing contract**, no new routing logic.
   the `X-Wayfinder-Debug` payload for the *why* breakdown — exactly as the web demo
   does (WF-ADR-0020, WF-ADR-0011).
 - It reads `/router/models` and `/router/profiles` for status and profile pickers.
-- **Gateway lifecycle:** `wayfinder-router tui` boots the gateway the same way
-  `chat` does (reusing `gateway.run`/`build_app`) and attaches in-process; or
+- **Gateway lifecycle:** `wayfinder-router chat` boots the gateway the same way
+  `webchat` does (reusing `gateway.run`/`build_app`) and attaches in-process; or
   `--base-url URL` attaches to an already-running gateway. `--dry-run` gives the
   keyless decision-only demo (routes, shows the decision, prints a "routed, not
   answered" note) just like the web demo.
@@ -184,7 +184,7 @@ but cannot match the brand fidelity (rounded boxes, truecolour, live streaming);
 
 ### Browser demo only (status quo)
 
-`wayfinder-router chat` already serves `/demo`. Kept — this TUI is an *additional*
+`wayfinder-router webchat` already serves `/demo`. Kept — this TUI is an *additional*
 surface for terminal-bound users, not a replacement.
 
 ## Accessibility
@@ -236,14 +236,14 @@ a full-screen fill.
 
 - **Toolkit:** Rich-only first cut vs Textual from the start — settle in a spike
   against the mockup (binary size, streaming feel, threads-pane need).
-- **Gateway lifecycle:** auto-spawn in-process (like `chat`) vs require a running
+- **Gateway lifecycle:** auto-spawn in-process (like `webchat`) vs require a running
   gateway vs both (`--base-url`). Default?
 - **Streaming:** token-by-token now (depends on gateway streaming, WF-ADR-0013) or
   non-streaming with a spinner first?
 - **Theme auto-detection:** OSC 11 background query vs `COLORFGBG` vs default-dark —
   which is reliable enough to default to `auto`?
-- **Command surface:** `wayfinder-router tui` as its own subcommand vs
-  `chat --tui` (with `chat` defaulting to the browser).
+- **Command surface:** settled — `wayfinder-router chat` is the terminal chat and
+  `wayfinder-router webchat` is the browser UI (formerly `chat`).
 - **Threads UI:** inline `/threads` list (Rich) vs a persistent left pane (Textual).
 
 ## Related

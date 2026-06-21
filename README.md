@@ -83,23 +83,29 @@ items) and why you'd still run it.
 
 ## Try the demo (no keys)
 
-See the routing decision for yourself — no API keys, no models, nothing on the network:
+Two ways to see the routing decision for yourself — no API keys, no models, nothing on the network.
+
+**In your terminal** — a decision-first chat in the Wayfinder palette:
+
+```bash
+pip install "wayfinder-router[tui]"
+wayfinder-router chat
+```
+
+**In your browser** — the web chat UI with a live threshold slider:
 
 ```bash
 pip install "wayfinder-router[gateway]"
-wayfinder-router chat --dry-run
-# opens http://127.0.0.1:8088/demo in your browser
+wayfinder-router webchat --dry-run
+# opens http://127.0.0.1:8088/demo
 ```
 
-`chat` launches the demo UI and opens it for you (`--no-open` to skip, `--port` to change,
-`--host 0.0.0.0` to expose it). It's a thin launcher over `serve` — the gateway and its
-`/demo` page — so `wayfinder-router serve --dry-run` then visiting `/demo` works too, and
-`serve` is the command to use headless.
-
-A small chat UI that, for every message, shows where it routed (local vs cloud), the
-complexity score and *why* (the feature breakdown), and the cost saved vs always-cloud —
-with a live threshold slider. `--dry-run` makes the routing decision without calling a
-model, so you can poke at it with zero setup.
+`webchat` is a thin launcher over `serve` (the gateway and its `/demo` page; `--no-open`,
+`--port`, `--host 0.0.0.0`, `--dry-run`); `serve` is the headless command. Both surfaces
+show, for every message, where it routed (local vs cloud), the complexity score and *why*
+(the feature breakdown), and the cost saved vs always-cloud. `--dry-run` (web) and the
+terminal preview each make the decision without calling a model, so you can poke at it with
+zero setup.
 
 ## Quickstart
 

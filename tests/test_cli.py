@@ -211,10 +211,10 @@ def test_demo_url_maps_wildcard_to_loopback():
     assert _demo_url("example.internal", 80) == "http://example.internal:80/demo"
 
 
-def test_chat_runs_gateway_and_opens_browser(monkeypatch, gw, fake_browser, capsys):
+def test_webchat_runs_gateway_and_opens_browser(monkeypatch, gw, fake_browser, capsys):
     captured: dict = {}
     monkeypatch.setattr(gw, "run", lambda **kw: captured.update(kw))
-    rc = main(["chat"])
+    rc = main(["webchat"])
     assert rc == 0
     assert captured == {"start_dir": ".", "host": "127.0.0.1", "port": 8088,
                         "dry_run": False, "timeout": None}
@@ -223,24 +223,24 @@ def test_chat_runs_gateway_and_opens_browser(monkeypatch, gw, fake_browser, caps
     assert _FakeTimer.instances[-1].started is True
 
 
-def test_chat_honours_port_and_dry_run(monkeypatch, gw, fake_browser):
+def test_webchat_honours_port_and_dry_run(monkeypatch, gw, fake_browser):
     captured: dict = {}
     monkeypatch.setattr(gw, "run", lambda **kw: captured.update(kw))
-    assert main(["chat", "--port", "9000", "--dry-run"]) == 0
+    assert main(["webchat", "--port", "9000", "--dry-run"]) == 0
     assert captured["port"] == 9000 and captured["dry_run"] is True
 
 
-def test_chat_no_open_skips_browser(monkeypatch, gw, fake_browser):
+def test_webchat_no_open_skips_browser(monkeypatch, gw, fake_browser):
     monkeypatch.setattr(gw, "run", lambda **kw: None)
-    assert main(["chat", "--no-open"]) == 0
+    assert main(["webchat", "--no-open"]) == 0
     assert _FakeTimer.instances == []  # no browser timer scheduled
 
 
-def test_chat_missing_extra_returns_usage_and_cancels_open(monkeypatch, gw, fake_browser, capsys):
+def test_webchat_missing_extra_returns_usage_and_cancels_open(monkeypatch, gw, fake_browser, capsys):
     def boom(**kw):
         raise gw.GatewayUnavailable("the gateway needs its extra: pip install 'wayfinder-router[gateway]'")
     monkeypatch.setattr(gw, "run", boom)
-    rc = main(["chat"])
+    rc = main(["webchat"])
     assert rc == 2  # EXIT_USAGE
     assert "gateway needs its extra" in capsys.readouterr().err
     assert _FakeTimer.instances[-1].cancelled is True  # scheduled open was cancelled
