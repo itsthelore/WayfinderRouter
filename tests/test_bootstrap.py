@@ -42,3 +42,59 @@ def test_key_status_ok_when_key_set(monkeypatch):
     statuses = bootstrap.key_status(gw.models)
     assert all(s.ok for s in statuses)
     assert bootstrap.missing_keys(statuses) == []
+
+
+def _scripted(answers):
+    """A fake ``ask`` that replays answers in order, applying the default on a blank."""
+    it = iter(answers)
+    def ask(prompt, default=""):
+        try:
+            value = next(it)
+        except StopIteration:
+            value = ""
+        return value if value != "" else default
+    return ask
+
+
+def test_wizard_two_tiers_round_trips():
+    # tier 1: provider 1 (Ollama), default model/name; add another? yes
+    # tier 2: provider 3 (Anthropic), default model/name, cut 0.08; add another? no
+    ask = _scripted(["1", "", "", "y", "3", "", "", "0.08", "n"])
+    preset = bootstrap.run_init_wizard(ask, lambda _m: None)
+
+    gw = gateway_config_from_toml(preset.config_toml)
+    assert set(gw.models) == {"local", "cloud"}
+    assert gw.models["local"].base_url == "http://localhost:11434/v1"
+    assert gw.models["local"].api_key_env is None  # keyless Ollama
+    assert gw.models["cloud"].model == "claude-sonnet-4-6"
+    assert gw.models["cloud"].api_key_env == "ANTHROPIC_API_KEY"
+    routing = routing_config_from_toml(preset.config_toml)
+    assert [(t.model, round(t.min_score, 2)) for t in routing.tiers] == [
+        ("local", 0.0), ("cloud", 0.08)
+    ]
+    assert preset.env_vars == ("ANTHROPIC_API_KEY",)
+
+
+def test_wizard_custom_providers_keyless_and_keyed():
+    ask = _scripted([
+        "4", "http://localhost:1234/v1", "", "mymodel", "fast",  # custom, keyless, named "fast"
+        "y",
+        "4", "https://api.example.com/v1", "EXAMPLE_KEY", "big", "smart", "0.5",
+        "n",
+    ])
+    preset = bootstrap.run_init_wizard(ask, lambda _m: None)
+
+    gw = gateway_config_from_toml(preset.config_toml)
+    assert set(gw.models) == {"fast", "smart"}
+    assert gw.models["fast"].base_url == "http://localhost:1234/v1"
+    assert gw.models["fast"].api_key_env is None  # blank env -> keyless
+    assert gw.models["smart"].api_key_env == "EXAMPLE_KEY"
+    assert preset.env_vars == ("EXAMPLE_KEY",)
+
+
+def test_wizard_single_tier_has_a_zero_base():
+    ask = _scripted(["2", "", "", "n"])  # one OpenAI tier, then stop
+    preset = bootstrap.run_init_wizard(ask, lambda _m: None)
+    routing = routing_config_from_toml(preset.config_toml)
+    assert [t.min_score for t in routing.tiers] == [0.0]
+    assert preset.env_vars == ("OPENAI_API_KEY",)

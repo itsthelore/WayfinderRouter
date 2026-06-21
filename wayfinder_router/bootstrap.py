@@ -12,6 +12,7 @@ layer; the deterministic core is untouched (WF-ADR-0001).
 from __future__ import annotations
 
 import os
+from collections.abc import Callable
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
@@ -19,6 +20,11 @@ if TYPE_CHECKING:  # type-only: avoid importing the gateway for a duck-typed att
     from collections.abc import Mapping
 
     from .gateway import GatewayModel
+
+# Injected I/O for the interactive wizard, so the logic stays pure and testable
+# (mirrors onboard.py). ``ask(prompt, default) -> answer``; ``say(msg)`` narrates.
+Ask = Callable[[str, str], str]
+Say = Callable[[str], None]
 
 
 @dataclass(frozen=True)
@@ -114,3 +120,133 @@ def key_status(models: Mapping[str, GatewayModel]) -> list[KeyStatus]:
 def missing_keys(statuses: list[KeyStatus]) -> list[str]:
     """Distinct env-var names that are named but unset (sorted, deduped)."""
     return sorted({s.env_var for s in statuses if s.env_var and not s.ok})
+
+
+# --- interactive wizard ------------------------------------------------------
+@dataclass(frozen=True)
+class Provider:
+    """A known upstream: its base URL, the env var it reads, and an example model."""
+
+    key: str
+    label: str
+    base_url: str
+    api_key_env: str | None
+    example_model: str
+
+
+# Custom is last so its menu number is stable; it carries placeholder defaults so no
+# field is ever required (avoids re-prompt loops on EOF / piped input).
+PROVIDER_CHOICES: tuple[Provider, ...] = (
+    Provider("ollama", "Ollama — local, keyless", "http://localhost:11434/v1", None, "llama3.1"),
+    Provider("openai", "OpenAI", "https://api.openai.com/v1", "OPENAI_API_KEY", "gpt-4o-mini"),
+    Provider(
+        "anthropic", "Anthropic", "https://api.anthropic.com/v1", "ANTHROPIC_API_KEY",
+        "claude-sonnet-4-6",
+    ),
+    Provider("custom", "Custom (any OpenAI-compatible endpoint)", "http://localhost:8000/v1",
+             None, "your-model"),
+)
+
+_DEFAULT_CUTS = (0.08, 0.30, 0.60, 0.80)
+
+
+@dataclass(frozen=True)
+class ModelArm:
+    """One routing tier: a named upstream and the score at which it takes over."""
+
+    name: str
+    base_url: str
+    model: str
+    api_key_env: str | None
+    min_score: float
+
+
+def _default_tier_name(index: int) -> str:
+    return {0: "local", 1: "cloud"}.get(index, f"tier{index + 1}")
+
+
+def _default_cut(index: int) -> float:
+    """Default escalation score for tier ``index`` (>=1; the first tier is always 0.0)."""
+    return _DEFAULT_CUTS[min(index - 1, len(_DEFAULT_CUTS) - 1)]
+
+
+def _slug(name: str, fallback: str) -> str:
+    """A TOML-key-safe model name (the routing target); falls back if it empties out."""
+    cleaned = "".join(c if (c.isalnum() or c in "-_") else "-" for c in name.strip().lower())
+    return cleaned.strip("-") or fallback
+
+
+def _collect_arm(ask: Ask, say: Say, index: int) -> ModelArm:
+    say("")
+    say(f"Tier {index + 1}:")
+    for i, provider in enumerate(PROVIDER_CHOICES, start=1):
+        say(f"  {i}) {provider.label}")
+    choice = ask(f"  provider (1-{len(PROVIDER_CHOICES)})", "1")
+    try:
+        provider = PROVIDER_CHOICES[int(choice) - 1]
+    except (ValueError, IndexError):
+        provider = PROVIDER_CHOICES[0]
+
+    base_url = provider.base_url
+    api_key_env = provider.api_key_env
+    if provider.key == "custom":
+        base_url = ask("  base_url", provider.base_url)
+        api_key_env = ask("  API key env var (blank = keyless)", "") or None
+    model = ask("  model id", provider.example_model)
+    name = _slug(ask("  name for this tier", _default_tier_name(index)), _default_tier_name(index))
+
+    if index == 0:
+        min_score = 0.0  # the base tier always starts at zero
+    else:
+        raw = ask("  escalate to this tier at score (0-1)", f"{_default_cut(index):g}")
+        try:
+            min_score = max(0.0, min(1.0, float(raw)))
+        except ValueError:
+            min_score = _default_cut(index)
+    return ModelArm(name=name, base_url=base_url, model=model, api_key_env=api_key_env,
+                    min_score=min_score)
+
+
+def run_init_wizard(ask: Ask, say: Say) -> Preset:
+    """Interactively assemble a multi-tier config; never captures a secret, only env names."""
+    say("Let's configure your models — Wayfinder routes cheap → capable.")
+    say("Keys are read from the environment at request time and are never stored here.")
+    arms: list[ModelArm] = []
+    while True:
+        arms.append(_collect_arm(ask, say, index=len(arms)))
+        if ask("Add another model tier? (y/N)", "n").strip().lower() not in {"y", "yes"}:
+            break
+    return _preset_from_arms(arms)
+
+
+def _preset_from_arms(arms: list[ModelArm]) -> Preset:
+    env_vars = tuple(sorted({a.api_key_env for a in arms if a.api_key_env}))
+    plural = "s" if len(arms) != 1 else ""
+    return Preset(
+        name="custom",
+        summary=f"{len(arms)} tier{plural} (interactive)",
+        config_toml=render_config_from_arms(arms),
+        env_vars=env_vars,
+    )
+
+
+def render_config_from_arms(arms: list[ModelArm]) -> str:
+    """Render a ``wayfinder-router.toml`` from ordered arms (loads back unchanged)."""
+    arms = sorted(arms, key=lambda a: a.min_score)
+    out = [
+        "# wayfinder-router.toml — generated by `wayfinder-router init --interactive`.",
+        "#",
+        "# Wayfinder never stores secrets: a model names an env var (api_key_env) and the",
+        "# key is read from your environment at request time (WF-ADR-0004). Tune the score",
+        "# cuts below by hand or with `wayfinder-router calibrate`.",
+        "",
+    ]
+    for arm in arms:  # ordered score bands (WF-ADR-0002)
+        out += ["[[routing.tiers]]", f"min_score = {arm.min_score:g}", f'model = "{arm.name}"', ""]
+    for arm in arms:
+        out += [f"[gateway.models.{arm.name}]", f'base_url = "{arm.base_url}"',
+                f'model = "{arm.model}"']
+        if arm.api_key_env:
+            out.append(f'api_key_env = "{arm.api_key_env}"')
+        out.append("")
+    return "\n".join(out).rstrip("\n") + "\n"

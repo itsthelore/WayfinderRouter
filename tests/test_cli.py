@@ -326,3 +326,27 @@ def test_doctor_ready_when_keys_present(tmp_path, monkeypatch, capsys):
     out = capsys.readouterr().out
     assert rc == 0
     assert "ready:" in out and "✓ set" in out and "keyless ✓" in out
+
+
+def test_init_interactive_print_streams_toml_to_stdout(monkeypatch, capsys):
+    # one Ollama tier (provider 1, defaults), then "no" to add another
+    _feed_stdin(monkeypatch, "1\n\n\nn\n")
+    rc = main(["init", "-i", "--print"])
+    out = capsys.readouterr().out
+    assert rc == 0
+    assert "[[routing.tiers]]" in out and "[gateway.models.local]" in out
+    assert "localhost:11434" in out  # the Ollama base_url
+
+
+def test_init_interactive_writes_config_and_reports_keys(tmp_path, monkeypatch, capsys):
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    # Ollama local + Anthropic cloud (cut 0.08)
+    _feed_stdin(monkeypatch, "1\n\n\ny\n3\n\n\n0.08\nn\n")
+    rc = main(["init", "-i"])
+    out = capsys.readouterr().out
+    assert rc == 0
+    cfg = (tmp_path / "wayfinder-router.toml").read_text(encoding="utf-8")
+    assert "[gateway.models.cloud]" in cfg and "claude-sonnet-4-6" in cfg
+    assert (tmp_path / ".env.example").read_text(encoding="utf-8").count("ANTHROPIC_API_KEY=") == 1
+    assert "✗ not set" in out  # the cloud key check still runs after the wizard

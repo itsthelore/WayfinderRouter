@@ -118,7 +118,8 @@ just change one `base_url`.
 
    ```bash
    pip install "wayfinder-router[gateway]"
-   wayfinder-router init
+   wayfinder-router init                 # starter config (hybrid preset)
+   wayfinder-router init --interactive   # pick providers/models step by step
    ```
 
    Or describe your two models in `wayfinder-router.toml` by hand:
