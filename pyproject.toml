@@ -68,7 +68,8 @@ packages = ["wayfinder_router"]
 version = { attr = "wayfinder_router.__version__" }
 
 [tool.setuptools.package-data]
-wayfinder_router = ["py.typed"]
+# demo.html is the canonical /demo UI (WF-ADR-0020), loaded via importlib.resources.
+wayfinder_router = ["py.typed", "demo.html"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

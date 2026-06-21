@@ -28,6 +28,14 @@ Accepted
 > (hover or click). This keeps the page chat-shaped without hiding the decision: it's one
 > glance for the route, one click for the reasoning — still decision-first, just not
 > decision-*only*.
+>
+> Amendment (packaging): the markup is no longer an inline Python string. It now lives
+> in `wayfinder_router/demo.html` — the canonical, editable source of truth — shipped as
+> package data and read once at import via `importlib.resources` (still exposed as
+> `_DEMO_HTML` in `gateway.py`). This preserves the "one self-contained page, no
+> build/CDN/deps" property (it is a single static asset — just a real file now, not a
+> heredoc), makes the UI directly openable for design review, and ensures it travels with
+> the wheel and the future standalone binary (WF-ROADMAP-0004, WF-ADR-0028).
 
 ## Category
 
