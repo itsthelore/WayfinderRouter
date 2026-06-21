@@ -143,6 +143,25 @@ def test_invoke_model_raises_on_error_status(monkeypatch):
         gateway.invoke_model(model, "hi")
 
 
+def test_invoke_messages_forwards_full_conversation(monkeypatch):
+    captured: dict = {}
+
+    def fake_forward(url, headers, json_body, timeout=60.0):
+        captured.update(url=url, body=json_body)
+        return 200, b'{"choices":[{"message":{"content":"ok"}}]}', "application/json"
+
+    monkeypatch.setattr(gateway, "forward_request", fake_forward)
+    model = gateway.GatewayModel(base_url="http://h/v1", model="big")
+    msgs = [
+        {"role": "user", "content": "a"},
+        {"role": "assistant", "content": "b"},
+        {"role": "user", "content": "c"},
+    ]
+    assert gateway.invoke_messages(model, msgs) == "ok"
+    assert captured["body"]["messages"] == msgs  # the whole history is forwarded
+    assert captured["url"].endswith("/chat/completions")
+
+
 # --- cost metadata (WF-ADR-0017) --------------------------------------------
 
 

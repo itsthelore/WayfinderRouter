@@ -103,9 +103,10 @@ wayfinder-router webchat --dry-run
 `webchat` is a thin launcher over `serve` (the gateway and its `/demo` page; `--no-open`,
 `--port`, `--host 0.0.0.0`, `--dry-run`); `serve` is the headless command. Both surfaces
 show, for every message, where it routed (local vs cloud), the complexity score and *why*
-(the feature breakdown), and the cost saved vs always-cloud. `--dry-run` (web) and the
-terminal preview each make the decision without calling a model, so you can poke at it with
-zero setup.
+(the feature breakdown), and the cost saved vs always-cloud. With no config both are
+decision-only (`--dry-run` for the web; the terminal's preview), so you can poke at it with
+zero setup; configure `[gateway.models]` (and add the `[gateway]` extra) and each then calls
+the chosen model for a real reply.
 
 ## Quickstart
 

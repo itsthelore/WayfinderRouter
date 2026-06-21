@@ -271,6 +271,7 @@ def _cmd_chat(args: argparse.Namespace) -> int:
             theme=args.theme,
             show_why=args.why,
             threshold=args.threshold,
+            dry_run=args.dry_run,
         )
     except TUIUnavailable as exc:
         print(f"wayfinder-router: {exc}", file=sys.stderr)
@@ -468,6 +469,11 @@ def build_parser() -> argparse.ArgumentParser:
     )
     p_chat.add_argument(
         "--why", action="store_true", help="Expand the score breakdown on every turn."
+    )
+    p_chat.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Decision-only: never call a model, even if [gateway.models] are configured.",
     )
     p_chat.set_defaults(func=_cmd_chat)
 
