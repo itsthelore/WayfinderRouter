@@ -6,10 +6,11 @@ A decision-first terminal chat: it scores each prompt with the deterministic cor
 pulled from ``demo.html``. The "why" breakdown is collapsed by default and expanded
 on demand (``/why``) so the transcript stays readable.
 
-This is the first cut from WF-DESIGN-0001: **Rich-only**, decision-first, and keyless
-(it routes and explains; it does not yet call a model — that is the thin-client step
-over the gateway contract). The scoring stays in the pure, offline core (WF-ADR-0001);
-this module is presentation only and never enters the scored path.
+From WF-DESIGN-0001: **Rich-only**, decision-first. It routes and explains, and — when
+``[gateway.models]`` are configured — calls the chosen model **in-process** (reusing the
+gateway's relay, ``invoke_messages``) to return a real reply; with no models (or
+``--dry-run``) it stays decision-only. Scoring stays in the pure, offline core
+(WF-ADR-0001); this module is presentation + relay glue and never enters the scored path.
 
 Rich is an opt-in extra (``pip install 'wayfinder-router[tui]'``); it is imported
 lazily so the package still imports without it (mirrors the gateway's fastapi pattern).
@@ -247,26 +248,79 @@ def render_settings(state: TuiState, palette: dict[str, str]) -> RenderableType:
     )
 
 
+def model_reply(
+    models: dict, decision: Decision, messages: list[dict], *, timeout: float = 60.0
+) -> str | None:
+    """Call the upstream the decision points at; return its reply, or None if no model maps.
+
+    In-process reuse of the gateway's relay (``invoke_messages``) — the same forward path
+    the server uses, without spawning one (WF-DESIGN-0001).
+    """
+    from .gateway import invoke_messages
+
+    model = models.get(decision.model)
+    if model is None:
+        return None
+    return invoke_messages(model, messages, timeout=timeout)
+
+
+def render_reply(text: str) -> RenderableType:
+    """Render a model reply as Markdown (code blocks and lists render nicely)."""
+    from rich.markdown import Markdown
+
+    return Markdown(text)
+
+
+def _reply_timeout() -> float:
+    raw = os.environ.get("WAYFINDER_ROUTER_TIMEOUT")
+    if raw:
+        try:
+            return float(raw)
+        except ValueError:
+            pass
+    return 60.0
+
+
 def run_tui(
     *, start_dir: str = ".", theme: str = "auto", show_why: bool = False,
-    threshold: float | None = None,
+    threshold: float | None = None, dry_run: bool = False,
 ) -> None:
-    """The interactive loop: read a line, route it, render the decision. Ctrl-C / /quit to exit."""
+    """Interactive loop: route each line, render the decision, and — when models are
+    configured — the model's reply. Ctrl-C / /quit to exit."""
     _require_rich()
     from rich.console import Console
+
+    from .gateway import GatewayUnavailable, UpstreamError
 
     console: Console = Console()
     state = TuiState(threshold=threshold, show_why=show_why, theme=theme)
     palette = palette_for(state.theme)
     history: list[Decision] = []
+    messages: list[dict] = []
+
+    models: dict = {}
+    if not dry_run:
+        try:
+            from .gateway import load_gateway_config
+
+            models = dict(load_gateway_config(start_dir).models)
+        except WayfinderConfigError as exc:
+            console.print(str(exc), style=palette["warn"])
+    live = bool(models)
+    timeout = _reply_timeout()
 
     console.print(
         render_welcome(palette, subtitle="decision-first routing · /help · /settings · ctrl-c to quit")
     )
-    console.print(
-        "preview: showing routing decisions only — wire a gateway for replies.",
-        style=palette["muted"],
-    )
+    if live:
+        console.print(
+            f"connected · routing between {', '.join(sorted(models))}", style=palette["muted"]
+        )
+    else:
+        console.print(
+            "preview · routing decisions only — add [gateway.models] (and drop --dry-run) for replies",
+            style=palette["muted"],
+        )
 
     while True:
         try:
@@ -279,13 +333,28 @@ def run_tui(
 
         cmd, arg = parse_command(line)
         if cmd is None:
+            messages.append({"role": "user", "content": line})
             try:
                 decision = decide(line, start_dir=start_dir, threshold=state.threshold)
             except WayfinderConfigError as exc:
                 console.print(str(exc), style=palette["warn"])
+                messages.pop()
                 continue
             history.append(decision)
             console.print(render_decision(decision, palette, expanded=state.show_why))
+            if live:
+                try:
+                    reply = model_reply(models, decision, messages, timeout=timeout)
+                except (GatewayUnavailable, UpstreamError, RuntimeError) as exc:
+                    console.print(f"upstream error: {exc}", style=palette["warn"])
+                    reply = None
+                if reply is not None:
+                    messages.append({"role": "assistant", "content": reply})
+                    console.print(render_reply(reply))
+                elif decision.model not in models:
+                    console.print(
+                        f"no model configured for '{decision.model}'", style=palette["muted"]
+                    )
             continue
 
         if cmd in {"quit", "q", "exit"}:

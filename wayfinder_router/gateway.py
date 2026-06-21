@@ -771,20 +771,23 @@ async def aforward_stream(
         raise UpstreamError(str(exc) or exc.__class__.__name__) from exc
 
 
-def invoke_model(model: GatewayModel, prompt: str, timeout: float = _DEFAULT_TIMEOUT) -> str:
-    """Run ``prompt`` through one upstream model and return its text (BYO key).
+def invoke_messages(
+    model: GatewayModel, messages: list[dict], timeout: float = _DEFAULT_TIMEOUT
+) -> str:
+    """Run a full OpenAI-style ``messages`` conversation through one upstream (BYO key).
 
-    The single-prompt call the onboarding harness uses to A/B a local vs hosted
-    model. It forwards an OpenAI-compatible chat request with the model's key
-    (read from the environment) and returns the assistant content. Reuses
-    :func:`forward_request`, so tests substitute the network the same way.
+    The multi-turn relay behind :func:`invoke_model`; the terminal chat
+    (WF-DESIGN-0001) uses it in-process to send conversation history and get a real
+    reply, reusing the gateway's exact forward path (key from the environment,
+    OpenAI-compatible ``/chat/completions``). Reuses :func:`forward_request`, so
+    tests substitute the network the same way.
     """
     headers = {"Content-Type": "application/json"}
     if model.api_key_env:
         key = os.environ.get(model.api_key_env)
         if key:
             headers["Authorization"] = f"Bearer {key}"
-    body = {"model": model.model, "messages": [{"role": "user", "content": prompt}]}
+    body = {"model": model.model, "messages": list(messages)}
     url = model.base_url.rstrip("/") + "/chat/completions"
     status, content, _ = forward_request(url, headers, body, timeout)
     if status >= 400:
@@ -794,6 +797,15 @@ def invoke_model(model: GatewayModel, prompt: str, timeout: float = _DEFAULT_TIM
         return str(data["choices"][0]["message"]["content"])
     except (json.JSONDecodeError, KeyError, IndexError, TypeError) as exc:
         raise RuntimeError(f"{model.model} returned an unexpected response shape: {exc}") from exc
+
+
+def invoke_model(model: GatewayModel, prompt: str, timeout: float = _DEFAULT_TIMEOUT) -> str:
+    """Run a single ``prompt`` turn through one upstream and return its text (BYO key).
+
+    The single-prompt call the onboarding A/B harness uses; delegates to
+    :func:`invoke_messages` so the relay lives in one place.
+    """
+    return invoke_messages(model, [{"role": "user", "content": prompt}], timeout)
 
 
 def _resolve_timeout() -> float:

@@ -14,6 +14,14 @@ Proposed
 > Design spec for a terminal chat UI that mirrors the Claude-Code-in-a-terminal
 > experience while surfacing Wayfinder's routing decision, in the Wayfinder palette.
 > Companion to the browser demo (WF-ADR-0020); slots under WF-ROADMAP-0004.
+>
+> Implemented (first cut): `wayfinder-router chat` ships the Rich TUI — collapsible
+> decisions (`/why`), a `/settings` panel, and **in-process replies**: when
+> `[gateway.models]` are configured it calls the chosen model via the gateway's
+> `invoke_messages` relay (no server spawned), printing the reply under each decision;
+> keyless / `--dry-run` stays decision-only. The HTTP thin-client form (attach to a
+> remote gateway via `--base-url`) remains future. The browser surface is
+> `wayfinder-router webchat`.
 
 ## Context
 

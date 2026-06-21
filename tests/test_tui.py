@@ -105,3 +105,37 @@ def test_cli_chat_help_exits_zero():
 def test_cli_chat_rejects_bad_threshold(capsys):
     assert main(["chat", "--threshold", "2.0"]) == 2  # EXIT_USAGE, before the loop starts
     assert "threshold" in capsys.readouterr().err
+
+
+def test_model_reply_invokes_mapped_model(monkeypatch):
+    from wayfinder_router import gateway
+
+    captured: dict = {}
+
+    def fake(model, messages, timeout=60.0):
+        captured["messages"] = messages
+        return f"hi from {model.model}"
+
+    monkeypatch.setattr(gateway, "invoke_messages", fake)
+    models = {"local": gateway.GatewayModel(base_url="http://x/v1", model="m7b")}
+    decision = tui.Decision(text="q", model="local", score=0.1, mode="tiered", is_local=True)
+    msgs = [{"role": "user", "content": "q"}]
+    assert tui.model_reply(models, decision, msgs) == "hi from m7b"
+    assert captured["messages"] == msgs  # full conversation handed to the relay
+
+
+def test_model_reply_none_when_model_unmapped():
+    from wayfinder_router import gateway
+
+    models = {"local": gateway.GatewayModel(base_url="http://x/v1", model="m7b")}
+    decision = tui.Decision(text="q", model="cloud", score=0.9, mode="tiered", is_local=False)
+    assert tui.model_reply(models, decision, [{"role": "user", "content": "q"}]) is None
+
+
+def test_render_reply_smoke():
+    from rich.console import Console
+
+    con = Console(record=True, width=80)
+    con.print(tui.render_reply("**bold** and `code`"))
+    out = con.export_text()
+    assert "bold" in out and "code" in out
