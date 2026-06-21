@@ -13,7 +13,7 @@ Planned
 
 ## Context
 
-v0.2.0 shipped the decision-first `/demo` UI and the `wayfinder-router chat`
+v0.2.0 shipped the decision-first `/demo` UI and the `wayfinder-router webchat`
 launcher (WF-ADR-0020), so the product is finally *visible* — but launching it
 still assumes a Python environment and a manual `pip install "wayfinder-router[gateway]"`.
 WF-ADR-0008 packaged the gateway as a container and named the library/CLI/UI
@@ -48,7 +48,7 @@ non-technical/desktop users.
 
 The package already exposes the `wayfinder-router` console script and the `chat`
 subcommand (WF-ADR-0020). Make "try it without installing" a single line —
-`uvx --from "wayfinder-router[gateway]" wayfinder-router chat` (and the `pipx run`
+`uvx --from "wayfinder-router[gateway]" wayfinder-router webchat` (and the `pipx run`
 equivalent) — so an ephemeral environment pulls the `[gateway]` extra, boots the
 gateway, and opens `/demo`. Additive, essentially no new code: verify the entry
 point resolves the extra under uvx/pipx ephemeral envs and lead the README's "Try
@@ -66,7 +66,7 @@ pull-and-run artifact.
 
 For users with no Python at all: produce a self-contained executable (PyInstaller,
 or shiv/pex) that bundles the `[gateway]` extra (FastAPI/uvicorn) and runs
-`wayfinder-router chat`. A CI matrix builds per-OS artifacts (Linux/macOS/Windows)
+`wayfinder-router webchat`. A CI matrix builds per-OS artifacts (Linux/macOS/Windows)
 and attaches them to the GitHub release. The deterministic core remains importable
 exactly as today; only the distribution wrapper is new.
 
@@ -111,7 +111,7 @@ than binary size. The decision (and the trade-off that drove it) becomes a new A
 ## Assumptions
 
 - The thing being packaged is the OpenAI-compatible gateway + the `/demo` UI; **no
-  API or routing changes are required** — `wayfinder-router chat` already provides
+  API or routing changes are required** — `wayfinder-router webchat` already provides
   the launch path.
 - Users fall into three buckets — Python (pip/uvx), operators (Docker), and
   non-technical/desktop (binary/app) — and the four initiatives cover them.
@@ -122,10 +122,10 @@ than binary size. The decision (and the trade-off that drove it) becomes a new A
 ## Success Measures
 
 - **I1:** on a clean machine with only `uv` installed,
-  `uvx --from "wayfinder-router[gateway]" wayfinder-router chat` opens the demo.
-- **I2:** `docker run -p 8088:8088 <image> chat --host 0.0.0.0` serves `/demo`, the
+  `uvx --from "wayfinder-router[gateway]" wayfinder-router webchat` opens the demo.
+- **I2:** `docker run -p 8088:8088 <image> webchat --host 0.0.0.0` serves `/demo`, the
   `HEALTHCHECK` reports healthy, and the image is published on tag.
-- **I3:** a downloaded single binary runs `wayfinder-router chat` on each target OS
+- **I3:** a downloaded single binary runs `wayfinder-router webchat` on each target OS
   with no Python present.
 - **I4:** a double-clicked app opens the demo in a native window, and the chosen
   approach (Pake vs pywebview) is recorded in an ADR with binary-size and
@@ -151,7 +151,7 @@ than binary size. The decision (and the trade-off that drove it) becomes a new A
 
 - WF-ADR-0008 (packaging & integration — this roadmap delivers its "Deployment"
   line beyond the build-it-yourself container)
-- WF-ADR-0020 (decision-first demo UI and the `wayfinder-router chat` launcher — the
+- WF-ADR-0020 (decision-first demo UI and the `wayfinder-router webchat` launcher — the
   thing being packaged)
 - WF-ADR-0004 (the OpenAI-compatible gateway being shipped)
 - WF-ADR-0001 (the deterministic boundary preserved throughout)

@@ -217,7 +217,7 @@ def _demo_url(host: str, port: int) -> str:
     return f"http://{display}:{port}/demo"
 
 
-def _cmd_chat(args: argparse.Namespace) -> int:
+def _cmd_webchat(args: argparse.Namespace) -> int:
     import threading
     import webbrowser
 
@@ -225,7 +225,7 @@ def _cmd_chat(args: argparse.Namespace) -> int:
 
     url = _demo_url(args.host, args.port)
     note = "  (dry-run: routing decisions only, no model calls)" if args.dry_run else ""
-    print(f"wayfinder-router chat → {url}{note}  (Ctrl-C to stop)")
+    print(f"wayfinder-router webchat → {url}{note}  (Ctrl-C to stop)")
     # uvicorn.run blocks, so open the browser from a short timer once the server is up.
     timer = None
     if not args.no_open:
@@ -259,7 +259,7 @@ def _cmd_ui(args: argparse.Namespace) -> int:
     return EXIT_OK
 
 
-def _cmd_tui(args: argparse.Namespace) -> int:
+def _cmd_chat(args: argparse.Namespace) -> int:
     from .tui import TUIUnavailable, run_tui
 
     if args.threshold is not None and not 0.0 <= args.threshold <= 1.0:
@@ -269,7 +269,7 @@ def _cmd_tui(args: argparse.Namespace) -> int:
         run_tui(
             start_dir=".",
             theme=args.theme,
-            show_why=not args.no_why,
+            show_why=args.why,
             threshold=args.threshold,
         )
     except TUIUnavailable as exc:
@@ -452,25 +452,22 @@ def build_parser() -> argparse.ArgumentParser:
 
     p_chat = sub.add_parser(
         "chat",
-        help="Launch the chat demo UI (the gateway, opened at /demo; needs the [gateway] extra).",
-    )
-    p_chat.add_argument("--host", default="127.0.0.1", help="Bind host (default: 127.0.0.1).")
-    p_chat.add_argument("--port", type=int, default=8088, help="Bind port (default: 8088).")
-    p_chat.add_argument(
-        "--dry-run",
-        action="store_true",
-        help="Show routing decisions without calling an upstream (no backends needed).",
+        help="Wayfinder terminal chat: decision-first routing in the terminal (needs the [tui] extra).",
     )
     p_chat.add_argument(
-        "--timeout",
+        "--theme",
+        choices=["auto", "light", "dark"],
+        default="auto",
+        help="Colour theme (default: auto -> $WAYFINDER_THEME or dark).",
+    )
+    p_chat.add_argument(
+        "--threshold",
         type=float,
         default=None,
-        help="Upstream request timeout in seconds (default: WAYFINDER_ROUTER_TIMEOUT or 60).",
+        help="Force a binary local/cloud cut at this score (0.0-1.0).",
     )
     p_chat.add_argument(
-        "--no-open",
-        action="store_true",
-        help="Do not open the demo in a browser on startup.",
+        "--why", action="store_true", help="Expand the score breakdown on every turn."
     )
     p_chat.set_defaults(func=_cmd_chat)
 
@@ -482,26 +479,29 @@ def build_parser() -> argparse.ArgumentParser:
     p_ui.add_argument("--port", type=int, default=8099, help="Bind port (default: 8099).")
     p_ui.set_defaults(func=_cmd_ui)
 
-    p_tui = sub.add_parser(
-        "tui",
-        help="Wayfinder terminal chat: decision-first routing in the terminal (needs the [tui] extra).",
+    p_webchat = sub.add_parser(
+        "webchat",
+        help="Launch the web chat UI (the gateway, opened at /demo; needs the [gateway] extra).",
     )
-    p_tui.add_argument(
-        "--theme",
-        choices=["auto", "light", "dark"],
-        default="auto",
-        help="Colour theme (default: auto -> $WAYFINDER_THEME or dark).",
+    p_webchat.add_argument("--host", default="127.0.0.1", help="Bind host (default: 127.0.0.1).")
+    p_webchat.add_argument("--port", type=int, default=8088, help="Bind port (default: 8088).")
+    p_webchat.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Show routing decisions without calling an upstream (no backends needed).",
     )
-    p_tui.add_argument(
-        "--threshold",
+    p_webchat.add_argument(
+        "--timeout",
         type=float,
         default=None,
-        help="Force a binary local/cloud cut at this score (0.0-1.0).",
+        help="Upstream request timeout in seconds (default: WAYFINDER_ROUTER_TIMEOUT or 60).",
     )
-    p_tui.add_argument(
-        "--no-why", action="store_true", help="Hide the per-reply score breakdown."
+    p_webchat.add_argument(
+        "--no-open",
+        action="store_true",
+        help="Do not open the demo in a browser on startup.",
     )
-    p_tui.set_defaults(func=_cmd_tui)
+    p_webchat.set_defaults(func=_cmd_webchat)
 
     p_onboard = sub.add_parser(
         "onboard",

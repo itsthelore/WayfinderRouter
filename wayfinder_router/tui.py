@@ -2,8 +2,9 @@
 
 A decision-first terminal chat: it scores each prompt with the deterministic core
 (``score_complexity`` / ``explain_score``) and renders the routing decision inline —
-``● LOCAL`` (green) vs ``◆ CLOUD`` (amber), the score, and the "why" — in the
-Wayfinder palette pulled from ``demo.html``.
+``● LOCAL`` (green) vs ``◆ CLOUD`` (amber) and the score — in the Wayfinder palette
+pulled from ``demo.html``. The "why" breakdown is collapsed by default and expanded
+on demand (``/why``) so the transcript stays readable.
 
 This is the first cut from WF-DESIGN-0001: **Rich-only**, decision-first, and keyless
 (it routes and explains; it does not yet call a model — that is the thin-client step
@@ -16,7 +17,6 @@ lazily so the package still imports without it (mirrors the gateway's fastapi pa
 
 from __future__ import annotations
 
-import importlib.resources
 import os
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
@@ -35,6 +35,7 @@ if TYPE_CHECKING:  # type-only; the runtime imports rich lazily inside the rende
     from rich.console import Console, RenderableType
 
 _INSTALL_HINT = "the terminal UI needs its extra: pip install 'wayfinder-router[tui]'"
+_SCOPES = ("turn", "last_user", "user", "all")
 
 # --- brand palette (from wayfinder_router/demo.html) -------------------------
 # Foreground roles only: a TUI inherits the terminal's background, so we paint
@@ -67,51 +68,17 @@ def palette_for(theme: str = "auto") -> dict[str, str]:
     return THEMES.get(theme, THEMES["dark"])
 
 
-# --- mascot ------------------------------------------------------------------
-# PLACEHOLDER mascot (a compass rose — Wayfinder = navigation). The real mascot
-# art drops in here, and animation is a matter of adding frames: the renderer
-# already cycles ``_MASCOT_FRAMES`` by index, so a frame loop is the only wiring
-# left once the artwork/animation is finalized.
-_MASCOT_FRAMES: tuple[tuple[str, ...], ...] = (
-    (
-        r" \ | / ",
-        r"– ✦ –",
-        r" / | \ ",
-    ),
-)
-# ASCII fallback for terminals/locales that can't render the unicode mascot.
-_MASCOT_ASCII: tuple[str, ...] = (
-    r" \ | / ",
-    r"-  *  -",
-    r" / | \ ",
-)
+# --- session state -----------------------------------------------------------
+@dataclass
+class TuiState:
+    """The live settings the chat manages — surfaced by ``/settings``, set by commands."""
 
-
-def mascot(frame: int = 0, *, ascii_only: bool = False) -> tuple[str, ...]:
-    """The ASCII fallback mascot (no-truecolour terminals). ``frame`` is the seam."""
-    if ascii_only:
-        return _MASCOT_ASCII
-    return _MASCOT_FRAMES[frame % len(_MASCOT_FRAMES)]
-
-
-_MASCOT_ANSI: str | None = None
-
-
-def mascot_ansi() -> str:
-    """The real Wayfinder mascot as truecolour half-block ANSI (shipped as package data).
-
-    Returns ``""`` if the art file is missing, so the renderer can fall back to ASCII.
-    The animation seam lives here: ship ``mascot-1.ans`` … and cycle the frames.
-    """
-    global _MASCOT_ANSI
-    if _MASCOT_ANSI is None:
-        try:
-            _MASCOT_ANSI = (
-                importlib.resources.files("wayfinder_router") / "mascot.ans"
-            ).read_text(encoding="utf-8")
-        except (FileNotFoundError, OSError):
-            _MASCOT_ANSI = ""
-    return _MASCOT_ANSI
+    threshold: float | None = None
+    scope: str = "turn"
+    sticky: bool = False
+    cooldown: int = 0
+    show_why: bool = False  # auto-expand the breakdown on every turn
+    theme: str = "dark"
 
 
 # --- the routing decision (reuses the deterministic core) --------------------
@@ -168,11 +135,15 @@ def parse_command(line: str) -> tuple[str | None, str]:
 
 
 _HELP = (
-    "commands:  /threshold <0..1>   set the local/cloud cut\n"
-    "           /why on|off         show or hide the score breakdown\n"
-    "           /help               this help\n"
-    "           /quit               leave\n"
-    "type anything else to route it."
+    "commands\n"
+    "  /threshold <0..1>              set the local/cloud cut\n"
+    "  /scope turn|last_user|user|all what each turn scores\n"
+    "  /sticky on|off [N]            keep hard chats on cloud (cooldown N)\n"
+    "  /why [on|off|N]               expand the last (or Nth) decision; on/off auto-expands\n"
+    "  /theme dark|light|auto        recolour\n"
+    "  /settings                     show current settings\n"
+    "  /help    /quit\n"
+    "anything else is routed."
 )
 
 
@@ -189,37 +160,24 @@ def _require_rich() -> None:
 
 
 def render_welcome(palette: dict[str, str], *, subtitle: str) -> RenderableType:
-    """The launch box, mirroring the brand banner: mascot | wordmark + taglines."""
-    from rich.align import Align
+    """The launch box: wordmark + brand taglines + a functional hint."""
     from rich.panel import Panel
-    from rich.table import Table
     from rich.text import Text
 
     accent, muted, text_c = palette["accent"], palette["muted"], palette["text"]
-
-    art = mascot_ansi()
-    if art:
-        figure: RenderableType = Text.from_ansi(art.rstrip("\n"))
-    else:
-        figure = Text("\n".join(mascot(0)), style=accent)
-
     words = Text()
-    words.append("Wayfinder\n", style=f"bold {accent}")
+    words.append("Wayfinder", style=f"bold {accent}")
+    words.append("  terminal chat\n", style=text_c)
     words.append("Choose your path to your answers\n", style=text_c)
-    words.append("Deterministic. Read-only. No RAG, no guessing.\n\n", style=muted)
+    words.append("Deterministic. Offline. No model call to decide.\n\n", style=muted)
     words.append(subtitle, style=muted)
-
-    grid = Table.grid(padding=(0, 3))
-    grid.add_column()
-    grid.add_column()
-    grid.add_row(figure, Align(words, vertical="middle"))
-    return Panel(grid, border_style=accent, padding=(1, 3), expand=False)
+    return Panel(words, border_style=accent, padding=(1, 3), expand=False)
 
 
 def render_decision(
-    decision: Decision, palette: dict[str, str], *, show_why: bool = True
+    decision: Decision, palette: dict[str, str], *, expanded: bool = False
 ) -> RenderableType:
-    """The inline decision line (``● LOCAL`` / ``◆ CLOUD``) and optional "why" table."""
+    """The decision line; collapsed shows a ``/why`` affordance, expanded adds the table."""
     from rich.console import Group
     from rich.table import Table
     from rich.text import Text
@@ -227,34 +185,70 @@ def render_decision(
     role_color = palette["accent"] if decision.is_local else palette["cloud"]
     glyph = "●" if decision.is_local else "◆"
     role = "LOCAL" if decision.is_local else "CLOUD"
-    muted = palette["muted"]
+    muted, text_c = palette["muted"], palette["text"]
 
     head = Text()
     head.append(f"{glyph} {role}", style=f"bold {role_color}")
-    head.append(f"  {decision.model}", style=palette["text"])
+    head.append(f"  {decision.model}", style=text_c)
     head.append(f"   score {decision.score:.2f}", style=muted)
     if decision.is_local:
-        head.append("   · kept local", style=muted)
+        head.append("  · kept local", style=muted)
+    if decision.contributions:
+        head.append("   /why " + ("⌃" if expanded else "⌄"), style=muted)
 
-    parts: list[RenderableType] = [head]
-    if show_why and decision.contributions:
-        table = Table.grid(padding=(0, 2))
-        table.add_column(style=muted)
-        table.add_column(justify="right", style=muted)
-        table.add_column(justify="right", style=muted)
-        for fc in sorted(decision.contributions, key=lambda c: -c.contribution)[:5]:
-            table.add_row(
-                fc.name,
-                f"{fc.value}",
-                f"{fc.normalized:.2f}×{fc.weight:g} = {fc.contribution:.3f}",
-            )
-        parts.append(table)
-    parts.append(Text("routed, not answered (dry-run prototype)", style=muted))
-    return Group(*parts)
+    if not (expanded and decision.contributions):
+        return head
+
+    table = Table.grid(padding=(0, 2))
+    table.add_column(style=muted)
+    table.add_column(justify="right", style=muted)
+    table.add_column(justify="right", style=muted)
+    for fc in sorted(decision.contributions, key=lambda c: -c.contribution)[:5]:
+        table.add_row(
+            fc.name,
+            f"{fc.value}",
+            f"{fc.normalized:.2f}×{fc.weight:g} = {fc.contribution:.3f}",
+        )
+    return Group(head, table)
+
+
+def render_settings(state: TuiState, palette: dict[str, str]) -> RenderableType:
+    """A settings panel: the live routing controls and how to change them."""
+    from rich.console import Group
+    from rich.panel import Panel
+    from rich.table import Table
+    from rich.text import Text
+
+    accent, muted, text_c = palette["accent"], palette["muted"], palette["text"]
+    rows = [
+        ("threshold", f"{state.threshold:.2f}" if state.threshold is not None else "auto (config)"),
+        ("routing scope", state.scope),
+        ("sticky", f"on · cooldown {state.cooldown}" if state.sticky else "off"),
+        ("why breakdown", "expanded" if state.show_why else "collapsed"),
+        ("theme", state.theme),
+    ]
+    grid = Table.grid(padding=(0, 3))
+    grid.add_column(style=muted, justify="right")
+    grid.add_column(style=text_c)
+    for key, val in rows:
+        grid.add_row(key, val)
+
+    hint = Text(
+        "\nchange:  /threshold  /scope  /sticky  /why  /theme   ·   /help for syntax",
+        style=muted,
+    )
+    return Panel(
+        Group(grid, hint),
+        title="settings",
+        title_align="left",
+        border_style=accent,
+        padding=(1, 2),
+        expand=False,
+    )
 
 
 def run_tui(
-    *, start_dir: str = ".", theme: str = "auto", show_why: bool = True,
+    *, start_dir: str = ".", theme: str = "auto", show_why: bool = False,
     threshold: float | None = None,
 ) -> None:
     """The interactive loop: read a line, route it, render the decision. Ctrl-C / /quit to exit."""
@@ -262,40 +256,88 @@ def run_tui(
     from rich.console import Console
 
     console: Console = Console()
-    palette = palette_for(theme)
-    sub = "decision-first routing · /help for commands · ctrl-c to quit"
-    console.print(render_welcome(palette, subtitle=sub))
+    state = TuiState(threshold=threshold, show_why=show_why, theme=theme)
+    palette = palette_for(state.theme)
+    history: list[Decision] = []
 
-    prompt = f"[{palette['accent']}]›[/] "
+    console.print(
+        render_welcome(palette, subtitle="decision-first routing · /help · /settings · ctrl-c to quit")
+    )
+    console.print(
+        "preview: showing routing decisions only — wire a gateway for replies.",
+        style=palette["muted"],
+    )
+
     while True:
         try:
-            line = console.input(prompt).strip()
+            line = console.input(f"[{palette['accent']}]›[/] ").strip()
         except (EOFError, KeyboardInterrupt):
             console.print()
             return
         if not line:
             continue
+
         cmd, arg = parse_command(line)
-        if cmd is not None:
-            if cmd in {"quit", "q", "exit"}:
-                return
-            if cmd == "help":
-                console.print(_HELP, style=palette["muted"])
-            elif cmd == "why":
-                show_why = arg.strip().lower() != "off"
-                console.print(f"why {'on' if show_why else 'off'}", style=palette["muted"])
-            elif cmd == "threshold":
-                try:
-                    threshold = max(0.0, min(1.0, float(arg)))
-                    console.print(f"threshold {threshold:.2f}", style=palette["accent"])
-                except ValueError:
-                    console.print("threshold must be a number 0..1", style=palette["warn"])
+        if cmd is None:
+            try:
+                decision = decide(line, start_dir=start_dir, threshold=state.threshold)
+            except WayfinderConfigError as exc:
+                console.print(str(exc), style=palette["warn"])
+                continue
+            history.append(decision)
+            console.print(render_decision(decision, palette, expanded=state.show_why))
+            continue
+
+        if cmd in {"quit", "q", "exit"}:
+            return
+        elif cmd == "help":
+            console.print(_HELP, style=palette["muted"])
+        elif cmd == "settings":
+            console.print(render_settings(state, palette))
+        elif cmd == "threshold":
+            try:
+                state.threshold = max(0.0, min(1.0, float(arg)))
+                console.print(f"threshold {state.threshold:.2f}", style=palette["accent"])
+            except ValueError:
+                console.print("threshold must be a number 0..1", style=palette["warn"])
+        elif cmd == "scope":
+            if arg in _SCOPES:
+                state.scope = arg
+                console.print(f"scope {arg}", style=palette["accent"])
             else:
-                console.print(f"unknown command /{cmd} — /help", style=palette["warn"])
-            continue
-        try:
-            decision = decide(line, start_dir=start_dir, threshold=threshold)
-        except WayfinderConfigError as exc:
-            console.print(str(exc), style=palette["warn"])
-            continue
-        console.print(render_decision(decision, palette, show_why=show_why))
+                console.print("scope must be turn|last_user|user|all", style=palette["warn"])
+        elif cmd == "sticky":
+            parts = arg.split()
+            if parts and parts[0] in {"on", "off"}:
+                state.sticky = parts[0] == "on"
+                if len(parts) > 1 and parts[1].isdigit():
+                    state.cooldown = int(parts[1])
+                tail = f" · cooldown {state.cooldown}" if state.sticky else ""
+                console.print(f"sticky {'on' if state.sticky else 'off'}{tail}", style=palette["accent"])
+            else:
+                console.print("sticky on|off [N]", style=palette["warn"])
+        elif cmd == "theme":
+            if arg in {"dark", "light", "auto"}:
+                state.theme = arg
+                palette = palette_for(arg)
+                console.print(f"theme {arg}", style=palette["accent"])
+            else:
+                console.print("theme dark|light|auto", style=palette["warn"])
+        elif cmd == "why":
+            w = arg.strip().lower()
+            if w == "on":
+                state.show_why = True
+                console.print("why: auto-expand on", style=palette["muted"])
+            elif w == "off":
+                state.show_why = False
+                console.print("why: collapsed", style=palette["muted"])
+            elif w.isdigit() and 1 <= int(w) <= len(history):
+                console.print(render_decision(history[int(w) - 1], palette, expanded=True))
+            elif not w and history:
+                console.print(render_decision(history[-1], palette, expanded=True))
+            elif not w:
+                console.print("nothing to expand yet", style=palette["muted"])
+            else:
+                console.print("why [on|off|N]", style=palette["warn"])
+        else:
+            console.print(f"unknown command /{cmd} — /help", style=palette["warn"])

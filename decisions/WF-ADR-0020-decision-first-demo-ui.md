@@ -69,8 +69,9 @@ fork is explicitly *not* chosen now.
    behind the gateway extra. It stays entirely in the impure gateway/UI layer; the
    stdlib-only deterministic core is untouched (WF-ADR-0001). It sits next to, not on top of,
    the operator console (WF-ADR-0005), which is a different surface (calibrate/explain/configure).
-   Launched via `wayfinder-router chat` — a demo-first alias of `serve` that opens `/demo` in the
+   Launched via `wayfinder-router webchat` — a demo-first alias of `serve` that opens `/demo` in the
    browser (`--no-open`/`--port`/`--dry-run`); `serve` remains the raw/headless gateway command.
+   (`wayfinder-router chat` is the separate *terminal* chat, WF-DESIGN-0001.)
 2. **Decision-first, by design.** The UI foregrounds what no general chat app shows: the
    chosen model, the structural score, the top contributing features ("why"), the per-call
    cost, and a running *saved-vs-always-cloud* tally — plus a live threshold slider that
