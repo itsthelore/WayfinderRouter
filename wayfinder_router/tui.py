@@ -543,10 +543,12 @@ def _build_chat_app() -> type:
                 self._note(f"connected · remote gateway {self.base_url}")
             elif self.models:
                 self._note(f"connected · routing between {', '.join(sorted(self.models))}")
+            elif self.dry_run:
+                self._note("preview · --dry-run: routing decisions only, no model calls")
             else:
                 self._note(
-                    "preview · routing decisions only — add [gateway.models] "
-                    "(and drop --dry-run) for replies"
+                    "preview · routing decisions only — run "
+                    "`wayfinder-router init` to set up local + cloud, then restart"
                 )
             self.query_one("#entry", Input).focus()
 

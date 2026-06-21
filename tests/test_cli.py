@@ -244,3 +244,85 @@ def test_webchat_missing_extra_returns_usage_and_cancels_open(monkeypatch, gw, f
     assert rc == 2  # EXIT_USAGE
     assert "gateway needs its extra" in capsys.readouterr().err
     assert _FakeTimer.instances[-1].cancelled is True  # scheduled open was cancelled
+
+
+def test_webchat_nudges_to_init_when_no_models(monkeypatch, gw, fake_browser, tmp_path, capsys):
+    monkeypatch.chdir(tmp_path)  # no wayfinder-router.toml here
+    monkeypatch.setattr(gw, "run", lambda **kw: None)
+    assert main(["webchat", "--no-open"]) == 0
+    assert "wayfinder-router init" in capsys.readouterr().err
+
+
+# --- init / doctor ----------------------------------------------------------
+
+
+def test_init_scaffolds_config_and_env_example(tmp_path, monkeypatch, capsys):
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    rc = main(["init"])
+    out = capsys.readouterr().out
+    assert rc == 0
+    assert (tmp_path / "wayfinder-router.toml").is_file()
+    env_text = (tmp_path / ".env.example").read_text(encoding="utf-8")
+    assert "ANTHROPIC_API_KEY=" in env_text  # the name only
+    assert "✗ not set" in out  # the cloud key check flags the unset var
+    assert 'export ANTHROPIC_API_KEY="..."' in out
+    # the scaffold is loadable
+    cfg = (tmp_path / "wayfinder-router.toml").read_text(encoding="utf-8")
+    assert "[gateway.models.local]" in cfg and "[gateway.models.cloud]" in cfg
+
+
+def test_init_refuses_to_clobber_without_force(tmp_path, monkeypatch, capsys):
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "wayfinder-router.toml").write_text("# mine\n", encoding="utf-8")
+    assert main(["init"]) == 2  # EXIT_USAGE
+    assert "already exists" in capsys.readouterr().err
+    assert (tmp_path / "wayfinder-router.toml").read_text() == "# mine\n"  # untouched
+
+
+def test_init_force_overwrites(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "wayfinder-router.toml").write_text("# mine\n", encoding="utf-8")
+    assert main(["init", "--force"]) == 0
+    assert "gateway.models.cloud" in (tmp_path / "wayfinder-router.toml").read_text()
+
+
+def test_init_print_writes_nothing(tmp_path, monkeypatch, capsys):
+    monkeypatch.chdir(tmp_path)
+    assert main(["init", "--print"]) == 0
+    assert "[gateway.models.cloud]" in capsys.readouterr().out
+    assert not (tmp_path / "wayfinder-router.toml").exists()
+    assert not (tmp_path / ".env.example").exists()
+
+
+def test_init_unknown_preset_is_usage_error(tmp_path, monkeypatch, capsys):
+    monkeypatch.chdir(tmp_path)
+    assert main(["init", "--preset", "nope"]) == 2
+    assert "unknown preset" in capsys.readouterr().err
+
+
+def test_doctor_without_config_is_usage_error(tmp_path, capsys):
+    assert main(["doctor", "--dir", str(tmp_path)]) == 2
+    assert "no wayfinder-router.toml" in capsys.readouterr().err
+
+
+def test_doctor_reports_missing_key(tmp_path, monkeypatch, capsys):
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    main(["init"])
+    capsys.readouterr()  # drop init's output
+    rc = main(["doctor", "--dir", str(tmp_path)])
+    out = capsys.readouterr().out
+    assert rc == 1  # EXIT_CONFIG: a named key is unset
+    assert "✗ not set" in out and "not ready" in out
+
+
+def test_doctor_ready_when_keys_present(tmp_path, monkeypatch, capsys):
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-test")
+    main(["init"])
+    capsys.readouterr()
+    rc = main(["doctor", "--dir", str(tmp_path)])
+    out = capsys.readouterr().out
+    assert rc == 0
+    assert "ready:" in out and "✓ set" in out and "keyless ✓" in out
