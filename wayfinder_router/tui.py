@@ -16,6 +16,7 @@ lazily so the package still imports without it (mirrors the gateway's fastapi pa
 
 from __future__ import annotations
 
+import importlib.resources
 import os
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
@@ -87,10 +88,30 @@ _MASCOT_ASCII: tuple[str, ...] = (
 
 
 def mascot(frame: int = 0, *, ascii_only: bool = False) -> tuple[str, ...]:
-    """One mascot frame. ``frame`` cycles ``_MASCOT_FRAMES`` (the animation seam)."""
+    """The ASCII fallback mascot (no-truecolour terminals). ``frame`` is the seam."""
     if ascii_only:
         return _MASCOT_ASCII
     return _MASCOT_FRAMES[frame % len(_MASCOT_FRAMES)]
+
+
+_MASCOT_ANSI: str | None = None
+
+
+def mascot_ansi() -> str:
+    """The real Wayfinder mascot as truecolour half-block ANSI (shipped as package data).
+
+    Returns ``""`` if the art file is missing, so the renderer can fall back to ASCII.
+    The animation seam lives here: ship ``mascot-1.ans`` … and cycle the frames.
+    """
+    global _MASCOT_ANSI
+    if _MASCOT_ANSI is None:
+        try:
+            _MASCOT_ANSI = (
+                importlib.resources.files("wayfinder_router") / "mascot.ans"
+            ).read_text(encoding="utf-8")
+        except (FileNotFoundError, OSError):
+            _MASCOT_ANSI = ""
+    return _MASCOT_ANSI
 
 
 # --- the routing decision (reuses the deterministic core) --------------------
@@ -167,22 +188,32 @@ def _require_rich() -> None:
         raise TUIUnavailable(_INSTALL_HINT) from exc
 
 
-def render_welcome(
-    palette: dict[str, str], *, subtitle: str, frame: int = 0
-) -> RenderableType:
-    """The launch box: mascot + wordmark + active config (Claude-Code-style)."""
+def render_welcome(palette: dict[str, str], *, subtitle: str) -> RenderableType:
+    """The launch box, mirroring the brand banner: mascot | wordmark + taglines."""
+    from rich.align import Align
     from rich.panel import Panel
+    from rich.table import Table
     from rich.text import Text
 
     accent, muted, text_c = palette["accent"], palette["muted"], palette["text"]
-    body = Text()
-    for row in mascot(frame):
-        body.append(f"{row}\n", style=accent)
-    body.append("\n")
-    body.append("Wayfinder", style=f"bold {accent}")
-    body.append("  terminal chat\n", style=text_c)
-    body.append(subtitle, style=muted)
-    return Panel(body, border_style=accent, padding=(1, 3), expand=False)
+
+    art = mascot_ansi()
+    if art:
+        figure: RenderableType = Text.from_ansi(art.rstrip("\n"))
+    else:
+        figure = Text("\n".join(mascot(0)), style=accent)
+
+    words = Text()
+    words.append("Wayfinder\n", style=f"bold {accent}")
+    words.append("Choose your path to your answers\n", style=text_c)
+    words.append("Deterministic. Read-only. No RAG, no guessing.\n\n", style=muted)
+    words.append(subtitle, style=muted)
+
+    grid = Table.grid(padding=(0, 3))
+    grid.add_column()
+    grid.add_column()
+    grid.add_row(figure, Align(words, vertical="middle"))
+    return Panel(grid, border_style=accent, padding=(1, 3), expand=False)
 
 
 def render_decision(
