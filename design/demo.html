@@ -1,0 +1,727 @@
+<!doctype html><!-- Snapshot of wayfinder_router/gateway.py:_DEMO_HTML, served at GET /demo (WF-ADR-0020). The gateway string is the source of truth; regenerate this file after UI changes. --><html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Wayfinder</title><style>
+:root{
+  color-scheme: light dark;
+  --bg:#ffffff; --panel:#f9f9fa; --elev:#ffffff; --text:#0d0d0d; --muted:#6b6b78;
+  --line:#ececef; --line-strong:#e2e2e6; --user:#f4f4f5; --accent:#10a37f; --accent-weak:#eaf6f2;
+  --cloud:#bd6a13; --cloud-weak:#fbf0e3; --btn:#0d0d0d; --btn-text:#ffffff; --track:#ececed;
+  --radius:18px; --radius-sm:13px; --pill:999px;
+  --shadow:0 1px 2px rgba(13,13,13,.05),0 1px 1px rgba(13,13,13,.03);
+  --ring:0 0 0 3px color-mix(in srgb,var(--accent) 30%,transparent);
+  --font:ui-sans-serif,-apple-system,"SF Pro Text","Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+  --mono:ui-monospace,"SF Mono","Cascadia Code",Menlo,Consolas,monospace;
+}
+@media(prefers-color-scheme:dark){:root{
+  --bg:#1e1e20; --panel:#262629; --elev:#2a2a2d; --text:#ececec; --muted:#9a9aa6;
+  --line:rgba(255,255,255,.08); --line-strong:rgba(255,255,255,.13); --user:#2d2d31;
+  --accent:#19c8a4; --accent-weak:#15302a; --cloud:#e0a25c; --cloud-weak:#332610;
+  --btn:#ececec; --btn-text:#0d0d0d; --track:#39393d;
+  --shadow:0 1px 2px rgba(0,0,0,.35);
+}}
+*{box-sizing:border-box}
+html,body{height:100%}
+body{margin:0;background:var(--bg);color:var(--text);font-family:var(--font);
+  font-size:15px;line-height:1.55;display:flex;flex-direction:column;height:100vh;overflow:hidden;
+  -webkit-font-smoothing:antialiased;-moz-osx-font-smoothing:grayscale}
+.lower{flex:1;min-height:0;display:flex;flex-direction:row}
+.content{flex:1;min-width:0;min-height:0;display:flex;flex-direction:column}
+/* Sidebar: a persistent in-flow panel that collapses to an icon rail (no overlay). */
+.sidebar{flex:none;width:256px;box-sizing:border-box;display:flex;flex-direction:column;gap:.5rem;
+  padding:.6rem .55rem;background:var(--panel);border-right:1px solid var(--line);overflow:hidden;transition:width .18s ease}
+body.sidebar-collapsed .sidebar{width:58px}
+.side-top{flex:none}
+.side-search{width:100%;box-sizing:border-box;font:inherit;font-size:.8rem;color:var(--text);background:var(--bg);
+  border:1px solid var(--line-strong);border-radius:9px;padding:.42rem .55rem;outline:none}
+.side-search:focus{border-color:color-mix(in srgb,var(--accent) 55%,var(--line-strong))}
+body.sidebar-collapsed .side-search,body.sidebar-collapsed .side-scroll{display:none}
+.side-scroll{display:flex;flex-direction:column;gap:.1rem;overflow-y:auto;overflow-x:hidden;flex:1;min-height:0}
+.side-label{font-size:.62rem;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);padding:.45rem .3rem .15rem}
+.folder-head{display:flex;align-items:center;gap:.35rem;padding:.42rem .5rem;border-radius:9px;cursor:pointer;
+  font-size:.79rem;font-weight:600;color:var(--text);user-select:none}
+.folder-head:hover{background:var(--elev)}
+.folder-caret{font-size:.6rem;color:var(--muted);transition:transform .15s;width:.7rem;text-align:center}
+.folder.open .folder-caret{transform:rotate(90deg)}
+.folder-count{margin-left:auto;color:var(--muted);font-size:.66rem;font-weight:600}
+.folder-del{flex:none;border:0;background:transparent;color:var(--muted);font-size:1rem;line-height:1;cursor:pointer;opacity:0;padding:0 .1rem}
+.folder-head:hover .folder-del{opacity:.6}
+.folder-del:hover{opacity:1;color:var(--text)}
+.folder-chats{display:flex;flex-direction:column;gap:.1rem;padding-left:.55rem}
+.folder:not(.open) .folder-chats{display:none}
+.thread{display:flex;align-items:center;gap:.3rem;padding:.45rem .55rem;border-radius:9px;cursor:pointer;font-size:.82rem;color:var(--text)}
+.thread:hover{background:var(--elev)}
+.thread.active{background:var(--accent-weak)}
+.thread.dragging{opacity:.4}
+.thread.drag-over,.folder-head.drag-over,.folder-chats.drag-over,.side-label.drag-over{
+  outline:2px dashed color-mix(in srgb,var(--accent) 55%,transparent);outline-offset:-2px;border-radius:9px}
+.t-pin{flex:none;color:var(--accent);font-size:.66rem;line-height:1}
+.t-rename{flex:1;min-width:0;font:inherit;font-size:.82rem;color:var(--text);background:var(--bg);
+  border:1px solid var(--accent);border-radius:6px;padding:.1rem .3rem;outline:none}
+.t-title{flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0}
+.t-menu{flex:none;border:0;background:transparent;color:var(--muted);font-size:1rem;line-height:1;cursor:pointer;opacity:0;padding:0 .15rem}
+.thread:hover .t-menu,.thread.active .t-menu{opacity:.6}
+.t-menu:hover{opacity:1;color:var(--text)}
+.side-empty{color:var(--muted);font-size:.78rem;padding:.5rem .4rem;opacity:.85}
+.side-foot{flex:none;display:flex;flex-direction:column;gap:.12rem;border-top:1px solid var(--line);padding-top:.4rem;margin-top:.1rem}
+.nav{display:flex;align-items:center;gap:.6rem;width:100%;box-sizing:border-box;font:inherit;font-size:.82rem;font-weight:500;
+  color:var(--text);background:transparent;border:0;border-radius:9px;padding:.5rem .55rem;cursor:pointer;text-align:left;white-space:nowrap}
+.nav:hover{background:var(--elev)}
+.nav.on{background:var(--accent-weak);color:var(--accent)}
+.nav .ico{flex:none;width:18px;height:18px;display:grid;place-items:center}
+.nav .ico svg{width:18px;height:18px;stroke:currentColor;fill:none;stroke-width:1.7;stroke-linecap:round;stroke-linejoin:round}
+.nav-label{overflow:hidden;text-overflow:ellipsis}
+.nav.primary{background:var(--btn);color:var(--btn-text)}
+.nav.primary:hover{background:var(--btn);opacity:.92}
+.searchIcon{display:none}
+body.sidebar-collapsed .nav{justify-content:center;padding:.5rem 0;gap:0}
+body.sidebar-collapsed .nav-label{display:none}
+body.sidebar-collapsed .searchIcon{display:flex}
+.side-toggle{flex:none;width:30px;height:30px;border:1px solid var(--line);background:var(--panel);color:var(--muted);
+  border-radius:9px;cursor:pointer;display:grid;place-items:center;font-size:1rem;margin-right:.1rem}
+.side-toggle:hover{color:var(--text);border-color:var(--line-strong)}
+.menu{position:fixed;z-index:60;min-width:158px;background:var(--elev);border:1px solid var(--line-strong);
+  border-radius:10px;box-shadow:0 10px 28px rgba(0,0,0,.2);padding:.3rem;display:flex;flex-direction:column;gap:.04rem;font-size:.78rem}
+.menu[hidden]{display:none}
+.menu button{text-align:left;font:inherit;font-size:.78rem;color:var(--text);background:transparent;border:0;border-radius:7px;padding:.4rem .5rem;cursor:pointer;white-space:nowrap}
+.menu button:hover{background:var(--accent-weak)}
+.menu button.danger:hover{background:color-mix(in srgb,#d97706 18%,transparent);color:#9a3412}
+.menu .mlabel{font-size:.58rem;text-transform:uppercase;letter-spacing:.07em;color:var(--muted);padding:.3rem .5rem .1rem}
+.menu .sep{height:1px;background:var(--line);margin:.18rem .25rem}
+.modal{position:fixed;inset:0;z-index:70;display:grid;place-items:center;padding:1rem;background:rgba(20,20,22,.42)}
+.modal[hidden]{display:none}
+.modal-card{width:min(560px,100%);max-height:min(82vh,660px);overflow-y:auto;background:var(--elev);
+  border:1px solid var(--line-strong);border-radius:16px;box-shadow:0 24px 60px rgba(0,0,0,.3);padding:1.3rem 1.5rem 1.5rem}
+.modal-head{display:flex;align-items:center;justify-content:space-between;gap:1rem;margin-bottom:.2rem}
+.modal-head h2{margin:0;font-size:1.1rem;letter-spacing:-.01em}
+.modal-x{flex:none;border:0;background:transparent;color:var(--muted);font-size:1.4rem;line-height:1;cursor:pointer;padding:0 .2rem}
+.modal-x:hover{color:var(--text)}
+.modal-card h3{margin:1.15rem 0 .3rem;font-size:.66rem;text-transform:uppercase;letter-spacing:.07em;color:var(--muted)}
+.modal-card p,.modal-card li{font-size:.86rem;color:var(--text);line-height:1.55}
+.modal-card ul{margin:.2rem 0;padding-left:1.15rem}
+.modal-card li{margin:.12rem 0}
+.modal-card code{font-family:var(--mono);font-size:.85em;background:var(--panel);padding:.05rem .3rem;border-radius:5px}
+.modal-card a{color:var(--accent)}
+.modal-links{margin-top:1.1rem;border-top:1px solid var(--line);padding-top:.8rem;color:var(--muted)}
+::selection{background:color-mix(in srgb,var(--accent) 22%,transparent)}
+main::-webkit-scrollbar{width:11px}
+main::-webkit-scrollbar-thumb{background:var(--line-strong);border-radius:999px;border:3px solid var(--bg)}
+.bar{position:sticky;top:0;z-index:5;display:flex;align-items:center;gap:.6rem;
+  padding:.7rem 1.1rem;background:color-mix(in srgb,var(--bg) 72%,transparent);
+  backdrop-filter:saturate(1.8) blur(14px);border-bottom:1px solid var(--line)}
+.brand{font-weight:650;letter-spacing:-.02em;font-size:.98rem}
+.brand .dot{color:var(--accent)}
+.mode{font-size:.6rem;font-weight:600;color:var(--muted);background:var(--panel);
+  border:1px solid var(--line);border-radius:var(--pill);padding:.13rem .5rem;
+  text-transform:uppercase;letter-spacing:.09em}
+.saved{margin-left:auto;font-size:.78rem;color:var(--muted);font-variant-numeric:tabular-nums;text-align:right}
+.saved b{color:var(--text);font-weight:600}
+.gear{margin-left:.4rem;flex:none;width:30px;height:30px;border-radius:9px;border:1px solid var(--line);
+  background:var(--panel);color:var(--muted);font-size:.95rem;cursor:pointer;display:grid;place-items:center;
+  transition:color .15s,border-color .15s,background .15s}
+.gear:hover{color:var(--text);border-color:var(--line-strong)}
+.gear.on{background:var(--accent-weak);color:var(--accent);
+  border-color:color-mix(in srgb,var(--accent) 40%,var(--line-strong))}
+.settings{position:fixed;z-index:55;
+  width:min(300px,calc(100vw - 2rem));background:var(--elev);border:1px solid var(--line-strong);
+  border-radius:var(--radius-sm);box-shadow:0 12px 32px rgba(13,13,13,.16),var(--shadow);
+  padding:.9rem 1rem;display:flex;flex-direction:column;gap:.85rem;font-size:.8rem;color:var(--muted);
+  max-height:min(26rem,calc(100vh - 5rem));overflow-y:auto;overscroll-behavior:contain;
+  scrollbar-width:thin;scrollbar-color:var(--line-strong) transparent;
+  animation:pop .14s cubic-bezier(.2,.7,.3,1) both}
+@keyframes pop{from{opacity:0;transform:translateY(-6px)}to{opacity:1;transform:none}}
+.settings[hidden]{display:none}
+.settings::-webkit-scrollbar{width:10px}
+.settings::-webkit-scrollbar-thumb{background:var(--line-strong);border-radius:999px;border:3px solid var(--elev)}
+.set-row{display:flex;flex-direction:column;gap:.4rem}
+.set-head{display:flex;align-items:center;gap:.4rem}
+.help{flex:none;width:15px;height:15px;padding:0;border-radius:50%;border:1px solid var(--line-strong);
+  background:transparent;color:var(--muted);font:600 .66rem/1 var(--font);text-transform:none;
+  letter-spacing:0;cursor:help;display:inline-grid;place-items:center}
+.help:hover,.help:focus-visible{color:var(--accent);border-color:var(--accent);outline:none}
+.tip{position:fixed;z-index:60;max-width:230px;background:var(--text);color:var(--bg);
+  font:400 .72rem/1.45 var(--font);padding:.5rem .62rem;border-radius:8px;
+  box-shadow:0 10px 28px rgba(0,0,0,.24);pointer-events:none;opacity:0;transition:opacity .12s}
+.tip.show{opacity:1}
+.tip[hidden]{display:none}
+.set-name{display:flex;align-items:center;gap:.45rem;color:var(--text);font-weight:550;cursor:pointer;user-select:none}
+.set-name input{accent-color:var(--accent)}
+.set-ctl{display:flex;align-items:center;gap:.6rem}
+.settings input[type=range]{flex:1;accent-color:var(--accent);height:4px}
+.settings input[type=range]:disabled{opacity:.4;cursor:not-allowed}
+.settings output{font-variant-numeric:tabular-nums;color:var(--muted);min-width:3em;font-weight:600;text-align:right}
+.settings output.on{color:var(--text)}
+.settings select{width:100%;font:inherit;font-size:.8rem;color:var(--text);background:var(--panel);
+  border:1px solid var(--line-strong);border-radius:9px;padding:.35rem .5rem;cursor:pointer}
+.settings select:disabled{opacity:.4;cursor:not-allowed}
+.set-hint{font-size:.72rem;color:var(--muted);opacity:.9;line-height:1.4}
+.set-foot{font-size:.72rem;color:var(--muted);opacity:.8;border-top:1px solid var(--line);padding-top:.6rem}
+.models{display:flex;flex-direction:column}
+.mrow{display:flex;align-items:center;gap:.45rem;padding:.32rem 0;font-size:.73rem;border-top:1px solid var(--line)}
+.mrow:first-child{border-top:0}
+.mdot{width:8px;height:8px;border-radius:50%;flex:none;background:var(--muted)}
+.mdot.ok{background:var(--accent)}
+.mdot.warn{background:#d97706}
+.mname{font-weight:600;color:var(--text)}
+.mendpoint{color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0}
+.mkey{margin-left:auto;white-space:nowrap;font-size:.66rem;color:var(--muted)}
+.mkey.warn{color:#d97706}
+.adv{border-top:1px solid var(--line);padding-top:.6rem}
+.adv>summary{cursor:pointer;color:var(--text);font-weight:600;list-style:none;display:flex;align-items:center;gap:.4rem}
+.adv>summary::-webkit-details-marker{display:none}
+.adv>summary::before{content:"\25B8";color:var(--muted);font-size:.7rem;transition:transform .15s}
+.adv[open]>summary::before{transform:rotate(90deg)}
+.adv-body{display:flex;flex-direction:column;gap:.7rem;margin-top:.7rem}
+.adv-grp{display:flex;align-items:center;gap:.4rem;font-size:.62rem;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);margin-top:.2rem}
+.wrow{display:grid;grid-template-columns:6.3rem 1fr 2.1rem;align-items:center;gap:.5rem;font-size:.74rem}
+.wrow span{color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.wrow output{font-variant-numeric:tabular-nums;color:var(--text);text-align:right;font-weight:600}
+.settings textarea{width:100%;font:inherit;font-size:.74rem;color:var(--text);background:var(--panel);
+  border:1px solid var(--line-strong);border-radius:9px;padding:.4rem .5rem;resize:vertical;min-height:2.4rem;line-height:1.4}
+.settings textarea::placeholder{color:var(--muted);opacity:.8}
+.export{font:inherit;font-size:.78rem;font-weight:600;color:var(--btn-text);background:var(--btn);border:0;
+  border-radius:9px;padding:.42rem .7rem;cursor:pointer;align-self:flex-start;margin-top:.2rem}
+.export:active{transform:translateY(1px)}
+.cfg{margin:0;font-family:var(--mono);font-size:.68rem;color:var(--text);background:var(--panel);
+  border:1px solid var(--line);border-radius:9px;padding:.6rem .7rem;white-space:pre-wrap;word-break:break-word;
+  max-height:11rem;overflow:auto}
+main{flex:1;overflow-y:auto;padding:1.5rem 1.1rem 2rem;scroll-behavior:smooth}
+/* Launch state: centre the heading + composer as a group; drops to the bottom on the first message. */
+body.intro .content{justify-content:center}
+body.intro main{flex:0 1 auto;overflow:visible}
+body.intro form{background:none}
+.wrap{max-width:760px;margin:0 auto;display:flex;flex-direction:column;gap:1.4rem}
+.empty{margin:0 auto 1.4rem;max-width:32rem;text-align:center;color:var(--muted)}
+.empty h2{color:var(--text);font-size:1.2rem;font-weight:650;letter-spacing:-.01em;margin:0 0 .4rem}
+.empty code{font-family:var(--mono);font-size:.85em;background:var(--panel);padding:.1rem .35rem;border-radius:6px}
+.eg{font:inherit;font-size:.78rem;color:var(--muted);background:transparent;border:1px solid var(--line-strong);
+  border-radius:var(--pill);padding:.32rem .7rem;cursor:pointer;white-space:nowrap;max-width:100%;
+  overflow:hidden;text-overflow:ellipsis;transition:border-color .15s,background .15s,color .15s}
+.eg:hover{border-color:var(--accent);background:var(--accent-weak);color:var(--text)}
+.turn{display:flex;flex-direction:column;gap:.6rem;animation:rise .18s cubic-bezier(.2,.7,.3,1) both}
+@keyframes rise{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:none}}
+.msg{padding:.7rem 1rem;border-radius:var(--radius);max-width:84%;white-space:pre-wrap;word-wrap:break-word;line-height:1.5}
+.msg.user{align-self:flex-end;background:var(--user)}
+.msg.bot{align-self:flex-start;background:var(--elev);border:1px solid var(--line)}
+.msg.note{align-self:flex-start;color:var(--muted);font-size:.82rem;background:transparent;padding:.1rem 0}
+.answer{align-self:flex-start;max-width:84%;display:flex;flex-direction:column;gap:.45rem}
+.answer .msg.bot{max-width:100%;align-self:stretch}
+.msg.bot.dry{color:var(--muted);font-size:.88rem;background:var(--panel)}
+.routing{position:relative;display:flex;align-items:center;gap:.5rem;padding-left:.15rem;
+  font-size:.78rem;color:var(--muted)}
+.pill{font-weight:600;border-radius:var(--pill);padding:.14rem .62rem;font-size:.78rem;text-transform:capitalize;
+  background:var(--accent-weak);color:var(--accent);display:inline-flex;align-items:center;gap:.4rem}
+.pill.cloud{color:var(--cloud);background:var(--cloud-weak)}
+.pill .dot{width:.46rem;height:.46rem;border-radius:50%;background:currentColor}
+.meta{color:var(--muted);font-variant-numeric:tabular-nums}
+.tag{font-size:.6rem;font-weight:600;letter-spacing:.09em;text-transform:uppercase;
+  color:var(--muted);border:1px solid var(--line-strong);border-radius:var(--pill);padding:.1rem .45rem}
+.tag.sticky{color:var(--cloud);border-color:color-mix(in srgb,var(--cloud) 45%,var(--line-strong))}
+.why-btn{margin-left:auto;flex:none;font:inherit;font-size:.72rem;font-weight:700;width:1.2rem;height:1.2rem;
+  border-radius:50%;border:1px solid var(--line-strong);background:var(--panel);color:var(--muted);
+  cursor:pointer;display:grid;place-items:center;line-height:1;padding:0;transition:border-color .15s,color .15s}
+.why-btn:hover,.why-btn[aria-expanded=true]{border-color:var(--accent);color:var(--accent)}
+.why-pop{position:absolute;top:calc(100% + .5rem);left:0;z-index:8;min-width:17rem;max-width:21rem;
+  background:var(--elev);border:1px solid var(--line-strong);border-radius:var(--radius-sm);
+  box-shadow:0 8px 28px rgba(13,13,13,.14),var(--shadow);padding:.85rem .95rem;font-size:.82rem;
+  opacity:0;visibility:hidden;transform:translateY(-4px);transition:opacity .15s,transform .15s,visibility .15s}
+.routing:hover .why-pop,.why-pop.open{opacity:1;visibility:visible;transform:none}
+.why{font-size:.62rem;font-weight:600;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);margin-bottom:.4rem}
+.rows{display:flex;flex-direction:column;gap:.4rem;margin:.1rem 0 .7rem}
+.row{display:grid;grid-template-columns:9rem 1fr 2.6rem;align-items:center;gap:.6rem}
+.row .nm{color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;text-transform:capitalize}
+.row .val{font-variant-numeric:tabular-nums;text-align:right;color:var(--text);font-weight:600}
+.track{height:6px;background:var(--track);border-radius:999px;overflow:hidden}
+.track i{display:block;height:100%;border-radius:999px;
+  background:linear-gradient(90deg,color-mix(in srgb,var(--accent) 70%,transparent),var(--accent));
+  transition:width .35s cubic-bezier(.2,.7,.3,1)}
+.cost{display:flex;justify-content:space-between;gap:.5rem;color:var(--muted);
+  border-top:1px solid var(--line);padding-top:.6rem;font-variant-numeric:tabular-nums}
+.cost b{color:var(--text);font-weight:600}
+.cost.solo{border-top:0;padding-top:0}
+form{position:sticky;bottom:0;background:linear-gradient(to top,var(--bg) 72%,transparent);padding:.5rem 1.1rem 1.1rem}
+.composer{max-width:760px;margin:0 auto;display:flex;flex-direction:column;gap:.35rem;
+  background:var(--elev);border:1px solid var(--line-strong);border-radius:26px;
+  padding:.7rem .9rem .6rem;box-shadow:var(--shadow);transition:box-shadow .15s,border-color .15s}
+.composer:focus-within{border-color:color-mix(in srgb,var(--accent) 60%,var(--line-strong))}
+.composer-bar{display:flex;align-items:center;gap:.5rem;justify-content:space-between}
+.tools{display:flex;align-items:center;gap:.4rem;flex-wrap:wrap;min-width:0}
+.composer.started .tools{display:none}
+textarea{width:100%;border:0;background:transparent;color:var(--text);font:inherit;resize:none;
+  max-height:40vh;padding:.4rem .25rem .15rem;outline:none;line-height:1.5}
+textarea:focus-visible{box-shadow:none}
+textarea::placeholder{color:var(--muted)}
+#send{flex:none;margin-left:auto;width:34px;height:34px;border:0;border-radius:50%;background:var(--btn);color:var(--btn-text);
+  font-size:1.05rem;line-height:1;cursor:pointer;display:grid;place-items:center;transition:transform .05s,opacity .15s}
+#send:active{transform:translateY(1px)}
+#send:disabled{opacity:.35;cursor:default}
+:focus-visible{outline:none;box-shadow:var(--ring);border-radius:10px}
+@media(prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important;scroll-behavior:auto!important}}
+</style></head><body class="intro">
+<div class="bar">
+  <button class="side-toggle" id="sideToggle" type="button" aria-label="Toggle sidebar" title="Toggle sidebar">&#9776;</button>
+  <span class="brand">Wayfinder<span class="dot">.</span></span>
+  <span class="mode" id="mode">ready</span>
+  <span class="saved" id="saved"></span>
+</div>
+<div class="lower">
+<aside class="sidebar" id="sidebar">
+  <div class="side-top">
+    <button class="nav searchIcon" id="searchIcon" type="button" data-tip="Search"><span class="ico"><svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.6-3.6"/></svg></span></button>
+    <input class="side-search" id="search" type="search" placeholder="Search chats" aria-label="Search chats">
+  </div>
+  <div class="side-scroll" id="threads"></div>
+  <div class="side-foot">
+    <button class="nav" id="newfolder" type="button" data-tip="New folder"><span class="ico"><svg viewBox="0 0 24 24"><path d="M3 7a2 2 0 012-2h4l2 2h8a2 2 0 012 2v8a2 2 0 01-2 2H5a2 2 0 01-2-2z"/><path d="M12 11v5M9.5 13.5h5"/></svg></span><span class="nav-label">New folder</span></button>
+    <button class="nav primary" id="newchat" type="button" data-tip="New chat"><span class="ico"><svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg></span><span class="nav-label">New chat</span></button>
+    <button class="nav" id="settingsBtn" type="button" data-tip="Settings"><span class="ico"><svg viewBox="0 0 24 24"><path d="M4 7h9M17 7h3M4 17h3M11 17h9"/><circle cx="15" cy="7" r="2.2"/><circle cx="9" cy="17" r="2.2"/></svg></span><span class="nav-label">Settings</span></button>
+    <button class="nav" id="helpBtn" type="button" data-tip="Help"><span class="ico"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M9.8 9.3a2.3 2.3 0 014.3 1c0 1.6-2.1 2-2.1 3.2"/><circle cx="12" cy="17.2" r="0.7" fill="currentColor" stroke="none"/></svg></span><span class="nav-label">Help</span></button>
+  </div>
+</aside>
+<div class="content">
+  <div class="settings" id="settings" hidden>
+    <div class="set-row">
+      <div class="set-head">
+        <label class="set-name"><input type="checkbox" id="useT"> Threshold</label>
+        <button class="help" type="button" data-tip="Move the local-to-cloud cut for this chat. Higher keeps more on the local model; lower sends more to cloud. Unchecked uses the server's configured threshold.">?</button>
+      </div>
+      <div class="set-ctl"><input type="range" id="t" min="0" max="100" value="50" disabled><output id="tv">config</output></div>
+    </div>
+    <div class="set-row">
+      <div class="set-head">
+        <label class="set-name" for="scope">Routing Scope</label>
+        <button class="help" type="button" data-tip="Which text is scored in a multi-turn chat: the current turn (system + latest message) by default, or the latest message only, all your messages, or the whole transcript.">?</button>
+      </div>
+      <select id="scope">
+        <option value="">Server Config</option>
+        <option value="turn">Turn &mdash; System + Latest</option>
+        <option value="last_user">Last User &mdash; Latest Only</option>
+        <option value="user">User &mdash; All Your Messages</option>
+        <option value="all">All &mdash; Entire Transcript</option>
+      </select>
+    </div>
+    <div class="set-row">
+      <div class="set-head">
+        <label class="set-name"><input type="checkbox" id="sticky"> Sticky</label>
+        <button class="help" type="button" data-tip="Once any turn needs the big model, keep the whole chat there &mdash; so a short follow-up after a hard question doesn't drop back to local.">?</button>
+      </div>
+    </div>
+    <div class="set-row">
+      <div class="set-head">
+        <label class="set-name" for="cooldown">Cool-Down</label>
+        <button class="help" type="button" data-tip="Release a sticky chat back to local after this many calm (low-score) turns. 'Never' keeps it latched for the rest of the conversation.">?</button>
+      </div>
+      <select id="cooldown" disabled>
+        <option value="0">Never Decay</option>
+        <option value="1">After 1 Calm Turn</option>
+        <option value="2">After 2 Calm Turns</option>
+        <option value="3">After 3 Calm Turns</option>
+      </select>
+    </div>
+    <div class="set-row">
+      <div class="set-head">
+        <span class="set-name">Models</span>
+        <button class="help" type="button" data-tip="Endpoints this gateway routes to, and whether each model's API key is present. Keys live in environment variables &mdash; set the named var and restart. They're never entered here.">?</button>
+      </div>
+      <div class="models" id="models"><div class="set-hint">Loading&hellip;</div></div>
+    </div>
+    <details class="adv">
+      <summary>Advanced Tuning</summary>
+      <div class="adv-body">
+        <div class="set-row">
+          <div class="set-head">
+            <label class="set-name"><input type="checkbox" id="lex"> Lexical Signals</label>
+            <button class="help" type="button" data-tip="Score difficulty vocabulary (prove, theorem, &sum;) so a short, structureless prompt can still route up. Off by default &mdash; it detects vocabulary, not meaning.">?</button>
+          </div>
+          <div class="set-ctl"><input type="range" id="lexw" min="0" max="100" value="40" disabled><output id="lexv">4.0</output></div>
+        </div>
+        <div class="adv-grp">Feature Weights <button class="help" type="button" data-tip="How much each structural feature adds to the score. Drag to re-weight; the decision and its 'why' update on your next message.">?</button></div>
+        <div id="weights"></div>
+        <div class="adv-grp">Lexicon Terms <button class="help" type="button" data-tip="Trigger words for the lexical signal. Load a starter profile, then edit; leave blank to use the built-in defaults.">?</button></div>
+        <select id="profile"><option value="">&mdash; Starter Profile &mdash;</option></select>
+        <span class="set-hint" id="profnote"></span>
+        <label class="set-name" for="rterms">Reasoning</label>
+        <textarea id="rterms" rows="2" placeholder="prove, theorem, derive, induction&hellip;"></textarea>
+        <label class="set-name" for="cterms">Constraint</label>
+        <textarea id="cterms" rows="2" placeholder="must, exactly, without, guarantee&hellip;"></textarea>
+        <button class="export" id="export" type="button">Export config</button>
+        <pre class="cfg" id="cfg" hidden></pre>
+      </div>
+    </details>
+    <div class="set-foot">Applies to your next message.</div>
+  </div>
+<main><div class="wrap" id="wrap">
+  <div class="empty" id="empty"><h2>Ask anything</h2>
+  <div>Every reply shows where it routed; open the <b>?</b> for the score, the features behind it, and the cost saved. Run the gateway with <code>--dry-run</code> for a keyless demo.</div>
+  </div>
+</div></main>
+<form id="composer"><div class="composer">
+  <textarea id="in" rows="1" placeholder="Message Wayfinder&hellip;" autofocus></textarea>
+  <div class="composer-bar">
+    <div class="tools" id="tools">
+      <button class="eg" type="button" data-eg="trivial">What's 2 + 2?</button>
+      <button class="eg" type="button" data-eg="plan">A structured migration plan</button>
+    </div>
+    <button id="send" type="submit" aria-label="Send" title="Send">&#8593;</button>
+  </div>
+</div></form>
+</div>
+</div>
+<div class="modal" id="help" hidden>
+  <div class="modal-card">
+    <div class="modal-head"><h2>Wayfinder &mdash; quick guide</h2><button class="modal-x" id="helpX" type="button" aria-label="Close">&times;</button></div>
+    <p>Wayfinder is a <b>structural router</b>: it scores the shape of your prompt &mdash; length, lists, code, headings, tables &mdash; and sends easy turns to a cheap <b>local</b> model and hard ones to a capable <b>cloud</b> model. The decision is deterministic, with no model call to make it.</p>
+    <h3>Reading a reply</h3>
+    <ul>
+      <li><b>Pill</b> &mdash; where it routed (local or cloud).</li>
+      <li><b>score</b> &mdash; structural complexity (0&ndash;1) against the threshold.</li>
+      <li><b>?</b> &mdash; the features behind the score and the cost saved vs always-cloud.</li>
+      <li><b>latched</b> &mdash; the conversation latch kept a hard chat on the big model.</li>
+    </ul>
+    <h3>Settings</h3>
+    <ul>
+      <li><b>Threshold</b> &mdash; move the local&#8596;cloud cut for this chat.</li>
+      <li><b>Routing scope</b> &mdash; what gets scored in a multi-turn chat.</li>
+      <li><b>Sticky / Cool-down</b> &mdash; keep a hard chat on cloud, then let it drift back.</li>
+      <li><b>Advanced</b> &mdash; tune feature weights, enable lexical signals, load a lexicon profile, and export it as config.</li>
+      <li><b>Models</b> &mdash; which endpoints are wired and whether each API key is set.</li>
+    </ul>
+    <h3>Chats &amp; folders</h3>
+    <p>Conversations live in your browser &mdash; nothing is stored server-side. Start chats, drag them into folders (or use the &#8943; menu), pin, and rename from the sidebar.</p>
+    <h3>API keys</h3>
+    <p>Keys are never entered here: set the environment variable named in <b>Settings &rarr; Models</b> and restart. Run the gateway with <code>--dry-run</code> for a keyless demo.</p>
+    <p class="modal-links">Full docs: <a href="https://github.com/itsthelore/wayfinder-router" target="_blank" rel="noopener">README</a> &middot; <a href="https://github.com/itsthelore/wayfinder-router/blob/HEAD/docs/faq.md" target="_blank" rel="noopener">FAQ</a></p>
+  </div>
+</div>
+<script>
+const wrap=document.getElementById('wrap'),empty=document.getElementById('empty');
+const inEl=document.getElementById('in'),sendBtn=document.getElementById('send');
+const card=document.querySelector('.composer');
+const useT=document.getElementById('useT'),tEl=document.getElementById('t'),tv=document.getElementById('tv');
+const modeEl=document.getElementById('mode'),savedEl=document.getElementById('saved');
+const settingsBtn=document.getElementById('settingsBtn'),settings=document.getElementById('settings');
+const helpBtn=document.getElementById('helpBtn'),helpModal=document.getElementById('help'),helpX=document.getElementById('helpX');
+const searchIcon=document.getElementById('searchIcon');
+const scopeEl=document.getElementById('scope'),stickyEl=document.getElementById('sticky');
+const cooldownEl=document.getElementById('cooldown');
+function syncSticky(){cooldownEl.disabled=!stickyEl.checked;}
+stickyEl.addEventListener('change',syncSticky); syncSticky();
+let savedTotal=0, savedUnit='', pretty=s=>s.replace(/_/g,' ');
+const newchat=document.getElementById('newchat'),searchEl=document.getElementById('search');
+const listEl=document.getElementById('threads'),sideToggle=document.getElementById('sideToggle');
+const newfolder=document.getElementById('newfolder');
+const titleCase=s=>s.replace(/\b[a-z]/g,c=>c.toUpperCase());
+
+function syncT(){const on=useT.checked; tEl.disabled=!on; tv.textContent=on?(tEl.value/100).toFixed(2):'config'; tv.classList.toggle('on',on);}
+useT.addEventListener('change',syncT); tEl.addEventListener('input',syncT); syncT();
+// Advanced tuning (WF-ADR-0023): per-request scoring overrides + export.
+const lex=document.getElementById('lex'),lexw=document.getElementById('lexw'),lexv=document.getElementById('lexv');
+const rterms=document.getElementById('rterms'),cterms=document.getElementById('cterms');
+const exportBtn=document.getElementById('export'),cfgEl=document.getElementById('cfg'),weightsEl=document.getElementById('weights');
+let advTouched=false; const touch=()=>{advTouched=true;};
+const FEATS=[['word_count','word count',3],['heading_count','headings',1.5],['max_heading_depth','heading depth',1],['list_item_count','list items',2],['link_count','links',1],['code_block_count','code blocks',1.5],['table_row_count','table rows',1]];
+FEATS.forEach(([feat,label,def])=>{
+  const row=el('wrow'),sp=document.createElement('span');sp.textContent=label;row.appendChild(sp);
+  const s=document.createElement('input');s.type='range';s.min=0;s.max=100;s.dataset.feat=feat;s.setAttribute('value',Math.round(def*10));
+  const o=document.createElement('output');o.textContent=def.toFixed(1);
+  s.addEventListener('input',()=>{o.textContent=(s.value/10).toFixed(1);touch();});
+  row.appendChild(s);row.appendChild(o);weightsEl.appendChild(row);
+});
+function syncLex(){lexw.disabled=!lex.checked;lexv.textContent=lex.checked?(lexw.value/10).toFixed(1):'off';}
+lex.addEventListener('change',()=>{syncLex();touch();});
+lexw.addEventListener('input',()=>{syncLex();touch();}); syncLex();
+rterms.addEventListener('input',touch); cterms.addEventListener('input',touch);
+
+// Read-only Models / key status (WF-ADR-0025): names, endpoints, and whether each
+// model's key env var is set — never the secret itself.
+const mhost=u=>{try{return new URL(u).host;}catch(e){return u;}};
+fetch('/router/models').then(r=>r.json()).then(d=>{
+  const box=document.getElementById('models'); box.innerHTML='';
+  if(!d.models||!d.models.length){box.innerHTML='<div class="set-hint">'+(d.dry_run?'Dry-run &mdash; no models configured.':'No models configured.')+'</div>'; return;}
+  d.models.forEach(m=>{const ok=m.key_ok,row=el('mrow');
+    row.appendChild(el('mdot '+(ok?'ok':'warn')));
+    const nm=document.createElement('span');nm.className='mname';nm.textContent=m.name;row.appendChild(nm);
+    const ep=document.createElement('span');ep.className='mendpoint';ep.textContent=mhost(m.endpoint);row.appendChild(ep);
+    const k=document.createElement('span');k.className='mkey'+(ok?'':' warn');
+    k.textContent=m.api_key_env?(m.api_key_env+(ok?' ✓':' · missing')):'no key';
+    row.appendChild(k);box.appendChild(row);});
+}).catch(()=>{const b=document.getElementById('models');if(b)b.innerHTML='<div class="set-hint">Status unavailable.</div>';});
+
+const profileEl=document.getElementById('profile'),profnote=document.getElementById('profnote'),PROF={};
+fetch('/router/profiles').then(r=>r.json()).then(d=>{
+  const labels={curated:'Curated',mined:'RouterBench (mined)'},groups={};
+  (d.profiles||[]).forEach(p=>{PROF[p.id]=p;
+    const g=groups[p.source]||(groups[p.source]=Object.assign(document.createElement('optgroup'),{label:labels[p.source]||p.source}));
+    const o=document.createElement('option');o.value=p.id;o.textContent=p.name;g.appendChild(o);});
+  Object.keys(groups).forEach(k=>profileEl.appendChild(groups[k]));
+}).catch(()=>{});
+profileEl.addEventListener('change',()=>{const p=PROF[profileEl.value];if(!p)return;
+  rterms.value=p.reasoning_terms.join(', ');cterms.value=(p.constraint_terms||[]).join(', ');
+  if(!lex.checked){lex.checked=true;syncLex();}
+  profnote.textContent=p.note||'';touch();});
+const splitTerms=s=>s.split(/[,\n]/).map(x=>x.trim()).filter(Boolean);
+function buildTuning(){
+  const weights={};
+  weightsEl.querySelectorAll('input[type=range]').forEach(s=>{weights[s.dataset.feat]=+(s.value/10).toFixed(1);});
+  const lw=lex.checked?+(lexw.value/10).toFixed(1):0;
+  ['reasoning_term_count','math_symbol_count','constraint_term_count','question_count'].forEach(f=>weights[f]=lw);
+  const t={weights},r=splitTerms(rterms.value),c=splitTerms(cterms.value);
+  if(r.length||c.length){t.lexicon={};if(r.length)t.lexicon.reasoning_terms=r;if(c.length)t.lexicon.constraint_terms=c;}
+  return t;
+}
+exportBtn.addEventListener('click',async()=>{
+  try{const res=await fetch('/router/config',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(advTouched?buildTuning():{})});
+    cfgEl.textContent=await res.text();}catch(e){cfgEl.textContent='export failed: '+e.message;}
+  cfgEl.hidden=false;
+});
+
+// Help tooltips: one floating element positioned with JS so it escapes the
+// settings popover's scroll clipping. Driven by hover and keyboard focus.
+const tip=document.createElement('div');tip.className='tip';tip.setAttribute('role','tooltip');tip.hidden=true;document.body.appendChild(tip);
+function showTip(btn){const text=btn.getAttribute('data-tip');if(!text)return;
+  tip.textContent=text;tip.hidden=false;
+  const r=btn.getBoundingClientRect(),tw=tip.offsetWidth,th=tip.offsetHeight;
+  const left=Math.max(8,Math.min(r.left+r.width/2-tw/2,innerWidth-tw-8));
+  let top=r.bottom+6; if(top+th>innerHeight-8) top=r.top-th-6;
+  tip.style.left=left+'px';tip.style.top=top+'px';tip.classList.add('show');}
+function hideTip(){tip.classList.remove('show');tip.hidden=true;}
+document.addEventListener('pointerover',e=>{const b=e.target.closest('.help');if(b)showTip(b);});
+document.addEventListener('pointerout',e=>{if(e.target.closest('.help'))hideTip();});
+document.addEventListener('focusin',e=>{const b=e.target.closest('.help');if(b)showTip(b);});
+document.addEventListener('focusout',e=>{if(e.target.closest('.help'))hideTip();});
+document.querySelectorAll('.help').forEach(b=>b.addEventListener('click',e=>{e.preventDefault();e.stopPropagation();showTip(b);}));
+
+function setSettings(open){
+  settings.toggleAttribute('hidden',!open);settingsBtn.classList.toggle('on',open);settingsBtn.setAttribute('aria-expanded',open?'true':'false');
+  if(open){const r=settingsBtn.getBoundingClientRect(),pw=settings.offsetWidth,ph=settings.offsetHeight;
+    let left=r.right+8; if(left+pw>innerWidth-8)left=Math.max(8,r.left-pw-8);
+    let top=Math.min(r.bottom-ph,innerHeight-ph-8); top=Math.max(8,top);
+    settings.style.left=left+'px';settings.style.top=top+'px';}}
+settingsBtn.addEventListener('click',e=>{e.stopPropagation();setSettings(settings.hasAttribute('hidden'));});
+document.addEventListener('click',e=>{if(!settings.hasAttribute('hidden')&&!settings.contains(e.target))setSettings(false);});
+document.addEventListener('keydown',e=>{if(e.key==='Escape')setSettings(false);});
+
+inEl.addEventListener('input',()=>{inEl.style.height='auto';inEl.style.height=Math.min(inEl.scrollHeight,window.innerHeight*0.4)+'px';});
+inEl.addEventListener('keydown',e=>{if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();composer.requestSubmit();}});
+
+function el(cls,txt){const d=document.createElement('div');d.className=cls;if(txt!=null)d.textContent=txt;return d;}
+function turn(){const t=el('turn');wrap.appendChild(t);return t;}
+function scroll(){requestAnimationFrame(()=>{const m=document.querySelector('main');m.scrollTop=m.scrollHeight;});}
+
+// A compact routing strip under each reply: model + score always visible, with the
+// full "why" breakdown and cost tucked behind a hover/click "?" popover.
+function routing(wf){
+  const r=el('routing');
+  const pill=el('pill '+(wf.model==='cloud'?'cloud':''));
+  pill.appendChild(el('dot')); pill.appendChild(document.createTextNode(' '+wf.model));
+  r.appendChild(pill);
+  r.appendChild(el('meta','score '+Number(wf.score).toFixed(2)+(wf.mode!=='scored'&&wf.mode!=='sticky'?' · '+titleCase(wf.mode):'')));
+  if(wf.mode==='sticky') r.appendChild(el('tag sticky','latched'));
+  if(wf.dry_run) r.appendChild(el('tag','dry-run'));
+
+  const cons=(wf.contributions||[]).filter(x=>x.contribution>0).sort((a,b)=>b.contribution-a.contribution).slice(0,4);
+  if(cons.length||wf.cost){
+    const btn=document.createElement('button');btn.className='why-btn';btn.type='button';btn.textContent='?';
+    btn.setAttribute('aria-label','Why this route'); btn.setAttribute('aria-expanded','false');
+    const pop=el('why-pop');
+    if(cons.length){
+      pop.appendChild(el('why','why'));
+      const max=cons[0].contribution||1, rows=el('rows');
+      cons.forEach(x=>{
+        const row=el('row');
+        row.appendChild(el('nm',pretty(x.name)));
+        const tr=el('track'),bar=document.createElement('i');bar.style.width=Math.round(100*x.contribution/max)+'%';tr.appendChild(bar);
+        row.appendChild(tr);
+        row.appendChild(el('val',String(x.value)));
+        rows.appendChild(row);
+      });
+      pop.appendChild(rows);
+    }
+    if(wf.cost){
+      const k=wf.cost, u=k.estimated?'units':'$';
+      const cost=el('cost'+(cons.length?'':' solo')); cost.title=(k.unit||'')+(k.estimated?' (estimated)':'');
+      const left=el(''); left.innerHTML='&#8776; <b>'+(+k.per_call).toFixed(3)+'</b> '+u;
+      const right=el(''); right.innerHTML='saved <b>'+(+k.saved).toFixed(3)+'</b>';
+      cost.appendChild(left); cost.appendChild(right); pop.appendChild(cost);
+    }
+    btn.addEventListener('click',()=>{const open=pop.classList.toggle('open');btn.setAttribute('aria-expanded',open?'true':'false');if(open)scroll();});
+    r.appendChild(btn); r.appendChild(pop);
+  }
+  return r;
+}
+
+// --- conversation threads + folders, persisted client-side (WF-ADR-0026) ---
+const LS='wf.threads', LF='wf.folders';
+let threads=[], folders=[], currentId=null, lastTurn=null;
+try{threads=JSON.parse(localStorage.getItem(LS)||'[]')||[];}catch(e){threads=[];}
+try{folders=JSON.parse(localStorage.getItem(LF)||'[]')||[];}catch(e){folders=[];}
+const persist=()=>{try{localStorage.setItem(LS,JSON.stringify(threads));localStorage.setItem(LF,JSON.stringify(folders));}catch(e){}};
+const cur=()=>threads.find(t=>t.id===currentId)||null;
+const apiMessages=t=>(t?t.items:[]).filter(i=>i.role==='user'||(i.role==='assistant'&&i.content)).map(i=>({role:i.role,content:i.content}));
+const titleFrom=text=>{const s=(text||'').replace(/\s+/g,' ').trim();return s.length>42?s.slice(0,42)+'…':(s||'New chat');};
+
+function renderItem(it){
+  if(it.role==='user'){lastTurn=turn();lastTurn.appendChild(el('msg user',it.content));return;}
+  const ans=el('answer');
+  if(it.role==='note')ans.appendChild(el('msg note',it.content));
+  else if(it.dry)ans.appendChild(el('msg bot dry',it.content));
+  else ans.appendChild(el('msg bot',it.content));
+  if(it.wf)ans.appendChild(routing(it.wf));
+  (lastTurn||(lastTurn=turn())).appendChild(ans);
+}
+function recomputeSaved(){const t=cur();let tot=0,unit='$';
+  if(t)t.items.forEach(i=>{if(i.wf&&i.wf.cost&&typeof i.wf.cost.saved==='number'){tot+=i.wf.cost.saved;unit=i.wf.cost.estimated?'units':'$';}});
+  savedTotal=tot;savedUnit=unit;savedEl.innerHTML=tot?('Saved <b>'+tot.toFixed(3)+'</b> '+unit+' vs always-cloud'):'';}
+
+// inline rename: swap a title element for an input, commit on Enter/blur
+function renameInline(titleEl,current,commit){
+  const inp=document.createElement('input');inp.className='t-rename';inp.value=current;
+  titleEl.replaceWith(inp);inp.focus();inp.select();let done=false;
+  const fin=save=>{if(done)return;done=true;const v=inp.value.trim();if(save&&v)commit(v);renderSidebar();};
+  inp.addEventListener('keydown',e=>{e.stopPropagation();if(e.key==='Enter'){e.preventDefault();fin(true);}else if(e.key==='Escape'){e.preventDefault();fin(false);}});
+  inp.addEventListener('blur',()=>fin(true));
+  inp.addEventListener('click',e=>e.stopPropagation());
+  inp.addEventListener('dblclick',e=>e.stopPropagation());
+}
+
+// floating per-chat menu: pin, rename, move to a folder, delete
+const menu=document.createElement('div');menu.className='menu';menu.hidden=true;document.body.appendChild(menu);
+const closeMenu=()=>{menu.hidden=true;menu.innerHTML='';};
+function openMenu(btn,t){menu.innerHTML='';
+  const mk=(name,fn,cls)=>{const b=document.createElement('button');b.type='button';b.textContent=name;if(cls)b.className=cls;
+    b.addEventListener('click',e=>{e.stopPropagation();closeMenu();fn();});return b;};
+  menu.appendChild(mk(t.pinned?'Unpin':'Pin',()=>{t.pinned=!t.pinned;persist();renderSidebar();}));
+  menu.appendChild(mk('Rename',()=>{const row=btn.closest('.thread'),ttl=row&&row.querySelector('.t-title');
+    if(ttl)renameInline(ttl,t.title||'',v=>{t.title=v;t.named=true;persist();});}));
+  menu.appendChild(el('sep')); menu.appendChild(el('mlabel','Move to'));
+  if(t.folder)menu.appendChild(mk('— No folder —',()=>{t.folder=null;persist();renderSidebar();}));
+  folders.forEach(f=>{if(f.id!==t.folder)menu.appendChild(mk(f.name,()=>{t.folder=f.id;f.open=true;persist();renderSidebar();}));});
+  menu.appendChild(mk('+ New folder…',()=>{const f=addFolder();if(f){t.folder=f.id;persist();renderSidebar();}}));
+  menu.appendChild(el('sep'));
+  menu.appendChild(mk('Delete chat',()=>deleteThread(t.id),'danger'));
+  menu.hidden=false;
+  const r=btn.getBoundingClientRect(),mw=menu.offsetWidth,mh=menu.offsetHeight;
+  let top=r.bottom+4; if(top+mh>innerHeight-8)top=r.top-mh-4;
+  menu.style.left=Math.max(8,Math.min(r.left,innerWidth-mw-8))+'px'; menu.style.top=top+'px';}
+document.addEventListener('click',e=>{if(!menu.hidden&&!menu.contains(e.target))closeMenu();});
+
+// drag & drop: file a chat into a folder, unfile to "Chats", or reorder
+let dragId=null;
+const clearDrag=()=>document.querySelectorAll('.drag-over').forEach(n=>n.classList.remove('drag-over'));
+function dropFolder(e,folderId){e.preventDefault();e.stopPropagation();clearDrag();const t=threads.find(x=>x.id===dragId);
+  if(t){t.folder=folderId;if(folderId){const f=folders.find(y=>y.id===folderId);if(f)f.open=true;}persist();renderSidebar();}}
+function makeDrop(node,folderId){
+  node.addEventListener('dragover',e=>{e.preventDefault();node.classList.add('drag-over');});
+  node.addEventListener('dragleave',()=>node.classList.remove('drag-over'));
+  node.addEventListener('drop',e=>dropFolder(e,folderId));}
+
+const matchThread=(t,q)=>!q||(t.title||'').toLowerCase().includes(q)||(t.items||[]).some(i=>(i.content||'').toLowerCase().includes(q));
+function threadRow(t){const row=el('thread'+(t.id===currentId?' active':''));row.draggable=true;
+  if(t.pinned)row.appendChild(el('t-pin','★'));
+  row.appendChild(el('t-title',t.title||'New chat'));
+  const m=document.createElement('button');m.className='t-menu';m.type='button';m.textContent='⋯';m.setAttribute('aria-label','Chat options');m.title='Chat options';
+  m.addEventListener('click',e=>{e.stopPropagation();openMenu(m,t);});
+  row.appendChild(m); row.addEventListener('click',()=>openThread(t.id));
+  row.addEventListener('dragstart',e=>{dragId=t.id;e.dataTransfer.effectAllowed='move';try{e.dataTransfer.setData('text/plain',t.id);}catch(_){}row.classList.add('dragging');});
+  row.addEventListener('dragend',()=>{row.classList.remove('dragging');dragId=null;clearDrag();});
+  row.addEventListener('dragover',e=>{e.preventDefault();row.classList.add('drag-over');});
+  row.addEventListener('dragleave',()=>row.classList.remove('drag-over'));
+  row.addEventListener('drop',e=>{e.preventDefault();e.stopPropagation();clearDrag();
+    const t2=threads.find(x=>x.id===dragId);if(!t2||t2.id===t.id)return;
+    t2.folder=t.folder;t2.pinned=t.pinned;threads=threads.filter(x=>x.id!==t2.id);
+    const idx=threads.findIndex(x=>x.id===t.id);threads.splice(idx,0,t2);persist();renderSidebar();});
+  return row;}
+function renderSidebar(){const q=(searchEl.value||'').toLowerCase();listEl.innerHTML='';let any=false;
+  const pinned=threads.filter(t=>t.pinned&&matchThread(t,q));
+  if(pinned.length){any=true;listEl.appendChild(el('side-label','Pinned'));pinned.forEach(t=>listEl.appendChild(threadRow(t)));}
+  folders.forEach(f=>{const chats=threads.filter(t=>!t.pinned&&t.folder===f.id&&matchThread(t,q));
+    if(q&&!chats.length)return; any=any||chats.length>0;
+    const fd=el('folder'+(f.open?' open':'')),head=el('folder-head');
+    head.appendChild(el('folder-caret','\u25B8')); head.appendChild(el('t-title',f.name)); head.appendChild(el('folder-count',String(chats.length)));
+    const del=document.createElement('button');del.className='folder-del';del.type='button';del.textContent='×';del.title='Delete folder';
+    del.addEventListener('click',e=>{e.stopPropagation();deleteFolder(f.id);});
+    head.appendChild(del);
+    head.addEventListener('click',()=>{f.open=!f.open;persist();renderSidebar();});
+    head.addEventListener('dblclick',e=>{e.stopPropagation();const ttl=head.querySelector('.t-title');if(ttl)renameInline(ttl,f.name,v=>{f.name=v;persist();});});
+    fd.appendChild(head);
+    const box=el('folder-chats'); chats.forEach(t=>box.appendChild(threadRow(t))); fd.appendChild(box);
+    makeDrop(head,f.id); makeDrop(box,f.id);
+    listEl.appendChild(fd);});
+  const loose=threads.filter(t=>!t.pinned&&!t.folder&&matchThread(t,q));
+  const lbl=el('side-label','Chats'); makeDrop(lbl,null);
+  if(loose.length||folders.length){any=any||loose.length>0; listEl.appendChild(lbl); loose.forEach(t=>listEl.appendChild(threadRow(t)));}
+  if(!threads.length)listEl.appendChild(el('side-empty','No chats yet'));
+  else if(!any)listEl.appendChild(el('side-empty','No matches'));}
+function addFolder(){const name=(prompt('Folder name')||'').trim();if(!name)return null;
+  const f={id:'f'+Date.now().toString(36),name:name,open:true};folders.unshift(f);persist();renderSidebar();return f;}
+function deleteFolder(id){threads.forEach(t=>{if(t.folder===id)t.folder=null;});folders=folders.filter(f=>f.id!==id);persist();renderSidebar();}
+
+function openThread(id){currentId=id;const t=cur();wrap.querySelectorAll('.turn').forEach(n=>n.remove());lastTurn=null;
+  if(!t||!t.items.length){document.body.classList.add('intro');empty.style.display='';card.classList.remove('started');modeEl.textContent='ready';}
+  else{document.body.classList.remove('intro');empty.style.display='none';card.classList.add('started');t.items.forEach(renderItem);}
+  recomputeSaved();renderSidebar();scroll();}
+function newThread(){const t={id:'t'+Date.now().toString(36)+Math.random().toString(36).slice(2,5),title:'New chat',created:Date.now(),items:[],folder:null};
+  threads.unshift(t);persist();openThread(t.id);inEl.focus();}
+function deleteThread(id){threads=threads.filter(t=>t.id!==id);persist();
+  if(currentId===id){threads.length?openThread(threads[0].id):newThread();}else renderSidebar();}
+
+async function send(text){
+  let t=cur(); if(!t){newThread();t=cur();}
+  empty.style.display='none'; card.classList.add('started'); document.body.classList.remove('intro');
+  lastTurn=turn(); lastTurn.appendChild(el('msg user',text)); scroll();
+  const first=!t.items.some(i=>i.role==='user');
+  t.items.push({role:'user',content:text}); if(first)t.title=titleFrom(text);
+  persist(); renderSidebar();
+  sendBtn.disabled=true;
+  const headers={'Content-Type':'application/json','X-Wayfinder-Debug':'true'};
+  if(useT.checked) headers['X-Wayfinder-Threshold']=(tEl.value/100).toFixed(2);
+  if(scopeEl.value) headers['X-Wayfinder-Route-On']=scopeEl.value;
+  headers['X-Wayfinder-Sticky']=stickyEl.checked?'true':'false';
+  if(stickyEl.checked) headers['X-Wayfinder-Sticky-Cooldown']=cooldownEl.value;
+  try{
+    const payload={model:'auto',messages:apiMessages(t),stream:false};
+    if(advTouched) payload.wayfinder_tuning=buildTuning();
+    const res=await fetch('/v1/chat/completions',{method:'POST',headers,body:JSON.stringify(payload)});
+    const data=await res.json().catch(()=>({}));
+    const wf=data.wayfinder||null;
+    if(wf) modeEl.textContent=wf.dry_run?'dry-run':'live';
+    const content=data&&data.choices&&data.choices[0]&&data.choices[0].message&&data.choices[0].message.content;
+    const ans=el('answer'); let item;
+    if(content){ans.appendChild(el('msg bot',content));item={role:'assistant',content:content,wf};}
+    else if(data&&data.error){const m=data.error.message||'error';ans.appendChild(el('msg note',m));item={role:'note',content:m};}
+    else if(wf&&wf.dry_run){const m='Routed to the '+wf.model+' model — no model was called in --dry-run mode. Configure a model (or drop --dry-run) to see the reply.';
+      ans.appendChild(el('msg bot dry',m));item={role:'assistant',content:'',wf,dry:true};}
+    else{const m='No content returned.';ans.appendChild(el('msg note',m));item={role:'note',content:m};}
+    if(wf) ans.appendChild(routing(wf));
+    lastTurn.appendChild(ans);
+    t.items.push(item); persist(); recomputeSaved(); renderSidebar();
+  }catch(e){const m='Gateway unreachable: '+e.message;const ans=el('answer');ans.appendChild(el('msg note',m));lastTurn.appendChild(ans);t.items.push({role:'note',content:m});persist();}
+  sendBtn.disabled=false; scroll(); inEl.focus();
+}
+composer.addEventListener('submit',e=>{e.preventDefault();const v=inEl.value.trim();if(!v)return;
+  inEl.value='';inEl.style.height='auto';send(v);});
+const EGS={
+  trivial:"What's 2 + 2?",
+  plan:"# Migration plan\n\nWrite a zero-downtime plan to migrate our Postgres database to a new region.\n\n## Requirements\n\n- enumerate prerequisites and risks\n- detail the cutover sequence\n- provide rollback steps\n- estimate the maintenance window\n\n```sql\nSELECT pg_create_logical_replication_slot('mig','pgoutput');\n```\n\n| phase | risk |\n| --- | --- |\n| dual-write | medium |\n| cutover | high |"
+};
+document.querySelectorAll('.eg').forEach(b=>b.addEventListener('click',()=>send(EGS[b.dataset.eg]||b.dataset.eg)));
+
+newchat.addEventListener('click',newThread);
+newfolder.addEventListener('click',addFolder);
+searchEl.addEventListener('input',renderSidebar);
+
+// collapsible sidebar (persisted); search icon expands the rail and focuses search
+function setCollapsed(c){document.body.classList.toggle('sidebar-collapsed',c);try{localStorage.setItem('wf.sidebar',c?'1':'0');}catch(e){}}
+sideToggle.addEventListener('click',()=>setCollapsed(!document.body.classList.contains('sidebar-collapsed')));
+searchIcon.addEventListener('click',()=>{setCollapsed(false);searchEl.focus();});
+const savedCollapse=(()=>{try{return localStorage.getItem('wf.sidebar');}catch(e){return null;}})();
+if(savedCollapse==='1'||(savedCollapse===null&&matchMedia('(max-width:760px)').matches))document.body.classList.add('sidebar-collapsed');
+
+// help modal
+function setHelp(open){helpModal.toggleAttribute('hidden',!open);}
+helpBtn.addEventListener('click',()=>setHelp(true));
+helpX.addEventListener('click',()=>setHelp(false));
+helpModal.addEventListener('click',e=>{if(e.target===helpModal)setHelp(false);});
+document.addEventListener('keydown',e=>{if(e.key==='Escape'){setHelp(false);setSettings(false);}});
+
+if(threads.length)openThread(threads[0].id); else newThread();
+</script></body></html>
