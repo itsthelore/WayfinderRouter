@@ -4,6 +4,33 @@ User-visible changes to Wayfinder, by release. Follows the spirit of
 [Keep a Changelog](https://keepachangelog.com/): user impact over implementation
 details, release history over commit history.
 
+## v2026.6.3 — 2026-06-22
+
+Wayfinder moves to **calendar versioning** (`YYYY.M.MICRO`); this is the release that
+the roadmap tracked as v0.3.0. It makes the terminal a first-class surface and adds
+one-command setup.
+
+### Added
+
+- **`wayfinder-router chat` is a full-screen terminal app** (Textual): a scrolling
+  transcript headed by the wordmark, inline `● LOCAL` / `◆ CLOUD` decisions with an
+  expandable `/why` breakdown, a `/settings` panel, and streamed model replies. Two
+  backends — in-process via `[gateway.models]`, or `--base-url` against a running
+  gateway. Needs the `[tui]` extra (now rich **and** textual).
+- **`wayfinder-router init`** scaffolds a starter `wayfinder-router.toml` (plus a
+  `.env.example` of variable *names* only) from a preset (`hybrid` = keyless local
+  Ollama → Anthropic cloud, or `openai` = gpt-4o-mini → gpt-4o) or interactively
+  (`--interactive`), then reports which model keys resolve.
+- **`wayfinder-router doctor`** checks the nearest config and whether each model's key
+  is set (`✓ set` / `✗ not set` / `keyless`) — no server required.
+- First-run nudges: `chat` and `webchat` point at `init` when no models are configured.
+
+### Changed
+
+- **Versioning is now CalVer (`YYYY.M.MICRO`).** The previous release was `v0.2.0`.
+- Keys remain environment-only — `init`/`doctor` only ever name the variables to export;
+  no secret is written, logged, or captured (WF-ADR-0004).
+
 ## v0.2.0 — 2026-06-19
 
 This release adds cost-aware calibration and an opt-in lexical signal to the scorer.
