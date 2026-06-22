@@ -399,6 +399,48 @@ def test_chat_app_persists_and_reopens_threads(tmp_path, monkeypatch):
     asyncio.run(scenario())
 
 
+def test_chat_app_multiline_paste_backslash_and_shift_enter(tmp_path, monkeypatch):
+    import asyncio
+
+    pytest.importorskip("textual")
+    from textual.events import Paste
+
+    monkeypatch.setenv("WAYFINDER_DATA_DIR", str(tmp_path))
+    app_cls = tui._build_chat_app()
+    app = app_cls(start_dir=str(tmp_path), theme="dark", dry_run=True)
+
+    async def scenario():
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            entry = app.query_one("#entry")
+            # a multi-line paste is staged (not truncated to the first line)
+            entry.post_message(Paste("def f(x):\n    return x\n"))
+            await pilot.pause()
+            await pilot.pause()
+            assert app._draft_lines == ["def f(x):", "    return x"] and entry.value == ""
+            await pilot.press("enter")  # Enter sends the staged block, newlines intact
+            await pilot.pause()
+            assert app.messages[-1]["content"] == "def f(x):\n    return x\n"
+            assert app._draft_lines == []
+
+            # a trailing backslash continues onto a new line (works in any terminal)
+            entry.value = "first\\"
+            await pilot.press("enter")
+            await pilot.pause()
+            assert app._draft_lines == ["first"]
+            entry.value = "second"
+            await pilot.press("enter")
+            await pilot.pause()
+            assert app.messages[-1]["content"] == "first\nsecond"
+
+            # Shift+Enter stages the current line (where the terminal sends it)
+            entry.value = "alpha"
+            app.action_newline()
+            assert app._draft_lines == ["alpha"] and entry.value == ""
+
+    asyncio.run(scenario())
+
+
 def test_friendly_error():
     ollama = tui._friendly_error("Connection refused", "http://localhost:11434/v1")
     assert "Ollama" in ollama
