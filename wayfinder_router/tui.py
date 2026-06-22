@@ -493,7 +493,9 @@ def render_models(models: dict, palette: dict[str, str]) -> RenderableType:
         if status.env_var is None:
             key = Text("keyless ✓", style=accent)
         elif status.ok:
-            key = Text(f"{status.env_var} ✓ set", style=accent)
+            # After resolve_keys() a command-filled key reads as set; note its source.
+            label = f"{status.env_var} ✓ set" + (" (via command)" if status.cmd else "")
+            key = Text(label, style=accent)
         else:
             key = Text(f"{status.env_var} ✗ not set", style=warn)
         glyph = Text("● ", style=accent if status.ok else cloud)

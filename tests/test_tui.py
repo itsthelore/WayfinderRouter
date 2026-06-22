@@ -563,6 +563,25 @@ def test_render_models_shows_key_status(monkeypatch):
     assert "ANTHROPIC_API_KEY" in out and "not set" in out
 
 
+def test_render_models_notes_a_command_resolved_key(monkeypatch):
+    from rich.console import Console
+
+    from wayfinder_router import gateway
+
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-resolved-from-vault")
+    models = {
+        "cloud": gateway.GatewayModel(
+            base_url="https://api.anthropic.com/v1", model="claude-sonnet-4-6",
+            api_key_env="ANTHROPIC_API_KEY", api_key_cmd="op read op://Private/Anthropic/credential",
+        ),
+    }
+    con = Console(record=True, width=100)
+    con.print(tui.render_models(models, tui.palette_for("dark")))
+    # Collapse the panel border + soft wrapping so the label reads as one string.
+    flat = " ".join(con.export_text().replace("│", " ").split())
+    assert "✓ set (via command)" in flat
+
+
 def test_render_models_empty_points_at_init():
     from rich.console import Console
 
