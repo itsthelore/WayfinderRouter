@@ -208,3 +208,103 @@ def test_chat_app_routes_decision_in_dry_run(tmp_path):
             assert app.query_one("#entry").value == ""
 
     asyncio.run(scenario())
+
+
+# --- forced routing / /btw --------------------------------------------------
+
+
+def test_resolve_target_forces_routes():
+    decision = tui.Decision(
+        text="x", model="local", score=0.1, mode="tiered", is_local=True,
+        targets=["local", "cloud"],
+    )
+    assert tui.resolve_target(None, decision) == ("local", True)  # natural
+    assert tui.resolve_target("prefer-local", decision) == ("local", True)
+    assert tui.resolve_target("prefer-hosted", decision) == ("cloud", False)
+    assert tui.resolve_target("cloud", decision) == ("cloud", False)  # exact name
+    assert tui.resolve_target("local", decision) == ("local", True)
+    # no tier info -> fall back to the decision's own model
+    bare = tui.Decision(text="x", model="m", score=0.1, mode="t", is_local=True)
+    assert tui.resolve_target("prefer-hosted", bare) == ("m", True)
+
+
+def test_pin_label():
+    assert tui._pin_label("prefer-local") == "local"
+    assert tui._pin_label("prefer-hosted") == "cloud"
+    assert tui._pin_label(None) == "auto"
+    assert tui._pin_label("smart") == "smart"
+
+
+def test_decide_populates_tier_targets(tmp_path):
+    decision = tui.decide("anything", start_dir=str(tmp_path), threshold=0.3)
+    assert decision.targets == ["local", "cloud"]  # binary threshold -> two tiers, in order
+
+
+def test_render_decision_forced_shows_override_and_natural():
+    from rich.console import Console
+
+    palette = tui.palette_for("dark")
+    decision = tui.Decision(
+        text="x", model="local", score=0.04, mode="tiered", is_local=True,
+        targets=["local", "cloud"],
+    )
+    con = Console(record=True, width=100)
+    con.print(tui.render_decision(decision, palette, forced_to=("cloud", False)))
+    out = con.export_text()
+    assert "CLOUD" in out and "forced" in out and "cloud" in out
+    assert "would route" in out and "LOCAL" in out  # decision-first transparency
+
+    # forcing to the route the scorer already picked drops the "would route" note
+    same = Console(record=True, width=100)
+    same.print(tui.render_decision(decision, palette, forced_to=("local", True)))
+    same_out = same.export_text()
+    assert "forced" in same_out and "would route" not in same_out
+
+
+def test_decision_from_debug_uses_natural_route_even_when_pinned():
+    payload = {
+        "model": "local",  # the gateway pinned to local…
+        "score": 0.71, "mode": "pinned",
+        "tiers": [{"min_score": 0.0, "model": "local"}, {"min_score": 0.3, "model": "cloud"}],
+        "contributions": [],
+    }
+    decision = tui.decision_from_debug(payload)
+    # …but the decision-first view is the natural route for score 0.71 (cloud)
+    assert decision.model == "cloud" and decision.is_local is False
+    assert decision.targets == ["local", "cloud"]
+
+
+def test_chat_app_persistent_pin_and_btw_are_ephemeral(tmp_path):
+    import asyncio
+
+    pytest.importorskip("textual")
+
+    app_cls = tui._build_chat_app()
+    app = app_cls(start_dir=str(tmp_path), theme="dark", dry_run=True)
+
+    async def scenario():
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            app.query_one("#entry").value = "/cloud"  # persistent pin, no message
+            await pilot.press("enter")
+            await pilot.pause()
+            assert app.state.pinned == "prefer-hosted" and not app.history
+
+            app.query_one("#entry").value = "hello there"
+            await pilot.press("enter")
+            await pilot.pause()
+            assert len(app.history) == 1 and app.state.pinned == "prefer-hosted"
+            assert app.messages == [{"role": "user", "content": "hello there"}]
+
+            app.query_one("#entry").value = "/btw quick aside"
+            await pilot.press("enter")
+            await pilot.pause()
+            assert len(app.history) == 2  # the aside was still scored/shown…
+            assert all("quick aside" not in m["content"] for m in app.messages)  # …but not kept
+
+            app.query_one("#entry").value = "/auto"
+            await pilot.press("enter")
+            await pilot.pause()
+            assert app.state.pinned is None
+
+    asyncio.run(scenario())
