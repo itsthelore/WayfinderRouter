@@ -28,11 +28,13 @@ Proposed
 > onboarding (`/init` scaffolds a preset and loads its models in place; `/models` shows
 > per-model key status, WF-ADR-0025; an empty-state panel when nothing is configured)
 > means you never have to leave the chat to get set up. Composer quality-of-life:
-> **↑/↓ input history**, inline **`/` command autocomplete**, and **Ctrl+C** to cancel an
-> in-flight reply (again to quit). Conversations **persist to disk** (`/new`, `/threads`,
-> `/open <n>`; WF-ADR-0030) — the terminal sibling of the demo's localStorage threads.
-> rich + textual now ship in the **default install**
-> (WF-ADR-0029), imported lazily. The browser surface is `wayfinder-router webchat`.
+> **↑/↓ input history**, inline **`/` command autocomplete**, **multi-line input** (paste a
+> block, end a line with `\`, or Shift+Enter), **Tab** to expand the last *why*, and
+> **Esc / Ctrl+C** to cancel an in-flight reply. A running **cost tally** (`/cost`) shows
+> the routing mix and estimated savings vs always-cloud. Conversations **persist to disk**
+> (`/new`, `/threads`, `/open <n>`; WF-ADR-0030) — the terminal sibling of the demo's
+> localStorage threads. rich + textual now ship in the **default install** (WF-ADR-0029),
+> imported lazily. The browser surface is `wayfinder-router webchat`.
 >
 > Toolkit decision resolved: the spike below weighed a Rich-only loop vs Textual; the
 > shipped cut is **Textual** — the fixed chrome (pinned input, status/footer bars, a
