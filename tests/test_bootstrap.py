@@ -147,6 +147,22 @@ def test_suggest_key_commands_empty_when_no_tools_installed():
     assert bootstrap.suggest_key_commands("X", which=lambda _exe: None) == []
 
 
+def test_suggest_key_commands_covers_team_and_cloud_stores():
+    tools = {"vault", "aws", "bw", "doppler", "gopass", "gcloud"}
+    cmds = bootstrap.suggest_key_commands(
+        "ANTHROPIC_API_KEY", which=lambda exe: exe if exe in tools else None
+    )
+    joined = "\n".join(cmds)
+    assert "vault kv get" in joined
+    assert "aws secretsmanager get-secret-value" in joined
+    assert "bw get password" in joined
+    assert "doppler secrets get" in joined
+    assert "gopass show" in joined
+    assert "gcloud secrets versions access" in joined
+    assert all("ANTHROPIC_API_KEY" in c for c in cmds)
+    assert len(cmds) == len(tools)  # one suggestion per detected tool
+
+
 def test_resolve_keys_runs_a_real_shell_command_by_default():
     # Exercises the actual subprocess path (no injected runner): stdout is the key.
     gw = gateway_config_from_toml(

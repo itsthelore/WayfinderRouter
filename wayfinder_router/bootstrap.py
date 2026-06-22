@@ -252,11 +252,23 @@ def resolve_keys(
 
 # Secret tools we can recommend an `api_key_cmd` for, in preference order. Each maps
 # a detected executable to a fill-in-the-blank command the user can paste and adjust.
+# The resolver runs *any* command; this list only drives the friendly suggestions.
 _KEY_HELPERS: tuple[tuple[str, str, str], ...] = (
     ("op", "1Password", 'op read "op://Private/{var}/credential"'),
     ("security", "macOS Keychain", 'security find-generic-password -w -s "{var}"'),
     ("secret-tool", "Linux Secret Service", 'secret-tool lookup service "{var}"'),
     ("pass", "pass", "pass show {var}"),
+    ("gopass", "gopass", "gopass show -o {var}"),
+    ("vault", "HashiCorp Vault", "vault kv get -field={var} secret/wayfinder"),
+    (
+        "aws",
+        "AWS Secrets Manager",
+        "aws secretsmanager get-secret-value --secret-id {var} "
+        "--query SecretString --output text",
+    ),
+    ("bw", "Bitwarden", "bw get password {var}"),
+    ("doppler", "Doppler", "doppler secrets get {var} --plain"),
+    ("gcloud", "Google Secret Manager", "gcloud secrets versions access latest --secret={var}"),
 )
 
 

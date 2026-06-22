@@ -152,8 +152,11 @@ just change one `base_url`.
    is read from your environment at request time. There is nothing to "install" — just
    export the variable. Prefer not to paste a raw key into your shell? Add an optional
    `api_key_cmd` and Wayfinder fills that variable from your secret store at startup —
-   `op read …` (1Password), `security find-generic-password …` (macOS Keychain),
-   `secret-tool …` (Linux), `pass …` — held in memory only, still never written to disk.
+   `op read …` (1Password), `security …` (macOS Keychain), `secret-tool …` (Linux),
+   `pass`/`gopass`, `vault kv get …`, `aws secretsmanager get-secret-value …`, `bw`,
+   `doppler`, `gcloud secrets …`, or any command that prints the secret. The key is held
+   in memory only, still never written to disk. `wayfinder-router doctor` detects which
+   of these tools you have installed and suggests the exact line.
 
 2. Set your key(s), then run the gateway. `doctor` re-checks the config and whether each
    model's key resolves (`✓ set` / `✗ not set`) before you start:
