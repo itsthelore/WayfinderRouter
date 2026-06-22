@@ -94,6 +94,13 @@ uvx wayfinder-router chat --dry-run      # zero install, zero keys
 # or:  pip install wayfinder-router && wayfinder-router chat
 ```
 
+![Wayfinder terminal chat — a routed prompt, the decision, the reply, and the running savings](docs/tui-chat.png)
+
+Every turn shows where it routed (`● LOCAL` / `◆ CLOUD`), the structural score and *why*
+(`/why`), and the running savings vs always-cloud. `/init` sets up models without leaving
+the chat, `/route` · `/local` · `/cloud` force a turn, and conversations persist across
+sessions (`/threads`).
+
 **In your browser** — the web chat UI with a live threshold slider:
 
 ```bash

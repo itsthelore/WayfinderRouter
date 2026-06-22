@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import pytest
 
-pytest.importorskip("rich")  # the [tui] extra
+pytest.importorskip("rich")  # ships in the default install (WF-ADR-0029)
 
 from wayfinder_router import tui  # noqa: E402
 from wayfinder_router.cli import main  # noqa: E402

@@ -43,7 +43,7 @@ if TYPE_CHECKING:  # type-only; the runtime imports rich/textual/gateway lazily
 
     from .gateway import GatewayModel
 
-_INSTALL_HINT = "the terminal UI needs its extra: pip install 'wayfinder-router[tui]'"
+_INSTALL_HINT = "the terminal chat needs rich + textual (shipped by default) — reinstall wayfinder-router"
 _SCOPES = ("turn", "last_user", "user", "all")
 
 # Slash commands offered as inline autocomplete in the composer (typing `/` suggests).
