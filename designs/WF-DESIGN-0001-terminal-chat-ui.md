@@ -29,7 +29,9 @@ Proposed
 > per-model key status, WF-ADR-0025; an empty-state panel when nothing is configured)
 > means you never have to leave the chat to get set up. Composer quality-of-life:
 > **↑/↓ input history**, inline **`/` command autocomplete**, and **Ctrl+C** to cancel an
-> in-flight reply (again to quit). rich + textual now ship in the **default install**
+> in-flight reply (again to quit). Conversations **persist to disk** (`/new`, `/threads`,
+> `/open <n>`; WF-ADR-0030) — the terminal sibling of the demo's localStorage threads.
+> rich + textual now ship in the **default install**
 > (WF-ADR-0029), imported lazily. The browser surface is `wayfinder-router webchat`.
 >
 > Toolkit decision resolved: the spike below weighed a Rich-only loop vs Textual; the
