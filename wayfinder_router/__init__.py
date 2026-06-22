@@ -50,7 +50,7 @@ from .feedback import read_labels, record_label
 from .onboard import OnboardSummary, run_onboarding
 from .recalibrate import RecalibrationResult, recalibrate
 
-__version__ = "0.2.0"
+__version__ = "2026.6.3"
 
 __all__ = [
     "__version__",
