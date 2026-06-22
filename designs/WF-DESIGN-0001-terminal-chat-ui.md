@@ -22,7 +22,9 @@ Proposed
 > the chosen `[gateway.models]` model via the gateway relay and **streams** tokens
 > (`stream_messages`, run on a Textual worker thread so the event loop stays responsive);
 > **`--base-url`** is the HTTP thin client to a running gateway (non-streaming, decision
-> rebuilt from `X-Wayfinder-Debug`). Keyless / `--dry-run` stays decision-only. The extra
+> rebuilt from `X-Wayfinder-Debug`). Keyless / `--dry-run` stays decision-only. Forced
+> routing (`/route`, `/local`, `/cloud`, and the one-off local aside `/btw`) lets you
+> overrule the recommendation while still showing what it would have picked. The extra
 > is `[tui]` (rich + textual), imported lazily. The browser surface is
 > `wayfinder-router webchat`.
 >
@@ -127,6 +129,31 @@ the same `explain_score` contributions the web demo shows:
   variant: a collapsible left pane, echoing the web sidebar.) Persisted to disk
   (see Constraints), which is strictly more durable than the web demo's
   `localStorage` (WF-ADR-0026).
+
+### Forced routing & quick asides (implemented)
+
+Routing is a recommendation, not a cage — you can overrule it without leaving the chat,
+and the decision-first view never goes away (you always see what the router *would* have
+picked, so a forced call is an informed one). This is pure presentation over the
+gateway's existing steering: a concrete `model` field pins the call, and
+`prefer-local` / `prefer-hosted` resolve to the cheapest / most-capable tier
+(`resolve_pin`); the structural score is computed either way.
+
+- **`/route <model>`** — pin every following turn to a configured model (validated
+  against `[gateway.models]` in-process). **`/route auto`** (or **`/auto`**) clears it;
+  **`/route`** with no argument shows the current pin and the available models.
+- **`/local` / `/cloud`** — pin to the cheapest / most-capable tier (the
+  `prefer-local` / `prefer-hosted` ends), robust to custom tier names. With a message
+  (`/cloud <msg>`) they force just that one turn and keep it in the thread.
+- **`/btw <question>`** — a one-off **aside**: routed to local, sent *standalone* (no
+  thread history attached, so it stays cheap and fast), and **not** added to the
+  conversation. Lets you interrupt a long, cloud-latched thread with a quick question
+  without paying cloud for a triviality or derailing the main exchange.
+- A manual pin overrides `/sticky` and `/threshold`; it shows in the status bar
+  (`forced → cloud · /auto to resume routing`) and in `/settings`. The decision line
+  flags the override and the natural route: `◆ CLOUD cloud · forced  would route ● LOCAL`.
+- Resolution (`resolve_target`) mirrors the gateway's `resolve_pin`, so the in-process
+  and `--base-url` backends agree on what a force means.
 
 ### Architecture — a thin client over the gateway contract
 

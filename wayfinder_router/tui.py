@@ -116,6 +116,10 @@ class TuiState:
     show_why: bool = False  # auto-expand the breakdown on every turn
     stream: bool = True  # stream replies token-by-token (in-process backend)
     theme: str = "dark"
+    # A standing route override: a configured model name, or the sentinels
+    # "prefer-local" / "prefer-hosted" (cheapest / most-capable tier), or None for
+    # normal routing. One-shot forces (/local <msg>, /cloud <msg>, /btw) bypass this.
+    pinned: str | None = None
 
 
 # --- the routing decision (reuses the deterministic core) --------------------
@@ -130,6 +134,9 @@ class Decision:
     is_local: bool
     contributions: list[FeatureContribution] = field(default_factory=list)
     threshold: float | None = None
+    # The configured model names in tier order (cheapest → most capable); used to
+    # resolve forced routes (prefer-local / prefer-hosted) against the same tiers.
+    targets: list[str] = field(default_factory=list)
 
 
 def decide(text: str, *, start_dir: str = ".", threshold: float | None = None) -> Decision:
@@ -144,7 +151,7 @@ def decide(text: str, *, start_dir: str = ".", threshold: float | None = None) -
             weights=config.weights, tiers=binary_tiers(threshold), lexicon=config.lexicon
         )
     score = score_complexity(text, config=config)
-    tiers = config.tiers or DEFAULT_TIERS
+    tiers = sorted(config.tiers or DEFAULT_TIERS, key=lambda t: t.min_score)
     idx = 0
     for i, tier in enumerate(tiers):
         if score.score >= tier.min_score:
@@ -157,7 +164,32 @@ def decide(text: str, *, start_dir: str = ".", threshold: float | None = None) -
         is_local=idx == 0,
         contributions=explain_score(score.features, config.weights),
         threshold=threshold,
+        targets=[tier.model for tier in tiers],
     )
+
+
+def resolve_target(pin: str | None, decision: Decision) -> tuple[str, bool]:
+    """Resolve a forced route to ``(model_name, is_local)`` against the decision's tiers.
+
+    ``pin`` is a model name, the sentinel ``prefer-local`` / ``prefer-hosted`` (cheapest /
+    most-capable tier), or ``None`` for the natural route. Mirrors the gateway's
+    ``resolve_pin`` so in-process and ``--base-url`` agree on what a force means.
+    """
+    if pin is None:
+        return decision.model, decision.is_local
+    targets = decision.targets or [decision.model]
+    if pin == "prefer-local":
+        name = targets[0]
+    elif pin == "prefer-hosted":
+        name = targets[-1]
+    else:
+        name = pin
+    return name, name == targets[0]
+
+
+def _pin_label(pin: str | None) -> str:
+    """A short human label for a pin (sentinels read as local/cloud)."""
+    return {"prefer-local": "local", "prefer-hosted": "cloud", None: "auto"}.get(pin, pin or "auto")
 
 
 # --- slash commands ----------------------------------------------------------
@@ -173,6 +205,10 @@ def parse_command(line: str) -> tuple[str | None, str]:
 
 _HELP = (
     "commands\n"
+    "  /route <model>|auto           pin every turn to a model (the router still shows why)\n"
+    "  /local        /cloud          pin to the cheapest / most-capable tier; /auto clears\n"
+    "  /local <msg>  /cloud <msg>    force just this turn (kept in the thread)\n"
+    "  /btw <question>               quick one-off aside → local, not added to the thread\n"
     "  /threshold <0..1>              set the local/cloud cut\n"
     "  /scope turn|last_user|user|all what each turn scores\n"
     "  /sticky on|off [N]            keep hard chats on cloud (cooldown N)\n"
@@ -239,27 +275,52 @@ def render_welcome(
     )
 
 
+def _glyph_role(is_local: bool) -> tuple[str, str]:
+    return ("●", "LOCAL") if is_local else ("◆", "CLOUD")
+
+
 def render_decision(
-    decision: Decision, palette: dict[str, str], *, expanded: bool = False
+    decision: Decision,
+    palette: dict[str, str],
+    *,
+    expanded: bool = False,
+    forced_to: tuple[str, bool] | None = None,
 ) -> RenderableType:
-    """The decision line; collapsed shows a ``/why`` affordance, expanded adds the table."""
+    """The decision line; collapsed shows a ``/why`` affordance, expanded adds the table.
+
+    ``forced_to`` is ``(model_name, is_local)`` when the route was overridden — the
+    forced target is shown as the primary, flagged ``· forced``, with the natural route
+    the scorer would have picked shown alongside (decision-first transparency).
+    """
     from rich.console import Group
     from rich.table import Table
     from rich.text import Text
 
-    role_color = palette["accent"] if decision.is_local else palette["cloud"]
-    glyph = "●" if decision.is_local else "◆"
-    role = "LOCAL" if decision.is_local else "CLOUD"
     muted, text_c = palette["muted"], palette["text"]
-
-    head = Text()
-    head.append(f"{glyph} {role}", style=f"bold {role_color}")
-    head.append(f"  {decision.model}", style=text_c)
-    head.append(f"   score {decision.score:.2f}", style=muted)
-    if decision.is_local:
-        head.append("  · kept local", style=muted)
-    if decision.contributions:
-        head.append("   /why " + ("⌃" if expanded else "⌄"), style=muted)
+    if forced_to is not None:
+        f_name, f_local = forced_to
+        f_glyph, f_role = _glyph_role(f_local)
+        head = Text()
+        head.append(f"{f_glyph} {f_role}", style=f"bold {palette['accent'] if f_local else palette['cloud']}")
+        head.append(f"  {f_name}", style=text_c)
+        head.append("  · forced", style=palette["warn"])
+        head.append(f"   score {decision.score:.2f}", style=muted)
+        if f_name != decision.model:
+            n_glyph, n_role = _glyph_role(decision.is_local)
+            head.append(f"   would route {n_glyph} {n_role}", style=muted)
+        if decision.contributions:
+            head.append("   /why " + ("⌃" if expanded else "⌄"), style=muted)
+    else:
+        glyph, role = _glyph_role(decision.is_local)
+        role_color = palette["accent"] if decision.is_local else palette["cloud"]
+        head = Text()
+        head.append(f"{glyph} {role}", style=f"bold {role_color}")
+        head.append(f"  {decision.model}", style=text_c)
+        head.append(f"   score {decision.score:.2f}", style=muted)
+        if decision.is_local:
+            head.append("  · kept local", style=muted)
+        if decision.contributions:
+            head.append("   /why " + ("⌃" if expanded else "⌄"), style=muted)
 
     if not (expanded and decision.contributions):
         return head
@@ -286,6 +347,7 @@ def render_settings(state: TuiState, palette: dict[str, str]) -> RenderableType:
 
     accent, muted, text_c = palette["accent"], palette["muted"], palette["text"]
     rows = [
+        ("forced route", _pin_label(state.pinned) if state.pinned else "auto (routing)"),
         ("threshold", f"{state.threshold:.2f}" if state.threshold is not None else "auto (config)"),
         ("routing scope", state.scope),
         ("sticky", f"on · cooldown {state.cooldown}" if state.sticky else "off"),
@@ -300,7 +362,7 @@ def render_settings(state: TuiState, palette: dict[str, str]) -> RenderableType:
         grid.add_row(key, val)
 
     hint = Text(
-        "\nchange:  /threshold  /scope  /sticky  /why  /stream  /theme   ·   /help",
+        "\nchange:  /route  /local  /cloud  /threshold  /scope  /sticky  /why  /stream  /theme   ·   /help",
         style=muted,
     )
     return Panel(
@@ -328,6 +390,9 @@ def _status_bar(
     if note:
         left.append("⠿ ", style=cloud)
         left.append(note, style=muted)
+    elif state.pinned:
+        left.append(f"forced → {_pin_label(state.pinned)}", style=palette["warn"])
+        left.append("  ·  /auto to resume routing", style=muted)
     else:
         left.append("decision-first routing", style=accent)
         thr = f"{state.threshold:.2f}" if state.threshold is not None else "auto"
@@ -386,9 +451,16 @@ def decision_from_debug(payload: dict, *, text: str = "") -> Decision:
     Lets the ``--base-url`` thin client render the same decision-first line and "why"
     breakdown the in-process backend shows, from the remote gateway's response.
     """
-    tiers = payload.get("tiers") or []
-    model = str(payload.get("model", "?"))
-    is_local = bool(tiers) and model == tiers[0].get("model")
+    tiers = sorted(payload.get("tiers") or [], key=lambda t: float(t.get("min_score", 0.0)))
+    score = float(payload.get("score", 0.0))
+    # The natural route the scorer would pick (highest tier whose cut the score clears).
+    # When the gateway pinned the call, payload["model"] is the forced target, not this —
+    # so derive the decision-first view from score + tiers, the same as the local path.
+    nat_idx = 0
+    for i, tier in enumerate(tiers):
+        if score >= float(tier.get("min_score", 0.0)):
+            nat_idx = i
+    model = str(tiers[nat_idx]["model"]) if tiers else str(payload.get("model", "?"))
     contributions = [
         FeatureContribution(
             name=str(c["name"]),
@@ -402,20 +474,24 @@ def decision_from_debug(payload: dict, *, text: str = "") -> Decision:
     return Decision(
         text=text,
         model=model,
-        score=float(payload.get("score", 0.0)),
+        score=score,
         mode=str(payload.get("mode", "")),
-        is_local=is_local,
+        is_local=bool(tiers) and nat_idx == 0,
         contributions=contributions,
+        targets=[str(tier["model"]) for tier in tiers],
     )
 
 
 def remote_reply(
-    base_url: str, messages: list[dict], *, threshold: float | None = None, timeout: float = 60.0
+    base_url: str, messages: list[dict], *, model: str = "auto",
+    threshold: float | None = None, timeout: float = 60.0,
 ) -> tuple[Decision | None, str | None]:
     """POST to a running gateway's ``/v1/chat/completions``; return ``(decision, reply)``.
 
     The thin-client backend (WF-DESIGN-0001): the *remote* gateway makes the routing
-    decision (surfaced via ``X-Wayfinder-Debug``) and the reply. Non-streaming.
+    decision (surfaced via ``X-Wayfinder-Debug``) and the reply. Non-streaming. ``model``
+    is the OpenAI ``model`` field — ``"auto"`` routes, a concrete name or
+    ``prefer-local`` / ``prefer-hosted`` forces the call server-side (``resolve_pin``).
     """
     from .gateway import GatewayUnavailable
 
@@ -428,7 +504,7 @@ def remote_reply(
     headers = {"X-Wayfinder-Debug": "1"}
     if threshold is not None:
         headers["X-Wayfinder-Threshold"] = f"{threshold}"
-    body = {"model": "auto", "messages": list(messages)}
+    body = {"model": model, "messages": list(messages)}
     url = base_url.rstrip("/") + "/v1/chat/completions"
     try:
         response = httpx.post(url, json=body, headers=headers, timeout=timeout)
@@ -585,10 +661,14 @@ def _build_chat_app() -> type:
         def _warn(self, message: str) -> Static:
             return self._append(Text(message, style=self.palette["warn"]))
 
-        def _user_line(self, line: str) -> RenderableType:
+        def _user_line(self, line: str, *, aside: bool = False) -> RenderableType:
             text = Text()
-            text.append("› ", style=self.palette["accent"])
-            text.append(line, style=self.palette["text"])
+            if aside:  # a /btw sidebar: dimmed, clearly not part of the thread
+                text.append("↪ btw  ", style=self.palette["muted"])
+                text.append(line, style=self.palette["muted"])
+            else:
+                text.append("› ", style=self.palette["accent"])
+                text.append(line, style=self.palette["text"])
             return text
 
         def _set_live_text(self, widget: Static, body: str) -> None:
@@ -624,31 +704,52 @@ def _build_chat_app() -> type:
             if cmd is not None:
                 self._handle_command(cmd, arg)
                 return
+            self._route_message(line, pin=self.state.pinned, ephemeral=False)
 
-            self._append(self._user_line(line))
-            self.messages.append({"role": "user", "content": line})
+        def _route_message(self, text: str, *, pin: str | None, ephemeral: bool = False) -> None:
+            """Route one turn: render the decision, then call the (possibly forced) model.
+
+            ``pin`` forces the route for this turn (``None`` = the natural decision).
+            ``ephemeral`` (``/btw``) sends the turn standalone — no history attached, and
+            neither the question nor the reply is added to the thread.
+            """
+            self._append(self._user_line(text, aside=ephemeral))
+            if ephemeral:
+                convo: list[dict] = [{"role": "user", "content": text}]
+            else:
+                self.messages.append({"role": "user", "content": text})
+                convo = self.messages
 
             if self.base_url is not None:  # the remote gateway decides and replies
                 self._set_busy(True)
-                self._remote_worker()
+                self._remote_worker(convo, pin, ephemeral)
                 return
 
-            try:  # in-process: score locally, then call the chosen model
-                decision = decide(line, start_dir=self.start_dir, threshold=self.state.threshold)
+            try:  # in-process: score locally, then call the chosen (or forced) model
+                decision = decide(text, start_dir=self.start_dir, threshold=self.state.threshold)
             except WayfinderConfigError as exc:
                 self._warn(str(exc))
-                self.messages.pop()
+                if not ephemeral:
+                    self.messages.pop()
                 return
             self.history.append(decision)
-            self._append(render_decision(decision, self.palette, expanded=self.state.show_why))
+            forced_to = resolve_target(pin, decision) if pin is not None else None
+            self._append(
+                render_decision(
+                    decision, self.palette, expanded=self.state.show_why, forced_to=forced_to
+                )
+            )
+            if ephemeral:
+                self._note("aside · not added to the thread")
             if not self.models:
                 return
-            model = self.models.get(decision.model)
+            target = forced_to[0] if forced_to is not None else decision.model
+            model = self.models.get(target)
             if model is None:
-                self._note(f"no model configured for '{decision.model}'")
+                self._note(f"no model configured for '{target}'")
                 return
             self._set_busy(True)
-            self._stream_worker(model)
+            self._stream_worker(model, convo, not ephemeral)
 
         # --- slash commands (main thread) ---
         def _handle_command(self, cmd: str, arg: str) -> None:
@@ -661,7 +762,27 @@ def _build_chat_app() -> type:
             if cmd == "settings":
                 self._append(render_settings(self.state, self.palette))
                 return
-            if cmd == "threshold":
+            if cmd == "route":
+                self._handle_route(arg)
+            elif cmd == "auto":
+                self.state.pinned = None
+                self._note("routing: auto")
+            elif cmd in {"local", "cloud"}:
+                sentinel = "prefer-local" if cmd == "local" else "prefer-hosted"
+                message = arg.strip()
+                if message:  # one-shot force for this turn, kept in the thread
+                    self._route_message(message, pin=sentinel, ephemeral=False)
+                    return
+                self.state.pinned = sentinel
+                self._note(f"pinned → {cmd} every turn · /auto to resume routing")
+            elif cmd == "btw":
+                question = arg.strip()
+                if not question:
+                    self._warn("usage: /btw <quick question>  — a one-off aside routed local")
+                    return
+                self._route_message(question, pin="prefer-local", ephemeral=True)
+                return
+            elif cmd == "threshold":
                 try:
                     self.state.threshold = max(0.0, min(1.0, float(arg)))
                     self._note(f"threshold {self.state.threshold:.2f}")
@@ -704,6 +825,26 @@ def _build_chat_app() -> type:
                 self._warn(f"unknown command /{cmd} — /help")
             self._refresh_bars()
 
+        def _handle_route(self, arg: str) -> None:
+            target = arg.strip()
+            if not target:  # show current pin + the available targets
+                names = ", ".join(sorted(self.models)) if self.models else "(set by the gateway)"
+                self._note(f"routing: {_pin_label(self.state.pinned)} · models: {names}")
+                return
+            if target in {"auto", "off"}:
+                self.state.pinned = None
+                self._note("routing: auto")
+                return
+            if target in {"local", "cloud"}:  # aliases for the tier ends
+                self.state.pinned = "prefer-local" if target == "local" else "prefer-hosted"
+                self._note(f"pinned → {target} · /auto to resume routing")
+                return
+            if self.base_url is None and self.models and target not in self.models:
+                self._warn(f"unknown model '{target}' — available: {', '.join(sorted(self.models))}")
+                return
+            self.state.pinned = target
+            self._note(f"pinned → {target} · /auto to resume routing")
+
         def _handle_why(self, value: str) -> None:
             if value == "on":
                 self.state.show_why = True
@@ -722,7 +863,7 @@ def _build_chat_app() -> type:
 
         # --- streaming workers (threads: the relay is blocking sync I/O) ---
         @work(thread=True, exclusive=True, group="reply")
-        def _stream_worker(self, model: GatewayModel) -> None:
+        def _stream_worker(self, model: GatewayModel, messages: list[dict], remember: bool) -> None:
             from .gateway import (
                 GatewayUnavailable,
                 UpstreamError,
@@ -736,14 +877,14 @@ def _build_chat_app() -> type:
             try:
                 if self.state.stream:
                     parts: list[str] = []
-                    for delta in stream_messages(model, self.messages, timeout=self.timeout):
+                    for delta in stream_messages(model, messages, timeout=self.timeout):
                         parts.append(delta)
                         self.call_from_thread(self._set_live_text, live, "".join(parts))
                     full = "".join(parts)
                 else:
-                    full = invoke_messages(model, self.messages, timeout=self.timeout)
+                    full = invoke_messages(model, messages, timeout=self.timeout)
                 self.call_from_thread(self._finalize_reply, live, full)
-                if full:
+                if full and remember:  # ephemeral /btw turns are not kept in the thread
                     self.messages.append({"role": "assistant", "content": full})
             except (GatewayUnavailable, UpstreamError, RuntimeError) as exc:
                 self.call_from_thread(self._finalize_error, live, str(exc))
@@ -752,32 +893,40 @@ def _build_chat_app() -> type:
                 self.call_from_thread(self._set_busy, False)
 
         @work(thread=True, exclusive=True, group="reply")
-        def _remote_worker(self) -> None:
+        def _remote_worker(self, messages: list[dict], pin: str | None, ephemeral: bool) -> None:
             from .gateway import GatewayUnavailable, UpstreamError
 
             assert self.base_url is not None  # only spawned in the remote backend
             self.call_from_thread(self._set_note, "asking gateway…")
+            model_field = pin if pin is not None else "auto"
             try:
                 decision, reply = remote_reply(
-                    self.base_url, self.messages, threshold=self.state.threshold,
-                    timeout=self.timeout,
+                    self.base_url, messages, model=model_field,
+                    threshold=self.state.threshold, timeout=self.timeout,
                 )
             except (GatewayUnavailable, UpstreamError, RuntimeError) as exc:
                 self.call_from_thread(self._warn, f"gateway error: {exc}")
-                self.call_from_thread(self.messages.pop)
+                if not ephemeral:
+                    self.call_from_thread(self.messages.pop)
                 self.call_from_thread(self._set_note, None)
                 self.call_from_thread(self._set_busy, False)
                 return
             if decision is not None:
                 self.history.append(decision)
+                forced_to = resolve_target(pin, decision) if pin is not None else None
                 self.call_from_thread(
                     self._append,
-                    render_decision(decision, self.palette, expanded=self.state.show_why),
+                    render_decision(
+                        decision, self.palette, expanded=self.state.show_why, forced_to=forced_to
+                    ),
                 )
+            if ephemeral:
+                self.call_from_thread(self._note, "aside · not added to the thread")
             if reply is not None:
-                self.messages.append({"role": "assistant", "content": reply})
+                if not ephemeral:
+                    self.messages.append({"role": "assistant", "content": reply})
                 self.call_from_thread(self._append, render_reply(reply))
-            else:
+            elif not ephemeral:
                 self.call_from_thread(self.messages.pop)
             self.call_from_thread(self._set_note, None)
             self.call_from_thread(self._set_busy, False)
