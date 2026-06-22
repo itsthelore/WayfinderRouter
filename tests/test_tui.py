@@ -274,6 +274,65 @@ def test_decision_from_debug_uses_natural_route_even_when_pinned():
     assert decision.targets == ["local", "cloud"]
 
 
+def test_render_threads_lists_and_empty():
+    from rich.console import Console
+
+    from wayfinder_router import threads
+
+    con = Console(record=True, width=80)
+    con.print(tui.render_threads([], tui.palette_for("dark")))
+    assert "no saved conversations" in con.export_text()
+
+    t = threads.new_thread()
+    t.title, t.updated = "what is an API?", "2026-06-22T07:00:00Z"
+    con2 = Console(record=True, width=90)
+    con2.print(tui.render_threads([t], tui.palette_for("dark")))
+    out = con2.export_text()
+    assert "what is an API?" in out and "/open" in out
+
+
+def test_chat_app_persists_and_reopens_threads(tmp_path, monkeypatch):
+    import asyncio
+
+    pytest.importorskip("textual")
+    monkeypatch.setenv("WAYFINDER_DATA_DIR", str(tmp_path))
+
+    from wayfinder_router import threads
+
+    app_cls = tui._build_chat_app()
+    app = app_cls(start_dir=str(tmp_path), theme="dark", dry_run=True)
+
+    async def scenario():
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            app.query_one("#entry").value = "what is an API?"
+            await pilot.press("enter")
+            await pilot.pause()
+            # the turn auto-saved to disk (decision-only is still a conversation)
+            saved = threads.list_threads(tmp_path / "threads")
+            assert len(saved) == 1 and saved[0].title == "what is an API?"
+            first_id = app._thread.id
+
+            app.query_one("#entry").value = "/new"
+            await pilot.press("enter")
+            await pilot.pause()
+            assert app.messages == [] and app._thread.id != first_id  # fresh thread
+
+            app.query_one("#entry").value = "/threads"
+            await pilot.press("enter")
+            await pilot.pause()
+            assert app._thread_list and app._thread_list[0].title == "what is an API?"
+
+            app.query_one("#entry").value = "/open 1"
+            await pilot.press("enter")
+            await pilot.pause()
+            # reopened: messages restored and we're continuing that thread
+            assert app.messages == [{"role": "user", "content": "what is an API?"}]
+            assert app._thread.id == first_id
+
+    asyncio.run(scenario())
+
+
 def test_slash_command_autocomplete():
     import asyncio
 
