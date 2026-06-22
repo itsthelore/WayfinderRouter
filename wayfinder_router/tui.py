@@ -205,6 +205,8 @@ def parse_command(line: str) -> tuple[str | None, str]:
 
 _HELP = (
     "commands\n"
+    "  /init [hybrid|openai]         scaffold a wayfinder-router.toml and load its models\n"
+    "  /models                       show configured models and whether each key is set\n"
     "  /route <model>|auto           pin every turn to a model (the router still shows why)\n"
     "  /local        /cloud          pin to the cheapest / most-capable tier; /auto clears\n"
     "  /local <msg>  /cloud <msg>    force just this turn (kept in the thread)\n"
@@ -373,6 +375,72 @@ def render_settings(state: TuiState, palette: dict[str, str]) -> RenderableType:
         padding=(1, 2),
         expand=False,
     )
+
+
+def render_models(models: dict, palette: dict[str, str]) -> RenderableType:
+    """A panel of the configured models and whether each one's key resolves.
+
+    The in-chat equivalent of ``wayfinder-router doctor`` — keys are read from the
+    environment, never stored (WF-ADR-0004); this only reports ``set`` / ``not set``.
+    """
+    from rich.console import Group
+    from rich.panel import Panel
+    from rich.table import Table
+    from rich.text import Text
+
+    from .bootstrap import key_status
+
+    accent, muted, text_c, cloud, warn = (
+        palette["accent"], palette["muted"], palette["text"], palette["cloud"], palette["warn"]
+    )
+    if not models:
+        body: RenderableType = Text(
+            "no models configured — type /init to scaffold one", style=muted
+        )
+        return Panel(body, title="models", title_align="left", border_style=accent,
+                     padding=(1, 2), expand=False)
+
+    grid = Table.grid(padding=(0, 3))
+    grid.add_column(style=text_c)  # name
+    grid.add_column(style=muted)  # model id
+    grid.add_column(style=muted)  # base url
+    grid.add_column()  # key status
+    for status in key_status(models):
+        if status.env_var is None:
+            key = Text("keyless ✓", style=accent)
+        elif status.ok:
+            key = Text(f"{status.env_var} ✓ set", style=accent)
+        else:
+            key = Text(f"{status.env_var} ✗ not set", style=warn)
+        glyph = Text("● ", style=accent if status.ok else cloud)
+        grid.add_row(Text(status.name, style=text_c), status.model, status.base_url, glyph + key)
+
+    hint = Text("\nkeys live in your environment · /init to add models · /route to pin", style=muted)
+    return Panel(Group(grid, hint), title="models", title_align="left", border_style=accent,
+                 padding=(1, 2), expand=False)
+
+
+def render_empty_state(palette: dict[str, str]) -> RenderableType:
+    """The onboarding panel shown when no models are configured (in-process, no --dry-run)."""
+    from rich.panel import Panel
+    from rich.text import Text
+
+    accent, muted, text_c = palette["accent"], palette["muted"], palette["text"]
+    body = Text()
+    body.append("You're in preview — routing decisions only, no replies yet.\n\n", style=text_c)
+    body.append("Add models without leaving the chat:\n", style=muted)
+    body.append("  /init", style=accent)
+    body.append("          scaffold the hybrid preset (keyless local Ollama → Anthropic cloud)\n",
+                style=muted)
+    body.append("  /init openai", style=accent)
+    body.append("   two OpenAI tiers (gpt-4o-mini → gpt-4o)\n", style=muted)
+    body.append("  /models", style=accent)
+    body.append("        check which model keys are set\n\n", style=muted)
+    body.append("Keyless local replies work as soon as Ollama is running ", style=muted)
+    body.append("(ollama serve)", style=text_c)
+    body.append(".", style=muted)
+    return Panel(body, title="get started", title_align="left", border_style=accent,
+                 padding=(1, 2), expand=False)
 
 
 def _status_bar(
@@ -622,10 +690,7 @@ def _build_chat_app() -> type:
             elif self.dry_run:
                 self._note("preview · --dry-run: routing decisions only, no model calls")
             else:
-                self._note(
-                    "preview · routing decisions only — run "
-                    "`wayfinder-router init` to set up local + cloud, then restart"
-                )
+                self._append(render_empty_state(self.palette))
             self.query_one("#entry", Input).focus()
 
         # --- palette / chrome ---
@@ -762,6 +827,12 @@ def _build_chat_app() -> type:
             if cmd == "settings":
                 self._append(render_settings(self.state, self.palette))
                 return
+            if cmd == "models":
+                self._handle_models()
+                return
+            if cmd == "init":
+                self._handle_init(arg)
+                return
             if cmd == "route":
                 self._handle_route(arg)
             elif cmd == "auto":
@@ -844,6 +915,62 @@ def _build_chat_app() -> type:
                 return
             self.state.pinned = target
             self._note(f"pinned → {target} · /auto to resume routing")
+
+        def _handle_models(self) -> None:
+            if self.base_url is not None:
+                self._note(f"models are managed by the remote gateway at {self.base_url}")
+                return
+            self._append(render_models(self.models, self.palette))
+
+        def _handle_init(self, arg: str) -> None:
+            """Scaffold a wayfinder-router.toml from a preset and load its models in-place."""
+            from pathlib import Path
+
+            from . import bootstrap
+
+            if self.base_url is not None:
+                self._note("connected to a remote gateway — configure its models there, not here")
+                return
+            name = arg.strip() or bootstrap.DEFAULT_PRESET
+            preset = bootstrap.PRESETS.get(name)
+            if preset is None:
+                self._warn(f"unknown preset '{name}' — try: {', '.join(sorted(bootstrap.PRESETS))}")
+                return
+            config_path = Path(self.start_dir) / "wayfinder-router.toml"
+            if config_path.exists():
+                self._warn(
+                    f"{config_path} already exists — edit it, or run "
+                    "`wayfinder-router init --force` in a shell"
+                )
+                return
+            try:
+                config_path.write_text(bootstrap.render_config(preset), encoding="utf-8")
+                extra = ""
+                if preset.env_vars:
+                    env_path = config_path.parent / ".env.example"
+                    if not env_path.exists():
+                        env_path.write_text(bootstrap.render_env_example(preset), encoding="utf-8")
+                        extra = f" (+ {env_path.name})"
+            except OSError as exc:
+                self._warn(f"could not write config: {exc}")
+                return
+            self._note(f"wrote {config_path}{extra} · preset {preset.name}")
+            try:
+                from .gateway import load_gateway_config
+
+                self.models = dict(load_gateway_config(self.start_dir).models)
+            except WayfinderConfigError as exc:
+                self._warn(str(exc))
+                return
+            self._append(render_models(self.models, self.palette))
+            missing = bootstrap.missing_keys(bootstrap.key_status(self.models))
+            if missing:
+                self._note(
+                    "set " + ", ".join(missing) + " in your shell and restart for cloud replies — "
+                    "keyless local works now"
+                )
+            else:
+                self._note("models ready — type a prompt")
 
         def _handle_why(self, value: str) -> None:
             if value == "on":

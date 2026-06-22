@@ -274,6 +274,71 @@ def test_decision_from_debug_uses_natural_route_even_when_pinned():
     assert decision.targets == ["local", "cloud"]
 
 
+def test_render_models_shows_key_status(monkeypatch):
+    from rich.console import Console
+
+    from wayfinder_router import gateway
+
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    models = {
+        "local": gateway.GatewayModel(base_url="http://localhost:11434/v1", model="llama3.1"),
+        "cloud": gateway.GatewayModel(
+            base_url="https://api.anthropic.com/v1", model="claude-sonnet-4-6",
+            api_key_env="ANTHROPIC_API_KEY",
+        ),
+    }
+    con = Console(record=True, width=100)
+    con.print(tui.render_models(models, tui.palette_for("dark")))
+    out = con.export_text()
+    assert "local" in out and "keyless" in out
+    assert "ANTHROPIC_API_KEY" in out and "not set" in out
+
+
+def test_render_models_empty_points_at_init():
+    from rich.console import Console
+
+    con = Console(record=True, width=80)
+    con.print(tui.render_models({}, tui.palette_for("dark")))
+    assert "/init" in con.export_text()
+
+
+def test_render_empty_state_smoke():
+    from rich.console import Console
+
+    con = Console(record=True, width=80)
+    con.print(tui.render_empty_state(tui.palette_for("dark")))
+    out = con.export_text()
+    assert "/init" in out and "preview" in out.lower()
+
+
+def test_chat_app_init_scaffolds_and_loads_models(tmp_path, monkeypatch):
+    import asyncio
+
+    pytest.importorskip("textual")
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+
+    app_cls = tui._build_chat_app()
+    app = app_cls(start_dir=str(tmp_path), theme="dark")  # no config here -> empty state
+
+    async def scenario():
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            assert not app.models  # preview / empty state
+            app.query_one("#entry").value = "/init"
+            await pilot.press("enter")
+            await pilot.pause()
+            assert (tmp_path / "wayfinder-router.toml").is_file()
+            assert (tmp_path / ".env.example").is_file()
+            assert set(app.models) == {"local", "cloud"}  # hybrid preset loaded in place
+            # a second /init refuses to clobber and leaves the models intact
+            app.query_one("#entry").value = "/init"
+            await pilot.press("enter")
+            await pilot.pause()
+            assert set(app.models) == {"local", "cloud"}
+
+    asyncio.run(scenario())
+
+
 def test_chat_app_persistent_pin_and_btw_are_ephemeral(tmp_path):
     import asyncio
 
