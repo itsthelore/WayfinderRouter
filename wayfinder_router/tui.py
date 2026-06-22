@@ -730,7 +730,7 @@ def _reply_timeout() -> float:
 # Built behind a factory so importing this module never requires textual; the class
 # closes over the lazily-imported textual/rich names.
 def _build_chat_app() -> type:
-    from textual import work
+    from textual import events, work
     from textual.app import App, ComposeResult
     from textual.binding import Binding
     from textual.containers import Horizontal, VerticalScroll
@@ -739,6 +739,17 @@ def _build_chat_app() -> type:
     from rich.text import Text
 
     from . import threads
+
+    class Composer(Input):
+        """The single-line composer, but a multi-line paste is staged, not truncated."""
+
+        def _on_paste(self, event: events.Paste) -> None:
+            if "\n" in event.text:  # a code block / multi-line paste: stage it
+                event.stop()
+                event.prevent_default()  # don't let the single-line Input insert line 1
+                self.app._stage_paste(event.text)  # type: ignore[attr-defined]
+            else:
+                super()._on_paste(event)
 
     class WayfinderChat(App):
         """Decision-first terminal chat: route every prompt, stream the chosen model."""
@@ -760,6 +771,7 @@ def _build_chat_app() -> type:
             Binding("ctrl+d", "quit", "quit", priority=True),
             Binding("escape", "cancel", "cancel", show=False),
             Binding("tab", "expand_why", "why", show=False, priority=True),
+            Binding("shift+enter", "newline", "newline", show=False),
             Binding("up", "history_prev", "prev", show=False),
             Binding("down", "history_next", "next", show=False),
         ]
@@ -797,6 +809,7 @@ def _build_chat_app() -> type:
             self._thread = threads.new_thread()
             self._thread_list: list = []  # last `/threads` listing, indexed by `/open`
             self._cost = SessionCost()  # session routing mix + estimated savings
+            self._draft_lines: list[str] = []  # staged lines for a multi-line message
             if base_url is None and not dry_run:
                 try:
                     from .gateway import load_gateway_config
@@ -811,7 +824,7 @@ def _build_chat_app() -> type:
             yield Static(id="status")
             with Horizontal(id="composer"):
                 yield Static("›", id="prompt")
-                yield Input(
+                yield Composer(
                     placeholder="Send a message — Wayfinder routes it…",
                     id="entry",
                     suggester=SuggestFromList(_SLASH_COMMANDS, case_sensitive=False),
@@ -969,18 +982,53 @@ def _build_chat_app() -> type:
 
         # --- input ---
         def on_input_submitted(self, event: Input.Submitted) -> None:
-            line = event.value.strip()
+            raw = event.value
             event.input.value = ""
-            if not line:
+            if raw.rstrip().endswith("\\"):  # trailing backslash continues onto a new line
+                self._draft_lines.append(raw.rstrip()[:-1])
+                self._update_draft_indicator()
                 return
-            if not self._input_history or self._input_history[-1] != line:
-                self._input_history.append(line)  # ↑/↓ recall (no consecutive dups)
+            if self._draft_lines:  # assemble the staged multi-line message
+                full = "\n".join([*self._draft_lines, raw])
+                self._draft_lines = []
+                self._update_draft_indicator()
+            else:
+                full = raw.strip()
+            if not full.strip():
+                return
+            if not self._input_history or self._input_history[-1] != full:
+                self._input_history.append(full)  # ↑/↓ recall (no consecutive dups)
             self._hist_index = None
-            cmd, arg = parse_command(line)
+            cmd, arg = parse_command(full)
             if cmd is not None:
                 self._handle_command(cmd, arg)
                 return
-            self._route_message(line, pin=self.state.pinned, ephemeral=False)
+            self._route_message(full, pin=self.state.pinned, ephemeral=False)
+
+        def action_newline(self) -> None:
+            """Shift+Enter (where the terminal sends it): stage the current line."""
+            entry = self.query_one("#entry", Input)
+            self._draft_lines.append(entry.value)
+            entry.value = ""
+            self._update_draft_indicator()
+
+        def _stage_paste(self, text: str) -> None:
+            """Stage a multi-line paste: all but the last line, with the tail left to edit."""
+            lines = text.split("\n")
+            entry = self.query_one("#entry", Input)
+            self._draft_lines.extend([entry.value + lines[0], *lines[1:-1]])
+            entry.value = lines[-1]
+            self._update_draft_indicator()
+
+        def _update_draft_indicator(self) -> None:
+            count = len(self._draft_lines)
+            if count:
+                self._set_note(
+                    f"{count} line{'s' if count != 1 else ''} staged · Enter sends · "
+                    "end a line with \\ or paste to add more"
+                )
+            else:
+                self._set_note(None)
 
         def _route_message(self, text: str, *, pin: str | None, ephemeral: bool = False) -> None:
             """Route one turn: render the decision, then call the (possibly forced) model.
