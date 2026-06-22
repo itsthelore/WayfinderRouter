@@ -302,6 +302,7 @@ _HELP = (
     "  /theme dark|light|auto        recolour\n"
     "  /settings                     show current settings\n"
     "  /help    /quit\n"
+    "keys: ↑↓ history · tab expand the last why · esc or ctrl-c cancel a reply\n"
     "anything else is routed."
 )
 
@@ -702,6 +703,19 @@ def remote_reply(
     return decision, reply
 
 
+def _friendly_error(message: str, base_url: str) -> str:
+    """Turn a raw relay error into a hint when the endpoint looks simply unreachable."""
+    low = message.lower()
+    unreachable = any(
+        s in low for s in ("connect", "refused", "timed out", "timeout", "name or service")
+    )
+    if unreachable:
+        if "11434" in base_url:
+            return f"can't reach the local model at {base_url} — is Ollama running? (`ollama serve`)"
+        return f"can't reach {base_url} — is it running and reachable?"
+    return f"upstream error: {message}"
+
+
 def _reply_timeout() -> float:
     raw = os.environ.get("WAYFINDER_ROUTER_TIMEOUT")
     if raw:
@@ -744,6 +758,8 @@ def _build_chat_app() -> type:
         BINDINGS = [
             Binding("ctrl+c", "interrupt", "cancel / quit", priority=True),
             Binding("ctrl+d", "quit", "quit", priority=True),
+            Binding("escape", "cancel", "cancel", show=False),
+            Binding("tab", "expand_why", "why", show=False, priority=True),
             Binding("up", "history_prev", "prev", show=False),
             Binding("down", "history_next", "next", show=False),
         ]
@@ -883,7 +899,7 @@ def _build_chat_app() -> type:
             self._body.scroll_end(animate=False)
 
         def _finalize_error(self, widget: Static, message: str) -> None:
-            widget.update(Text(f"upstream error: {message}", style=self.palette["warn"]))
+            widget.update(Text(message, style=self.palette["warn"]))  # caller supplies the full text
             self._body.scroll_end(animate=False)
 
         def _set_note(self, note: str | None) -> None:
@@ -914,6 +930,19 @@ def _build_chat_app() -> type:
                 self._set_note("cancelling…")
                 return
             self.exit()
+
+        def action_cancel(self) -> None:
+            """Esc: cancel an in-flight reply (never quits)."""
+            if self._busy:
+                self._cancel.set()
+                self._set_note("cancelling…")
+
+        def action_expand_why(self) -> None:
+            """Tab: expand the most recent decision's score breakdown."""
+            if self.history:
+                self._append(render_decision(self.history[-1], self.palette, expanded=True))
+            else:
+                self._note("nothing to expand yet")
 
         def action_history_prev(self) -> None:
             self._recall(-1)
@@ -1292,7 +1321,9 @@ def _build_chat_app() -> type:
                             chosen_cost, cloud_cost,
                         )
             except (GatewayUnavailable, UpstreamError, RuntimeError) as exc:
-                self.call_from_thread(self._finalize_error, live, str(exc))
+                self.call_from_thread(
+                    self._finalize_error, live, _friendly_error(str(exc), model.base_url)
+                )
             finally:
                 self.call_from_thread(self._set_note, None)
                 self.call_from_thread(self._set_busy, False)
@@ -1310,7 +1341,7 @@ def _build_chat_app() -> type:
                     threshold=self.state.threshold, timeout=self.timeout,
                 )
             except (GatewayUnavailable, UpstreamError, RuntimeError) as exc:
-                self.call_from_thread(self._warn, f"gateway error: {exc}")
+                self.call_from_thread(self._warn, _friendly_error(str(exc), self.base_url))
                 if not ephemeral:
                     self.call_from_thread(self.messages.pop)
                 self.call_from_thread(self._set_note, None)
