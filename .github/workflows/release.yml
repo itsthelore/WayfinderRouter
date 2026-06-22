@@ -1,12 +1,14 @@
 name: Release
 
-# Publish to PyPI via Trusted Publishing (OIDC) when a version tag is pushed.
-# No API token or password is stored: PyPI verifies the workflow's identity
-# (owner/repo/workflow + the `pypi` environment) against its trusted publisher.
+# Publish to PyPI via Trusted Publishing (OIDC) when a version tag is pushed —
+# either v-prefixed (v2026.6.3) or a bare CalVer tag (2026.6.3). No API token or
+# password is stored: PyPI verifies the workflow's identity (owner/repo/workflow +
+# the `pypi` environment) against its trusted publisher.
 on:
   push:
     tags:
-      - "v*"
+      - "v*"        # v-prefixed, e.g. v2026.6.3 or v0.1.6
+      - "[0-9]*"    # bare CalVer, e.g. 2026.6.3
 
 jobs:
   build:
@@ -18,10 +20,10 @@ jobs:
           python-version: "3.11"
       - name: Verify the tag matches the package version
         run: |
-          tag="${GITHUB_REF_NAME#v}"
+          tag="${GITHUB_REF_NAME#v}"   # strip an optional leading v; bare tags pass through
           ver="$(python -c 'import wayfinder_router; print(wayfinder_router.__version__)')"
           if [ "$tag" != "$ver" ]; then
-            echo "::error::tag v$tag does not match package version $ver"
+            echo "::error::tag $GITHUB_REF_NAME does not match package version $ver"
             exit 1
           fi
           echo "publishing wayfinder-router $ver"
