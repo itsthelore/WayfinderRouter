@@ -274,6 +274,73 @@ def test_decision_from_debug_uses_natural_route_even_when_pinned():
     assert decision.targets == ["local", "cloud"]
 
 
+def test_slash_command_autocomplete():
+    import asyncio
+
+    from textual.suggester import SuggestFromList
+
+    assert "/btw" in tui._SLASH_COMMANDS and "/init" in tui._SLASH_COMMANDS
+    suggester = SuggestFromList(tui._SLASH_COMMANDS, case_sensitive=False)
+
+    async def check():
+        assert await suggester.get_suggestion("/in") == "/init"
+        assert await suggester.get_suggestion("/mod") == "/models"
+        assert await suggester.get_suggestion("what is an API?") is None  # plain prompts
+
+    asyncio.run(check())
+
+
+def test_chat_app_input_history(tmp_path):
+    import asyncio
+
+    pytest.importorskip("textual")
+
+    app_cls = tui._build_chat_app()
+    app = app_cls(start_dir=str(tmp_path), theme="dark", dry_run=True)
+
+    async def scenario():
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            for line in ("first prompt", "second prompt"):
+                app.query_one("#entry").value = line
+                await pilot.press("enter")
+                await pilot.pause()
+            entry = app.query_one("#entry")
+            assert entry.value == ""  # cleared after submit
+            await pilot.press("up")
+            assert entry.value == "second prompt"  # most recent first
+            await pilot.press("up")
+            assert entry.value == "first prompt"
+            await pilot.press("up")
+            assert entry.value == "first prompt"  # clamps at the oldest
+            await pilot.press("down")
+            assert entry.value == "second prompt"
+            await pilot.press("down")
+            assert entry.value == ""  # past the newest -> live (empty) line
+
+    asyncio.run(scenario())
+
+
+def test_chat_app_ctrl_c_cancels_an_in_flight_turn(tmp_path):
+    import asyncio
+
+    pytest.importorskip("textual")
+
+    app_cls = tui._build_chat_app()
+    app = app_cls(start_dir=str(tmp_path), theme="dark", dry_run=True)
+
+    async def scenario():
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            app._busy = True  # simulate a reply in flight
+            app._cancel.clear()
+            app.action_interrupt()
+            # first ctrl-c requests cancel instead of quitting
+            assert app._cancel.is_set() and app._busy
+
+    asyncio.run(scenario())
+
+
 def test_render_models_shows_key_status(monkeypatch):
     from rich.console import Console
 

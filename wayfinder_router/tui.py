@@ -24,6 +24,7 @@ is built behind a factory so importing this module never requires textual.
 from __future__ import annotations
 
 import os
+import threading
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
@@ -44,6 +45,12 @@ if TYPE_CHECKING:  # type-only; the runtime imports rich/textual/gateway lazily
 
 _INSTALL_HINT = "the terminal UI needs its extra: pip install 'wayfinder-router[tui]'"
 _SCOPES = ("turn", "last_user", "user", "all")
+
+# Slash commands offered as inline autocomplete in the composer (typing `/` suggests).
+_SLASH_COMMANDS = [
+    "/init", "/models", "/route", "/auto", "/local", "/cloud", "/btw", "/threshold",
+    "/scope", "/sticky", "/why", "/stream", "/theme", "/settings", "/help", "/quit",
+]
 
 # The wordmark that heads the transcript (pyfiglet "ansi_shadow", baked so figlet
 # is never a runtime dependency). It spells WAYFINDER in box-drawing blocks.
@@ -483,7 +490,7 @@ def _footer_bar(palette: dict[str, str], *, right: str = "no model call to decid
     grid.add_column(justify="left")
     grid.add_column(justify="right")
     grid.add_row(
-        Text("? for help   ·   / for commands   ·   ctrl-c to quit", style=muted),
+        Text("/help   ·   ↑↓ history   ·   ctrl-c cancel / quit", style=muted),
         Text(right, style=muted),
     )
     return grid
@@ -610,6 +617,7 @@ def _build_chat_app() -> type:
     from textual.app import App, ComposeResult
     from textual.binding import Binding
     from textual.containers import Horizontal, VerticalScroll
+    from textual.suggester import SuggestFromList
     from textual.widgets import Input, Static
     from rich.text import Text
 
@@ -629,8 +637,10 @@ def _build_chat_app() -> type:
         """
 
         BINDINGS = [
-            Binding("ctrl+c", "quit", "quit", priority=True),
+            Binding("ctrl+c", "interrupt", "cancel / quit", priority=True),
             Binding("ctrl+d", "quit", "quit", priority=True),
+            Binding("up", "history_prev", "prev", show=False),
+            Binding("down", "history_next", "next", show=False),
         ]
 
         def __init__(
@@ -658,6 +668,10 @@ def _build_chat_app() -> type:
             self.timeout = _reply_timeout()
             self.models: dict = {}
             self._config_warning: str | None = None
+            self._busy = False  # a reply worker is in flight
+            self._cancel = threading.Event()  # cooperative cancel for the streaming worker
+            self._input_history: list[str] = []  # submitted lines, for ↑/↓ recall
+            self._hist_index: int | None = None
             if base_url is None and not dry_run:
                 try:
                     from .gateway import load_gateway_config
@@ -672,7 +686,11 @@ def _build_chat_app() -> type:
             yield Static(id="status")
             with Horizontal(id="composer"):
                 yield Static("›", id="prompt")
-                yield Input(placeholder="Send a message — Wayfinder routes it…", id="entry")
+                yield Input(
+                    placeholder="Send a message — Wayfinder routes it…",
+                    id="entry",
+                    suggester=SuggestFromList(_SLASH_COMMANDS, case_sensitive=False),
+                )
             yield Static(id="footer")
 
         def on_mount(self) -> None:
@@ -754,10 +772,53 @@ def _build_chat_app() -> type:
             self._refresh_bars(note=note)
 
         def _set_busy(self, busy: bool) -> None:
+            self._busy = busy
+            if busy:
+                self._cancel.clear()
             entry = self.query_one("#entry", Input)
             entry.disabled = busy
             if not busy:
                 entry.focus()
+
+        def _finalize_cancelled(self, widget: Static, full: str) -> None:
+            text = Text()
+            if full:
+                text.append(full + "  ", style=self.palette["text"])
+            text.append("⨯ cancelled", style=self.palette["warn"])
+            widget.update(text)
+            self._body.scroll_end(animate=False)
+
+        # --- key actions ---
+        def action_interrupt(self) -> None:
+            """Ctrl+C: cancel an in-flight reply if one is running, else quit."""
+            if self._busy:
+                self._cancel.set()
+                self._set_note("cancelling…")
+                return
+            self.exit()
+
+        def action_history_prev(self) -> None:
+            self._recall(-1)
+
+        def action_history_next(self) -> None:
+            self._recall(+1)
+
+        def _recall(self, direction: int) -> None:
+            entry = self.query_one("#entry", Input)
+            if entry.disabled or not self._input_history:
+                return
+            if self._hist_index is None:
+                if direction > 0:
+                    return  # already at the live (empty) line
+                self._hist_index = len(self._input_history)
+            self._hist_index += direction
+            if self._hist_index >= len(self._input_history):
+                self._hist_index = None
+                entry.value = ""
+                return
+            self._hist_index = max(0, self._hist_index)
+            entry.value = self._input_history[self._hist_index]
+            entry.cursor_position = len(entry.value)
 
         # --- input ---
         def on_input_submitted(self, event: Input.Submitted) -> None:
@@ -765,6 +826,9 @@ def _build_chat_app() -> type:
             event.input.value = ""
             if not line:
                 return
+            if not self._input_history or self._input_history[-1] != line:
+                self._input_history.append(line)  # ↑/↓ recall (no consecutive dups)
+            self._hist_index = None
             cmd, arg = parse_command(line)
             if cmd is not None:
                 self._handle_command(cmd, arg)
@@ -998,21 +1062,26 @@ def _build_chat_app() -> type:
                 stream_messages,
             )
 
-            self.call_from_thread(self._set_note, "streaming…")
+            self.call_from_thread(self._set_note, "streaming… (ctrl-c to cancel)")
             live = self.call_from_thread(self._append, Text("", style=self.palette["text"]))
             full = ""
             try:
                 if self.state.stream:
                     parts: list[str] = []
                     for delta in stream_messages(model, messages, timeout=self.timeout):
+                        if self._cancel.is_set():  # ctrl-c: stop at the next token
+                            break
                         parts.append(delta)
                         self.call_from_thread(self._set_live_text, live, "".join(parts))
                     full = "".join(parts)
                 else:
                     full = invoke_messages(model, messages, timeout=self.timeout)
-                self.call_from_thread(self._finalize_reply, live, full)
-                if full and remember:  # ephemeral /btw turns are not kept in the thread
-                    self.messages.append({"role": "assistant", "content": full})
+                if self._cancel.is_set():
+                    self.call_from_thread(self._finalize_cancelled, live, full)
+                else:
+                    self.call_from_thread(self._finalize_reply, live, full)
+                    if full and remember:  # ephemeral /btw turns are not kept in the thread
+                        self.messages.append({"role": "assistant", "content": full})
             except (GatewayUnavailable, UpstreamError, RuntimeError) as exc:
                 self.call_from_thread(self._finalize_error, live, str(exc))
             finally:
@@ -1024,7 +1093,7 @@ def _build_chat_app() -> type:
             from .gateway import GatewayUnavailable, UpstreamError
 
             assert self.base_url is not None  # only spawned in the remote backend
-            self.call_from_thread(self._set_note, "asking gateway…")
+            self.call_from_thread(self._set_note, "asking gateway… (ctrl-c to cancel)")
             model_field = pin if pin is not None else "auto"
             try:
                 decision, reply = remote_reply(
@@ -1035,6 +1104,13 @@ def _build_chat_app() -> type:
                 self.call_from_thread(self._warn, f"gateway error: {exc}")
                 if not ephemeral:
                     self.call_from_thread(self.messages.pop)
+                self.call_from_thread(self._set_note, None)
+                self.call_from_thread(self._set_busy, False)
+                return
+            if self._cancel.is_set():  # ctrl-c during the (non-streaming) request: discard
+                if not ephemeral:
+                    self.call_from_thread(self.messages.pop)
+                self.call_from_thread(self._note, "⨯ cancelled")
                 self.call_from_thread(self._set_note, None)
                 self.call_from_thread(self._set_busy, False)
                 return
