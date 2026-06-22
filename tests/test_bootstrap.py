@@ -33,6 +33,15 @@ def test_openai_preset_config_round_trips(monkeypatch):
     assert bootstrap.missing_keys(bootstrap.key_status(gw.models)) == ["OPENAI_API_KEY"]  # deduped
 
 
+def test_presets_carry_rough_costs():
+    hybrid = gateway_config_from_toml(bootstrap.render_config(bootstrap.PRESETS["hybrid"]))
+    assert hybrid.models["local"].cost_per_1k == 0.0  # local is free
+    assert hybrid.models["cloud"].cost_per_1k == 0.009
+    openai = gateway_config_from_toml(bootstrap.render_config(bootstrap.PRESETS["openai"]))
+    assert openai.models["small"].cost_per_1k and openai.models["large"].cost_per_1k
+    assert openai.models["large"].cost_per_1k > openai.models["small"].cost_per_1k
+
+
 def test_env_example_lists_names_without_secrets():
     text = bootstrap.render_env_example(bootstrap.PRESETS["hybrid"])
     assert "ANTHROPIC_API_KEY=" in text

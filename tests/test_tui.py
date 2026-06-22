@@ -274,6 +274,72 @@ def test_decision_from_debug_uses_natural_route_even_when_pinned():
     assert decision.targets == ["local", "cloud"]
 
 
+def test_estimate_tokens():
+    assert tui.estimate_tokens("") == 1
+    assert tui.estimate_tokens("a" * 40) == 10  # ~4 chars/token
+
+
+def test_account_turn_and_summary():
+    tally = tui.SessionCost()
+    tui.account_turn(tally, is_local=True, tokens=1000, chosen_cost=0.0, cloud_cost=0.009)
+    tui.account_turn(tally, is_local=False, tokens=1000, chosen_cost=0.009, cloud_cost=0.009)
+    assert tally.calls == 2 and tally.local == 1 and tally.priced
+    assert abs(tally.saved - 0.009) < 1e-9  # the local turn saved a full cloud turn
+    assert abs(tally.spent - 0.009) < 1e-9  # only the cloud turn spent
+    summary = tui.cost_summary(tally)
+    assert "1/2 local" in summary and "saved" in summary
+
+
+def test_account_turn_without_costs_counts_only():
+    tally = tui.SessionCost()
+    tui.account_turn(tally, is_local=True, tokens=500, chosen_cost=None, cloud_cost=None)
+    assert tally.calls == 1 and not tally.priced
+    assert tui.cost_summary(tally) == "1/1 local"  # no $ without configured costs
+
+
+def test_render_cost_smoke():
+    from rich.console import Console
+
+    tally = tui.SessionCost(calls=3, local=2, spent=0.01, saved=0.05, priced=True)
+    con = Console(record=True, width=80)
+    con.print(tui.render_cost(tally, tui.palette_for("dark")))
+    out = con.export_text()
+    assert "saved" in out and "67%" in out  # 2 of 3 kept local
+
+
+def test_chat_app_accounts_cost(tmp_path, monkeypatch):
+    import asyncio
+
+    pytest.importorskip("textual")
+    from wayfinder_router import gateway
+
+    monkeypatch.setattr(
+        gateway, "stream_messages",
+        lambda model, messages, timeout=60.0: iter(["Hello ", "there."]),
+    )
+    app_cls = tui._build_chat_app()
+    app = app_cls(start_dir=str(tmp_path), theme="dark", threshold=0.5)
+    app.models = {
+        "local": gateway.GatewayModel(base_url="http://x/v1", model="m", cost_per_1k=0.0),
+        "cloud": gateway.GatewayModel(base_url="http://y/v1", model="c", cost_per_1k=0.009),
+    }
+
+    async def scenario():
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            app.query_one("#entry").value = "hi"
+            await pilot.press("enter")
+            for _ in range(100):  # let the threaded reply worker finish + account
+                if app._cost.calls >= 1 and not app._busy:
+                    break
+                await asyncio.sleep(0.02)
+                await pilot.pause()
+            assert app._cost.calls == 1 and app._cost.local == 1
+            assert app._cost.priced and app._cost.saved > 0
+
+    asyncio.run(scenario())
+
+
 def test_render_threads_lists_and_empty():
     from rich.console import Console
 

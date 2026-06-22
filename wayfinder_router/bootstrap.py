@@ -56,6 +56,7 @@ threshold = 0.08
 [gateway.models.local]
 base_url = "http://localhost:11434/v1"
 model = "llama3.1"
+cost_per_1k = 0.0   # local inference is free; used for the chat's savings estimate
 
 # Cloud arm — Anthropic. The key is read from $ANTHROPIC_API_KEY at request time;
 # it is never written here. `export ANTHROPIC_API_KEY=...` before running.
@@ -63,6 +64,7 @@ model = "llama3.1"
 base_url = "https://api.anthropic.com/v1"
 model = "claude-sonnet-4-6"
 api_key_env = "ANTHROPIC_API_KEY"
+cost_per_1k = 0.009   # rough $/1k tokens (blended) — edit for your pricing
 """
 
 # The openai preset: one provider, two cost tiers (a small fast model and a large
@@ -90,12 +92,14 @@ model = "large"
 base_url = "https://api.openai.com/v1"
 model = "gpt-4o-mini"
 api_key_env = "OPENAI_API_KEY"
+cost_per_1k = 0.0004   # rough $/1k tokens (blended) — edit for your pricing
 
 # Large (capable) arm — same key, read from the environment at request time.
 [gateway.models.large]
 base_url = "https://api.openai.com/v1"
 model = "gpt-4o"
 api_key_env = "OPENAI_API_KEY"
+cost_per_1k = 0.0075   # rough $/1k tokens (blended) — edit for your pricing
 """
 
 DEFAULT_PRESET = "hybrid"
