@@ -299,6 +299,7 @@ class GatewayModel:
     base_url: str  # OpenAI-compatible base, e.g. http://localhost:11434/v1
     model: str  # the upstream model id to send in the forwarded request
     api_key_env: str | None = None  # env var holding the key, or None for no auth
+    api_key_cmd: str | None = None  # command that fills api_key_env when unset (WF-DESIGN-0006)
     cost_per_1k: float | None = None  # optional cost metadata (WF-ADR-0017), informational
 
 
@@ -380,6 +381,17 @@ def gateway_config_from_toml(text: str, where: str = "wayfinder-router.toml") ->
             raise WayfinderConfigError(
                 f"{where}: 'gateway.models.{name}.api_key_env' must be a non-empty string"
             )
+        api_key_cmd = entry.get("api_key_cmd")
+        if api_key_cmd is not None and (not isinstance(api_key_cmd, str) or not api_key_cmd):
+            raise WayfinderConfigError(
+                f"{where}: 'gateway.models.{name}.api_key_cmd' must be a non-empty string"
+            )
+        if api_key_cmd is not None and api_key_env is None:
+            # The command fills a named variable; without one there is nowhere to put the key.
+            raise WayfinderConfigError(
+                f"{where}: 'gateway.models.{name}.api_key_cmd' needs 'api_key_env' to name "
+                "the variable it fills"
+            )
         cost_per_1k = entry.get("cost_per_1k")
         if cost_per_1k is not None and (
             isinstance(cost_per_1k, bool)
@@ -393,6 +405,7 @@ def gateway_config_from_toml(text: str, where: str = "wayfinder-router.toml") ->
             base_url=base_url,
             model=model,
             api_key_env=api_key_env,
+            api_key_cmd=api_key_cmd,
             cost_per_1k=float(cost_per_1k) if cost_per_1k is not None else None,
         )
     return GatewayConfig(models=models, route_on=route_on, sticky=sticky, sticky_cooldown=cooldown)
@@ -402,7 +415,8 @@ def dump_gateway_toml(gateway: GatewayConfig) -> str:
     """Serialize a :class:`GatewayConfig` back to ``[gateway.models.*]`` TOML.
 
     Used by recalibration to preserve the endpoint mapping when it rewrites the
-    routing section. Emits ``api_key_env`` (the env-var *name*) — never a secret.
+    routing section. Emits ``api_key_env`` (the env-var *name*) and ``api_key_cmd``
+    (a command/reference that *fills* it) — never a secret value.
     """
     blocks: list[str] = []
     if gateway.route_on != "turn" or gateway.sticky or gateway.sticky_cooldown:
@@ -422,6 +436,8 @@ def dump_gateway_toml(gateway: GatewayConfig) -> str:
         ]
         if model.api_key_env:
             lines.append(f'api_key_env = "{model.api_key_env}"')
+        if model.api_key_cmd:  # a command/reference, not a secret — safe to round-trip
+            lines.append(f'api_key_cmd = "{model.api_key_cmd}"')
         if model.cost_per_1k is not None:
             lines.append(f"cost_per_1k = {round(model.cost_per_1k, 6)!r}")
         blocks.append("\n".join(lines))
@@ -945,6 +961,12 @@ def build_app(
         {name: model.cost_per_1k for name, model in gw0.models.items()
          if model.cost_per_1k is not None}
     )
+    # Fill any api_key_cmd-backed keys from the user's secret store into the process
+    # environment, in memory only (WF-DESIGN-0006), before the readiness check below.
+    from . import bootstrap
+
+    for name, reason in bootstrap.resolve_keys(gw0.models).items():
+        logger.warning("gateway model '%s': could not resolve key — %s", name, reason)
     for name, model in gw0.models.items():
         if model.api_key_env and not os.environ.get(model.api_key_env):
             logger.warning("gateway model '%s' references unset env var %s", name, model.api_key_env)

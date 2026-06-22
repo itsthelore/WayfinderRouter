@@ -145,11 +145,15 @@ just change one `base_url`.
    base_url = "https://api.openai.com/v1"
    model = "gpt-4o"
    api_key_env = "OPENAI_API_KEY"   # read from this env var, never stored
+   # api_key_cmd = "op read op://Private/OpenAI/credential"  # optional: fill it from a vault
    ```
 
    Wayfinder never stores secrets: a model names an env var (`api_key_env`) and the key
    is read from your environment at request time. There is nothing to "install" — just
-   export the variable.
+   export the variable. Prefer not to paste a raw key into your shell? Add an optional
+   `api_key_cmd` and Wayfinder fills that variable from your secret store at startup —
+   `op read …` (1Password), `security find-generic-password …` (macOS Keychain),
+   `secret-tool …` (Linux), `pass …` — held in memory only, still never written to disk.
 
 2. Set your key(s), then run the gateway. `doctor` re-checks the config and whether each
    model's key resolves (`✓ set` / `✗ not set`) before you start:

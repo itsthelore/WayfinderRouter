@@ -812,9 +812,11 @@ def _build_chat_app() -> type:
             self._draft_lines: list[str] = []  # staged lines for a multi-line message
             if base_url is None and not dry_run:
                 try:
+                    from . import bootstrap
                     from .gateway import load_gateway_config
 
                     self.models = dict(load_gateway_config(start_dir).models)
+                    bootstrap.resolve_keys(self.models)  # fill keys from a secret store (WF-DESIGN-0006)
                 except WayfinderConfigError as exc:
                     self._config_warning = str(exc)
 
@@ -1300,6 +1302,7 @@ def _build_chat_app() -> type:
                 from .gateway import load_gateway_config
 
                 self.models = dict(load_gateway_config(self.start_dir).models)
+                bootstrap.resolve_keys(self.models)  # fill keys from a secret store (WF-DESIGN-0006)
             except WayfinderConfigError as exc:
                 self._warn(str(exc))
                 return

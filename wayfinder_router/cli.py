@@ -297,9 +297,23 @@ def _print_key_report(statuses: list) -> None:
     for s in statuses:
         if s.env_var is None:
             key = "keyless ✓"
+        elif s.ok:
+            # After resolve_keys(), a command-filled key reads as set; note its source.
+            key = f"{s.env_var} ✓ set" + (" (via command)" if s.cmd else "")
         else:
-            key = f"{s.env_var} " + ("✓ set" if s.ok else "✗ not set")
+            key = f"{s.env_var} ✗ not set"
         print(f"  {s.name:<7} {s.model:<24} {s.base_url:<30} {key}")
+
+
+def _print_key_remedies(missing: list[str]) -> None:
+    """For each unset key: the plain `export`, plus an `api_key_cmd` for any secret
+    tool found on PATH (so the key can live in a manager, never in a shell file)."""
+    from . import bootstrap
+
+    for var in missing:
+        print(f'  export {var}="..."')
+        for suggestion in bootstrap.suggest_key_commands(var):
+            print(f'  · or store it safely and add:  api_key_cmd = "{suggestion}"')
 
 
 def _summarize_routing(config: RoutingConfig) -> str:
@@ -387,8 +401,7 @@ def _cmd_init(args: argparse.Namespace) -> int:
     missing = bootstrap.missing_keys(statuses)
     if missing:
         print("set your key(s) — read from the environment at request time, never stored:")
-        for var in missing:
-            print(f'  export {var}="..."')
+        _print_key_remedies(missing)
         print()
     print("next:  wayfinder-router chat        # or `wayfinder-router doctor` to re-check")
     return EXIT_OK
@@ -419,15 +432,22 @@ def _cmd_doctor(args: argparse.Namespace) -> int:
         print("models:  none configured — add [gateway.models] (see `wayfinder-router init`)")
         print("(chat / serve will show routing decisions only)")
         return EXIT_OK
+    # Verify readiness for real: run any api_key_cmd so a key kept in a secret store
+    # counts as present (WF-DESIGN-0006). In-memory only — nothing is written.
+    cmd_errors = bootstrap.resolve_keys(gateway.models)
     statuses = bootstrap.key_status(gateway.models)
     print()
     _print_key_report(statuses)
     print()
+    if cmd_errors:
+        print("key command(s) failed:")
+        for name, reason in sorted(cmd_errors.items()):
+            print(f"  {name}: {reason}")
+        print()
     missing = bootstrap.missing_keys(statuses)
     if missing:
         print("not ready — set the missing key(s):")
-        for var in missing:
-            print(f'  export {var}="..."')
+        _print_key_remedies(missing)
         return EXIT_CONFIG
     print("ready:  wayfinder-router chat")
     return EXIT_OK
@@ -450,6 +470,7 @@ def _load_prompts(path: str) -> list[str]:
 
 
 def _cmd_onboard(args: argparse.Namespace) -> int:
+    from . import bootstrap
     from .gateway import GatewayUnavailable, invoke_model, load_gateway_config
     from .onboard import run_onboarding
 
@@ -461,6 +482,7 @@ def _cmd_onboard(args: argparse.Namespace) -> int:
     except WayfinderConfigError as exc:
         print(f"wayfinder-router: {exc}", file=sys.stderr)
         return EXIT_CONFIG
+    bootstrap.resolve_keys(gateway.models)  # fill keys from a secret store (WF-DESIGN-0006)
     arms = [a.strip() for a in args.arms.split(",")] if args.arms else list(gateway.models)
     arms = arms[:2]
     if len(arms) < 2:

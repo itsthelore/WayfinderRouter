@@ -17,9 +17,13 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:  # type-only: avoid importing the gateway for a duck-typed attr read
-    from collections.abc import Mapping
+    from collections.abc import Mapping, MutableMapping
 
     from .gateway import GatewayModel
+
+# How long to wait on a key-resolution command (WF-DESIGN-0006) — generous enough
+# for an interactive vault unlock (e.g. a 1Password biometric prompt).
+KEY_CMD_TIMEOUT = 30.0
 
 # Injected I/O for the interactive wizard, so the logic stays pure and testable
 # (mirrors onboard.py). ``ask(prompt, default) -> answer``; ``say(msg)`` narrates.
@@ -64,6 +68,9 @@ cost_per_1k = 0.0   # local inference is free; used for the chat's savings estim
 base_url = "https://api.anthropic.com/v1"
 model = "claude-sonnet-4-6"
 api_key_env = "ANTHROPIC_API_KEY"
+# Prefer not to `export` a raw key? Fill it from your secret store at startup instead
+# (held in memory only, never written to disk). `wayfinder-router doctor` suggests a line:
+# api_key_cmd = "op read op://Private/Anthropic/credential"   # 1Password / Keychain / pass / …
 cost_per_1k = 0.009   # rough $/1k tokens (blended) — edit for your pricing
 """
 
@@ -146,16 +153,28 @@ class KeyStatus:
     base_url: str
     env_var: str | None  # the env var holding the key, or None for a keyless arm
     ok: bool  # keyless, or the named var is set
+    cmd: str | None = None  # command that fills env_var when unset (WF-DESIGN-0006), if any
 
 
 def key_status(models: Mapping[str, GatewayModel]) -> list[KeyStatus]:
-    """Report each model's key readiness — the same rule the gateway uses (key from env)."""
+    """Report each model's key readiness — the same rule the gateway uses (key from env).
+
+    A pure read of the environment; it never runs an ``api_key_cmd``. Call
+    :func:`resolve_keys` first if you want command-filled keys reflected here.
+    """
     statuses: list[KeyStatus] = []
     for name, model in models.items():
         env_var = model.api_key_env
         ok = env_var is None or bool(os.environ.get(env_var))
         statuses.append(
-            KeyStatus(name=name, model=model.model, base_url=model.base_url, env_var=env_var, ok=ok)
+            KeyStatus(
+                name=name,
+                model=model.model,
+                base_url=model.base_url,
+                env_var=env_var,
+                ok=ok,
+                cmd=getattr(model, "api_key_cmd", None),
+            )
         )
     return statuses
 
@@ -163,6 +182,100 @@ def key_status(models: Mapping[str, GatewayModel]) -> list[KeyStatus]:
 def missing_keys(statuses: list[KeyStatus]) -> list[str]:
     """Distinct env-var names that are named but unset (sorted, deduped)."""
     return sorted({s.env_var for s in statuses if s.env_var and not s.ok})
+
+
+# --- secure key resolution (WF-DESIGN-0006) ---------------------------------
+class KeyResolutionError(Exception):
+    """An ``api_key_cmd`` failed to produce a key (non-zero exit, timeout, empty)."""
+
+
+def _run_key_cmd(cmd: str) -> str:
+    """Run ``cmd`` in a shell and return its stdout (the key), stripped.
+
+    ``shell=True`` so users can write the same line their secret tool documents
+    (``op read op://...``, ``security find-generic-password -w ...``). The command
+    comes from the user's own config, so it runs with their privileges — the same
+    trust as a line they would type to ``export`` the key themselves. stderr is
+    inherited so an interactive unlock prompt still reaches the terminal; only
+    stdout (the secret) is captured, and it is never logged.
+    """
+    import subprocess
+
+    try:
+        proc = subprocess.run(  # noqa: S602 - shell intentional; command is user-authored
+            cmd, shell=True, stdout=subprocess.PIPE, text=True, timeout=KEY_CMD_TIMEOUT
+        )
+    except subprocess.TimeoutExpired as exc:
+        raise KeyResolutionError(f"timed out after {KEY_CMD_TIMEOUT:g}s: {cmd}") from exc
+    except OSError as exc:
+        raise KeyResolutionError(f"could not run command: {exc}") from exc
+    if proc.returncode != 0:
+        raise KeyResolutionError(f"command exited {proc.returncode}: {cmd}")
+    return (proc.stdout or "").strip()
+
+
+def resolve_keys(
+    models: Mapping[str, GatewayModel],
+    *,
+    environ: MutableMapping[str, str] | None = None,
+    runner: Callable[[str], str] | None = None,
+) -> dict[str, str]:
+    """Fill each model's ``api_key_env`` from its ``api_key_cmd`` when the var is unset.
+
+    Runs the user's command (e.g. ``op read op://Private/Anthropic/key``) and loads
+    the result into the process environment **in memory only** — the secret is never
+    written to config or disk. An env var that is already set always wins (CI, an
+    explicit ``export``), so the command runs only when needed and is never required.
+
+    Returns a ``{model_name: error_message}`` map for commands that failed (empty when
+    everything resolved or had nothing to do). Errors carry the *command*, never a key.
+    """
+    env = os.environ if environ is None else environ
+    run = _run_key_cmd if runner is None else runner
+    errors: dict[str, str] = {}
+    for name, model in models.items():
+        cmd = getattr(model, "api_key_cmd", None)
+        var = model.api_key_env
+        if not cmd or not var or env.get(var):
+            continue  # keyless, no command, or the key is already present
+        try:
+            value = run(cmd).strip()  # normalize here so any runner is treated alike
+        except KeyResolutionError as exc:
+            errors[name] = str(exc)
+            continue
+        if not value:
+            errors[name] = f"command produced no output: {cmd}"
+            continue
+        env[var] = value  # in-process only; never persisted
+    return errors
+
+
+# Secret tools we can recommend an `api_key_cmd` for, in preference order. Each maps
+# a detected executable to a fill-in-the-blank command the user can paste and adjust.
+_KEY_HELPERS: tuple[tuple[str, str, str], ...] = (
+    ("op", "1Password", 'op read "op://Private/{var}/credential"'),
+    ("security", "macOS Keychain", 'security find-generic-password -w -s "{var}"'),
+    ("secret-tool", "Linux Secret Service", 'secret-tool lookup service "{var}"'),
+    ("pass", "pass", "pass show {var}"),
+)
+
+
+def suggest_key_commands(env_var: str, *, which: Callable[[str], str | None] | None = None) -> list[str]:
+    """Example ``api_key_cmd`` lines for the secret tools found on ``PATH``.
+
+    Lets ``init`` / ``doctor`` point at *your* password manager instead of telling
+    everyone to ``export`` a raw secret. Returns one ready-to-edit command per detected
+    tool (empty if none are installed). Never runs anything — pure ``PATH`` detection.
+    """
+    if which is None:
+        from shutil import which as _which
+
+        which = _which
+    out: list[str] = []
+    for exe, _label, template in _KEY_HELPERS:
+        if which(exe):
+            out.append(template.format(var=env_var))
+    return out
 
 
 # --- interactive wizard ------------------------------------------------------
