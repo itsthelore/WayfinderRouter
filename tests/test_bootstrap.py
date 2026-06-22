@@ -163,6 +163,24 @@ def test_suggest_key_commands_covers_team_and_cloud_stores():
     assert len(cmds) == len(tools)  # one suggestion per detected tool
 
 
+def test_every_suggested_command_is_a_valid_toml_value():
+    # Suggestions are shown as `api_key_cmd = "<cmd>"`; inner quotes must not break it.
+    all_tools = {h[0] for h in bootstrap._KEY_HELPERS}
+    cmds = bootstrap.suggest_key_commands(
+        "ANTHROPIC_API_KEY", which=lambda exe: exe if exe in all_tools else None
+    )
+    assert len(cmds) == len(all_tools)
+    for cmd in cmds:
+        toml = (
+            "[gateway.models.cloud]\n"
+            'base_url = "https://api.anthropic.com/v1"\n'
+            'model = "claude-sonnet-4-6"\n'
+            'api_key_env = "ANTHROPIC_API_KEY"\n'
+            f'api_key_cmd = "{cmd}"\n'
+        )
+        assert gateway_config_from_toml(toml).models["cloud"].api_key_cmd == cmd
+
+
 def test_resolve_keys_runs_a_real_shell_command_by_default():
     # Exercises the actual subprocess path (no injected runner): stdout is the key.
     gw = gateway_config_from_toml(

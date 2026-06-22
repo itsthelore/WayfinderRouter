@@ -48,7 +48,7 @@ _SCOPES = ("turn", "last_user", "user", "all")
 
 # Slash commands offered as inline autocomplete in the composer (typing `/` suggests).
 _SLASH_COMMANDS = [
-    "/init", "/models", "/cost", "/new", "/threads", "/open", "/route", "/auto", "/local",
+    "/init", "/models", "/keys", "/cost", "/new", "/threads", "/open", "/route", "/auto", "/local",
     "/cloud", "/btw", "/threshold", "/scope", "/sticky", "/why", "/stream", "/theme",
     "/settings", "/help", "/quit",
 ]
@@ -287,6 +287,7 @@ _HELP = (
     "commands\n"
     "  /init [hybrid|openai]         scaffold a wayfinder-router.toml and load its models\n"
     "  /models                       show configured models and whether each key is set\n"
+    "  /keys                         re-check keys: resolve from your secret store, fix hints\n"
     "  /cost                         session routing mix and estimated savings vs cloud\n"
     "  /new                          start a fresh conversation (the current one is saved)\n"
     "  /threads      /open <n>       list saved conversations · reopen one\n"
@@ -503,6 +504,71 @@ def render_models(models: dict, palette: dict[str, str]) -> RenderableType:
 
     hint = Text("\nkeys live in your environment · /init to add models · /route to pin", style=muted)
     return Panel(Group(grid, hint), title="models", title_align="left", border_style=accent,
+                 padding=(1, 2), expand=False)
+
+
+def render_keys(
+    models: dict, palette: dict[str, str], *, errors: dict[str, str] | None = None
+) -> RenderableType:
+    """A focused, actionable view of each model's key — the in-chat ``doctor``.
+
+    Re-resolution happens in the caller (``/keys`` re-runs any ``api_key_cmd``); this
+    renders the outcome: what is set, what a command failed to fetch, and the exact
+    line to fix a miss. Keys are read from the environment or a secret store at request
+    time, never written to disk (WF-ADR-0004, WF-DESIGN-0006).
+    """
+    from rich.console import Group
+    from rich.panel import Panel
+    from rich.table import Table
+    from rich.text import Text
+
+    from .bootstrap import key_status, suggest_key_commands
+
+    accent, muted, text_c, cloud, warn = (
+        palette["accent"], palette["muted"], palette["text"], palette["cloud"], palette["warn"]
+    )
+    errors = errors or {}
+    if not models:
+        body: RenderableType = Text(
+            "no models configured — type /init to scaffold one", style=muted
+        )
+        return Panel(body, title="keys", title_align="left", border_style=accent,
+                     padding=(1, 2), expand=False)
+
+    grid = Table.grid(padding=(0, 3))
+    grid.add_column(style=text_c)  # model name
+    grid.add_column()  # key status
+    missing: list[str] = []
+    for s in key_status(models):
+        if s.env_var is None:
+            status, glyph = Text("keyless — no key needed", style=muted), accent
+        elif s.ok:
+            via = "resolved via command" if s.cmd else "set in environment"
+            status, glyph = Text(f"{s.env_var}  ✓ {via}", style=accent), accent
+        elif s.name in errors:
+            status, glyph = Text(f"{s.env_var}  ✗ command failed — {errors[s.name]}", style=warn), cloud
+            missing.append(s.env_var)
+        else:
+            status, glyph = Text(f"{s.env_var}  ✗ not set", style=warn), cloud
+            missing.append(s.env_var)
+        grid.add_row(Text(s.name, style=text_c), Text("● ", style=glyph) + status)
+
+    items: list[RenderableType] = [grid]
+    seen: set[str] = set()  # dedupe a var shared across tiers, keep first-seen order
+    unset = [v for v in missing if not (v in seen or seen.add(v))]
+    if unset:
+        items.append(Text("\nto fix — read at request time, never written to disk:", style=muted))
+        for var in unset:
+            items.append(Text(f"  export {var}=…", style=text_c))
+            suggestions = suggest_key_commands(var)
+            for cmd in suggestions:
+                items.append(Text(f'  · or add:  api_key_cmd = "{cmd}"', style=muted))
+            if not suggestions:
+                items.append(
+                    Text("  · or store it in your secret manager and add an api_key_cmd", style=muted)
+                )
+    items.append(Text("\n/keys re-checks · keys live in your environment or your secret store", style=muted))
+    return Panel(Group(*items), title="keys", title_align="left", border_style=accent,
                  padding=(1, 2), expand=False)
 
 
@@ -1105,6 +1171,9 @@ def _build_chat_app() -> type:
             if cmd == "models":
                 self._handle_models()
                 return
+            if cmd == "keys":
+                self._handle_keys()
+                return
             if cmd == "cost":
                 self._append(render_cost(self._cost, self.palette))
                 return
@@ -1266,6 +1335,20 @@ def _build_chat_app() -> type:
                 self._note(f"models are managed by the remote gateway at {self.base_url}")
                 return
             self._append(render_models(self.models, self.palette))
+
+        def _handle_keys(self) -> None:
+            """The in-chat `doctor`: re-resolve keys from their secret stores and report.
+
+            Re-running the api_key_cmd's means you can store a key (in 1Password, the
+            keychain, Vault, …) and pick it up live with `/keys`, no restart needed.
+            """
+            if self.base_url is not None:
+                self._note(f"keys are managed by the remote gateway at {self.base_url}")
+                return
+            from . import bootstrap
+
+            errors = bootstrap.resolve_keys(self.models)  # re-attempt fills from secret stores
+            self._append(render_keys(self.models, self.palette, errors=errors))
 
         def _handle_init(self, arg: str) -> None:
             """Scaffold a wayfinder-router.toml from a preset and load its models in-place."""

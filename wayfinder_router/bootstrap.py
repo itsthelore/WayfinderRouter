@@ -254,9 +254,11 @@ def resolve_keys(
 # a detected executable to a fill-in-the-blank command the user can paste and adjust.
 # The resolver runs *any* command; this list only drives the friendly suggestions.
 _KEY_HELPERS: tuple[tuple[str, str, str], ...] = (
-    ("op", "1Password", 'op read "op://Private/{var}/credential"'),
-    ("security", "macOS Keychain", 'security find-generic-password -w -s "{var}"'),
-    ("secret-tool", "Linux Secret Service", 'secret-tool lookup service "{var}"'),
+    # NOTE: single-quote any inner literals so the line stays a valid double-quoted
+    # TOML value (`api_key_cmd = "<cmd>"`) when copy-pasted — guarded by a test.
+    ("op", "1Password", "op read 'op://Private/{var}/credential'"),
+    ("security", "macOS Keychain", "security find-generic-password -w -s '{var}'"),
+    ("secret-tool", "Linux Secret Service", "secret-tool lookup service '{var}'"),
     ("pass", "pass", "pass show {var}"),
     ("gopass", "gopass", "gopass show -o {var}"),
     ("vault", "HashiCorp Vault", "vault kv get -field={var} secret/wayfinder"),
