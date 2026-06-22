@@ -399,6 +399,41 @@ def test_chat_app_persists_and_reopens_threads(tmp_path, monkeypatch):
     asyncio.run(scenario())
 
 
+def test_friendly_error():
+    ollama = tui._friendly_error("Connection refused", "http://localhost:11434/v1")
+    assert "Ollama" in ollama
+    generic = tui._friendly_error("connect timed out", "https://api.example.com/v1")
+    assert "is it running" in generic and "Ollama" not in generic
+    assert tui._friendly_error("400 bad request", "http://x/v1") == "upstream error: 400 bad request"
+
+
+def test_chat_app_tab_expands_why_and_esc_cancels(tmp_path):
+    import asyncio
+
+    pytest.importorskip("textual")
+
+    app_cls = tui._build_chat_app()
+    app = app_cls(start_dir=str(tmp_path), theme="dark", dry_run=True)
+
+    async def scenario():
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            app.query_one("#entry").value = "explain something"
+            await pilot.press("enter")
+            await pilot.pause()
+            before = len(app.query("#transcript Static"))
+            await pilot.press("tab")  # expand the last decision's why
+            await pilot.pause()
+            assert len(app.query("#transcript Static")) > before
+
+            app._busy = True  # esc cancels an in-flight reply, never quits
+            app._cancel.clear()
+            app.action_cancel()
+            assert app._cancel.is_set()
+
+    asyncio.run(scenario())
+
+
 def test_slash_command_autocomplete():
     import asyncio
 
