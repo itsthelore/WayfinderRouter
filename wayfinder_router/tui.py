@@ -586,8 +586,9 @@ def render_empty_state(palette: dict[str, str]) -> RenderableType:
                 style=muted)
     body.append("  /init openai", style=accent)
     body.append("   two OpenAI tiers (gpt-4o-mini → gpt-4o)\n", style=muted)
-    body.append("  /models", style=accent)
-    body.append("        check which model keys are set\n\n", style=muted)
+    body.append("  /keys", style=accent)
+    body.append("          after /init: check & resolve your keys, with fix-it hints\n\n",
+                style=muted)
     body.append("Keyless local replies work as soon as Ollama is running ", style=muted)
     body.append("(ollama serve)", style=text_c)
     body.append(".", style=muted)
@@ -913,6 +914,15 @@ def _build_chat_app() -> type:
                 self._note(f"connected · remote gateway {self.base_url}")
             elif self.models:
                 self._note(f"connected · routing between {', '.join(sorted(self.models))}")
+                from . import bootstrap
+
+                # Heads-up at launch rather than at the first failed cloud reply.
+                missing = bootstrap.missing_keys(bootstrap.key_status(self.models))
+                if missing:
+                    self._warn(
+                        f"{', '.join(missing)} not set — /keys to add it "
+                        "(1Password, keychain, …); keyless local still works"
+                    )
             elif self.dry_run:
                 self._note("preview · --dry-run: routing decisions only, no model calls")
             else:
@@ -1395,8 +1405,8 @@ def _build_chat_app() -> type:
             missing = bootstrap.missing_keys(bootstrap.key_status(self.models))
             if missing:
                 self._note(
-                    "set " + ", ".join(missing) + " in your shell and restart for cloud replies — "
-                    "keyless local works now"
+                    ", ".join(missing) + " not set — /keys to add it "
+                    "(1Password, keychain, …), no restart; keyless local works now"
                 )
             else:
                 self._note("models ready — type a prompt")

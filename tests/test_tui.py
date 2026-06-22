@@ -650,6 +650,54 @@ def test_render_keys_empty_points_at_init():
     assert "/init" in con.export_text()
 
 
+def test_empty_state_onboards_via_init_and_keys():
+    from rich.console import Console
+
+    con = Console(record=True, width=90)
+    con.print(tui.render_empty_state(tui.palette_for("dark")))
+    out = con.export_text()
+    assert "/init" in out and "/keys" in out  # the onboarding path, not /models
+
+
+def _transcript_text(app) -> str:
+    from rich.text import Text
+
+    lines = []
+    for widget in app.query("#transcript Static"):
+        r = getattr(widget, "_Static__content", None)  # Static stores its renderable here
+        if isinstance(r, Text):
+            lines.append(r.plain)
+        elif r is not None:
+            lines.append(str(r))
+    return "\n".join(lines)
+
+
+def test_startup_flags_a_missing_key_with_a_keys_hint(tmp_path, monkeypatch):
+    """On launch with a configured-but-unset key, the chat nudges /keys up front."""
+    import asyncio
+
+    pytest.importorskip("textual")
+    monkeypatch.delenv("WF_TEST_MISSING_KEY", raising=False)
+    (tmp_path / "wayfinder-router.toml").write_text(
+        "[gateway.models.local]\n"
+        'base_url = "http://localhost:11434/v1"\n'
+        'model = "llama3.1"\n\n'
+        "[gateway.models.cloud]\n"
+        'base_url = "https://api.anthropic.com/v1"\n'
+        'model = "claude-sonnet-4-6"\n'
+        'api_key_env = "WF_TEST_MISSING_KEY"\n'
+    )
+    app = tui._build_chat_app()(start_dir=str(tmp_path), theme="dark")  # in-process, real keys
+
+    async def scenario():
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            text = _transcript_text(app)
+            assert "WF_TEST_MISSING_KEY" in text and "/keys" in text
+
+    asyncio.run(scenario())
+
+
 def test_render_empty_state_smoke():
     from rich.console import Console
 
