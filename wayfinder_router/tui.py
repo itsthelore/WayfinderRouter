@@ -48,8 +48,9 @@ _SCOPES = ("turn", "last_user", "user", "all")
 
 # Slash commands offered as inline autocomplete in the composer (typing `/` suggests).
 _SLASH_COMMANDS = [
-    "/init", "/models", "/route", "/auto", "/local", "/cloud", "/btw", "/threshold",
-    "/scope", "/sticky", "/why", "/stream", "/theme", "/settings", "/help", "/quit",
+    "/init", "/models", "/new", "/threads", "/open", "/route", "/auto", "/local", "/cloud",
+    "/btw", "/threshold", "/scope", "/sticky", "/why", "/stream", "/theme", "/settings",
+    "/help", "/quit",
 ]
 
 # The wordmark that heads the transcript (pyfiglet "ansi_shadow", baked so figlet
@@ -214,6 +215,8 @@ _HELP = (
     "commands\n"
     "  /init [hybrid|openai]         scaffold a wayfinder-router.toml and load its models\n"
     "  /models                       show configured models and whether each key is set\n"
+    "  /new                          start a fresh conversation (the current one is saved)\n"
+    "  /threads      /open <n>       list saved conversations · reopen one\n"
     "  /route <model>|auto           pin every turn to a model (the router still shows why)\n"
     "  /local        /cloud          pin to the cheapest / most-capable tier; /auto clears\n"
     "  /local <msg>  /cloud <msg>    force just this turn (kept in the thread)\n"
@@ -450,6 +453,33 @@ def render_empty_state(palette: dict[str, str]) -> RenderableType:
                  padding=(1, 2), expand=False)
 
 
+def render_threads(entries: list, palette: dict[str, str]) -> RenderableType:
+    """A numbered list of saved conversations (newest first); `/open <n>` reopens one."""
+    from rich.console import Group
+    from rich.panel import Panel
+    from rich.table import Table
+    from rich.text import Text
+
+    accent, muted, text_c = palette["accent"], palette["muted"], palette["text"]
+    if not entries:
+        body: RenderableType = Text(
+            "no saved conversations yet — they save automatically as you chat", style=muted
+        )
+        return Panel(body, title="threads", title_align="left", border_style=accent,
+                     padding=(1, 2), expand=False)
+
+    grid = Table.grid(padding=(0, 3))
+    grid.add_column(style=accent, justify="right")  # index
+    grid.add_column(style=text_c)  # title
+    grid.add_column(style=muted)  # updated
+    for i, thread in enumerate(entries, start=1):
+        when = (thread.updated or thread.created or "").replace("T", " ").rstrip("Z")
+        grid.add_row(str(i), thread.title or "(untitled)", when)
+    hint = Text("\n/open <n> to reopen · /new to start fresh", style=muted)
+    return Panel(Group(grid, hint), title="threads", title_align="left", border_style=accent,
+                 padding=(1, 2), expand=False)
+
+
 def _status_bar(
     state: TuiState, palette: dict[str, str], *, note: str | None = None
 ) -> RenderableType:
@@ -621,6 +651,8 @@ def _build_chat_app() -> type:
     from textual.widgets import Input, Static
     from rich.text import Text
 
+    from . import threads
+
     class WayfinderChat(App):
         """Decision-first terminal chat: route every prompt, stream the chosen model."""
 
@@ -672,6 +704,9 @@ def _build_chat_app() -> type:
             self._cancel = threading.Event()  # cooperative cancel for the streaming worker
             self._input_history: list[str] = []  # submitted lines, for ↑/↓ recall
             self._hist_index: int | None = None
+            self._data_dir = threads.threads_dir()  # where conversations persist (WF-ADR-0030)
+            self._thread = threads.new_thread()
+            self._thread_list: list = []  # last `/threads` listing, indexed by `/open`
             if base_url is None and not dry_run:
                 try:
                     from .gateway import load_gateway_config
@@ -850,6 +885,8 @@ def _build_chat_app() -> type:
                 convo = self.messages
 
             if self.base_url is not None:  # the remote gateway decides and replies
+                if not ephemeral:
+                    self._persist()
                 self._set_busy(True)
                 self._remote_worker(convo, pin, ephemeral)
                 return
@@ -870,6 +907,8 @@ def _build_chat_app() -> type:
             )
             if ephemeral:
                 self._note("aside · not added to the thread")
+            else:
+                self._persist()  # capture the user turn (and decision-only conversations)
             if not self.models:
                 return
             target = forced_to[0] if forced_to is not None else decision.model
@@ -896,6 +935,16 @@ def _build_chat_app() -> type:
                 return
             if cmd == "init":
                 self._handle_init(arg)
+                return
+            if cmd == "new":
+                self._handle_new()
+                return
+            if cmd == "threads":
+                self._thread_list = threads.list_threads(self._data_dir)
+                self._append(render_threads(self._thread_list, self.palette))
+                return
+            if cmd in {"open", "thread"}:
+                self._handle_open(arg)
                 return
             if cmd == "route":
                 self._handle_route(arg)
@@ -979,6 +1028,63 @@ def _build_chat_app() -> type:
                 return
             self.state.pinned = target
             self._note(f"pinned → {target} · /auto to resume routing")
+
+        # --- conversation persistence (WF-ADR-0030) ---
+        def _persist(self) -> None:
+            """Save the active thread to disk. UI-free, so it is safe from a worker thread."""
+            if not self.messages:
+                return
+            self._thread.messages = list(self.messages)
+            try:
+                threads.save_thread(self._thread, self._data_dir)
+            except OSError:
+                pass  # never let a failed save crash the chat
+
+        def _handle_new(self) -> None:
+            self._persist()  # the current thread is already saved; make sure
+            self.messages = []
+            self.history = []
+            self._thread = threads.new_thread()
+            self._body.remove_children()
+            self._note("new conversation — type a prompt")
+
+        def _handle_open(self, arg: str) -> None:
+            entries = self._thread_list or threads.list_threads(self._data_dir)
+            self._thread_list = entries
+            try:
+                index = int(arg.strip()) - 1
+            except ValueError:
+                self._warn("usage: /open <number>  (see /threads)")
+                return
+            if not 0 <= index < len(entries):
+                self._warn(f"no thread {arg.strip()!r} — /threads to list")
+                return
+            self._persist()  # save the current conversation before switching away
+            self._load_thread(entries[index])
+
+        def _load_thread(self, thread: threads.Thread) -> None:
+            self._thread = thread
+            self.messages = list(thread.messages)
+            self.history = []
+            self._body.remove_children()
+            self._note(f"thread · {thread.title}")
+            for message in self.messages:
+                content = str(message.get("content", ""))
+                if message.get("role") == "user":
+                    self._append(self._user_line(content))
+                    if self.base_url is None and content:
+                        try:
+                            decision = decide(
+                                content, start_dir=self.start_dir, threshold=self.state.threshold
+                            )
+                        except WayfinderConfigError:
+                            continue
+                        self.history.append(decision)
+                        self._append(
+                            render_decision(decision, self.palette, expanded=self.state.show_why)
+                        )
+                elif message.get("role") == "assistant":
+                    self._append(render_reply(content))
 
         def _handle_models(self) -> None:
             if self.base_url is not None:
@@ -1082,6 +1188,7 @@ def _build_chat_app() -> type:
                     self.call_from_thread(self._finalize_reply, live, full)
                     if full and remember:  # ephemeral /btw turns are not kept in the thread
                         self.messages.append({"role": "assistant", "content": full})
+                        self._persist()
             except (GatewayUnavailable, UpstreamError, RuntimeError) as exc:
                 self.call_from_thread(self._finalize_error, live, str(exc))
             finally:
@@ -1128,6 +1235,7 @@ def _build_chat_app() -> type:
             if reply is not None:
                 if not ephemeral:
                     self.messages.append({"role": "assistant", "content": reply})
+                    self._persist()
                 self.call_from_thread(self._append, render_reply(reply))
             elif not ephemeral:
                 self.call_from_thread(self.messages.pop)
