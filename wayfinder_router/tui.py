@@ -15,10 +15,10 @@ streamed token-by-token; with no models (or ``--dry-run``) it stays decision-onl
 Scoring stays in the pure, offline core (WF-ADR-0001); this module is presentation +
 relay glue and never enters the scored path.
 
-The UI is an opt-in extra (``pip install 'wayfinder-router[tui]'`` → rich + textual);
-both are imported lazily so the package still imports without them (mirrors the
-gateway's fastapi pattern). The Textual ``App`` is built behind a factory so importing
-this module never requires textual.
+rich + textual ship in the default install (WF-ADR-0029), but both are imported
+**lazily** so ``import wayfinder_router`` (the scorer/library) still loads nothing extra
+— embedding stays light, mirroring the gateway's fastapi pattern. The Textual ``App``
+is built behind a factory so importing this module never requires textual.
 """
 
 from __future__ import annotations

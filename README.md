@@ -41,7 +41,7 @@ Wayfinder reads the shape of a prompt — its length, headings, lists, and code 
 plus difficulty cues in the wording, like proofs, math, and hard constraints, and
 tells you whether to send it to your small local model or your big cloud one. It
 decides in microseconds, runs offline, and never calls another model to make the
-call. No API key, no network, no heavy dependencies. You get a score and a
+call. No API key, no network, no model call to decide. You get a score and a
 recommendation; what you do with it is up to you.
 
 Cheap prompts stay local, hard ones go to the expensive model, and you stop paying
@@ -85,11 +85,13 @@ items) and why you'd still run it.
 
 Two ways to see the routing decision for yourself — no API keys, no models, nothing on the network.
 
-**In your terminal** — a decision-first chat in the Wayfinder palette:
+**In your terminal** — a decision-first chat in the Wayfinder palette. The terminal
+chat ships in the default install, so there's nothing extra to add — or run it with
+no install at all via `uvx`:
 
 ```bash
-pip install "wayfinder-router[tui]"
-wayfinder-router chat
+uvx wayfinder-router chat --dry-run      # zero install, zero keys
+# or:  pip install wayfinder-router && wayfinder-router chat
 ```
 
 **In your browser** — the web chat UI with a live threshold slider:
@@ -186,10 +188,10 @@ before wiring up real models.
 
 | command | what you get |
 | --- | --- |
-| `pip install "wayfinder-router[gateway]"` | the OpenAI-compatible routing gateway, the common case |
-| `pip install wayfinder-router` | core only: scorer, CLI, and Python API, zero dependencies |
+| `pip install wayfinder-router` | scorer, CLI, Python API, **and the terminal chat** (`chat`); the scorer/library imports stay dependency-light |
+| `pip install "wayfinder-router[gateway]"` | adds the OpenAI-compatible routing gateway, the common case for serving |
 | `pip install "wayfinder-router[ui]"` | adds the local calibrate / explain / configure UI |
-| `pip install "wayfinder-router[all]"` | gateway and UI together |
+| `pip install "wayfinder-router[all]"` | gateway and UI on top of the default install |
 
 ## How it works
 
@@ -531,8 +533,9 @@ for fc in explain_score(result.features, RoutingConfig().weights):
 
 Wayfinder started as a `route` experiment inside a larger requirements tool and was
 split out because routing is a runtime concern, not a knowledge one: a prompt router
-shouldn't make you install an engine you don't need. The result is a small,
-dependency-free core that does one thing well.
+shouldn't make you install an engine you don't need. The result is a small, focused
+tool whose scoring core stays dependency-free — you can `import wayfinder_router` and
+score prompts with nothing but the standard library (WF-ADR-0001, WF-ADR-0029).
 
 ## Repository layout
 
