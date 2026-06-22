@@ -24,8 +24,11 @@ Proposed
 > **`--base-url`** is the HTTP thin client to a running gateway (non-streaming, decision
 > rebuilt from `X-Wayfinder-Debug`). Keyless / `--dry-run` stays decision-only. Forced
 > routing (`/route`, `/local`, `/cloud`, and the one-off local aside `/btw`) lets you
-> overrule the recommendation while still showing what it would have picked. The extra
-> is `[tui]` (rich + textual), imported lazily. The browser surface is
+> overrule the recommendation while still showing what it would have picked. In-chat
+> onboarding (`/init` scaffolds a preset and loads its models in place; `/models` shows
+> per-model key status, WF-ADR-0025; an empty-state panel when nothing is configured)
+> means you never have to leave the chat to get set up. rich + textual now ship in the
+> **default install** (WF-ADR-0029), imported lazily. The browser surface is
 > `wayfinder-router webchat`.
 >
 > Toolkit decision resolved: the spike below weighed a Rich-only loop vs Textual; the
