@@ -48,9 +48,9 @@ _SCOPES = ("turn", "last_user", "user", "all")
 
 # Slash commands offered as inline autocomplete in the composer (typing `/` suggests).
 _SLASH_COMMANDS = [
-    "/init", "/models", "/new", "/threads", "/open", "/route", "/auto", "/local", "/cloud",
-    "/btw", "/threshold", "/scope", "/sticky", "/why", "/stream", "/theme", "/settings",
-    "/help", "/quit",
+    "/init", "/models", "/cost", "/new", "/threads", "/open", "/route", "/auto", "/local",
+    "/cloud", "/btw", "/threshold", "/scope", "/sticky", "/why", "/stream", "/theme",
+    "/settings", "/help", "/quit",
 ]
 
 # The wordmark that heads the transcript (pyfiglet "ansi_shadow", baked so figlet
@@ -200,6 +200,78 @@ def _pin_label(pin: str | None) -> str:
     return {"prefer-local": "local", "prefer-hosted": "cloud", None: "auto"}.get(pin, pin or "auto")
 
 
+# --- session cost accounting -------------------------------------------------
+@dataclass
+class SessionCost:
+    """A running tally of model calls and their estimated cost vs always-cloud."""
+
+    calls: int = 0
+    local: int = 0
+    spent: float = 0.0
+    saved: float = 0.0
+    priced: bool = False  # a turn had cost_per_1k for both the chosen and cloud arms
+
+
+def estimate_tokens(text: str) -> int:
+    """A rough token count (~4 chars/token); everything derived from it is labelled ``~``."""
+    return max(1, len(text) // 4)
+
+
+def account_turn(
+    tally: SessionCost, *, is_local: bool, tokens: int,
+    chosen_cost: float | None, cloud_cost: float | None,
+) -> None:
+    """Fold one model call into ``tally`` — spend, and savings vs routing it all to cloud."""
+    tally.calls += 1
+    if is_local:
+        tally.local += 1
+    if chosen_cost is not None and cloud_cost is not None:
+        tally.priced = True
+        units = tokens / 1000.0
+        tally.spent += chosen_cost * units
+        tally.saved += max(0.0, (cloud_cost - chosen_cost) * units)
+
+
+def cost_summary(tally: SessionCost) -> str:
+    """The footer tally line, or ``""`` before any model call this session."""
+    if tally.calls == 0:
+        return ""
+    summary = f"{tally.local}/{tally.calls} local"
+    if tally.priced:
+        summary += f" · ~${tally.saved:.4f} saved"
+    return summary
+
+
+def render_cost(tally: SessionCost, palette: dict[str, str]) -> RenderableType:
+    """A panel breaking down the session's routing mix and estimated savings."""
+    from rich.console import Group
+    from rich.panel import Panel
+    from rich.table import Table
+    from rich.text import Text
+
+    accent, muted, text_c = palette["accent"], palette["muted"], palette["text"]
+    if tally.calls == 0:
+        return Panel(Text("no model calls yet this session", style=muted), title="cost",
+                     title_align="left", border_style=accent, padding=(1, 2), expand=False)
+    pct = round(100 * tally.local / tally.calls)
+    rows = [("model calls", str(tally.calls)), ("kept local", f"{tally.local}  ({pct}%)")]
+    if tally.priced:
+        rows += [
+            ("est. spent", f"~${tally.spent:.4f}"),
+            ("est. saved", f"~${tally.saved:.4f}  vs always-cloud"),
+        ]
+    grid = Table.grid(padding=(0, 3))
+    grid.add_column(style=muted, justify="right")
+    grid.add_column(style=text_c)
+    for key, val in rows:
+        grid.add_row(key, val)
+    tail = "estimated from ~4 chars/token"
+    if not tally.priced:
+        tail += " · set cost_per_1k on your models for $ figures"
+    return Panel(Group(grid, Text("\n" + tail, style=muted)), title="cost", title_align="left",
+                 border_style=accent, padding=(1, 2), expand=False)
+
+
 # --- slash commands ----------------------------------------------------------
 def parse_command(line: str) -> tuple[str | None, str]:
     """Split a composer line. ``/cmd arg`` → ``("cmd", "arg")``; plain text → ``(None, text)``."""
@@ -215,6 +287,7 @@ _HELP = (
     "commands\n"
     "  /init [hybrid|openai]         scaffold a wayfinder-router.toml and load its models\n"
     "  /models                       show configured models and whether each key is set\n"
+    "  /cost                         session routing mix and estimated savings vs cloud\n"
     "  /new                          start a fresh conversation (the current one is saved)\n"
     "  /threads      /open <n>       list saved conversations · reopen one\n"
     "  /route <model>|auto           pin every turn to a model (the router still shows why)\n"
@@ -707,6 +780,7 @@ def _build_chat_app() -> type:
             self._data_dir = threads.threads_dir()  # where conversations persist (WF-ADR-0030)
             self._thread = threads.new_thread()
             self._thread_list: list = []  # last `/threads` listing, indexed by `/open`
+            self._cost = SessionCost()  # session routing mix + estimated savings
             if base_url is None and not dry_run:
                 try:
                     from .gateway import load_gateway_config
@@ -763,8 +837,17 @@ def _build_chat_app() -> type:
 
         def _refresh_bars(self, *, note: str | None = None) -> None:
             self.query_one("#status", Static).update(_status_bar(self.state, self.palette, note=note))
-            right = "no model call to decide" if not note else "routing…"
+            if note:
+                right = "routing…"
+            else:
+                right = cost_summary(self._cost) or "no model call to decide"
             self.query_one("#footer", Static).update(_footer_bar(self.palette, right=right))
+
+        def _account(self, is_local: bool, tokens: int,
+                     chosen_cost: float | None, cloud_cost: float | None) -> None:
+            account_turn(self._cost, is_local=is_local, tokens=tokens,
+                         chosen_cost=chosen_cost, cloud_cost=cloud_cost)
+            self._refresh_bars()
 
         # --- transcript helpers (main thread) ---
         def _append(self, renderable: RenderableType) -> Static:
@@ -911,13 +994,21 @@ def _build_chat_app() -> type:
                 self._persist()  # capture the user turn (and decision-only conversations)
             if not self.models:
                 return
-            target = forced_to[0] if forced_to is not None else decision.model
+            if forced_to is not None:
+                target, target_is_local = forced_to
+            else:
+                target, target_is_local = decision.model, decision.is_local
             model = self.models.get(target)
             if model is None:
                 self._note(f"no model configured for '{target}'")
                 return
+            cloud_name = decision.targets[-1] if decision.targets else target
+            cloud_model = self.models.get(cloud_name)
+            cloud_cost = cloud_model.cost_per_1k if cloud_model is not None else None
             self._set_busy(True)
-            self._stream_worker(model, convo, not ephemeral)
+            self._stream_worker(
+                model, convo, not ephemeral, target_is_local, model.cost_per_1k, cloud_cost
+            )
 
         # --- slash commands (main thread) ---
         def _handle_command(self, cmd: str, arg: str) -> None:
@@ -932,6 +1023,9 @@ def _build_chat_app() -> type:
                 return
             if cmd == "models":
                 self._handle_models()
+                return
+            if cmd == "cost":
+                self._append(render_cost(self._cost, self.palette))
                 return
             if cmd == "init":
                 self._handle_init(arg)
@@ -1160,7 +1254,10 @@ def _build_chat_app() -> type:
 
         # --- streaming workers (threads: the relay is blocking sync I/O) ---
         @work(thread=True, exclusive=True, group="reply")
-        def _stream_worker(self, model: GatewayModel, messages: list[dict], remember: bool) -> None:
+        def _stream_worker(
+            self, model: GatewayModel, messages: list[dict], remember: bool,
+            is_local: bool, chosen_cost: float | None, cloud_cost: float | None,
+        ) -> None:
             from .gateway import (
                 GatewayUnavailable,
                 UpstreamError,
@@ -1187,8 +1284,13 @@ def _build_chat_app() -> type:
                 else:
                     self.call_from_thread(self._finalize_reply, live, full)
                     if full and remember:  # ephemeral /btw turns are not kept in the thread
+                        sent = sum(estimate_tokens(str(m.get("content", ""))) for m in messages)
                         self.messages.append({"role": "assistant", "content": full})
                         self._persist()
+                        self.call_from_thread(
+                            self._account, is_local, sent + estimate_tokens(full),
+                            chosen_cost, cloud_cost,
+                        )
             except (GatewayUnavailable, UpstreamError, RuntimeError) as exc:
                 self.call_from_thread(self._finalize_error, live, str(exc))
             finally:
