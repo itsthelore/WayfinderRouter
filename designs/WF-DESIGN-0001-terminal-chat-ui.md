@@ -27,9 +27,10 @@ Proposed
 > overrule the recommendation while still showing what it would have picked. In-chat
 > onboarding (`/init` scaffolds a preset and loads its models in place; `/models` shows
 > per-model key status, WF-ADR-0025; an empty-state panel when nothing is configured)
-> means you never have to leave the chat to get set up. rich + textual now ship in the
-> **default install** (WF-ADR-0029), imported lazily. The browser surface is
-> `wayfinder-router webchat`.
+> means you never have to leave the chat to get set up. Composer quality-of-life:
+> **↑/↓ input history**, inline **`/` command autocomplete**, and **Ctrl+C** to cancel an
+> in-flight reply (again to quit). rich + textual now ship in the **default install**
+> (WF-ADR-0029), imported lazily. The browser surface is `wayfinder-router webchat`.
 >
 > Toolkit decision resolved: the spike below weighed a Rich-only loop vs Textual; the
 > shipped cut is **Textual** — the fixed chrome (pinned input, status/footer bars, a
