@@ -104,3 +104,5 @@ Sequenced by timeliness and leverage; each is independent.
 - WF-DESIGN-0002 (static serverless demo — Initiative 1 executes it)
 - WF-DESIGN-0003 (decision confidence & abstention — Initiative 2)
 - WF-DESIGN-0004 (one-command calibration loop — Initiative 3)
+- WF-DESIGN-0005 (structural feature audit — measures which features earn their default
+  weight; feeds the calibration defaults and the honest README framing)
