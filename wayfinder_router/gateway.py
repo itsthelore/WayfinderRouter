@@ -66,6 +66,7 @@ Config (`wayfinder-router.toml`)::
 
 from __future__ import annotations
 
+import asyncio
 import importlib.resources
 import json
 import logging
@@ -94,7 +95,7 @@ from .config import (
 )
 from .feedback import DEFAULT_LOG, record_label
 from .profiles import PROFILES
-from . import pricing
+from . import pricing, reliability
 
 if TYPE_CHECKING:  # type-only; the runtime imports these lazily inside build_app
     from fastapi import FastAPI, Response
@@ -332,6 +333,7 @@ class GatewayModel:
     api_key_env: str | None = None  # env var holding the key, or None for no auth
     api_key_cmd: str | None = None  # command that fills api_key_env when unset (WF-DESIGN-0006)
     cost_per_1k: float | None = None  # optional cost metadata (WF-ADR-0017), informational
+    fallbacks: tuple[str, ...] = ()  # same-tier endpoints to try if this one fails (WF-ADR-0031)
 
 
 @dataclass(frozen=True)
@@ -350,6 +352,11 @@ class GatewayConfig:
     route_on: str = "turn"
     sticky: bool = False
     sticky_cooldown: int = 0
+    # Reliability (WF-ADR-0031): bounded retries on transport/429/5xx, and a per-target
+    # circuit breaker. Failover across tiers is Phase 2; same-tier fallbacks are per-model.
+    retries: int = 2
+    breaker_threshold: int = 5
+    breaker_cooldown: float = 30.0
 
 
 # Which chat-message text the router scores. The deterministic core scores
@@ -392,6 +399,15 @@ def gateway_config_from_toml(text: str, where: str = "wayfinder-router.toml") ->
     cooldown = gateway.get("sticky_cooldown", 0)
     if isinstance(cooldown, bool) or not isinstance(cooldown, int) or cooldown < 0:
         raise WayfinderConfigError(f"{where}: 'gateway.sticky_cooldown' must be a non-negative integer")
+    retries = gateway.get("retries", 2)
+    if isinstance(retries, bool) or not isinstance(retries, int) or retries < 0:
+        raise WayfinderConfigError(f"{where}: 'gateway.retries' must be a non-negative integer")
+    breaker_threshold = gateway.get("breaker_threshold", 5)
+    if isinstance(breaker_threshold, bool) or not isinstance(breaker_threshold, int) or breaker_threshold < 1:
+        raise WayfinderConfigError(f"{where}: 'gateway.breaker_threshold' must be a positive integer")
+    breaker_cooldown = gateway.get("breaker_cooldown", 30.0)
+    if isinstance(breaker_cooldown, bool) or not isinstance(breaker_cooldown, (int, float)) or breaker_cooldown < 0:
+        raise WayfinderConfigError(f"{where}: 'gateway.breaker_cooldown' must be a non-negative number")
     raw_models = gateway.get("models") or {}
     if not isinstance(raw_models, dict):
         raise WayfinderConfigError(f"{where}: '[gateway.models]' must be a table")
@@ -432,14 +448,35 @@ def gateway_config_from_toml(text: str, where: str = "wayfinder-router.toml") ->
             raise WayfinderConfigError(
                 f"{where}: 'gateway.models.{name}.cost_per_1k' must be a non-negative number"
             )
+        raw_fallbacks = entry.get("fallbacks", [])
+        if not isinstance(raw_fallbacks, list) or not all(
+            isinstance(f, str) and f for f in raw_fallbacks
+        ):
+            raise WayfinderConfigError(
+                f"{where}: 'gateway.models.{name}.fallbacks' must be a list of model names"
+            )
         models[name] = GatewayModel(
             base_url=base_url,
             model=model,
             api_key_env=api_key_env,
             api_key_cmd=api_key_cmd,
             cost_per_1k=float(cost_per_1k) if cost_per_1k is not None else None,
+            fallbacks=tuple(raw_fallbacks),
         )
-    return GatewayConfig(models=models, route_on=route_on, sticky=sticky, sticky_cooldown=cooldown)
+    for name, gm in models.items():  # fallbacks must name other configured models
+        for fb in gm.fallbacks:
+            if fb not in models:
+                raise WayfinderConfigError(
+                    f"{where}: 'gateway.models.{name}.fallbacks' names unknown model '{fb}'"
+                )
+            if fb == name:
+                raise WayfinderConfigError(
+                    f"{where}: 'gateway.models.{name}.fallbacks' cannot include itself"
+                )
+    return GatewayConfig(
+        models=models, route_on=route_on, sticky=sticky, sticky_cooldown=cooldown,
+        retries=retries, breaker_threshold=breaker_threshold, breaker_cooldown=breaker_cooldown,
+    )
 
 
 def dump_gateway_toml(gateway: GatewayConfig) -> str:
@@ -450,7 +487,11 @@ def dump_gateway_toml(gateway: GatewayConfig) -> str:
     (a command/reference that *fills* it) — never a secret value.
     """
     blocks: list[str] = []
-    if gateway.route_on != "turn" or gateway.sticky or gateway.sticky_cooldown:
+    nondefault_gateway = (
+        gateway.route_on != "turn" or gateway.sticky or gateway.sticky_cooldown
+        or gateway.retries != 2 or gateway.breaker_threshold != 5 or gateway.breaker_cooldown != 30.0
+    )
+    if nondefault_gateway:
         lines = ["[gateway]"]
         if gateway.route_on != "turn":
             lines.append(f'route_on = "{gateway.route_on}"')
@@ -458,6 +499,12 @@ def dump_gateway_toml(gateway: GatewayConfig) -> str:
             lines.append("sticky = true")
         if gateway.sticky_cooldown:
             lines.append(f"sticky_cooldown = {gateway.sticky_cooldown}")
+        if gateway.retries != 2:
+            lines.append(f"retries = {gateway.retries}")
+        if gateway.breaker_threshold != 5:
+            lines.append(f"breaker_threshold = {gateway.breaker_threshold}")
+        if gateway.breaker_cooldown != 30.0:
+            lines.append(f"breaker_cooldown = {round(gateway.breaker_cooldown, 6)!r}")
         blocks.append("\n".join(lines))
     for name, model in gateway.models.items():
         lines = [
@@ -471,6 +518,9 @@ def dump_gateway_toml(gateway: GatewayConfig) -> str:
             lines.append(f'api_key_cmd = "{model.api_key_cmd}"')
         if model.cost_per_1k is not None:
             lines.append(f"cost_per_1k = {round(model.cost_per_1k, 6)!r}")
+        if model.fallbacks:
+            rendered = ", ".join(f'"{f}"' for f in model.fallbacks)
+            lines.append(f"fallbacks = [{rendered}]")
         blocks.append("\n".join(lines))
     return "\n\n".join(blocks)
 
@@ -1065,6 +1115,64 @@ def build_app(
             "/v1/feedback is unauthenticated; set %s to require a bearer token", _FEEDBACK_TOKEN_ENV
         )
 
+    # Reliability (WF-ADR-0031): one circuit breaker for the gateway's lifetime; thresholds
+    # come from the initial config so this runtime state survives routing/cost hot-reloads.
+    breaker = reliability.CircuitBreaker(
+        threshold=gw0.breaker_threshold, cooldown=gw0.breaker_cooldown
+    )
+
+    def _auth_headers(model: GatewayModel) -> dict[str, str]:
+        headers = {"Content-Type": "application/json"}
+        if model.api_key_env:
+            key = os.environ.get(model.api_key_env)
+            if key:
+                headers["Authorization"] = f"Bearer {key}"
+        return headers
+
+    async def _deliver(
+        plan: list[str], gw: GatewayConfig, body: dict, request_id: str
+    ) -> tuple[str | None, int, bytes, str]:
+        """Try each target in ``plan`` with bounded retries; return the one that served.
+
+        Same-tier failover + retry + circuit breaker (WF-ADR-0031): on a transport error or
+        a 429/5xx, back off and retry; on exhaustion, fall to the next configured endpoint;
+        an ordinary 4xx is the client's and is returned as-is. Never re-scores the prompt.
+        Returns ``(served_name|None, status, content, content_type)`` — ``None`` if all failed.
+        """
+        last_error = "no upstream available"
+        for name in plan:
+            model = gw.models[name]
+            headers = _auth_headers(model)
+            forward_body = {**body, "model": model.model}
+            url = model.base_url.rstrip("/") + "/chat/completions"
+            delays = reliability.retry_delays(gw.retries)
+            for attempt in range(gw.retries + 1):
+                started = time.perf_counter()
+                try:
+                    status, content, ctype = await aforward_request(
+                        url, headers, forward_body, request_timeout
+                    )
+                except UpstreamError as exc:  # transport failure — always retryable
+                    last_error = str(exc) or exc.__class__.__name__
+                    metrics.observe_upstream_error(name)
+                    if attempt < gw.retries:
+                        await asyncio.sleep(delays[attempt])
+                    continue
+                if not reliability.is_retryable(status):  # 2xx or a client 4xx — done
+                    metrics.observe_upstream(name, time.perf_counter() - started)
+                    breaker.record(name, True)
+                    return name, status, content, ctype
+                last_error = f"upstream returned {status}"  # 429/5xx — retry/fall back
+                metrics.observe_upstream_error(name)
+                if attempt < gw.retries:
+                    await asyncio.sleep(delays[attempt])
+            breaker.record(name, False)  # every attempt on this target failed
+            logger.warning("request %s: target '%s' exhausted (%s)", request_id, name, last_error)
+        body_json = json.dumps(
+            {"error": {"message": last_error, "type": "wayfinder_router_upstream_error"}}
+        ).encode()
+        return None, 502, body_json, "application/json"
+
     def _missing_keys(gw: GatewayConfig) -> list[str]:
         return sorted(
             name
@@ -1386,15 +1494,32 @@ def build_app(
                 },
                 headers=wf_headers,
             )
-        headers = {"Content-Type": "application/json"}
-        if target.api_key_env:
-            key = os.environ.get(target.api_key_env)
-            if key:
-                headers["Authorization"] = f"Bearer {key}"
-        forward_body = {**body, "model": target.model}
-        url = target.base_url.rstrip("/") + "/chat/completions"
+        # Delivery plan: the chosen tier's endpoint, then its same-tier fallbacks, minus any
+        # whose breaker is open (WF-ADR-0031). The scored decision is unchanged either way.
+        plan = reliability.delivery_plan(chosen, target.fallbacks, breaker)
+        if not plan:  # chosen and every fallback are tripped and still cooling down
+            logger.warning("request %s: all upstreams for '%s' are cooling down", request_id, chosen)
+            return JSONResponse(
+                status_code=503,
+                content={"error": {
+                    "message": f"all upstreams for '{chosen}' are unavailable (circuit open)",
+                    "type": "wayfinder_router_circuit_open",
+                }},
+                headers=wf_headers,
+            )
+
+        def _served_headers(served: str) -> dict[str, str]:
+            out = {**wf_headers, "x-wayfinder-router-served-by": served}
+            if served != chosen:
+                out["x-wayfinder-router-failover"] = "true"
+            return out
 
         if body.get("stream") is True:
+            served = plan[0]  # breaker-aware target; streaming attempts once (WF-ADR-0031)
+            smodel = gw.models[served]
+            headers = _auth_headers(smodel)
+            forward_body = {**body, "model": smodel.model}
+            url = smodel.base_url.rstrip("/") + "/chat/completions"
 
             async def sse() -> AsyncIterator[bytes]:
                 upstream_started = time.perf_counter()
@@ -1403,15 +1528,17 @@ def build_app(
                     async for chunk in aforward_stream(url, headers, forward_body, request_timeout):
                         yield chunk
                         streamed.append(chunk.decode("utf-8", "ignore"))
-                    metrics.observe_upstream(chosen, time.perf_counter() - upstream_started)
+                    metrics.observe_upstream(served, time.perf_counter() - upstream_started)
+                    breaker.record(served, True)
                     # No upstream `usage` over SSE by default, so estimate from the streamed text.
                     completion_text = "".join(parse_sse_deltas("".join(streamed).splitlines()))
-                    _record_turn(entry, chosen, decision, gw, None, prompt_all, completion_text)
+                    _record_turn(entry, served, decision, gw, None, prompt_all, completion_text)
                     if debug:
                         meta = json.dumps(_explain_payload())
                         yield f"event: wayfinder\ndata: {meta}\n\n".encode()
                 except UpstreamError as exc:
-                    metrics.observe_upstream_error(chosen)
+                    metrics.observe_upstream_error(served)
+                    breaker.record(served, False)
                     logger.warning("request %s upstream stream error: %s", request_id, exc)
                     err = json.dumps(
                         {"error": {"message": str(exc), "type": "wayfinder_router_upstream_error"}}
@@ -1419,38 +1546,32 @@ def build_app(
                     yield f"data: {err}\n\n".encode()
                     yield b"data: [DONE]\n\n"
 
-            return StreamingResponse(sse(), media_type="text/event-stream", headers=wf_headers)
+            return StreamingResponse(
+                sse(), media_type="text/event-stream", headers=_served_headers(served)
+            )
 
-        upstream_started = time.perf_counter()
-        try:
-            status, content, content_type = await aforward_request(
-                url, headers, forward_body, request_timeout
+        served_by, status, content, content_type = await _deliver(plan, gw, body, request_id)
+        if served_by is None:  # every endpoint failed
+            return Response(
+                content=content, status_code=status, media_type=content_type, headers=wf_headers
             )
-        except UpstreamError as exc:
-            metrics.observe_upstream_error(chosen)
-            logger.warning("request %s upstream error: %s", request_id, exc)
-            return JSONResponse(
-                status_code=502,
-                content={"error": {"message": str(exc), "type": "wayfinder_router_upstream_error"}},
-                headers=wf_headers,
-            )
-        metrics.observe_upstream(chosen, time.perf_counter() - upstream_started)
         response_obj: object = None
         if content and "json" in content_type:
             try:
                 response_obj = json.loads(content)
             except json.JSONDecodeError:
                 response_obj = None
-        if status < 400:  # record realized cost & savings (exact from `usage`, else estimated)
+        if status < 400:  # record realized cost & savings, attributed to the target that served
             _record_turn(
-                entry, chosen, decision, gw, response_obj,
+                entry, served_by, decision, gw, response_obj,
                 prompt_all, _first_choice_text(response_obj),
             )
         if debug and isinstance(response_obj, dict):
             response_obj["wayfinder"] = _explain_payload()
             content = json.dumps(response_obj).encode()
         return Response(
-            content=content, status_code=status, media_type=content_type, headers=wf_headers
+            content=content, status_code=status, media_type=content_type,
+            headers=_served_headers(served_by),
         )
 
     return app

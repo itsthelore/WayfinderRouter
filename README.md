@@ -538,6 +538,8 @@ and reload failures are logged. The knobs:
 | `GET /router` | read-only dashboard of recent decisions, with `X-Wayfinder-Debug: true` surfacing one in the body |
 | `GET /v1/savings?period=today\|7d\|30d\|all` | realized vs always-frontier cost and the savings between them, per route (WF-DESIGN-0007) |
 | `WAYFINDER_ROUTER_SAVINGS_FILE` | where the savings ledger is persisted (default `<config-dir>/wayfinder-savings.json`) |
+| `[gateway] retries` / `breaker_threshold` / `breaker_cooldown` | reliability: bounded retries on transport/`429`/`5xx`, and a per-target circuit breaker (WF-ADR-0031) |
+| `[gateway.models.<name>] fallbacks = [...]` | same-tier endpoints to try if this one keeps failing; responses carry `x-wayfinder-router-served-by` |
 
 ## Explain and tune
 
