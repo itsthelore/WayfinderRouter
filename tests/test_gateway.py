@@ -354,7 +354,9 @@ def test_router_recent_tracks_decisions_without_prompt_text(client):
     assert body["by_model"] == {"local": 1, "cloud": 1}
     # Most-recent-first; metadata only, never the prompt text.
     first = body["recent"][0]
-    assert set(first) == {"request_id", "model", "score", "mode", "ts"}
+    assert set(first) == {"request_id", "model", "score", "mode", "ts", "cost"}
+    # The cost block is dollars + token counts only — still no prompt text (WF-DESIGN-0007/0008).
+    assert set(first["cost"]) == {"realized", "baseline", "saved", "tokens", "unit", "estimated"}
     assert first["model"] == "cloud"
     assert "a secret prompt body" not in test_client.get("/router/recent").text
 
@@ -366,6 +368,76 @@ def test_router_dashboard_serves_self_contained_html(client):
     assert resp.headers["content-type"].startswith("text/html")
     assert "Wayfinder routing" in resp.text
     assert "/router/recent" in resp.text  # the page polls the JSON endpoint
+
+
+# --- savings & cost accounting (WF-DESIGN-0007 / 0008) -----------------------
+_PRICED_CONFIG = (
+    "[routing]\nthreshold = 0.2\n\n"
+    "[gateway.models.local]\n"
+    'base_url = "http://localhost:11434/v1"\n'
+    'model = "llama3.2"\n'
+    "cost_per_1k = 0.0\n\n"
+    "[gateway.models.cloud]\n"
+    'base_url = "https://api.example.com/v1"\n'
+    'model = "big-model"\n'
+    'api_key_env = "EXAMPLE_API_KEY"\n'
+    "cost_per_1k = 0.01\n"
+)
+
+
+def test_savings_endpoint_reports_route_mix(client):
+    test_client, _ = client
+    test_client.post("/v1/chat/completions", json=TRIVIAL)  # -> local
+    test_client.post("/v1/chat/completions", json=COMPLEX)  # -> cloud
+    rep = test_client.get("/v1/savings").json()
+    assert rep["requests"] == 2
+    assert set(rep["by_route"]) == {"local", "cloud"}
+    assert rep["unit"] == "relative" and rep["priced"] is False  # no cost_per_1k in CONFIG
+    assert rep["saved"] >= 0
+    assert "price_table_version" in rep
+    assert test_client.get("/savings").json()["requests"] == 2  # path tolerance (no /v1)
+
+
+def test_savings_priced_uses_exact_usage(tmp_path, monkeypatch):
+    (tmp_path / "wayfinder-router.toml").write_text(_PRICED_CONFIG, encoding="utf-8")
+
+    async def fake(url, headers, json_body, timeout=60.0):
+        body = b'{"object":"chat.completion","usage":{"prompt_tokens":1000,"completion_tokens":0}}'
+        return 200, body, "application/json"
+
+    monkeypatch.setattr(gateway, "aforward_request", fake)
+    tc = TestClient(gateway.build_app(start_dir=str(tmp_path)))
+    tc.post("/v1/chat/completions", json=TRIVIAL)  # local, 1000 prompt tokens from usage
+    rep = tc.get("/v1/savings").json()
+    assert rep["priced"] is True and rep["unit"] == "usd"
+    assert rep["requests"] == 1 and rep["estimated_requests"] == 0  # exact, not estimated
+    assert rep["realized"] == 0.0  # local is free
+    assert rep["baseline"] == 0.01  # always-frontier (cloud) for 1000 tokens
+    assert rep["saved"] == 0.01
+
+
+def test_metrics_expose_cost_counters(client):
+    test_client, _ = client
+    test_client.post("/v1/chat/completions", json=TRIVIAL)
+    text = test_client.get("/metrics").text
+    assert "wayfinder_router_realized_cost_total" in text
+    assert "wayfinder_router_baseline_cost_total" in text
+    assert "wayfinder_router_savings_cost_total" in text
+
+
+def test_savings_persisted_and_reloaded(tmp_path, monkeypatch):
+    (tmp_path / "wayfinder-router.toml").write_text(_PRICED_CONFIG, encoding="utf-8")
+
+    async def fake(url, headers, json_body, timeout=60.0):
+        return 200, b'{"usage":{"prompt_tokens":1000,"completion_tokens":0}}', "application/json"
+
+    monkeypatch.setattr(gateway, "aforward_request", fake)
+    tc = TestClient(gateway.build_app(start_dir=str(tmp_path)))
+    tc.post("/v1/chat/completions", json=TRIVIAL)
+    assert (tmp_path / "wayfinder-savings.json").exists()  # persisted best-effort
+    # A fresh gateway at the same dir loads the prior ledger.
+    tc2 = TestClient(gateway.build_app(start_dir=str(tmp_path)))
+    assert tc2.get("/v1/savings").json()["requests"] == 1
 
 
 def test_debug_header_injects_the_decision_into_the_response_body(client):

@@ -536,6 +536,8 @@ and reload failures are logged. The knobs:
 | `serve --dry-run` | return routing decisions without calling any upstream |
 | `GET /healthz` | reports `degraded` and lists `missing_keys` when a configured `api_key_env` is unset |
 | `GET /router` | read-only dashboard of recent decisions, with `X-Wayfinder-Debug: true` surfacing one in the body |
+| `GET /v1/savings?period=today\|7d\|30d\|all` | realized vs always-frontier cost and the savings between them, per route (WF-DESIGN-0007) |
+| `WAYFINDER_ROUTER_SAVINGS_FILE` | where the savings ledger is persisted (default `<config-dir>/wayfinder-savings.json`) |
 
 ## Explain and tune
 

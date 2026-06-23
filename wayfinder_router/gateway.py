@@ -94,6 +94,7 @@ from .config import (
 )
 from .feedback import DEFAULT_LOG, record_label
 from .profiles import PROFILES
+from . import pricing
 
 if TYPE_CHECKING:  # type-only; the runtime imports these lazily inside build_app
     from fastapi import FastAPI, Response
@@ -103,6 +104,8 @@ logger = logging.getLogger("wayfinder_router.gateway")
 _INSTALL_HINT = "the gateway needs its extra: pip install 'wayfinder-router[gateway]'"
 _TIMEOUT_ENV = "WAYFINDER_ROUTER_TIMEOUT"
 _FEEDBACK_TOKEN_ENV = "WAYFINDER_ROUTER_FEEDBACK_TOKEN"
+_SAVINGS_FILE_ENV = "WAYFINDER_ROUTER_SAVINGS_FILE"  # persist the savings ledger here (WF-DESIGN-0007)
+_SAVINGS_SAVE_INTERVAL = 5.0  # seconds; debounce best-effort disk snapshots
 _DEFAULT_TIMEOUT = 60.0
 _RECENT_MAX = 200  # routing decisions kept in memory for the /router view (metadata only)
 
@@ -202,10 +205,17 @@ class Metrics:
         self.decision = _new_hist(_DECISION_BUCKETS)
         self.upstream: dict[str, dict] = {}  # model -> histogram
         self.model_costs: dict[str, float] = {}  # model -> cost_per_1k (WF-ADR-0017)
+        self.realized_cost = 0.0  # cumulative realized spend (WF-DESIGN-0007)
+        self.baseline_cost = 0.0  # cumulative always-frontier counterfactual
 
     def set_model_costs(self, costs: dict[str, float]) -> None:
         """Record per-model cost metadata to surface as a gauge (informational)."""
         self.model_costs = dict(costs)
+
+    def observe_cost(self, realized: float, baseline: float) -> None:
+        """Accumulate realized spend and the always-frontier baseline (WF-DESIGN-0007)."""
+        self.realized_cost = round(self.realized_cost + realized, 6)
+        self.baseline_cost = round(self.baseline_cost + baseline, 6)
 
     def observe_decision(self, model: str, mode: str, seconds: float) -> None:
         key = (model, mode)
@@ -262,6 +272,27 @@ class Metrics:
                 lines.append(
                     f'wayfinder_router_model_cost_per_1k{{model="{_label_escape(model)}"}} {cost:g}'
                 )
+
+        lines.append(
+            "# HELP wayfinder_router_realized_cost_total Cumulative realized spend on the chosen "
+            "tier (USD, or relative units when no cost_per_1k is configured; WF-DESIGN-0007)."
+        )
+        lines.append("# TYPE wayfinder_router_realized_cost_total counter")
+        lines.append(f"wayfinder_router_realized_cost_total {self.realized_cost:g}")
+        lines.append(
+            "# HELP wayfinder_router_baseline_cost_total Cumulative cost had every request gone to "
+            "the dearest tier (the always-frontier counterfactual)."
+        )
+        lines.append("# TYPE wayfinder_router_baseline_cost_total counter")
+        lines.append(f"wayfinder_router_baseline_cost_total {self.baseline_cost:g}")
+        lines.append(
+            "# HELP wayfinder_router_savings_cost_total Cumulative savings vs always-frontier "
+            "(baseline minus realized)."
+        )
+        lines.append("# TYPE wayfinder_router_savings_cost_total counter")
+        lines.append(
+            f"wayfinder_router_savings_cost_total {round(self.baseline_cost - self.realized_cost, 6):g}"
+        )
 
         lines.append(
             "# HELP wayfinder_router_decision_latency_seconds "
@@ -841,6 +872,17 @@ def parse_sse_deltas(lines: Iterable[str]) -> Iterator[str]:
             yield str(delta)
 
 
+def _first_choice_text(response: object) -> str:
+    """The assistant text of a non-streaming chat completion, or "" — for token estimates."""
+    if isinstance(response, dict):
+        choices = response.get("choices")
+        if isinstance(choices, list) and choices and isinstance(choices[0], dict):
+            message = choices[0].get("message")
+            if isinstance(message, dict) and isinstance(message.get("content"), str):
+                return message["content"]
+    return ""
+
+
 def stream_messages(
     model: GatewayModel, messages: list[dict], timeout: float = _DEFAULT_TIMEOUT
 ) -> Iterator[str]:
@@ -952,6 +994,49 @@ def build_app(
     request_timeout = timeout if timeout is not None else _resolve_timeout()
     feedback_token = os.environ.get(_FEEDBACK_TOKEN_ENV)
     recent: deque[dict] = deque(maxlen=_RECENT_MAX)  # decision metadata only, no prompt text
+
+    # Savings ledger (WF-DESIGN-0007): per-day realized/baseline/savings from routing
+    # decisions x a price table. Persisted best-effort so the report survives restarts.
+    savings_path = os.environ.get(_SAVINGS_FILE_ENV) or str(Path(start_dir) / "wayfinder-savings.json")
+    try:
+        ledger = pricing.SavingsLedger.load(savings_path)
+    except (OSError, ValueError):
+        ledger = pricing.SavingsLedger()
+    _last_save = [0.0]  # debounce cell for disk snapshots
+
+    def _persist_savings() -> None:
+        now = time.time()
+        if now - _last_save[0] < _SAVINGS_SAVE_INTERVAL:
+            return
+        _last_save[0] = now
+        try:
+            ledger.save(savings_path)
+        except OSError as exc:  # best-effort; never break a request
+            logger.warning("could not persist savings ledger to %s: %s", savings_path, exc)
+
+    def _record_turn(
+        entry: dict, chosen: str, decision: object, gw: GatewayConfig,
+        response: object, prompt_text: str, completion_text: str,
+    ) -> None:
+        """Cost the turn from token usage x the price table; record it (no model call)."""
+        model_costs = {n: m.cost_per_1k for n, m in gw.models.items()}
+        tiers = getattr(decision, "tiers", None) or ()
+        ladder = [t.model for t in tiers] or list(gw.models)
+        costs, priced = pricing.price_table(model_costs, ladder)
+        ledger.priced = priced
+        pt, ct, estimated = pricing.usage_tokens(
+            response, prompt_text=prompt_text, completion_text=completion_text
+        )
+        tc = pricing.turn_cost(chosen, pt, ct, costs, estimated=estimated)
+        ledger.record(tc)
+        metrics.observe_cost(tc.realized, tc.baseline)
+        entry["cost"] = {  # metadata only — dollars and token counts, never prompt text
+            "realized": tc.realized, "baseline": tc.baseline, "saved": tc.savings,
+            "tokens": tc.prompt_tokens + tc.completion_tokens,
+            "unit": "usd" if priced else "relative", "estimated": estimated,
+        }
+        _persist_savings()
+
     app = FastAPI(title="wayfinder-router-gateway")
 
     # Startup diagnostics: surface the misconfigurations that otherwise only show up
@@ -1030,6 +1115,26 @@ def build_app(
                 for mid in ids
             ],
         }
+
+    @app.get("/v1/savings")
+    @app.get("/savings")  # path tolerance, like /v1/models
+    def savings_report(period: str = "all") -> dict:
+        """Per-period realized / baseline / savings from routing decisions (WF-DESIGN-0007).
+
+        A pure read of the in-memory ledger — token counts x a price table, metadata only,
+        no prompt text, no model call. ``period`` is ``today`` | ``7d`` | ``30d`` | ``all``.
+        ``saved`` is "vs always-frontier"; figures are dollars when ``cost_per_1k`` is
+        configured (``priced: true``), else relative units. ``price_table_version`` pins the
+        current prices so a number is auditable.
+        """
+        days = {"today": 1, "7d": 7, "30d": 30, "all": None}.get(period, None)
+        report = ledger.period(days=days)
+        routing, gw = holder.current()
+        model_costs = {n: m.cost_per_1k for n, m in gw.models.items()}
+        ladder = [t.model for t in (routing.tiers or ())] or list(gw.models)
+        costs, _ = pricing.price_table(model_costs, ladder)
+        report["price_table_version"] = pricing.table_version(costs)
+        return report
 
     @app.get("/router/recent")
     def router_recent(limit: int = 50) -> dict:
@@ -1189,15 +1294,16 @@ def build_app(
         logger.info(
             "request %s -> %s (score %.2f, mode %s)", request_id, chosen, decision.score, mode
         )
-        recent.append(
-            {
-                "request_id": request_id,
-                "model": chosen,
-                "score": round(decision.score, 2),
-                "mode": mode,
-                "ts": time.time(),
-            }
-        )
+        entry = {  # mutable: cost fields (metadata only) are filled in after the upstream replies
+            "request_id": request_id,
+            "model": chosen,
+            "score": round(decision.score, 2),
+            "mode": mode,
+            "ts": time.time(),
+        }
+        recent.append(entry)
+        # Full prompt text, used only as a token-count fallback when the upstream omits `usage`.
+        prompt_all = extract_prompt(messages, route_on="all")
         metrics.observe_decision(chosen, mode, decision_seconds)
         # Opt-in: surface the decision in the response so a client can show it
         # (default stays byte-clean for strict clients). The headers always carry it.
@@ -1292,10 +1398,15 @@ def build_app(
 
             async def sse() -> AsyncIterator[bytes]:
                 upstream_started = time.perf_counter()
+                streamed: list[str] = []  # decoded chunks, to estimate completion tokens
                 try:
                     async for chunk in aforward_stream(url, headers, forward_body, request_timeout):
                         yield chunk
+                        streamed.append(chunk.decode("utf-8", "ignore"))
                     metrics.observe_upstream(chosen, time.perf_counter() - upstream_started)
+                    # No upstream `usage` over SSE by default, so estimate from the streamed text.
+                    completion_text = "".join(parse_sse_deltas("".join(streamed).splitlines()))
+                    _record_turn(entry, chosen, decision, gw, None, prompt_all, completion_text)
                     if debug:
                         meta = json.dumps(_explain_payload())
                         yield f"event: wayfinder\ndata: {meta}\n\n".encode()
@@ -1324,14 +1435,20 @@ def build_app(
                 headers=wf_headers,
             )
         metrics.observe_upstream(chosen, time.perf_counter() - upstream_started)
-        if debug and content and "json" in content_type:
+        response_obj: object = None
+        if content and "json" in content_type:
             try:
-                data = json.loads(content)
+                response_obj = json.loads(content)
             except json.JSONDecodeError:
-                data = None
-            if isinstance(data, dict):
-                data["wayfinder"] = _explain_payload()
-                content = json.dumps(data).encode()
+                response_obj = None
+        if status < 400:  # record realized cost & savings (exact from `usage`, else estimated)
+            _record_turn(
+                entry, chosen, decision, gw, response_obj,
+                prompt_all, _first_choice_text(response_obj),
+            )
+        if debug and isinstance(response_obj, dict):
+            response_obj["wayfinder"] = _explain_payload()
+            content = json.dumps(response_obj).encode()
         return Response(
             content=content, status_code=status, media_type=content_type, headers=wf_headers
         )

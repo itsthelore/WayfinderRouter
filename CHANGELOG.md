@@ -4,6 +4,24 @@ User-visible changes to Wayfinder, by release. Follows the spirit of
 [Keep a Changelog](https://keepachangelog.com/): user impact over implementation
 details, release history over commit history.
 
+## Unreleased
+
+### Added
+
+- **Savings report on the gateway** (WF-DESIGN-0007). `GET /v1/savings?period=today|7d|30d|all`
+  returns realized vs always-frontier cost and the savings between them, with a per-route
+  breakdown — computed deterministically from token counts (the upstream `usage` when present,
+  else a labelled estimate) times your `cost_per_1k` price table; no model call. Figures are
+  dollars when costs are configured (`priced: true`), else relative units. The report is
+  persisted (best-effort, survives restarts) and pins a `price_table_version` so a number is
+  auditable. `/metrics` gains `wayfinder_router_realized_cost_total`,
+  `…_baseline_cost_total`, and `…_savings_cost_total`, and the `/router` decision feed now
+  carries per-request cost metadata (dollars + token counts only — never prompt text).
+- **Gateway path tolerance** (WF-DESIGN-0009). `/chat/completions` and `/models` now also
+  answer without the `/v1` prefix, so a client whose `base_url` omits `/v1` still routes. New
+  **[Integration recipes](docs/integrations.md)** cover chat UIs, editors, agent frameworks,
+  and CLIs.
+
 ## v2026.6.4 — 2026-06-23
 
 More providers, safer keys. A one-command Google Gemini preset joins the `init`
