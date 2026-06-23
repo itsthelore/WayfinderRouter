@@ -512,6 +512,17 @@ See **[Integration recipes](docs/integrations.md)** for copy-paste setup across 
 (LangChain, LlamaIndex, CrewAI, AutoGen, the OpenAI Agents SDK, the Vercel AI SDK), and
 CLIs (aider, Copilot CLI) — plus the canonical `OPENAI_BASE_URL` / `OPENAI_API_KEY` pair.
 
+**Claude Code** speaks Anthropic's Messages API rather than OpenAI's, so the gateway exposes a
+`POST /v1/messages` adapter (WF-DESIGN-0011) that translates Anthropic ⇄ OpenAI in both
+directions — streaming and tool use included. Point it at the gateway root and Claude Code
+routes through Wayfinder like any other client:
+
+```bash
+export ANTHROPIC_BASE_URL="http://localhost:8088"   # client appends /v1/messages
+export ANTHROPIC_API_KEY="unused"                   # the gateway uses each upstream's own key
+claude
+```
+
 Wire feedback from wherever your users are. Your app, IDE, or chat shows a
 thumbs-up or thumbs-down and posts the judgment; the next recalibration learns from
 it:
