@@ -4,7 +4,12 @@ User-visible changes to Wayfinder, by release. Follows the spirit of
 [Keep a Changelog](https://keepachangelog.com/): user impact over implementation
 details, release history over commit history.
 
-## Unreleased
+## v2026.6.4 — 2026-06-23
+
+More providers, safer keys. A one-command Google Gemini preset joins the `init`
+lineup, and model keys can now be filled from your secret store at startup instead
+of exporting raw secrets — keys are still read at request time and never written to
+disk.
 
 ### Added
 
