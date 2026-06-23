@@ -72,6 +72,24 @@ def test_trivial_prompt_routes_to_local_upstream(client, monkeypatch):
     assert "Authorization" not in captured["headers"]
 
 
+def test_path_tolerance_chat_completions_without_v1_prefix(client):
+    # A client whose base_url omits the /v1 prefix calls /chat/completions; route it anyway.
+    test_client, captured = client
+    resp = test_client.post("/chat/completions", json=TRIVIAL)
+    assert resp.status_code == 200
+    assert resp.headers["x-wayfinder-router-model"] == "local"
+    assert captured["url"] == "http://localhost:11434/v1/chat/completions"
+
+
+def test_path_tolerance_models_without_v1_prefix(client):
+    # /models (no /v1) returns the same OpenAI-compatible list as /v1/models.
+    test_client, _ = client
+    v1 = test_client.get("/v1/models").json()
+    bare = test_client.get("/models").json()
+    assert bare == v1
+    assert {m["id"] for m in bare["data"]} >= {"auto", "local", "cloud"}
+
+
 def test_complex_prompt_routes_to_cloud_with_byo_key(client, monkeypatch):
     test_client, captured = client
     monkeypatch.setenv("EXAMPLE_API_KEY", "sekret")
