@@ -140,9 +140,23 @@ export COPILOT_PROVIDER_API_KEY="unused"
 export COPILOT_MODEL="auto"
 ```
 
-> **Claude Code caveat.** Claude Code speaks Anthropic's Messages API, not OpenAI Chat
-> Completions, so `ANTHROPIC_BASE_URL` can't point at this gateway directly. A first-class
-> `/v1/messages` (Anthropic-format) adapter is planned — see WF-ROADMAP-0006.
+**Claude Code** — Claude Code speaks Anthropic's Messages API, so it can't use the OpenAI
+`base_url` rule above. Instead the gateway exposes a first-class `POST /v1/messages` adapter
+(WF-DESIGN-0011) that translates Anthropic ⇄ OpenAI in both directions, including streaming
+and tool use. Point `ANTHROPIC_BASE_URL` at the gateway *root* (no `/v1` suffix — the client
+appends `/v1/messages`):
+
+```bash
+export ANTHROPIC_BASE_URL="http://localhost:8088"
+export ANTHROPIC_API_KEY="unused"   # the gateway uses each upstream's own configured key
+claude
+```
+
+Wayfinder scores each turn and routes it to the configured tier; the inbound Claude model id
+is ignored in favour of the routing decision (send a configured endpoint name to pin). The
+same `x-wayfinder-router-*` decision headers and budget/failover behaviour apply as on the
+OpenAI endpoint — it is the one router (WF-ADR-0001). Image/vision blocks and extended
+thinking are not translated yet (WF-DESIGN-0011).
 
 ---
 
