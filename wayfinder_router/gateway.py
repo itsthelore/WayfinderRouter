@@ -334,6 +334,7 @@ class GatewayModel:
     api_key_cmd: str | None = None  # command that fills api_key_env when unset (WF-DESIGN-0006)
     cost_per_1k: float | None = None  # optional cost metadata (WF-ADR-0017), informational
     fallbacks: tuple[str, ...] = ()  # same-tier endpoints to try if this one fails (WF-ADR-0031)
+    context_window: int | None = None  # optional token limit for the pre-call check (WF-ADR-0031)
 
 
 @dataclass(frozen=True)
@@ -353,10 +354,12 @@ class GatewayConfig:
     sticky: bool = False
     sticky_cooldown: int = 0
     # Reliability (WF-ADR-0031): bounded retries on transport/429/5xx, and a per-target
-    # circuit breaker. Failover across tiers is Phase 2; same-tier fallbacks are per-model.
+    # circuit breaker. ``failover`` governs crossing tiers on exhaustion — "same-tier"
+    # (default), "degrade" (cheaper), or "escalate" (dearer); same-tier fallbacks are per-model.
     retries: int = 2
     breaker_threshold: int = 5
     breaker_cooldown: float = 30.0
+    failover: str = "same-tier"
 
 
 # Which chat-message text the router scores. The deterministic core scores
@@ -408,6 +411,11 @@ def gateway_config_from_toml(text: str, where: str = "wayfinder-router.toml") ->
     breaker_cooldown = gateway.get("breaker_cooldown", 30.0)
     if isinstance(breaker_cooldown, bool) or not isinstance(breaker_cooldown, (int, float)) or breaker_cooldown < 0:
         raise WayfinderConfigError(f"{where}: 'gateway.breaker_cooldown' must be a non-negative number")
+    failover = gateway.get("failover", "same-tier")
+    if failover not in reliability.FAILOVER_POLICIES:
+        raise WayfinderConfigError(
+            f"{where}: 'gateway.failover' must be one of {', '.join(reliability.FAILOVER_POLICIES)}"
+        )
     raw_models = gateway.get("models") or {}
     if not isinstance(raw_models, dict):
         raise WayfinderConfigError(f"{where}: '[gateway.models]' must be a table")
@@ -455,6 +463,14 @@ def gateway_config_from_toml(text: str, where: str = "wayfinder-router.toml") ->
             raise WayfinderConfigError(
                 f"{where}: 'gateway.models.{name}.fallbacks' must be a list of model names"
             )
+        context_window = entry.get("context_window")
+        if context_window is not None and (
+            isinstance(context_window, bool) or not isinstance(context_window, int)
+            or context_window < 1
+        ):
+            raise WayfinderConfigError(
+                f"{where}: 'gateway.models.{name}.context_window' must be a positive integer"
+            )
         models[name] = GatewayModel(
             base_url=base_url,
             model=model,
@@ -462,6 +478,7 @@ def gateway_config_from_toml(text: str, where: str = "wayfinder-router.toml") ->
             api_key_cmd=api_key_cmd,
             cost_per_1k=float(cost_per_1k) if cost_per_1k is not None else None,
             fallbacks=tuple(raw_fallbacks),
+            context_window=context_window,
         )
     for name, gm in models.items():  # fallbacks must name other configured models
         for fb in gm.fallbacks:
@@ -476,6 +493,7 @@ def gateway_config_from_toml(text: str, where: str = "wayfinder-router.toml") ->
     return GatewayConfig(
         models=models, route_on=route_on, sticky=sticky, sticky_cooldown=cooldown,
         retries=retries, breaker_threshold=breaker_threshold, breaker_cooldown=breaker_cooldown,
+        failover=failover,
     )
 
 
@@ -490,6 +508,7 @@ def dump_gateway_toml(gateway: GatewayConfig) -> str:
     nondefault_gateway = (
         gateway.route_on != "turn" or gateway.sticky or gateway.sticky_cooldown
         or gateway.retries != 2 or gateway.breaker_threshold != 5 or gateway.breaker_cooldown != 30.0
+        or gateway.failover != "same-tier"
     )
     if nondefault_gateway:
         lines = ["[gateway]"]
@@ -505,6 +524,8 @@ def dump_gateway_toml(gateway: GatewayConfig) -> str:
             lines.append(f"breaker_threshold = {gateway.breaker_threshold}")
         if gateway.breaker_cooldown != 30.0:
             lines.append(f"breaker_cooldown = {round(gateway.breaker_cooldown, 6)!r}")
+        if gateway.failover != "same-tier":
+            lines.append(f'failover = "{gateway.failover}"')
         blocks.append("\n".join(lines))
     for name, model in gateway.models.items():
         lines = [
@@ -521,6 +542,8 @@ def dump_gateway_toml(gateway: GatewayConfig) -> str:
         if model.fallbacks:
             rendered = ", ".join(f'"{f}"' for f in model.fallbacks)
             lines.append(f"fallbacks = [{rendered}]")
+        if model.context_window is not None:
+            lines.append(f"context_window = {model.context_window}")
         blocks.append("\n".join(lines))
     return "\n\n".join(blocks)
 
@@ -1337,6 +1360,7 @@ def build_app(
         x_wayfinder_sticky: str | None = Header(default=None),
         x_wayfinder_sticky_cooldown: str | None = Header(default=None),
         x_wayfinder_debug: str | None = Header(default=None),
+        x_wayfinder_failover: str | None = Header(default=None),
     ) -> Response:
         request_id = uuid.uuid4().hex[:12]
         routing, gw = holder.current()
@@ -1494,15 +1518,29 @@ def build_app(
                 },
                 headers=wf_headers,
             )
-        # Delivery plan: the chosen tier's endpoint, then its same-tier fallbacks, minus any
-        # whose breaker is open (WF-ADR-0031). The scored decision is unchanged either way.
-        plan = reliability.delivery_plan(chosen, target.fallbacks, breaker)
-        if not plan:  # chosen and every fallback are tripped and still cooling down
-            logger.warning("request %s: all upstreams for '%s' are cooling down", request_id, chosen)
+        # Delivery plan (WF-ADR-0031): the chosen tier's endpoint, its same-tier fallbacks,
+        # then cross-tier candidates per the failover policy — minus any whose breaker is
+        # open or that fail the pre-call check. The scored decision is unchanged either way.
+        policy = (
+            x_wayfinder_failover
+            if x_wayfinder_failover in reliability.FAILOVER_POLICIES
+            else gw.failover
+        )
+        ladder = [t.model for t in sorted(decision.tiers or (), key=lambda t: t.min_score)]
+        candidates = [*target.fallbacks, *reliability.failover_candidates(chosen, ladder, policy)]
+        prompt_estimate = pricing.estimate_tokens(prompt_all)
+
+        def _precall_ok(name: str) -> bool:  # skip a target whose window can't fit the prompt
+            model = gw.models.get(name)
+            return model is None or reliability.precheck_ok(prompt_estimate, model.context_window)
+
+        plan = reliability.delivery_plan(chosen, candidates, breaker, allow=_precall_ok)
+        if not plan:  # chosen and every fallback are tripped, cooling down, or too small
+            logger.warning("request %s: no available upstream for '%s'", request_id, chosen)
             return JSONResponse(
                 status_code=503,
                 content={"error": {
-                    "message": f"all upstreams for '{chosen}' are unavailable (circuit open)",
+                    "message": f"no available upstream for '{chosen}' (cooling down or context too small)",
                     "type": "wayfinder_router_circuit_open",
                 }},
                 headers=wf_headers,

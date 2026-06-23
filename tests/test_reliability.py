@@ -80,3 +80,34 @@ def test_delivery_plan_empty_when_all_open():
     cb.record("cloud", False)
     cb.record("cloud-2", False)
     assert reliability.delivery_plan("cloud", ["cloud-2"], cb) == []  # caller fails fast
+
+
+def test_delivery_plan_applies_precall_allow_predicate():
+    # `allow` rejects "cloud" (e.g. context too small); it's dropped from the plan.
+    plan = reliability.delivery_plan(
+        "cloud", ["cloud-2"], allow=lambda name: name != "cloud"
+    )
+    assert plan == ["cloud-2"]
+
+
+def test_failover_candidates_degrade_and_escalate():
+    ladder = ["local", "mid", "cloud"]  # cheapest -> dearest
+    assert reliability.failover_candidates("mid", ladder, "same-tier") == []
+    assert reliability.failover_candidates("mid", ladder, "degrade") == ["local"]
+    assert reliability.failover_candidates("mid", ladder, "escalate") == ["cloud"]
+    # From the cheapest tier: degrade has nowhere to go; escalate walks up, nearest first.
+    assert reliability.failover_candidates("local", ladder, "degrade") == []
+    assert reliability.failover_candidates("local", ladder, "escalate") == ["mid", "cloud"]
+    # From the dearest: escalate has nowhere to go; degrade walks down, nearest first.
+    assert reliability.failover_candidates("cloud", ladder, "degrade") == ["mid", "local"]
+    assert reliability.failover_candidates("cloud", ladder, "escalate") == []
+
+
+def test_failover_candidates_off_ladder_chosen_is_empty():
+    assert reliability.failover_candidates("ghost", ["local", "cloud"], "degrade") == []
+
+
+def test_precheck_ok_respects_context_window():
+    assert reliability.precheck_ok(500, None) is True  # no configured limit
+    assert reliability.precheck_ok(500, 1000) is True
+    assert reliability.precheck_ok(1500, 1000) is False  # would overflow the window

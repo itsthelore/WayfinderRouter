@@ -87,13 +87,17 @@ class CircuitBreaker:
 
 
 def delivery_plan(
-    primary: str, fallbacks: Iterable[str], breaker: CircuitBreaker | None = None
+    primary: str,
+    fallbacks: Iterable[str],
+    breaker: CircuitBreaker | None = None,
+    allow: Callable[[str], bool] | None = None,
 ) -> list[str]:
     """Ordered, de-duplicated targets to try: the primary then its same-tier fallbacks.
 
-    Targets whose breaker is open (still cooling down) are dropped. Order and identity come
-    from config, never from the score (WF-ADR-0031: delivery, not decision). May be empty
-    if every candidate is cooling down — the caller then fails fast.
+    Targets whose breaker is open (still cooling down), or that ``allow`` rejects (a
+    deterministic pre-call check, e.g. context-window fit), are dropped. Order and identity
+    come from config, never from the score (WF-ADR-0031: delivery, not decision). May be
+    empty if every candidate is filtered — the caller then fails fast.
     """
     plan: list[str] = []
     for target in (primary, *fallbacks):
@@ -101,5 +105,39 @@ def delivery_plan(
             continue
         if breaker is not None and not breaker.allow(target):
             continue
+        if allow is not None and not allow(target):
+            continue
         plan.append(target)
     return plan
+
+
+# Cross-tier failover policies (WF-ADR-0031). Default is conservative: stay on the chosen
+# tier (only its configured alternate endpoints), changing neither cost nor answer quality.
+FAILOVER_POLICIES = ("same-tier", "degrade", "escalate")
+
+
+def failover_candidates(chosen: str, ladder: Iterable[str], policy: str) -> list[str]:
+    """Cross-tier targets to try after same-tier endpoints are exhausted, per ``policy``.
+
+    ``ladder`` is the tier model names cheapest→dearest. ``degrade`` walks to cheaper tiers
+    (nearest-cheaper first; never raises cost); ``escalate`` walks to dearer tiers
+    (nearest-dearer first; opt-in, raises cost); ``same-tier`` (and an off-ladder ``chosen``)
+    yields nothing. Identity/order from the ladder, not the score.
+    """
+    seq = list(ladder)
+    if policy not in ("degrade", "escalate") or chosen not in seq:
+        return []
+    idx = seq.index(chosen)
+    if policy == "degrade":
+        return seq[:idx][::-1]  # cheaper tiers, nearest first
+    return seq[idx + 1:]  # escalate: dearer tiers, nearest first
+
+
+def precheck_ok(estimated_tokens: int, context_window: int | None) -> bool:
+    """A deterministic pre-call check: does the estimated prompt fit the target's window?
+
+    ``None`` means no configured limit (always OK). Used to skip a target that would
+    certainly fail on length before spending the call (WF-ADR-0031).
+    """
+    return context_window is None or estimated_tokens <= context_window
+
