@@ -554,8 +554,7 @@ def render_keys(
         grid.add_row(Text(s.name, style=text_c), Text("● ", style=glyph) + status)
 
     items: list[RenderableType] = [grid]
-    seen: set[str] = set()  # dedupe a var shared across tiers, keep first-seen order
-    unset = [v for v in missing if not (v in seen or seen.add(v))]
+    unset = list(dict.fromkeys(missing))  # dedupe a var shared across tiers, keep first-seen order
     if unset:
         items.append(Text("\nto fix — read at request time, never written to disk:", style=muted))
         for var in unset:
