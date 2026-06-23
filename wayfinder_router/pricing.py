@@ -230,6 +230,24 @@ class SavingsLedger:
             b = sum(d["baseline"] for d in self.days.values())
             return {"realized": round(r, 6), "baseline": round(b, 6), "saved": round(b - r, 6)}
 
+    def spent(self, window: str = "day", *, today: date | None = None) -> float:
+        """Realized spend in the current ``window`` — for budget enforcement (WF-ROADMAP-0006).
+
+        ``"day"`` is today's UTC bucket; ``"month"`` is the current calendar month; anything
+        else is all-time. Meaningful only when ``priced`` (else the figures are relative units).
+        """
+        today = today or _utc_today()
+        with self._lock:
+            if window == "day":
+                bucket = self.days.get(today.isoformat())
+                return round(bucket["realized"], 6) if bucket else 0.0
+            if window == "month":
+                prefix = today.isoformat()[:7]  # YYYY-MM
+                return round(
+                    sum(b["realized"] for k, b in self.days.items() if k.startswith(prefix)), 6
+                )
+            return round(sum(b["realized"] for b in self.days.values()), 6)
+
     # --- persistence (best-effort; never raise into the request path) ---------
     def to_dict(self) -> dict:
         with self._lock:

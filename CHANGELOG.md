@@ -4,6 +4,22 @@ User-visible changes to Wayfinder, by release. Follows the spirit of
 [Keep a Changelog](https://keepachangelog.com/): user impact over implementation
 details, release history over commit history.
 
+## Unreleased
+
+### Added
+
+- **Gateway spend budgets** (WF-ADR-0032, WF-ROADMAP-0006). An optional `[gateway.budget]`
+  spend cap that, once the period's realized cost is reached, **degrades to the cheapest tier**
+  rather than hard-failing — the same `degrade` primitive failover uses (WF-ADR-0031), so it
+  keeps you working at lower cost. `limit` is the ceiling, `window` is `day` (default) | `month`
+  | `all`, and `on_breach` is `degrade` (default) or `block` (refuse with HTTP 402,
+  `wayfinder_router_budget_exhausted`). A breach is never silent: the response carries
+  `x-wayfinder-router-budget: degraded` (or `blocked`) and a degrade reports
+  `mode: budget-degraded` with the cheaper tier in `x-wayfinder-router-model` — while the
+  `score` header still shows the true, unchanged complexity score (the cap reshapes routing,
+  never the decision; WF-ADR-0001). Enforced only when real `cost_per_1k` prices are configured
+  (`priced`); a relative-unit demo has no dollars to cap, so the budget is a no-op there.
+
 ## v2026.6.5 — 2026-06-23
 
 The gateway grows up. It now **proves the savings** routing makes (a persisted,

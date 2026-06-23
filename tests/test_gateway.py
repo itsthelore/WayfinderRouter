@@ -1403,3 +1403,123 @@ def test_precall_skips_target_that_cannot_fit_the_prompt(tmp_path, monkeypatch):
     assert resp.status_code == 200
     assert resp.headers["x-wayfinder-router-served-by"] == "local"
     assert all("cloud.test" not in u for u in seen)  # pre-call skipped cloud before any call
+
+
+# --- budgets: a spend cap that degrades to the cheapest tier or blocks (WF-ROADMAP-0006) ---
+def _budget_config(limit, *, window="day", on_breach="degrade", priced=True) -> str:
+    """A two-tier config (local 0.0 / cloud 1.0 per 1k) with a `[gateway.budget]` cap.
+
+    ``priced=False`` drops the cost metadata so the price table falls back to relative
+    units — exercising that a budget is a no-op when there are no real dollars to cap.
+    """
+    cost_local = "cost_per_1k = 0.0\n" if priced else ""
+    cost_cloud = "cost_per_1k = 1.0\n" if priced else ""
+    budget = [f"[gateway.budget]\nlimit = {limit}"]
+    if window != "day":
+        budget.append(f'window = "{window}"')
+    if on_breach != "degrade":
+        budget.append(f'on_breach = "{on_breach}"')
+    return (
+        "\n".join(budget) + "\n\n"
+        "[routing]\nthreshold = 0.2\n\n"
+        "[gateway.models.local]\n"
+        'base_url = "http://local.test/v1"\nmodel = "m-local"\n' + cost_local + "\n"
+        "[gateway.models.cloud]\n"
+        'base_url = "http://cloud.test/v1"\nmodel = "m-cloud"\n' + cost_cloud
+    )
+
+
+def _budget_client(tmp_path, monkeypatch, config):
+    """A client over ``config`` whose upstream always returns 200; counts upstream calls."""
+    (tmp_path / "wayfinder-router.toml").write_text(config, encoding="utf-8")
+    calls = {"n": 0}
+
+    async def fake(url, headers, json_body, timeout=60.0):
+        calls["n"] += 1
+        return 200, b'{"object":"chat.completion"}', "application/json"
+
+    monkeypatch.setattr(gateway, "aforward_request", fake)
+    return TestClient(gateway.build_app(start_dir=str(tmp_path))), calls
+
+
+def test_budget_degrade_routes_complex_to_cheapest_tier_after_breach(tmp_path, monkeypatch):
+    tc, calls = _budget_client(tmp_path, monkeypatch, _budget_config(0.001))
+    first = tc.post("/v1/chat/completions", json=COMPLEX)  # spend starts at 0 -> cloud
+    assert first.status_code == 200
+    assert first.headers["x-wayfinder-router-model"] == "cloud"
+    assert "x-wayfinder-router-budget" not in first.headers
+
+    second = tc.post("/v1/chat/completions", json=COMPLEX)  # now over budget -> degrade to local
+    assert second.status_code == 200
+    assert second.headers["x-wayfinder-router-model"] == "local"  # route overridden
+    assert second.headers["x-wayfinder-router-mode"] == "budget-degraded"
+    assert second.headers["x-wayfinder-router-budget"] == "degraded"
+    assert second.headers["x-wayfinder-router-served-by"] == "local"
+    # The decision (score) is unchanged — it still scores as a cloud-worthy prompt; only the
+    # route the gateway delivers it to changed (WF-ADR-0001).
+    assert float(second.headers["x-wayfinder-router-score"]) >= 0.2
+    assert calls["n"] == 2  # both requests reached an upstream (local is still a real call)
+
+
+def test_budget_block_returns_402_after_breach(tmp_path, monkeypatch):
+    tc, calls = _budget_client(tmp_path, monkeypatch, _budget_config(0.001, on_breach="block"))
+    assert tc.post("/v1/chat/completions", json=COMPLEX).status_code == 200  # under budget
+    blocked = tc.post("/v1/chat/completions", json=COMPLEX)  # over budget -> blocked
+    assert blocked.status_code == 402
+    assert blocked.json()["error"]["type"] == "wayfinder_router_budget_exhausted"
+    assert blocked.headers["x-wayfinder-router-budget"] == "blocked"
+    assert calls["n"] == 1  # the blocked request never reached an upstream
+
+
+def test_under_budget_routes_normally(tmp_path, monkeypatch):
+    tc, _ = _budget_client(tmp_path, monkeypatch, _budget_config(1000.0))
+    for _ in range(3):
+        resp = tc.post("/v1/chat/completions", json=COMPLEX)
+        assert resp.status_code == 200
+        assert resp.headers["x-wayfinder-router-model"] == "cloud"  # never degraded
+        assert resp.headers["x-wayfinder-router-mode"] == "scored"
+        assert "x-wayfinder-router-budget" not in resp.headers
+
+
+def test_budget_is_a_no_op_without_real_prices(tmp_path, monkeypatch):
+    # Relative-unit demo (no cost_per_1k): there are no dollars to cap, so the budget never
+    # fires even though the tiny limit is "exceeded" in relative units.
+    tc, _ = _budget_client(tmp_path, monkeypatch, _budget_config(0.001, priced=False))
+    for _ in range(3):
+        resp = tc.post("/v1/chat/completions", json=COMPLEX)
+        assert resp.status_code == 200
+        assert resp.headers["x-wayfinder-router-model"] == "cloud"
+        assert "x-wayfinder-router-budget" not in resp.headers
+
+
+def test_budget_config_round_trips():
+    gw = gateway.gateway_config_from_toml(_budget_config(2.5, window="month", on_breach="block"))
+    assert gw.budget == gateway.Budget(limit=2.5, window="month", on_breach="block")
+    back = gateway.gateway_config_from_toml(gateway.dump_gateway_toml(gw))
+    assert back.budget == gw.budget
+
+
+def test_budget_config_defaults_round_trip():
+    gw = gateway.gateway_config_from_toml(_budget_config(5))
+    assert gw.budget == gateway.Budget(limit=5.0, window="day", on_breach="degrade")
+    dumped = gateway.dump_gateway_toml(gw)
+    assert "window" not in dumped and "on_breach" not in dumped  # defaults omitted
+    assert gateway.gateway_config_from_toml(dumped).budget == gw.budget
+
+
+@pytest.mark.parametrize(
+    "table",
+    [
+        "[gateway.budget]\nlimit = 0\n",  # not positive
+        "[gateway.budget]\nlimit = -1.0\n",  # negative
+        "[gateway.budget]\nlimit = true\n",  # bool is not a number
+        '[gateway.budget]\nlimit = 1.0\nwindow = "year"\n',  # bad window
+        '[gateway.budget]\nlimit = 1.0\non_breach = "panic"\n',  # bad breach
+        "[gateway.budget]\nwindow = \"day\"\n",  # missing limit
+        "[gateway]\nbudget = 5\n",  # budget must be a table
+    ],
+)
+def test_bad_budget_config_rejected(table):
+    config = table + '\n[gateway.models.local]\nbase_url = "http://x/v1"\nmodel = "m"\n'
+    with pytest.raises(gateway.WayfinderConfigError):
+        gateway.gateway_config_from_toml(config)

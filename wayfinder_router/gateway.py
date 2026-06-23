@@ -338,6 +338,22 @@ class GatewayModel:
 
 
 @dataclass(frozen=True)
+class Budget:
+    """A spend cap on the savings ledger's realized cost (WF-ROADMAP-0006).
+
+    On breach the gateway either **degrades** to the cheapest tier — the failover
+    ``degrade`` primitive (WF-ADR-0031), which never raises cost — or **blocks** the
+    request with HTTP 402. Enforced only when the price table is real (``priced``):
+    a relative-unit demo has no dollars to cap, so the budget is a no-op there. The
+    cap never changes the scored *decision* (WF-ADR-0001); it changes *delivery*.
+    """
+
+    limit: float  # spend ceiling in the ledger's unit, over ``window``
+    window: str = "day"  # "day" | "month" | "all"
+    on_breach: str = "degrade"  # "degrade" (to cheapest tier) | "block" (402)
+
+
+@dataclass(frozen=True)
 class GatewayConfig:
     """Maps recommended model names to upstream endpoints (from `[gateway.models]`).
 
@@ -360,12 +376,19 @@ class GatewayConfig:
     breaker_threshold: int = 5
     breaker_cooldown: float = 30.0
     failover: str = "same-tier"
+    # Budget (WF-ROADMAP-0006): an optional spend cap that degrades to the cheapest tier
+    # (or blocks) once the period's realized cost is reached. ``None`` = no cap.
+    budget: Budget | None = None
 
 
 # Which chat-message text the router scores. The deterministic core scores
 # whatever string it is handed (WF-ADR-0001); this only chooses that string so a
 # multi-turn chat does not drift toward cloud as the transcript grows.
 ROUTE_ON_SCOPES = ("turn", "last_user", "user", "all")
+
+# Budget windows and breach behaviours (WF-ROADMAP-0006).
+BUDGET_WINDOWS = ("day", "month", "all")
+BUDGET_BREACH = ("degrade", "block")
 
 
 def load_gateway_config(start_dir: str = ".") -> GatewayConfig:
@@ -378,6 +401,28 @@ def load_gateway_config(start_dir: str = ".") -> GatewayConfig:
     except OSError as exc:
         raise WayfinderConfigError(f"cannot read {path}: {exc}") from exc
     return gateway_config_from_toml(text, where=str(path))
+
+
+def _budget_from_toml(raw: object, where: str) -> Budget | None:
+    """Parse and validate the optional ``[gateway.budget]`` table (WF-ROADMAP-0006)."""
+    if raw is None:
+        return None
+    if not isinstance(raw, dict):
+        raise WayfinderConfigError(f"{where}: '[gateway.budget]' must be a table")
+    limit = raw.get("limit")
+    if isinstance(limit, bool) or not isinstance(limit, (int, float)) or limit <= 0:
+        raise WayfinderConfigError(f"{where}: 'gateway.budget.limit' must be a positive number")
+    window = raw.get("window", "day")
+    if window not in BUDGET_WINDOWS:
+        raise WayfinderConfigError(
+            f"{where}: 'gateway.budget.window' must be one of {', '.join(BUDGET_WINDOWS)}"
+        )
+    on_breach = raw.get("on_breach", "degrade")
+    if on_breach not in BUDGET_BREACH:
+        raise WayfinderConfigError(
+            f"{where}: 'gateway.budget.on_breach' must be one of {', '.join(BUDGET_BREACH)}"
+        )
+    return Budget(limit=float(limit), window=window, on_breach=on_breach)
 
 
 def gateway_config_from_toml(text: str, where: str = "wayfinder-router.toml") -> GatewayConfig:
@@ -416,6 +461,7 @@ def gateway_config_from_toml(text: str, where: str = "wayfinder-router.toml") ->
         raise WayfinderConfigError(
             f"{where}: 'gateway.failover' must be one of {', '.join(reliability.FAILOVER_POLICIES)}"
         )
+    budget = _budget_from_toml(gateway.get("budget"), where)
     raw_models = gateway.get("models") or {}
     if not isinstance(raw_models, dict):
         raise WayfinderConfigError(f"{where}: '[gateway.models]' must be a table")
@@ -493,7 +539,7 @@ def gateway_config_from_toml(text: str, where: str = "wayfinder-router.toml") ->
     return GatewayConfig(
         models=models, route_on=route_on, sticky=sticky, sticky_cooldown=cooldown,
         retries=retries, breaker_threshold=breaker_threshold, breaker_cooldown=breaker_cooldown,
-        failover=failover,
+        failover=failover, budget=budget,
     )
 
 
@@ -526,6 +572,14 @@ def dump_gateway_toml(gateway: GatewayConfig) -> str:
             lines.append(f"breaker_cooldown = {round(gateway.breaker_cooldown, 6)!r}")
         if gateway.failover != "same-tier":
             lines.append(f'failover = "{gateway.failover}"')
+        blocks.append("\n".join(lines))
+    if gateway.budget is not None:  # emitted as its own [gateway.budget] sub-table
+        b = gateway.budget
+        lines = ["[gateway.budget]", f"limit = {round(b.limit, 6)!r}"]
+        if b.window != "day":
+            lines.append(f'window = "{b.window}"')
+        if b.on_breach != "degrade":
+            lines.append(f'on_breach = "{b.on_breach}"')
         blocks.append("\n".join(lines))
     for name, model in gateway.models.items():
         lines = [
@@ -1417,12 +1471,46 @@ def build_app(
             except BadOverride as exc:
                 return _reject(exc)
 
+        # Budget enforcement (WF-ROADMAP-0006): a spend cap on the realized cost in the
+        # configured window. Only meaningful with real costs (``priced``); a relative-unit
+        # demo has no dollars to cap. On breach we either degrade to the cheapest tier — the
+        # failover ``degrade`` primitive (WF-ADR-0031), which never raises cost — or block
+        # with 402. This changes only *delivery*; the scored decision above is untouched.
+        budget_state: str | None = None
+        budget = gw.budget
+        if budget is not None and ledger.priced and ledger.spent(budget.window) >= budget.limit:
+            if budget.on_breach == "block":
+                logger.info(
+                    "request %s blocked: %s budget of %s reached",
+                    request_id, budget.window, budget.limit,
+                )
+                return JSONResponse(
+                    status_code=402,
+                    content={"error": {
+                        "message": f"{budget.window} budget of {budget.limit} reached",
+                        "type": "wayfinder_router_budget_exhausted",
+                    }},
+                    headers={
+                        "x-wayfinder-router-request-id": request_id,
+                        "x-wayfinder-router-budget": "blocked",
+                    },
+                )
+            # degrade: route to the cheapest tier (lowest min_score). A no-op if the chosen
+            # tier is already the cheapest, or in classifier mode (no tier ladder to descend).
+            tiers_sorted = sorted(decision.tiers or (), key=lambda t: t.min_score)
+            cheapest = tiers_sorted[0].model if tiers_sorted else None
+            if cheapest is not None and cheapest != chosen:
+                chosen, mode = cheapest, "budget-degraded"
+            budget_state = "degraded"
+
         wf_headers = {
             "x-wayfinder-router-model": chosen,
             "x-wayfinder-router-score": f"{decision.score:.2f}",
             "x-wayfinder-router-mode": mode,
             "x-wayfinder-router-request-id": request_id,
         }
+        if budget_state is not None:
+            wf_headers["x-wayfinder-router-budget"] = budget_state
         logger.info(
             "request %s -> %s (score %.2f, mode %s)", request_id, chosen, decision.score, mode
         )

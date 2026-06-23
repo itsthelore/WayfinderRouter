@@ -139,3 +139,15 @@ def test_ledger_save_load_round_trip(tmp_path):
     back = pricing.SavingsLedger.load(path)
     assert back.priced is True
     assert back.period(today=date(2026, 6, 23)) == led.period(today=date(2026, 6, 23))
+
+
+def test_ledger_spent_by_window():
+    led = pricing.SavingsLedger(priced=True)
+    costs = {"local": 0.0, "cloud": 0.01}
+    led.record(pricing.turn_cost("cloud", 1000, 0, costs, estimated=False), when=date(2026, 6, 10))
+    led.record(pricing.turn_cost("cloud", 1000, 0, costs, estimated=False), when=date(2026, 6, 23))
+    led.record(pricing.turn_cost("cloud", 1000, 0, costs, estimated=False), when=date(2026, 5, 31))
+    today = date(2026, 6, 23)
+    assert led.spent("day", today=today) == 0.01  # just today's bucket
+    assert led.spent("month", today=today) == 0.02  # both June days, not May
+    assert led.spent("all", today=today) == 0.03  # everything
