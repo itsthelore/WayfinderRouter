@@ -37,6 +37,7 @@ from .complexity import (
     score_complexity,
 )
 from .config import WayfinderConfigError, load_routing_config
+from . import pricing
 
 if TYPE_CHECKING:  # type-only; the runtime imports rich/textual/gateway lazily
     from rich.console import RenderableType
@@ -242,8 +243,32 @@ def cost_summary(tally: SessionCost) -> str:
     return summary
 
 
-def render_cost(tally: SessionCost, palette: dict[str, str]) -> RenderableType:
-    """A panel breaking down the session's routing mix and estimated savings."""
+def _savings_path(data_dir: object) -> str:
+    """Where the chat's savings ledger persists — alongside saved threads (WF-DESIGN-0007)."""
+    from pathlib import Path
+
+    return str(Path(str(data_dir)) / "savings.json")
+
+
+def _load_ledger(data_dir: object) -> pricing.SavingsLedger:
+    """Load the persisted savings ledger, or start a fresh (unpriced) one."""
+    try:
+        return pricing.SavingsLedger.load(_savings_path(data_dir))
+    except (OSError, ValueError):
+        return pricing.SavingsLedger(priced=False)
+
+
+_COST_PERIODS = (("today", 1), ("7 days", 7), ("30 days", 30), ("all time", None))
+
+
+def render_cost(
+    tally: SessionCost, palette: dict[str, str], ledger: pricing.SavingsLedger | None = None
+) -> RenderableType:
+    """A panel breaking down the session's routing mix and estimated savings.
+
+    When a persisted ``ledger`` is supplied it also shows a per-period view
+    (today / 7d / 30d / all-time), so savings accrue across sessions (WF-DESIGN-0007).
+    """
     from rich.console import Group
     from rich.panel import Panel
     from rich.table import Table
@@ -265,10 +290,29 @@ def render_cost(tally: SessionCost, palette: dict[str, str]) -> RenderableType:
     grid.add_column(style=text_c)
     for key, val in rows:
         grid.add_row(key, val)
+
+    blocks: list[RenderableType] = [Text("this session", style=muted), grid]
+    if ledger is not None and ledger.days:  # accrued across sessions
+        periods = Table.grid(padding=(0, 3))
+        periods.add_column(style=muted, justify="right")
+        periods.add_column(style=text_c, justify="right")  # calls
+        if ledger.priced:
+            periods.add_column(style=accent, justify="right")  # saved
+        header = ["period", "calls"] + (["saved"] if ledger.priced else [])
+        periods.add_row(*[f"[dim]{h}[/dim]" for h in header])
+        for label, days in _COST_PERIODS:
+            rep = ledger.period(days=days)
+            cols = [label, str(rep["requests"])]
+            if ledger.priced:
+                cols.append(f"~${rep['saved']:.4f}")
+            periods.add_row(*cols)
+        blocks += [Text("\nby period", style=muted), periods]
+
     tail = "estimated from ~4 chars/token"
     if not tally.priced:
         tail += " · set cost_per_1k on your models for $ figures"
-    return Panel(Group(grid, Text("\n" + tail, style=muted)), title="cost", title_align="left",
+    blocks.append(Text("\n" + tail, style=muted))
+    return Panel(Group(*blocks), title="cost", title_align="left",
                  border_style=accent, padding=(1, 2), expand=False)
 
 
@@ -879,6 +923,7 @@ def _build_chat_app() -> type:
             self._thread = threads.new_thread()
             self._thread_list: list = []  # last `/threads` listing, indexed by `/open`
             self._cost = SessionCost()  # session routing mix + estimated savings
+            self._ledger = _load_ledger(self._data_dir)  # savings accrued across sessions
             self._draft_lines: list[str] = []  # staged lines for a multi-line message
             if base_url is None and not dry_run:
                 try:
@@ -954,10 +999,25 @@ def _build_chat_app() -> type:
             self.query_one("#footer", Static).update(_footer_bar(self.palette, right=right))
 
         def _account(self, is_local: bool, tokens: int,
-                     chosen_cost: float | None, cloud_cost: float | None) -> None:
+                     chosen_cost: float | None, cloud_cost: float | None,
+                     route: str = "local", baseline: str = "cloud") -> None:
             account_turn(self._cost, is_local=is_local, tokens=tokens,
                          chosen_cost=chosen_cost, cloud_cost=cloud_cost)
+            # Also fold the turn into the persisted ledger so /cost can show periods.
+            priced = chosen_cost is not None and cloud_cost is not None
+            costs = {route: chosen_cost or 0.0, baseline: cloud_cost or 0.0}
+            tc = pricing.turn_cost(route, tokens, 0, costs, estimated=True, baseline=baseline)
+            if priced:
+                self._ledger.priced = True
+            self._ledger.record(tc)
+            self._persist_savings()
             self._refresh_bars()
+
+        def _persist_savings(self) -> None:
+            try:
+                self._ledger.save(_savings_path(self._data_dir))
+            except OSError:
+                pass  # best-effort; the period view is a convenience, never critical
 
         # --- transcript helpers (main thread) ---
         def _append(self, renderable: RenderableType) -> Static:
@@ -1165,7 +1225,8 @@ def _build_chat_app() -> type:
             cloud_cost = cloud_model.cost_per_1k if cloud_model is not None else None
             self._set_busy(True)
             self._stream_worker(
-                model, convo, not ephemeral, target_is_local, model.cost_per_1k, cloud_cost
+                model, convo, not ephemeral, target_is_local, model.cost_per_1k, cloud_cost,
+                target, cloud_name,
             )
 
         # --- slash commands (main thread) ---
@@ -1186,7 +1247,7 @@ def _build_chat_app() -> type:
                 self._handle_keys()
                 return
             if cmd == "cost":
-                self._append(render_cost(self._cost, self.palette))
+                self._append(render_cost(self._cost, self.palette, self._ledger))
                 return
             if cmd == "init":
                 self._handle_init(arg)
@@ -1433,6 +1494,7 @@ def _build_chat_app() -> type:
         def _stream_worker(
             self, model: GatewayModel, messages: list[dict], remember: bool,
             is_local: bool, chosen_cost: float | None, cloud_cost: float | None,
+            route: str = "local", baseline: str = "cloud",
         ) -> None:
             from .gateway import (
                 GatewayUnavailable,
@@ -1465,7 +1527,7 @@ def _build_chat_app() -> type:
                         self._persist()
                         self.call_from_thread(
                             self._account, is_local, sent + estimate_tokens(full),
-                            chosen_cost, cloud_cost,
+                            chosen_cost, cloud_cost, route, baseline,
                         )
             except (GatewayUnavailable, UpstreamError, RuntimeError) as exc:
                 self.call_from_thread(
