@@ -4,7 +4,13 @@ User-visible changes to Wayfinder, by release. Follows the spirit of
 [Keep a Changelog](https://keepachangelog.com/): user impact over implementation
 details, release history over commit history.
 
-## Unreleased
+## v2026.6.5 — 2026-06-23
+
+The gateway grows up. It now **proves the savings** routing makes (a persisted,
+per-period report vs always-frontier), is a **drop-in** for the tools you already use,
+and is **production-reliable** — retries, same-tier fallback, a circuit breaker, and an
+opt-in cross-tier failover policy. The terminal chat's `/cost` gains a cross-session
+period view. All additive; routing stays deterministic and offline (WF-ADR-0001).
 
 ### Added
 
