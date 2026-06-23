@@ -4,6 +4,23 @@ User-visible changes to Wayfinder, by release. Follows the spirit of
 [Keep a Changelog](https://keepachangelog.com/): user impact over implementation
 details, release history over commit history.
 
+## Unreleased
+
+### Added
+
+- **Model keys can come from your secret store.** A `[gateway.models]` entry may name an
+  `api_key_cmd` (e.g. `op read op://Private/Anthropic/credential`) that fills its key
+  **in memory** at startup when the environment variable is unset — so the secret can
+  live in your password manager and never touch a shell file, config, or disk. An
+  already-set variable always wins, so the command runs only when needed
+  (WF-ADR-0004, WF-DESIGN-0006). `init` and `doctor` suggest a ready-to-edit command for
+  whichever tools they find on your `PATH`: 1Password, macOS Keychain, Secret Service,
+  `pass`, gopass, HashiCorp Vault, AWS Secrets Manager, Bitwarden, Doppler, and Google
+  Secret Manager.
+- **`/keys` in the terminal chat** re-resolves keys from your secret store and reports
+  each model's status with fix-it hints, and the `/models` panel now notes
+  command-resolved keys. A first-run nudge points you at `/keys` when a key is missing.
+
 ## v2026.6.3 — 2026-06-22
 
 Wayfinder moves to **calendar versioning** (`YYYY.M.MICRO`); this is the release that

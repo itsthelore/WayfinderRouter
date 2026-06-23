@@ -212,6 +212,44 @@ def test_negative_cost_per_1k_is_rejected():
         gateway.gateway_config_from_toml(body)
 
 
+def test_api_key_cmd_is_parsed_and_round_trips():
+    body = (
+        "[gateway.models.cloud]\n"
+        'base_url = "https://api.example.com/v1"\n'
+        'model = "big-model"\n'
+        'api_key_env = "EXAMPLE_API_KEY"\n'
+        'api_key_cmd = "op read op://Private/example/credential"\n'
+    )
+    config = gateway.gateway_config_from_toml(body)
+    assert config.models["cloud"].api_key_cmd == "op read op://Private/example/credential"
+    # The command (a reference, not a secret) survives the dumper recalibration uses.
+    again = gateway.gateway_config_from_toml(gateway.dump_gateway_toml(config))
+    assert again.models["cloud"].api_key_cmd == "op read op://Private/example/credential"
+
+
+def test_api_key_cmd_requires_api_key_env():
+    body = (
+        "[gateway.models.cloud]\n"
+        'base_url = "https://api.example.com/v1"\n'
+        'model = "big-model"\n'
+        'api_key_cmd = "op read op://Private/example/credential"\n'
+    )
+    with pytest.raises(gateway.WayfinderConfigError, match="api_key_env"):
+        gateway.gateway_config_from_toml(body)
+
+
+def test_empty_api_key_cmd_is_rejected():
+    body = (
+        "[gateway.models.cloud]\n"
+        'base_url = "https://api.example.com/v1"\n'
+        'model = "big-model"\n'
+        'api_key_env = "EXAMPLE_API_KEY"\n'
+        'api_key_cmd = ""\n'
+    )
+    with pytest.raises(gateway.WayfinderConfigError, match="api_key_cmd"):
+        gateway.gateway_config_from_toml(body)
+
+
 # --- streaming + upstream errors (WF-ADR-0013) ------------------------------
 
 

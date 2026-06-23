@@ -563,12 +563,139 @@ def test_render_models_shows_key_status(monkeypatch):
     assert "ANTHROPIC_API_KEY" in out and "not set" in out
 
 
+def test_render_models_notes_a_command_resolved_key(monkeypatch):
+    from rich.console import Console
+
+    from wayfinder_router import gateway
+
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-resolved-from-vault")
+    models = {
+        "cloud": gateway.GatewayModel(
+            base_url="https://api.anthropic.com/v1", model="claude-sonnet-4-6",
+            api_key_env="ANTHROPIC_API_KEY", api_key_cmd="op read op://Private/Anthropic/credential",
+        ),
+    }
+    con = Console(record=True, width=100)
+    con.print(tui.render_models(models, tui.palette_for("dark")))
+    # Collapse the panel border + soft wrapping so the label reads as one string.
+    flat = " ".join(con.export_text().replace("│", " ").split())
+    assert "✓ set (via command)" in flat
+
+
 def test_render_models_empty_points_at_init():
     from rich.console import Console
 
     con = Console(record=True, width=80)
     con.print(tui.render_models({}, tui.palette_for("dark")))
     assert "/init" in con.export_text()
+
+
+def _flat(console) -> str:
+    return " ".join(console.export_text().replace("│", " ").split())
+
+
+def test_render_keys_marks_resolved_and_missing(monkeypatch):
+    from rich.console import Console
+
+    from wayfinder_router import gateway
+
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-live")
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    models = {
+        "local": gateway.GatewayModel(base_url="http://localhost:11434/v1", model="llama3.1"),
+        "cloud": gateway.GatewayModel(
+            base_url="https://api.anthropic.com/v1", model="claude-sonnet-4-6",
+            api_key_env="ANTHROPIC_API_KEY", api_key_cmd="op read op://Private/Anthropic/credential",
+        ),
+        "extra": gateway.GatewayModel(
+            base_url="https://api.openai.com/v1", model="gpt-4o", api_key_env="OPENAI_API_KEY",
+        ),
+    }
+    con = Console(record=True, width=110)
+    con.print(tui.render_keys(models, tui.palette_for("dark")))
+    flat = _flat(con)
+    assert "keyless" in flat  # local arm
+    assert "ANTHROPIC_API_KEY ✓ resolved via command" in flat
+    assert "OPENAI_API_KEY ✗ not set" in flat
+    assert "export OPENAI_API_KEY" in flat  # actionable fix hint for the miss
+
+
+def test_render_keys_reports_a_command_failure(monkeypatch):
+    from rich.console import Console
+
+    from wayfinder_router import gateway
+
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    models = {
+        "cloud": gateway.GatewayModel(
+            base_url="https://api.anthropic.com/v1", model="claude-sonnet-4-6",
+            api_key_env="ANTHROPIC_API_KEY", api_key_cmd="op read op://x",
+        ),
+    }
+    con = Console(record=True, width=120)
+    con.print(
+        tui.render_keys(
+            models, tui.palette_for("dark"), errors={"cloud": "command exited 1: op read op://x"}
+        )
+    )
+    flat = _flat(con)
+    assert "command failed" in flat and "exited 1" in flat
+
+
+def test_render_keys_empty_points_at_init():
+    from rich.console import Console
+
+    con = Console(record=True, width=80)
+    con.print(tui.render_keys({}, tui.palette_for("dark")))
+    assert "/init" in con.export_text()
+
+
+def test_empty_state_onboards_via_init_and_keys():
+    from rich.console import Console
+
+    con = Console(record=True, width=90)
+    con.print(tui.render_empty_state(tui.palette_for("dark")))
+    out = con.export_text()
+    assert "/init" in out and "/keys" in out  # the onboarding path, not /models
+
+
+def _transcript_text(app) -> str:
+    from rich.text import Text
+
+    lines = []
+    for widget in app.query("#transcript Static"):
+        r = getattr(widget, "_Static__content", None)  # Static stores its renderable here
+        if isinstance(r, Text):
+            lines.append(r.plain)
+        elif r is not None:
+            lines.append(str(r))
+    return "\n".join(lines)
+
+
+def test_startup_flags_a_missing_key_with_a_keys_hint(tmp_path, monkeypatch):
+    """On launch with a configured-but-unset key, the chat nudges /keys up front."""
+    import asyncio
+
+    pytest.importorskip("textual")
+    monkeypatch.delenv("WF_TEST_MISSING_KEY", raising=False)
+    (tmp_path / "wayfinder-router.toml").write_text(
+        "[gateway.models.local]\n"
+        'base_url = "http://localhost:11434/v1"\n'
+        'model = "llama3.1"\n\n'
+        "[gateway.models.cloud]\n"
+        'base_url = "https://api.anthropic.com/v1"\n'
+        'model = "claude-sonnet-4-6"\n'
+        'api_key_env = "WF_TEST_MISSING_KEY"\n'
+    )
+    app = tui._build_chat_app()(start_dir=str(tmp_path), theme="dark")  # in-process, real keys
+
+    async def scenario():
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            text = _transcript_text(app)
+            assert "WF_TEST_MISSING_KEY" in text and "/keys" in text
+
+    asyncio.run(scenario())
 
 
 def test_render_empty_state_smoke():

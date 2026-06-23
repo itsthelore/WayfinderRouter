@@ -48,7 +48,7 @@ _SCOPES = ("turn", "last_user", "user", "all")
 
 # Slash commands offered as inline autocomplete in the composer (typing `/` suggests).
 _SLASH_COMMANDS = [
-    "/init", "/models", "/cost", "/new", "/threads", "/open", "/route", "/auto", "/local",
+    "/init", "/models", "/keys", "/cost", "/new", "/threads", "/open", "/route", "/auto", "/local",
     "/cloud", "/btw", "/threshold", "/scope", "/sticky", "/why", "/stream", "/theme",
     "/settings", "/help", "/quit",
 ]
@@ -287,6 +287,7 @@ _HELP = (
     "commands\n"
     "  /init [hybrid|openai]         scaffold a wayfinder-router.toml and load its models\n"
     "  /models                       show configured models and whether each key is set\n"
+    "  /keys                         re-check keys: resolve from your secret store, fix hints\n"
     "  /cost                         session routing mix and estimated savings vs cloud\n"
     "  /new                          start a fresh conversation (the current one is saved)\n"
     "  /threads      /open <n>       list saved conversations · reopen one\n"
@@ -493,7 +494,9 @@ def render_models(models: dict, palette: dict[str, str]) -> RenderableType:
         if status.env_var is None:
             key = Text("keyless ✓", style=accent)
         elif status.ok:
-            key = Text(f"{status.env_var} ✓ set", style=accent)
+            # After resolve_keys() a command-filled key reads as set; note its source.
+            label = f"{status.env_var} ✓ set" + (" (via command)" if status.cmd else "")
+            key = Text(label, style=accent)
         else:
             key = Text(f"{status.env_var} ✗ not set", style=warn)
         glyph = Text("● ", style=accent if status.ok else cloud)
@@ -501,6 +504,70 @@ def render_models(models: dict, palette: dict[str, str]) -> RenderableType:
 
     hint = Text("\nkeys live in your environment · /init to add models · /route to pin", style=muted)
     return Panel(Group(grid, hint), title="models", title_align="left", border_style=accent,
+                 padding=(1, 2), expand=False)
+
+
+def render_keys(
+    models: dict, palette: dict[str, str], *, errors: dict[str, str] | None = None
+) -> RenderableType:
+    """A focused, actionable view of each model's key — the in-chat ``doctor``.
+
+    Re-resolution happens in the caller (``/keys`` re-runs any ``api_key_cmd``); this
+    renders the outcome: what is set, what a command failed to fetch, and the exact
+    line to fix a miss. Keys are read from the environment or a secret store at request
+    time, never written to disk (WF-ADR-0004, WF-DESIGN-0006).
+    """
+    from rich.console import Group
+    from rich.panel import Panel
+    from rich.table import Table
+    from rich.text import Text
+
+    from .bootstrap import key_status, suggest_key_commands
+
+    accent, muted, text_c, cloud, warn = (
+        palette["accent"], palette["muted"], palette["text"], palette["cloud"], palette["warn"]
+    )
+    errors = errors or {}
+    if not models:
+        body: RenderableType = Text(
+            "no models configured — type /init to scaffold one", style=muted
+        )
+        return Panel(body, title="keys", title_align="left", border_style=accent,
+                     padding=(1, 2), expand=False)
+
+    grid = Table.grid(padding=(0, 3))
+    grid.add_column(style=text_c)  # model name
+    grid.add_column()  # key status
+    missing: list[str] = []
+    for s in key_status(models):
+        if s.env_var is None:
+            status, glyph = Text("keyless — no key needed", style=muted), accent
+        elif s.ok:
+            via = "resolved via command" if s.cmd else "set in environment"
+            status, glyph = Text(f"{s.env_var}  ✓ {via}", style=accent), accent
+        elif s.name in errors:
+            status, glyph = Text(f"{s.env_var}  ✗ command failed — {errors[s.name]}", style=warn), cloud
+            missing.append(s.env_var)
+        else:
+            status, glyph = Text(f"{s.env_var}  ✗ not set", style=warn), cloud
+            missing.append(s.env_var)
+        grid.add_row(Text(s.name, style=text_c), Text("● ", style=glyph) + status)
+
+    items: list[RenderableType] = [grid]
+    unset = list(dict.fromkeys(missing))  # dedupe a var shared across tiers, keep first-seen order
+    if unset:
+        items.append(Text("\nto fix — read at request time, never written to disk:", style=muted))
+        for var in unset:
+            items.append(Text(f"  export {var}=…", style=text_c))
+            suggestions = suggest_key_commands(var)
+            for cmd in suggestions:
+                items.append(Text(f'  · or add:  api_key_cmd = "{cmd}"', style=muted))
+            if not suggestions:
+                items.append(
+                    Text("  · or store it in your secret manager and add an api_key_cmd", style=muted)
+                )
+    items.append(Text("\n/keys re-checks · keys live in your environment or your secret store", style=muted))
+    return Panel(Group(*items), title="keys", title_align="left", border_style=accent,
                  padding=(1, 2), expand=False)
 
 
@@ -518,8 +585,9 @@ def render_empty_state(palette: dict[str, str]) -> RenderableType:
                 style=muted)
     body.append("  /init openai", style=accent)
     body.append("   two OpenAI tiers (gpt-4o-mini → gpt-4o)\n", style=muted)
-    body.append("  /models", style=accent)
-    body.append("        check which model keys are set\n\n", style=muted)
+    body.append("  /keys", style=accent)
+    body.append("          after /init: check & resolve your keys, with fix-it hints\n\n",
+                style=muted)
     body.append("Keyless local replies work as soon as Ollama is running ", style=muted)
     body.append("(ollama serve)", style=text_c)
     body.append(".", style=muted)
@@ -812,9 +880,11 @@ def _build_chat_app() -> type:
             self._draft_lines: list[str] = []  # staged lines for a multi-line message
             if base_url is None and not dry_run:
                 try:
+                    from . import bootstrap
                     from .gateway import load_gateway_config
 
                     self.models = dict(load_gateway_config(start_dir).models)
+                    bootstrap.resolve_keys(self.models)  # fill keys from a secret store (WF-DESIGN-0006)
                 except WayfinderConfigError as exc:
                     self._config_warning = str(exc)
 
@@ -843,6 +913,15 @@ def _build_chat_app() -> type:
                 self._note(f"connected · remote gateway {self.base_url}")
             elif self.models:
                 self._note(f"connected · routing between {', '.join(sorted(self.models))}")
+                from . import bootstrap
+
+                # Heads-up at launch rather than at the first failed cloud reply.
+                missing = bootstrap.missing_keys(bootstrap.key_status(self.models))
+                if missing:
+                    self._warn(
+                        f"{', '.join(missing)} not set — /keys to add it "
+                        "(1Password, keychain, …); keyless local still works"
+                    )
             elif self.dry_run:
                 self._note("preview · --dry-run: routing decisions only, no model calls")
             else:
@@ -1101,6 +1180,9 @@ def _build_chat_app() -> type:
             if cmd == "models":
                 self._handle_models()
                 return
+            if cmd == "keys":
+                self._handle_keys()
+                return
             if cmd == "cost":
                 self._append(render_cost(self._cost, self.palette))
                 return
@@ -1263,6 +1345,20 @@ def _build_chat_app() -> type:
                 return
             self._append(render_models(self.models, self.palette))
 
+        def _handle_keys(self) -> None:
+            """The in-chat `doctor`: re-resolve keys from their secret stores and report.
+
+            Re-running the api_key_cmd's means you can store a key (in 1Password, the
+            keychain, Vault, …) and pick it up live with `/keys`, no restart needed.
+            """
+            if self.base_url is not None:
+                self._note(f"keys are managed by the remote gateway at {self.base_url}")
+                return
+            from . import bootstrap
+
+            errors = bootstrap.resolve_keys(self.models)  # re-attempt fills from secret stores
+            self._append(render_keys(self.models, self.palette, errors=errors))
+
         def _handle_init(self, arg: str) -> None:
             """Scaffold a wayfinder-router.toml from a preset and load its models in-place."""
             from pathlib import Path
@@ -1300,6 +1396,7 @@ def _build_chat_app() -> type:
                 from .gateway import load_gateway_config
 
                 self.models = dict(load_gateway_config(self.start_dir).models)
+                bootstrap.resolve_keys(self.models)  # fill keys from a secret store (WF-DESIGN-0006)
             except WayfinderConfigError as exc:
                 self._warn(str(exc))
                 return
@@ -1307,8 +1404,8 @@ def _build_chat_app() -> type:
             missing = bootstrap.missing_keys(bootstrap.key_status(self.models))
             if missing:
                 self._note(
-                    "set " + ", ".join(missing) + " in your shell and restart for cloud replies — "
-                    "keyless local works now"
+                    ", ".join(missing) + " not set — /keys to add it "
+                    "(1Password, keychain, …), no restart; keyless local works now"
                 )
             else:
                 self._note("models ready — type a prompt")
