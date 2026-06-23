@@ -153,6 +153,8 @@ just change one `base_url`.
    ```bash
    pip install "wayfinder-router[gateway]"
    wayfinder-router init                 # starter config (hybrid preset)
+   wayfinder-router init --preset openai # two OpenAI tiers (gpt-4o-mini → gpt-4o)
+   wayfinder-router init --preset gemini # two Gemini tiers (gemini-2.5-flash → gemini-2.5-pro)
    wayfinder-router init --interactive   # pick providers/models step by step
    ```
 
