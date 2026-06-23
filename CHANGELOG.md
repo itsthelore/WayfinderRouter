@@ -8,6 +8,16 @@ details, release history over commit history.
 
 ### Added
 
+- **Claude Code adapter — an Anthropic `/v1/messages` endpoint** (WF-DESIGN-0011, WF-ROADMAP-0006).
+  Point `ANTHROPIC_BASE_URL` at the gateway and Claude Code (or any Anthropic-Messages-native
+  client) routes through Wayfinder. The endpoint translates the Anthropic Messages format to the
+  OpenAI Chat Completions the gateway already speaks and back again — both directions, buffered
+  **and streaming**, including **tool use** (`tools`/`tool_choice`, `tool_use`/`tool_result`, and
+  streamed tool calls). It is pure format translation: scoring, budgets, and failover are the
+  *existing* router, reused unchanged, so the same `x-wayfinder-router-*` decision headers ride
+  along and there is exactly one routing decision (WF-ADR-0001). Image/vision blocks, extended
+  thinking, and prompt-caching controls are not translated yet. See the Claude Code recipe in
+  [docs/integrations.md](docs/integrations.md).
 - **Gateway spend budgets** (WF-ADR-0032, WF-ROADMAP-0006). An optional `[gateway.budget]`
   spend cap that, once the period's realized cost is reached, **degrades to the cheapest tier**
   rather than hard-failing — the same `degrade` primitive failover uses (WF-ADR-0031), so it

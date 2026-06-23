@@ -7,6 +7,7 @@ correctly. The deterministic core is tested separately and never touched here.
 
 from __future__ import annotations
 
+import json
 import os
 import time
 
@@ -1523,3 +1524,148 @@ def test_bad_budget_config_rejected(table):
     config = table + '\n[gateway.models.local]\nbase_url = "http://x/v1"\nmodel = "m"\n'
     with pytest.raises(gateway.WayfinderConfigError):
         gateway.gateway_config_from_toml(config)
+
+
+# --- Claude Code adapter: Anthropic /v1/messages translation (WF-DESIGN-0011) ---
+def _messages_client(tmp_path, monkeypatch, *, completion="ok", reply=None, stream_chunks=None):
+    """A client over CONFIG; the fake upstream returns ``reply`` (or an OpenAI completion)."""
+    (tmp_path / "wayfinder-router.toml").write_text(CONFIG, encoding="utf-8")
+
+    async def fake(url, headers, json_body, timeout=60.0):
+        body = reply if reply is not None else {
+            "id": "cmpl-1",
+            "choices": [{"message": {"role": "assistant", "content": completion},
+                         "finish_reason": "stop"}],
+            "usage": {"prompt_tokens": 5, "completion_tokens": 3},
+        }
+        return 200, json.dumps(body).encode(), "application/json"
+
+    monkeypatch.setattr(gateway, "aforward_request", fake)
+    if stream_chunks is not None:
+        async def fake_stream(url, headers, json_body, timeout=60.0):
+            for chunk in stream_chunks:
+                yield chunk
+        monkeypatch.setattr(gateway, "aforward_stream", fake_stream)
+    return TestClient(gateway.build_app(start_dir=str(tmp_path)))
+
+
+def test_messages_non_streaming_round_trip(tmp_path, monkeypatch):
+    tc = _messages_client(tmp_path, monkeypatch, completion="Hi there")
+    resp = tc.post("/v1/messages", json={
+        "model": "claude-opus-4", "max_tokens": 64,
+        "messages": [{"role": "user", "content": "hello"}],
+    })
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["type"] == "message" and body["role"] == "assistant"
+    assert body["model"] == "claude-opus-4"  # the requested id is echoed back
+    assert body["content"] == [{"type": "text", "text": "Hi there"}]
+    assert body["stop_reason"] == "end_turn"
+    assert body["usage"] == {"input_tokens": 5, "output_tokens": 3}
+    assert body["id"].startswith("msg_")
+
+
+def test_messages_decision_headers_match_chat_completions(tmp_path, monkeypatch):
+    # Same logical prompt via both endpoints -> identical scored decision (one router, WF-ADR-0001).
+    tc = _messages_client(tmp_path, monkeypatch)
+    text = COMPLEX_TEXT
+    via_oai = tc.post("/v1/chat/completions", json={
+        "model": "auto", "messages": [{"role": "user", "content": text}]})
+    via_anthropic = tc.post("/v1/messages", json={
+        "model": "claude-x", "max_tokens": 16, "messages": [{"role": "user", "content": text}]})
+    for header in ("x-wayfinder-router-model", "x-wayfinder-router-score", "x-wayfinder-router-mode"):
+        assert via_anthropic.headers[header] == via_oai.headers[header]
+    assert via_anthropic.headers["x-wayfinder-router-model"] == "cloud"
+
+
+def test_messages_path_tolerance_without_v1(tmp_path, monkeypatch):
+    tc = _messages_client(tmp_path, monkeypatch, completion="x")
+    resp = tc.post("/messages", json={
+        "model": "claude-x", "max_tokens": 8, "messages": [{"role": "user", "content": "hi"}]})
+    assert resp.status_code == 200 and resp.json()["type"] == "message"
+
+
+def test_messages_tool_call_round_trip(tmp_path, monkeypatch):
+    reply = {
+        "id": "cmpl-2",
+        "choices": [{"message": {"role": "assistant", "content": None, "tool_calls": [
+            {"id": "call_1", "type": "function",
+             "function": {"name": "get_weather", "arguments": '{"city":"Paris"}'}}]},
+            "finish_reason": "tool_calls"}],
+        "usage": {"prompt_tokens": 9, "completion_tokens": 4},
+    }
+    tc = _messages_client(tmp_path, monkeypatch, reply=reply)
+    resp = tc.post("/v1/messages", json={
+        "model": "claude-x", "max_tokens": 64,
+        "messages": [{"role": "user", "content": "weather in Paris?"}],
+        "tools": [{"name": "get_weather", "input_schema": {"type": "object"}}],
+    })
+    body = resp.json()
+    assert body["stop_reason"] == "tool_use"
+    assert body["content"] == [
+        {"type": "tool_use", "id": "call_1", "name": "get_weather", "input": {"city": "Paris"}}]
+
+
+def test_messages_streaming_event_sequence(tmp_path, monkeypatch):
+    chunks = [
+        b'data: {"choices":[{"delta":{"content":"Hel"}}]}\n\n',
+        b'data: {"choices":[{"delta":{"content":"lo"}}]}\n\n',
+        b'data: {"choices":[{"delta":{},"finish_reason":"stop"}]}\n\n',
+        b"data: [DONE]\n\n",
+    ]
+    tc = _messages_client(tmp_path, monkeypatch, stream_chunks=chunks)
+    resp = tc.post("/v1/messages", json={
+        "model": "claude-x", "max_tokens": 64, "stream": True,
+        "messages": [{"role": "user", "content": "hi"}]})
+    assert resp.status_code == 200
+    assert resp.headers["content-type"].startswith("text/event-stream")
+    text = resp.text
+    assert "event: message_start" in text
+    assert '"type":"text_delta","text":"Hel"' in text
+    assert "event: content_block_stop" in text
+    assert '"stop_reason":"end_turn"' in text
+    assert text.rstrip().endswith("event: message_stop\ndata: {\"type\":\"message_stop\"}")
+
+
+def test_messages_error_is_reshaped_to_anthropic_envelope(tmp_path, monkeypatch):
+    (tmp_path / "wayfinder-router.toml").write_text(CONFIG, encoding="utf-8")
+
+    async def fake(url, headers, json_body, timeout=60.0):
+        return 400, b'{"error": {"message": "bad request", "type": "x"}}', "application/json"
+
+    monkeypatch.setattr(gateway, "aforward_request", fake)
+    tc = TestClient(gateway.build_app(start_dir=str(tmp_path)))
+    resp = tc.post("/v1/messages", json={
+        "model": "claude-x", "max_tokens": 8, "messages": [{"role": "user", "content": "hi"}]})
+    assert resp.status_code == 400
+    body = resp.json()
+    assert body["type"] == "error"
+    assert body["error"]["type"] == "invalid_request_error"
+    assert body["error"]["message"] == "bad request"
+
+
+def test_messages_budget_degrade_is_surfaced(tmp_path, monkeypatch):
+    config = _budget_config(0.001)  # local 0.0 / cloud 1.0, day cap
+    tc = _budget_messages_client(tmp_path, monkeypatch, config)
+    first = tc.post("/v1/messages", json={
+        "model": "claude-x", "max_tokens": 64, "messages": [{"role": "user", "content": COMPLEX_TEXT}]})
+    assert first.headers["x-wayfinder-router-model"] == "cloud"  # over... not yet
+    second = tc.post("/v1/messages", json={
+        "model": "claude-x", "max_tokens": 64, "messages": [{"role": "user", "content": COMPLEX_TEXT}]})
+    assert second.status_code == 200
+    assert second.headers["x-wayfinder-router-model"] == "local"  # degraded
+    assert second.headers["x-wayfinder-router-budget"] == "degraded"
+    assert second.json()["type"] == "message"
+
+
+def _budget_messages_client(tmp_path, monkeypatch, config):
+    (tmp_path / "wayfinder-router.toml").write_text(config, encoding="utf-8")
+
+    async def fake(url, headers, json_body, timeout=60.0):
+        return 200, json.dumps({
+            "choices": [{"message": {"role": "assistant", "content": "ok"}, "finish_reason": "stop"}],
+            "usage": {"prompt_tokens": 100, "completion_tokens": 0},
+        }).encode(), "application/json"
+
+    monkeypatch.setattr(gateway, "aforward_request", fake)
+    return TestClient(gateway.build_app(start_dir=str(tmp_path)))

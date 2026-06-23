@@ -95,7 +95,7 @@ from .config import (
 )
 from .feedback import DEFAULT_LOG, record_label
 from .profiles import PROFILES
-from . import pricing, reliability
+from . import anthropic_adapter, pricing, reliability
 
 if TYPE_CHECKING:  # type-only; the runtime imports these lazily inside build_app
     from fastapi import FastAPI, Response
@@ -1698,6 +1698,75 @@ def build_app(
         return Response(
             content=content, status_code=status, media_type=content_type,
             headers=_served_headers(served_by),
+        )
+
+    @app.post("/v1/messages")
+    @app.post("/messages")  # path tolerance, like /v1/chat/completions
+    async def messages(body: dict = Body(...)) -> Response:  # noqa: B008 - FastAPI default
+        """Claude Code adapter (WF-DESIGN-0011): Anthropic Messages ⇄ OpenAI Chat Completions.
+
+        Pure translation around the existing router — this scores nothing and calls no model
+        (WF-ADR-0001). The inbound Anthropic request is reshaped to an OpenAI body, delegated to
+        :func:`chat_completions` (so routing, budget, and failover are *identical* to the native
+        endpoint), and the reply is reshaped back. The decision headers ride along unchanged.
+        """
+        raw_model = body.get("model")
+        model_echo: str = raw_model if isinstance(raw_model, str) else ""
+        openai_body = anthropic_adapter.anthropic_to_openai_request(body)
+        prompt_text = extract_prompt(openai_body.get("messages"), route_on="all")
+        input_estimate = pricing.estimate_tokens(prompt_text)
+
+        inner = await chat_completions(
+            body=openai_body,
+            x_wayfinder_threshold=None,
+            x_wayfinder_route_on=None,
+            x_wayfinder_sticky=None,
+            x_wayfinder_sticky_cooldown=None,
+            x_wayfinder_debug=None,
+            x_wayfinder_failover=None,
+        )
+        request_id = inner.headers.get("x-wayfinder-router-request-id", "")
+        message_id = f"msg_{request_id}" if request_id else "msg_unknown"
+        # Carry the decision headers through; the body's content-type/length are set fresh.
+        out_headers = {k: v for k, v in inner.headers.items() if k.lower().startswith("x-wayfinder")}
+
+        if isinstance(inner, StreamingResponse):  # Claude Code streams by default
+            translated = anthropic_adapter.messages_stream(
+                inner.body_iterator,
+                model=model_echo,
+                message_id=message_id,
+                input_tokens=input_estimate,
+            )
+            return StreamingResponse(
+                translated, media_type="text/event-stream", headers=out_headers
+            )
+
+        raw = bytes(inner.body) if inner.body else b""
+        try:
+            parsed = json.loads(raw) if raw else {}
+        except (json.JSONDecodeError, ValueError):
+            parsed = None
+        status = inner.status_code
+
+        if status >= 400 or not isinstance(parsed, dict):
+            message = "upstream error"
+            if isinstance(parsed, dict) and isinstance(parsed.get("error"), dict):
+                message = str(parsed["error"].get("message", message))
+            elif raw:
+                message = raw.decode("utf-8", "ignore")[:500]
+            return JSONResponse(
+                status_code=status,
+                content=anthropic_adapter.anthropic_error(status, message),
+                headers=out_headers,
+            )
+        if "choices" not in parsed:  # e.g. a dry-run decision payload — pass through unchanged
+            return JSONResponse(status_code=status, content=parsed, headers=out_headers)
+        return JSONResponse(
+            status_code=status,
+            content=anthropic_adapter.openai_to_anthropic_response(
+                parsed, model=model_echo, message_id=message_id, prompt_text=prompt_text
+            ),
+            headers=out_headers,
         )
 
     return app

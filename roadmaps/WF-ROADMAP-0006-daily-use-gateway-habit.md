@@ -143,7 +143,8 @@ design reference.
     Claude Code (and other Anthropic-Messages-native clients), which a pure OpenAI gateway
     cannot serve directly. *Core:* format translation only (Messages ⇄ Chat Completions);
     deterministic, no model call. *Effort:* M. *Closes:* the single highest-value surface that
-    is *not* a base_url swap today. *Design to follow.*
+    is *not* a base_url swap today. **Shipped (buffered + streaming + tool use): WF-DESIGN-0011.**
+    Image/vision blocks, extended thinking, and prompt-caching controls are the documented follow-up.
 
 12. **Writable admin / config UI.**
     Ops · workflow. *Job:* create keys, teams, budgets, and routing config at runtime. *Core:*
