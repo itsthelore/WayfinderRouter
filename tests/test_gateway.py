@@ -1308,3 +1308,98 @@ def test_circuit_opens_after_threshold_then_fails_fast(tmp_path, monkeypatch):
     third = tc.post("/v1/chat/completions", json=TRIVIAL)
     assert third.status_code == 503
     assert third.json()["error"]["type"] == "wayfinder_router_circuit_open"
+
+
+# --- reliability Phase 2: cross-tier failover + pre-call checks (WF-ADR-0031) ---
+def _failover_config(failover: str, *, cloud_ctx: int | None = None) -> str:
+    cloud_extra = f"context_window = {cloud_ctx}\n" if cloud_ctx else ""
+    return (
+        f'[gateway]\nretries = 0\nfailover = "{failover}"\n\n'
+        "[routing]\nthreshold = 0.2\n\n"
+        "[gateway.models.local]\n"
+        'base_url = "http://local.test/v1"\nmodel = "m-local"\n\n'
+        "[gateway.models.cloud]\n"
+        'base_url = "http://cloud.test/v1"\nmodel = "m-cloud"\n' + cloud_extra
+    )
+
+
+def _failover_client(tmp_path, monkeypatch, config, fake):
+    (tmp_path / "wayfinder-router.toml").write_text(config, encoding="utf-8")
+    monkeypatch.setattr(gateway, "aforward_request", fake)
+    return TestClient(gateway.build_app(start_dir=str(tmp_path)))
+
+
+def test_failover_and_context_window_round_trip():
+    cfg = _failover_config("degrade", cloud_ctx=8000)
+    gw = gateway.gateway_config_from_toml(cfg)
+    assert gw.failover == "degrade"
+    assert gw.models["cloud"].context_window == 8000
+    back = gateway.gateway_config_from_toml(gateway.dump_gateway_toml(gw))
+    assert back.failover == "degrade" and back.models["cloud"].context_window == 8000
+
+
+def test_failover_degrade_serves_cheaper_tier_without_recomputing_decision(tmp_path, monkeypatch):
+    async def fake(url, headers, json_body, timeout=60.0):
+        if "cloud.test" in url:
+            raise gateway.UpstreamError("cloud down")
+        return 200, b'{"object":"chat.completion"}', "application/json"
+
+    tc = _failover_client(tmp_path, monkeypatch, _failover_config("degrade"), fake)
+    resp = tc.post("/v1/chat/completions", json=COMPLEX)  # routes to cloud -> degrade to local
+    assert resp.status_code == 200
+    assert resp.headers["x-wayfinder-router-model"] == "cloud"  # decision unchanged
+    assert resp.headers["x-wayfinder-router-served-by"] == "local"  # delivery changed
+    assert resp.headers["x-wayfinder-router-failover"] == "true"
+
+
+def test_failover_escalate_serves_dearer_tier(tmp_path, monkeypatch):
+    async def fake(url, headers, json_body, timeout=60.0):
+        if "local.test" in url:
+            raise gateway.UpstreamError("local down")
+        return 200, b'{"object":"chat.completion"}', "application/json"
+
+    tc = _failover_client(tmp_path, monkeypatch, _failover_config("escalate"), fake)
+    resp = tc.post("/v1/chat/completions", json=TRIVIAL)  # routes to local -> escalate to cloud
+    assert resp.status_code == 200
+    assert resp.headers["x-wayfinder-router-served-by"] == "cloud"
+
+
+def test_failover_same_tier_default_does_not_cross_tiers(tmp_path, monkeypatch):
+    async def fake(url, headers, json_body, timeout=60.0):
+        if "cloud.test" in url:
+            raise gateway.UpstreamError("cloud down")
+        return 200, b'{"object":"chat.completion"}', "application/json"
+
+    tc = _failover_client(tmp_path, monkeypatch, _failover_config("same-tier"), fake)
+    resp = tc.post("/v1/chat/completions", json=COMPLEX)  # cloud fails, no cross-tier
+    assert resp.status_code == 502  # does NOT silently fall to local
+
+
+def test_failover_header_overrides_config_policy(tmp_path, monkeypatch):
+    async def fake(url, headers, json_body, timeout=60.0):
+        if "cloud.test" in url:
+            raise gateway.UpstreamError("cloud down")
+        return 200, b'{"object":"chat.completion"}', "application/json"
+
+    tc = _failover_client(tmp_path, monkeypatch, _failover_config("same-tier"), fake)
+    resp = tc.post(
+        "/v1/chat/completions", json=COMPLEX, headers={"X-Wayfinder-Failover": "degrade"}
+    )
+    assert resp.status_code == 200  # the header enabled degrade for this request
+    assert resp.headers["x-wayfinder-router-served-by"] == "local"
+
+
+def test_precall_skips_target_that_cannot_fit_the_prompt(tmp_path, monkeypatch):
+    seen = []
+
+    async def fake(url, headers, json_body, timeout=60.0):
+        seen.append(url)
+        return 200, b'{"object":"chat.completion"}', "application/json"
+
+    # cloud's window is 1 token; the COMPLEX prompt can't fit, so cloud is skipped pre-call
+    # and degrade serves local — cloud is never even called.
+    tc = _failover_client(tmp_path, monkeypatch, _failover_config("degrade", cloud_ctx=1), fake)
+    resp = tc.post("/v1/chat/completions", json=COMPLEX)
+    assert resp.status_code == 200
+    assert resp.headers["x-wayfinder-router-served-by"] == "local"
+    assert all("cloud.test" not in u for u in seen)  # pre-call skipped cloud before any call

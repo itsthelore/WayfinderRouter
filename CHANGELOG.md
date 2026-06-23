@@ -28,8 +28,13 @@ details, release history over commit history.
   down (then a `503` rather than hammering it). Ordinary `4xx` fails fast. Tunable via
   `[gateway] retries / breaker_threshold / breaker_cooldown` and per-model `fallbacks`.
   Responses carry `x-wayfinder-router-served-by` (and `x-wayfinder-router-failover` when it
-  differs from the routed tier); cost is billed to the target that actually served. The
-  **scored decision is never recomputed** — this is delivery, not routing.
+  differs from the routed tier); cost is billed to the target that actually served. An
+  opt-in **cross-tier `failover` policy** (`[gateway] failover = same-tier` (default) `|
+  degrade | escalate`, per-request override via `X-Wayfinder-Failover`) can fall to a cheaper
+  tier (`degrade`, never raises cost) or a dearer one (`escalate`, opt-in) once same-tier
+  options are exhausted, and a **deterministic pre-call check** skips a target whose
+  `context_window` can't fit the prompt before spending the call. The **scored decision is
+  never recomputed** — this is delivery, not routing.
 - **`/cost` period view in the terminal chat** (WF-DESIGN-0007). The chat now records turns
   into a persisted savings ledger, so `/cost` shows today / 7-day / 30-day / all-time savings
   (and route mix) that accrue across sessions, not just the current one.
