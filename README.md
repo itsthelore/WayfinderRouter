@@ -507,6 +507,11 @@ IDE assistants with a custom endpoint (Cursor, Continue), and gateways like Lite
 client = openai.OpenAI(base_url="http://localhost:8088/v1", api_key="unused")
 ```
 
+See **[Integration recipes](docs/integrations.md)** for copy-paste setup across chat UIs
+(Open WebUI, LibreChat, Jan), editors (Continue, Cline, Zed, JetBrains), agent frameworks
+(LangChain, LlamaIndex, CrewAI, AutoGen, the OpenAI Agents SDK, the Vercel AI SDK), and
+CLIs (aider, Copilot CLI) — plus the canonical `OPENAI_BASE_URL` / `OPENAI_API_KEY` pair.
+
 Wire feedback from wherever your users are. Your app, IDE, or chat shows a
 thumbs-up or thumbs-down and posts the judgment; the next recalibration learns from
 it:

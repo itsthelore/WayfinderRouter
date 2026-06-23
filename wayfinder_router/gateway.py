@@ -1008,6 +1008,7 @@ def build_app(
         )
 
     @app.get("/v1/models")
+    @app.get("/models")  # path tolerance: clients pointed at the bare host (no /v1 prefix)
     def list_models() -> dict:
         """Advertise the selectable routing options as an OpenAI-compatible list.
 
@@ -1115,6 +1116,7 @@ def build_app(
         return {"ok": True}
 
     @app.post("/v1/chat/completions")
+    @app.post("/chat/completions")  # path tolerance: base_url set without the /v1 prefix
     async def chat_completions(  # noqa: B008 - FastAPI default
         body: dict = Body(...),
         x_wayfinder_threshold: str | None = Header(default=None),
