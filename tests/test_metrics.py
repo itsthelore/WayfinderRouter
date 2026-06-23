@@ -98,7 +98,11 @@ def test_model_cost_gauge_absent_without_cost_metadata(tmp_path, monkeypatch):
 
 
 def test_upstream_error_increments_the_error_counter(tmp_path, monkeypatch):
-    (tmp_path / "wayfinder-router.toml").write_text(CONFIG, encoding="utf-8")
+    # retries=0 so one failing request is one attempt is one counted error (WF-ADR-0031:
+    # the counter is per upstream attempt, which retries would otherwise multiply).
+    (tmp_path / "wayfinder-router.toml").write_text(
+        "[gateway]\nretries = 0\n\n" + CONFIG, encoding="utf-8"
+    )
 
     async def boom(url, headers, json_body, timeout=60.0):
         raise gateway.UpstreamError("connection refused")

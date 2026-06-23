@@ -21,6 +21,18 @@ details, release history over commit history.
   answer without the `/v1` prefix, so a client whose `base_url` omits `/v1` still routes. New
   **[Integration recipes](docs/integrations.md)** cover chat UIs, editors, agent frameworks,
   and CLIs.
+- **Gateway reliability — retries, same-tier fallback, circuit breaker** (WF-ADR-0031,
+  WF-DESIGN-0010). A failed forward (transport error, or `429`/`5xx`) is retried with bounded
+  backoff; on exhaustion it falls back to a model's configured `fallbacks` (same-tier
+  alternate endpoints); a per-target circuit breaker skips a downed upstream until it cools
+  down (then a `503` rather than hammering it). Ordinary `4xx` fails fast. Tunable via
+  `[gateway] retries / breaker_threshold / breaker_cooldown` and per-model `fallbacks`.
+  Responses carry `x-wayfinder-router-served-by` (and `x-wayfinder-router-failover` when it
+  differs from the routed tier); cost is billed to the target that actually served. The
+  **scored decision is never recomputed** — this is delivery, not routing.
+- **`/cost` period view in the terminal chat** (WF-DESIGN-0007). The chat now records turns
+  into a persisted savings ledger, so `/cost` shows today / 7-day / 30-day / all-time savings
+  (and route mix) that accrue across sessions, not just the current one.
 
 ## v2026.6.4 — 2026-06-23
 

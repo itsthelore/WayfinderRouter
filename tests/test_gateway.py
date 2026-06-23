@@ -1218,3 +1218,93 @@ def test_router_models_reports_endpoints_and_key_status_without_secrets(monkeypa
 def test_demo_page_has_models_status(client):
     text = client[0].get("/demo").text
     assert 'id="models"' in text and "/router/models" in text
+
+
+# --- reliability: retry / same-tier fallback / circuit breaker (WF-ADR-0031) ---
+_RELIABILITY_CONFIG = (
+    "[gateway]\nretries = 1\nbreaker_threshold = 2\n\n"
+    "[routing]\nthreshold = 0.2\n\n"
+    "[gateway.models.local]\n"
+    'base_url = "http://localhost:11434/v1"\nmodel = "llama3.2"\n\n'
+    "[gateway.models.cloud]\n"
+    'base_url = "https://primary.example.com/v1"\nmodel = "big-1"\nfallbacks = ["cloud2"]\n\n'
+    "[gateway.models.cloud2]\n"
+    'base_url = "https://backup.example.com/v1"\nmodel = "big-2"\n'
+)
+
+
+def _reliability_client(tmp_path, monkeypatch, fake):
+    (tmp_path / "wayfinder-router.toml").write_text(_RELIABILITY_CONFIG, encoding="utf-8")
+    monkeypatch.setattr(gateway, "aforward_request", fake)
+    return TestClient(gateway.build_app(start_dir=str(tmp_path)))
+
+
+def test_fallbacks_and_reliability_config_round_trip():
+    gw = gateway.gateway_config_from_toml(_RELIABILITY_CONFIG)
+    assert gw.models["cloud"].fallbacks == ("cloud2",)
+    assert gw.retries == 1 and gw.breaker_threshold == 2
+    back = gateway.gateway_config_from_toml(gateway.dump_gateway_toml(gw))
+    assert back.models["cloud"].fallbacks == ("cloud2",)
+    assert back.retries == 1 and back.breaker_threshold == 2
+
+
+def test_unknown_fallback_is_a_config_error():
+    bad = "[gateway.models.a]\nbase_url='http://x/v1'\nmodel='m'\nfallbacks=['nope']\n"
+    with pytest.raises(gateway.WayfinderConfigError):
+        gateway.gateway_config_from_toml(bad)
+
+
+def test_retry_then_success_on_transient_failure(tmp_path, monkeypatch):
+    calls = {"n": 0}
+
+    async def fake(url, headers, json_body, timeout=60.0):
+        calls["n"] += 1
+        if calls["n"] == 1:
+            raise gateway.UpstreamError("transient")
+        return 200, b'{"object":"chat.completion"}', "application/json"
+
+    tc = _reliability_client(tmp_path, monkeypatch, fake)
+    resp = tc.post("/v1/chat/completions", json=TRIVIAL)  # -> local
+    assert resp.status_code == 200
+    assert calls["n"] == 2  # failed once, retried, succeeded
+    assert resp.headers["x-wayfinder-router-served-by"] == "local"
+    assert "x-wayfinder-router-failover" not in resp.headers
+
+
+def test_same_tier_fallback_when_primary_keeps_failing(tmp_path, monkeypatch):
+    async def fake(url, headers, json_body, timeout=60.0):
+        if "primary.example.com" in url:
+            raise gateway.UpstreamError("primary down")
+        return 200, b'{"object":"chat.completion"}', "application/json"
+
+    tc = _reliability_client(tmp_path, monkeypatch, fake)
+    resp = tc.post("/v1/chat/completions", json=COMPLEX)  # cloud fails -> cloud2 serves
+    assert resp.status_code == 200
+    assert resp.headers["x-wayfinder-router-served-by"] == "cloud2"
+    assert resp.headers["x-wayfinder-router-failover"] == "true"
+
+
+def test_non_retryable_4xx_returned_without_fallback(tmp_path, monkeypatch):
+    seen = []
+
+    async def fake(url, headers, json_body, timeout=60.0):
+        seen.append(url)
+        return 400, b'{"error": {"message": "bad request"}}', "application/json"
+
+    tc = _reliability_client(tmp_path, monkeypatch, fake)
+    resp = tc.post("/v1/chat/completions", json=COMPLEX)  # cloud returns 400
+    assert resp.status_code == 400
+    assert all("backup.example.com" not in u for u in seen)  # cloud2 never tried
+    assert resp.headers["x-wayfinder-router-served-by"] == "cloud"
+
+
+def test_circuit_opens_after_threshold_then_fails_fast(tmp_path, monkeypatch):
+    async def fake(url, headers, json_body, timeout=60.0):
+        raise gateway.UpstreamError("always down")
+
+    tc = _reliability_client(tmp_path, monkeypatch, fake)  # local has no fallback
+    assert tc.post("/v1/chat/completions", json=TRIVIAL).status_code == 502  # failure 1
+    assert tc.post("/v1/chat/completions", json=TRIVIAL).status_code == 502  # failure 2 -> opens
+    third = tc.post("/v1/chat/completions", json=TRIVIAL)
+    assert third.status_code == 503
+    assert third.json()["error"]["type"] == "wayfinder_router_circuit_open"
