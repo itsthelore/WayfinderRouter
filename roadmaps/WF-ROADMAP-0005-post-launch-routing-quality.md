@@ -106,3 +106,5 @@ Sequenced by timeliness and leverage; each is independent.
 - WF-DESIGN-0004 (one-command calibration loop — Initiative 3)
 - WF-DESIGN-0005 (structural feature audit — measures which features earn their default
   weight; feeds the calibration defaults and the honest README framing)
+- WF-DESIGN-0006 (friendlier, safer key experience — resolve keys from a keychain / password
+  manager and a plain-English status check; a companion to Initiative 4's gateway hardening)
