@@ -305,6 +305,17 @@ def test_init_openai_preset(tmp_path, monkeypatch, capsys):
     assert "OPENAI_API_KEY" in out and 'export OPENAI_API_KEY="..."' in out
 
 
+def test_init_gemini_preset(tmp_path, monkeypatch, capsys):
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.delenv("GEMINI_API_KEY", raising=False)
+    assert main(["init", "--preset", "gemini"]) == 0
+    cfg = (tmp_path / "wayfinder-router.toml").read_text(encoding="utf-8")
+    assert "gemini-2.5-flash" in cfg and "gemini-2.5-pro" in cfg
+    assert "generativelanguage.googleapis.com/v1beta/openai" in cfg
+    out = capsys.readouterr().out
+    assert "GEMINI_API_KEY" in out and 'export GEMINI_API_KEY="..."' in out
+
+
 def test_init_unknown_preset_is_usage_error(tmp_path, monkeypatch, capsys):
     monkeypatch.chdir(tmp_path)
     assert main(["init", "--preset", "nope"]) == 2

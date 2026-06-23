@@ -33,6 +33,23 @@ def test_openai_preset_config_round_trips(monkeypatch):
     assert bootstrap.missing_keys(bootstrap.key_status(gw.models)) == ["OPENAI_API_KEY"]  # deduped
 
 
+def test_gemini_preset_config_round_trips(monkeypatch):
+    text = bootstrap.render_config(bootstrap.PRESETS["gemini"])
+    gw = gateway_config_from_toml(text)
+    assert set(gw.models) == {"flash", "pro"}
+    assert gw.models["flash"].model == "gemini-2.5-flash"
+    assert gw.models["pro"].model == "gemini-2.5-pro"
+    # Gemini's OpenAI-compatible endpoint, one key shared across both tiers
+    assert {m.base_url for m in gw.models.values()} == {
+        "https://generativelanguage.googleapis.com/v1beta/openai"
+    }
+    assert {m.api_key_env for m in gw.models.values()} == {"GEMINI_API_KEY"}
+    routing = routing_config_from_toml(text)
+    assert [t.model for t in routing.tiers] == ["flash", "pro"]
+    monkeypatch.delenv("GEMINI_API_KEY", raising=False)
+    assert bootstrap.missing_keys(bootstrap.key_status(gw.models)) == ["GEMINI_API_KEY"]
+
+
 def test_presets_carry_rough_costs():
     hybrid = gateway_config_from_toml(bootstrap.render_config(bootstrap.PRESETS["hybrid"]))
     assert hybrid.models["local"].cost_per_1k == 0.0  # local is free
@@ -40,6 +57,9 @@ def test_presets_carry_rough_costs():
     openai = gateway_config_from_toml(bootstrap.render_config(bootstrap.PRESETS["openai"]))
     assert openai.models["small"].cost_per_1k and openai.models["large"].cost_per_1k
     assert openai.models["large"].cost_per_1k > openai.models["small"].cost_per_1k
+    gemini = gateway_config_from_toml(bootstrap.render_config(bootstrap.PRESETS["gemini"]))
+    assert gemini.models["flash"].cost_per_1k and gemini.models["pro"].cost_per_1k
+    assert gemini.models["pro"].cost_per_1k > gemini.models["flash"].cost_per_1k
 
 
 def test_env_example_lists_names_without_secrets():

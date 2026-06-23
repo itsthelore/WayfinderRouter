@@ -285,7 +285,7 @@ def parse_command(line: str) -> tuple[str | None, str]:
 
 _HELP = (
     "commands\n"
-    "  /init [hybrid|openai]         scaffold a wayfinder-router.toml and load its models\n"
+    "  /init [hybrid|openai|gemini]  scaffold a wayfinder-router.toml and load its models\n"
     "  /models                       show configured models and whether each key is set\n"
     "  /keys                         re-check keys: resolve from your secret store, fix hints\n"
     "  /cost                         session routing mix and estimated savings vs cloud\n"
@@ -585,6 +585,8 @@ def render_empty_state(palette: dict[str, str]) -> RenderableType:
                 style=muted)
     body.append("  /init openai", style=accent)
     body.append("   two OpenAI tiers (gpt-4o-mini → gpt-4o)\n", style=muted)
+    body.append("  /init gemini", style=accent)
+    body.append("   two Gemini tiers (gemini-2.5-flash → gemini-2.5-pro)\n", style=muted)
     body.append("  /keys", style=accent)
     body.append("          after /init: check & resolve your keys, with fix-it hints\n\n",
                 style=muted)

@@ -20,6 +20,11 @@ details, release history over commit history.
 - **`/keys` in the terminal chat** re-resolves keys from your secret store and reports
   each model's status with fix-it hints, and the `/models` panel now notes
   command-resolved keys. A first-run nudge points you at `/keys` when a key is missing.
+- **`init --preset gemini`** scaffolds a two-tier Google Gemini config
+  (`gemini-2.5-flash` → `gemini-2.5-pro`) through Gemini's OpenAI-compatible endpoint,
+  and the default `hybrid` preset gains a commented Gemini swap example. Gemini needs no
+  special handling — it speaks the same OpenAI `/chat/completions` the gateway already
+  forwards to (WF-ADR-0004).
 
 ## v2026.6.3 — 2026-06-22
 
