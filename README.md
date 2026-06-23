@@ -117,6 +117,31 @@ decision-only (`--dry-run` for the web; the terminal's preview), so you can poke
 zero setup. To get real replies, run `wayfinder-router init` to scaffold `[gateway.models]`
 (then `wayfinder-router doctor` to confirm your keys resolve) — see [Quickstart](#quickstart).
 
+## Works with any OpenAI-compatible API
+
+Wayfinder forwards each call to an OpenAI-style `/chat/completions` endpoint — so if
+your provider speaks that (and most do), **it just works.** A tier is one `base_url`,
+a model name, and a key read from the environment at request time; no SDK, no
+per-provider code. Pair a free local model with a hosted one, or run two cloud tiers.
+
+<div align="center">
+
+![OpenAI](https://img.shields.io/badge/OpenAI-412991?logo=openai&logoColor=white)
+&nbsp;
+![Claude](https://img.shields.io/badge/Claude-D97757?logo=anthropic&logoColor=white)
+&nbsp;
+![Gemini](https://img.shields.io/badge/Gemini-1C69FF?logo=googlegemini&logoColor=white)
+&nbsp;
+![Mistral](https://img.shields.io/badge/Mistral-FA520F?logo=mistralai&logoColor=white)
+&nbsp;
+![Ollama](https://img.shields.io/badge/Ollama-000000?logo=ollama&logoColor=white)
+
+<sub>…plus Groq, Together, OpenRouter, Fireworks, DeepSeek, and local servers
+(vLLM, LM Studio, llama.cpp) — <strong>+ any OpenAI-compatible endpoint</strong>
+that takes a Bearer key.</sub>
+
+</div>
+
 ## Quickstart
 
 Put Wayfinder in front of your models. Your app keeps speaking the OpenAI API; you
