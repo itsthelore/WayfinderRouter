@@ -106,7 +106,8 @@ design reference.
    counter; on breach **force the cheap/local tier** instead of hard-blocking — a graceful
    degradation no competitor offers, and uniquely natural for a router. *Effort:* M.
    *Closes:* budgets (LiteLLM, Portkey, OpenRouter) — with a Wayfinder-native twist.
-   *Design to follow; pairs with #5 and #4.*
+   **Shipped (gateway-wide cap, day/month/all windows, degrade-or-block): WF-ADR-0032.**
+   Per-*key* budgets ride on #5 (virtual keys); auto-reset is the rolling window.
 
 7. **Configurable rate limiting (RPM/TPM, per key/session).**
    Ops · workflow. *Job:* protect upstreams and contain blast radius. *Core:* deterministic
