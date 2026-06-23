@@ -66,6 +66,39 @@ def test_render_decision_collapses_by_default_expands_on_demand():
     assert top in expanded.export_text()  # breakdown shown when expanded
 
 
+def test_render_cost_shows_session_and_period_breakdown():
+    from datetime import date
+
+    from rich.console import Console
+
+    from wayfinder_router import pricing
+
+    palette = tui.palette_for("dark")
+    tally = tui.SessionCost(calls=3, local=2, spent=0.01, saved=0.02, priced=True)
+    ledger = pricing.SavingsLedger(priced=True)
+    costs = {"local": 0.0, "cloud": 0.01}
+    ledger.record(pricing.turn_cost("local", 1000, 0, costs, estimated=True), when=date.today())
+
+    con = Console(record=True, width=80)
+    con.print(tui.render_cost(tally, palette, ledger))
+    text = con.export_text()
+    assert "this session" in text and "by period" in text
+    for label, _ in tui._COST_PERIODS:
+        assert label in text  # today / 7 days / 30 days / all time rows render
+    assert "$" in text  # priced -> dollar figures shown
+
+
+def test_render_cost_without_ledger_is_session_only():
+    from rich.console import Console
+
+    palette = tui.palette_for("dark")
+    con = Console(record=True, width=80)
+    con.print(tui.render_cost(tui.SessionCost(calls=1, local=1, priced=False), palette, None))
+    text = con.export_text()
+    assert "model calls" in text
+    assert "by period" not in text  # no ledger -> no period table
+
+
 def test_render_decision_cloud_label():
     from rich.console import Console
 
