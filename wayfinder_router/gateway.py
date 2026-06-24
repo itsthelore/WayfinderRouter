@@ -95,7 +95,7 @@ from .config import (
 )
 from .feedback import DEFAULT_LOG, record_label
 from .profiles import PROFILES
-from . import anthropic_adapter, cache, pricing, reliability
+from . import anthropic_adapter, cache, pricing, ratelimit, reliability
 
 if TYPE_CHECKING:  # type-only; the runtime imports these lazily inside build_app
     from fastapi import FastAPI, Response
@@ -211,6 +211,7 @@ class Metrics:
         self.cache_hits = 0  # exact-match cache hits (WF-ADR-0033)
         self.cache_misses = 0  # cacheable requests that missed
         self.cache_avoided_cost = 0.0  # cost a hit avoided (chosen-tier cost; distinct from savings)
+        self.rate_limited: dict[str, int] = {}  # 429s by tripped limit ("rpm"/"tpm"; WF-ADR-0034)
 
     def set_model_costs(self, costs: dict[str, float]) -> None:
         """Record per-model cost metadata to surface as a gauge (informational)."""
@@ -242,6 +243,10 @@ class Metrics:
 
     def observe_cache_miss(self) -> None:
         self.cache_misses += 1
+
+    def observe_rate_limited(self, limit: str) -> None:
+        """A request was rejected with 429 by the ``rpm`` or ``tpm`` cap (WF-ADR-0034)."""
+        self.rate_limited[limit] = self.rate_limited.get(limit, 0) + 1
 
     def record_reload_failure(self) -> None:
         self.reload_failures += 1
@@ -283,6 +288,14 @@ class Metrics:
         )
         lines.append("# TYPE wayfinder_router_cache_avoided_cost_total counter")
         lines.append(f"wayfinder_router_cache_avoided_cost_total {self.cache_avoided_cost:g}")
+
+        lines.append(
+            "# HELP wayfinder_router_rate_limited_total Requests rejected with 429 by limit "
+            "(WF-ADR-0034)."
+        )
+        lines.append("# TYPE wayfinder_router_rate_limited_total counter")
+        for limit, n in sorted(self.rate_limited.items()):
+            lines.append(f'wayfinder_router_rate_limited_total{{limit="{_label_escape(limit)}"}} {n}')
 
         lines.append(
             "# HELP wayfinder_router_config_reload_failures_total "
@@ -397,6 +410,20 @@ class CacheConfig:
 
 
 @dataclass(frozen=True)
+class RateLimit:
+    """Rate-limit settings (WF-ADR-0034, WF-ROADMAP-0006 #7).
+
+    Caps requests-per-minute (``rpm``) and/or upstream-tokens-per-minute (``tpm``) over a
+    fixed ``window``; on breach the gateway returns HTTP 429. At least one of ``rpm``/``tpm``
+    is set when the block is present. Gateway-wide in v1 (per-key limits ride on virtual keys).
+    """
+
+    rpm: int | None = None
+    tpm: int | None = None
+    window: float = ratelimit.DEFAULT_WINDOW  # seconds in a window (default 60)
+
+
+@dataclass(frozen=True)
 class GatewayConfig:
     """Maps recommended model names to upstream endpoints (from `[gateway.models]`).
 
@@ -424,6 +451,8 @@ class GatewayConfig:
     budget: Budget | None = None
     # Response cache (WF-ADR-0033): an optional exact-match cache. ``None`` = no cache.
     cache: CacheConfig | None = None
+    # Rate limit (WF-ADR-0034): an optional RPM/TPM cap. ``None`` = no limit.
+    rate_limit: RateLimit | None = None
 
 
 # Which chat-message text the router scores. The deterministic core scores
@@ -493,6 +522,31 @@ def _cache_from_toml(raw: object, where: str) -> CacheConfig | None:
     )
 
 
+def _rate_limit_from_toml(raw: object, where: str) -> RateLimit | None:
+    """Parse and validate the optional ``[gateway.rate_limit]`` table (WF-ADR-0034)."""
+    if raw is None:
+        return None
+    if not isinstance(raw, dict):
+        raise WayfinderConfigError(f"{where}: '[gateway.rate_limit]' must be a table")
+
+    def _positive_int_or_none(key: str) -> int | None:
+        val = raw.get(key)
+        if val is None:
+            return None
+        if isinstance(val, bool) or not isinstance(val, int) or val < 1:
+            raise WayfinderConfigError(f"{where}: 'gateway.rate_limit.{key}' must be a positive integer")
+        return val
+
+    rpm = _positive_int_or_none("rpm")
+    tpm = _positive_int_or_none("tpm")
+    if rpm is None and tpm is None:
+        raise WayfinderConfigError(f"{where}: '[gateway.rate_limit]' must set 'rpm' and/or 'tpm'")
+    window = raw.get("window", ratelimit.DEFAULT_WINDOW)
+    if isinstance(window, bool) or not isinstance(window, (int, float)) or window <= 0:
+        raise WayfinderConfigError(f"{where}: 'gateway.rate_limit.window' must be a positive number")
+    return RateLimit(rpm=rpm, tpm=tpm, window=float(window))
+
+
 def gateway_config_from_toml(text: str, where: str = "wayfinder-router.toml") -> GatewayConfig:
     """Parse a :class:`GatewayConfig` from ``wayfinder-router.toml`` text (file-free)."""
     try:
@@ -531,6 +585,7 @@ def gateway_config_from_toml(text: str, where: str = "wayfinder-router.toml") ->
         )
     budget = _budget_from_toml(gateway.get("budget"), where)
     cache_cfg = _cache_from_toml(gateway.get("cache"), where)
+    rate_limit = _rate_limit_from_toml(gateway.get("rate_limit"), where)
     raw_models = gateway.get("models") or {}
     if not isinstance(raw_models, dict):
         raise WayfinderConfigError(f"{where}: '[gateway.models]' must be a table")
@@ -608,7 +663,7 @@ def gateway_config_from_toml(text: str, where: str = "wayfinder-router.toml") ->
     return GatewayConfig(
         models=models, route_on=route_on, sticky=sticky, sticky_cooldown=cooldown,
         retries=retries, breaker_threshold=breaker_threshold, breaker_cooldown=breaker_cooldown,
-        failover=failover, budget=budget, cache=cache_cfg,
+        failover=failover, budget=budget, cache=cache_cfg, rate_limit=rate_limit,
     )
 
 
@@ -659,6 +714,16 @@ def dump_gateway_toml(gateway: GatewayConfig) -> str:
             lines.append(f"max_entries = {c.max_entries}")
         if c.max_bytes != cache.DEFAULT_MAX_BYTES:
             lines.append(f"max_bytes = {c.max_bytes}")
+        blocks.append("\n".join(lines))
+    if gateway.rate_limit is not None:  # emitted as its own [gateway.rate_limit] sub-table
+        rl = gateway.rate_limit
+        lines = ["[gateway.rate_limit]"]
+        if rl.rpm is not None:
+            lines.append(f"rpm = {rl.rpm}")
+        if rl.tpm is not None:
+            lines.append(f"tpm = {rl.tpm}")
+        if rl.window != ratelimit.DEFAULT_WINDOW:
+            lines.append(f"window = {round(rl.window, 6)!r}")
         blocks.append("\n".join(lines))
     for name, model in gateway.models.items():
         lines = [
@@ -1294,6 +1359,11 @@ def build_app(
         max_entries=_cache0.max_entries, max_bytes=_cache0.max_bytes,
     )
 
+    # Rate limit (WF-ADR-0034): one long-lived limiter; its window counters survive config
+    # hot-reloads (like the breaker), and the handler keeps the limits in sync.
+    _rl0 = gw0.rate_limit or RateLimit()
+    rate_limiter = ratelimit.RateLimiter(rpm=_rl0.rpm, tpm=_rl0.tpm, window=_rl0.window)
+
     def _auth_headers(model: GatewayModel) -> dict[str, str]:
         headers = {"Content-Type": "application/json"}
         if model.api_key_env:
@@ -1527,6 +1597,34 @@ def build_app(
             response_cache.reconfigure(
                 enabled=False, ttl=response_cache.ttl,
                 max_entries=response_cache.max_entries, max_bytes=response_cache.max_bytes,
+            )
+
+        # Keep the long-lived rate limiter's caps in sync with hot-reloaded config.
+        if gw.rate_limit is not None:
+            rate_limiter.reconfigure(
+                rpm=gw.rate_limit.rpm, tpm=gw.rate_limit.tpm, window=gw.rate_limit.window
+            )
+        elif rate_limiter.active():
+            rate_limiter.reconfigure(rpm=None, tpm=None, window=rate_limiter.window)
+
+        # Rate-limit admission (WF-ADR-0034): the outermost guardrail — reject a flood with 429
+        # before spending any work. A cache hit still counts as a request (RPM); only real
+        # upstream calls count against TPM (added after delivery).
+        rl = rate_limiter.admit()
+        if not rl.allowed:
+            metrics.observe_rate_limited(rl.limit)
+            logger.info("request %s rate-limited (%s)", request_id, rl.limit)
+            return JSONResponse(
+                status_code=429,
+                content={"error": {
+                    "message": f"{rl.limit} rate limit exceeded",
+                    "type": "wayfinder_router_rate_limited",
+                }},
+                headers={
+                    "x-wayfinder-router-request-id": request_id,
+                    "x-wayfinder-router-rate-limit": rl.limit,
+                    "Retry-After": str(rl.retry_after),
+                },
             )
 
         def _reject(exc: BadOverride) -> JSONResponse:
@@ -1802,7 +1900,10 @@ def build_app(
                     breaker.record(served, True)
                     # No upstream `usage` over SSE by default, so estimate from the streamed text.
                     completion_text = "".join(parse_sse_deltas("".join(streamed).splitlines()))
-                    _record_turn(entry, served, decision, gw, None, prompt_all, completion_text)
+                    s_pt, s_ct, _ = _record_turn(
+                        entry, served, decision, gw, None, prompt_all, completion_text
+                    )
+                    rate_limiter.add_tokens(s_pt + s_ct)  # count served tokens toward TPM
                     if debug:
                         meta = json.dumps(_explain_payload())
                         yield f"event: wayfinder\ndata: {meta}\n\n".encode()
@@ -1836,6 +1937,7 @@ def build_app(
                 entry, served_by, decision, gw, response_obj,
                 prompt_all, _first_choice_text(response_obj),
             )
+            rate_limiter.add_tokens(pt + ct)  # count served tokens toward TPM (WF-ADR-0034)
             # Store the raw success (captured BEFORE any debug mutation), keyed on the model that
             # actually served — so a failover turn populates the served model's key, not chosen's.
             if cache_state == "miss" and cache.is_storable(status, content_type, response_obj):
