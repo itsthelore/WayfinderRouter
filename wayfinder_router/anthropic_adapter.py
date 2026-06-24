@@ -16,7 +16,7 @@ that turns OpenAI SSE chunks into the Anthropic event sequence
 from __future__ import annotations
 
 import json
-from collections.abc import AsyncIterator, Iterable, Mapping
+from collections.abc import AsyncIterable, AsyncIterator, Iterable, Mapping
 
 from .pricing import estimate_tokens
 
@@ -395,9 +395,17 @@ def translate_sse_chunks(
 
 
 async def messages_stream(
-    byte_iter: AsyncIterator[bytes], *, model: str, message_id: str, input_tokens: int = 0
+    byte_iter: AsyncIterable[str | bytes | memoryview],
+    *,
+    model: str,
+    message_id: str,
+    input_tokens: int = 0,
 ) -> AsyncIterator[bytes]:
-    """Async wrapper: buffer upstream OpenAI SSE bytes, emit translated Anthropic SSE bytes."""
+    """Async wrapper: buffer upstream OpenAI SSE bytes, emit translated Anthropic SSE bytes.
+
+    Accepts whatever a Starlette ``StreamingResponse.body_iterator`` yields (``str``,
+    ``bytes``, or ``memoryview``) and normalizes each piece to text before parsing.
+    """
     translator = MessagesStreamTranslator(
         model=model, message_id=message_id, input_tokens=input_tokens
     )
@@ -405,7 +413,7 @@ async def messages_stream(
         yield event
     buffer = ""
     async for chunk in byte_iter:
-        buffer += chunk.decode("utf-8", "ignore") if isinstance(chunk, bytes) else chunk
+        buffer += chunk if isinstance(chunk, str) else bytes(chunk).decode("utf-8", "ignore")
         while "\n" in buffer:
             line, buffer = buffer.split("\n", 1)
             obj = _parse_sse_data(line)
