@@ -134,7 +134,8 @@ design reference.
     request → stored response; fully deterministic and offline. *Effort:* M. *Closes:* exact
     caching (Cloudflare, Portkey "simple", Helicone exact). **Note:** *semantic* caching needs
     an embedding model call and is therefore out of scope — exact-match is the compatible
-    subset. *Design to follow.*
+    subset. **Shipped (deterministic, in-memory, opt-in): WF-ADR-0033.** Per-model TTL, an
+    on-disk tier, and streaming caching are deferred follow-ups.
 
 ### Wave 4 — Reach & longer bets
 

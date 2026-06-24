@@ -1669,3 +1669,165 @@ def _budget_messages_client(tmp_path, monkeypatch, config):
 
     monkeypatch.setattr(gateway, "aforward_request", fake)
     return TestClient(gateway.build_app(start_dir=str(tmp_path)))
+
+
+# --- exact-match response cache (WF-ADR-0033) ---
+_CACHE_MODELS = (
+    "[routing]\nthreshold = 0.2\n\n"
+    '[gateway.models.local]\nbase_url = "http://local.test/v1"\nmodel = "m-local"\ncost_per_1k = 0.0\n\n'
+    '[gateway.models.cloud]\nbase_url = "http://cloud.test/v1"\nmodel = "m-cloud"\ncost_per_1k = 1.0\n'
+)
+_CACHE_ON = "[gateway.cache]\nenabled = true\n\n" + _CACHE_MODELS
+
+
+def _cache_client(tmp_path, monkeypatch, config, *, payload=None):
+    """A client whose upstream returns a valid (or given) 200 completion; counts upstream calls."""
+    (tmp_path / "wayfinder-router.toml").write_text(config, encoding="utf-8")
+    calls = {"n": 0}
+    body = payload if payload is not None else {
+        "choices": [{"message": {"role": "assistant", "content": "hello there"}, "finish_reason": "stop"}],
+        "usage": {"prompt_tokens": 50, "completion_tokens": 10},
+        "object": "chat.completion",
+    }
+
+    async def fake(url, headers, json_body, timeout=60.0):
+        calls["n"] += 1
+        return 200, json.dumps(body).encode(), "application/json"
+
+    monkeypatch.setattr(gateway, "aforward_request", fake)
+    return TestClient(gateway.build_app(start_dir=str(tmp_path))), calls
+
+
+def _metric(tc, name):
+    for line in tc.get("/metrics").text.splitlines():
+        if line.startswith(name + " "):
+            return float(line.split()[-1])
+    return None
+
+
+def test_cache_hit_serves_without_second_upstream_call(tmp_path, monkeypatch):
+    tc, calls = _cache_client(tmp_path, monkeypatch, _CACHE_ON)
+    first = tc.post("/v1/chat/completions", json=TRIVIAL)
+    assert first.status_code == 200
+    assert first.headers["x-wayfinder-router-cache"] == "miss"
+    second = tc.post("/v1/chat/completions", json=TRIVIAL)
+    assert second.status_code == 200
+    assert second.headers["x-wayfinder-router-cache"] == "hit"
+    assert second.headers["x-wayfinder-router-served-by"] == "local"
+    assert second.content == first.content  # byte-identical replay
+    assert calls["n"] == 1  # the upstream was called exactly once
+
+
+def test_cache_off_by_default(tmp_path, monkeypatch):
+    tc, calls = _cache_client(tmp_path, monkeypatch, _CACHE_MODELS)  # no [gateway.cache]
+    tc.post("/v1/chat/completions", json=TRIVIAL)
+    resp = tc.post("/v1/chat/completions", json=TRIVIAL)
+    assert calls["n"] == 2  # no caching happens
+    assert "x-wayfinder-router-cache" not in resp.headers
+
+
+def test_nonzero_temperature_is_not_cached(tmp_path, monkeypatch):
+    tc, calls = _cache_client(tmp_path, monkeypatch, _CACHE_ON)
+    req = {**TRIVIAL, "temperature": 0.7}
+    tc.post("/v1/chat/completions", json=req)
+    resp = tc.post("/v1/chat/completions", json=req)
+    assert calls["n"] == 2  # sampling request passes through uncached
+    assert "x-wayfinder-router-cache" not in resp.headers
+
+
+def test_tools_request_is_not_cached(tmp_path, monkeypatch):
+    tc, calls = _cache_client(tmp_path, monkeypatch, _CACHE_ON)
+    req = {**TRIVIAL, "tools": [{"type": "function", "function": {"name": "f"}}]}
+    tc.post("/v1/chat/completions", json=req)
+    tc.post("/v1/chat/completions", json=req)
+    assert calls["n"] == 2  # tool requests are never cached
+
+
+def test_cache_skips_error_shaped_200(tmp_path, monkeypatch):
+    # An upstream that returns HTTP 200 with an error body must NOT be cached and replayed.
+    tc, calls = _cache_client(tmp_path, monkeypatch, _CACHE_ON, payload={"error": {"message": "overloaded"}})
+    tc.post("/v1/chat/completions", json=TRIVIAL)
+    resp = tc.post("/v1/chat/completions", json=TRIVIAL)
+    assert calls["n"] == 2  # the poisoned 200 was not stored
+    assert resp.headers["x-wayfinder-router-cache"] == "miss"
+
+
+def test_cache_hit_is_free_and_does_not_add_realized_cost(tmp_path, monkeypatch):
+    tc, calls = _cache_client(tmp_path, monkeypatch, _CACHE_ON)
+    tc.post("/v1/chat/completions", json=COMPLEX)  # cloud, cost > 0, miss -> records realized
+    realized_after_miss = _metric(tc, "wayfinder_router_realized_cost_total")
+    assert realized_after_miss > 0
+    tc.post("/v1/chat/completions", json=COMPLEX)  # identical -> hit
+    assert calls["n"] == 1
+    # A hit is free: realized spend (what budget.spent() reads) is unchanged; the avoided cost
+    # is reported on a separate cache counter instead.
+    assert _metric(tc, "wayfinder_router_realized_cost_total") == realized_after_miss
+    assert _metric(tc, "wayfinder_router_cache_hits_total") == 1
+    assert _metric(tc, "wayfinder_router_cache_avoided_cost_total") > 0
+
+
+def test_cache_covers_v1_messages(tmp_path, monkeypatch):
+    tc, calls = _cache_client(tmp_path, monkeypatch, _CACHE_ON)
+    req = {"model": "claude-x", "max_tokens": 64, "messages": [{"role": "user", "content": "hi"}]}
+    tc.post("/v1/messages", json=req)
+    resp = tc.post("/v1/messages", json=req)
+    assert calls["n"] == 1  # the Anthropic endpoint dedupes via the same cache layer
+    assert resp.headers.get("x-wayfinder-router-cache") == "hit"
+
+
+def test_streaming_is_not_cached(tmp_path, monkeypatch):
+    (tmp_path / "wayfinder-router.toml").write_text(_CACHE_ON, encoding="utf-8")
+    calls = {"req": 0, "stream": 0}
+
+    async def fake_req(url, headers, json_body, timeout=60.0):
+        calls["req"] += 1
+        return 200, json.dumps(
+            {"choices": [{"message": {"role": "assistant", "content": "hi"}}]}
+        ).encode(), "application/json"
+
+    async def fake_stream(url, headers, json_body, timeout=60.0):
+        calls["stream"] += 1
+        yield b'data: {"choices":[{"delta":{"content":"hi"}}]}\n\n'
+        yield b"data: [DONE]\n\n"
+
+    monkeypatch.setattr(gateway, "aforward_request", fake_req)
+    monkeypatch.setattr(gateway, "aforward_stream", fake_stream)
+    tc = TestClient(gateway.build_app(start_dir=str(tmp_path)))
+    tc.post("/v1/chat/completions", json=TRIVIAL)  # non-stream miss -> stored
+    resp = tc.post("/v1/chat/completions", json={**TRIVIAL, "stream": True})  # stream bypasses cache
+    assert calls["stream"] == 1  # the stream request reached the upstream, not the cache
+    assert "x-wayfinder-router-cache" not in resp.headers
+
+
+def test_cache_config_round_trips():
+    gw = gateway.gateway_config_from_toml(
+        "[gateway.cache]\nenabled = true\nttl = 600\nmax_entries = 2048\nmax_bytes = 134217728\n\n"
+        + _CACHE_MODELS
+    )
+    assert gw.cache == gateway.CacheConfig(enabled=True, ttl=600.0, max_entries=2048, max_bytes=134217728)
+    back = gateway.gateway_config_from_toml(gateway.dump_gateway_toml(gw))
+    assert back.cache == gw.cache
+
+
+def test_cache_config_defaults_round_trip():
+    gw = gateway.gateway_config_from_toml("[gateway.cache]\nenabled = true\n\n" + _CACHE_MODELS)
+    assert gw.cache == gateway.CacheConfig(enabled=True)
+    dumped = gateway.dump_gateway_toml(gw)
+    assert "ttl" not in dumped and "max_entries" not in dumped and "max_bytes" not in dumped
+    assert gateway.gateway_config_from_toml(dumped).cache == gw.cache
+
+
+@pytest.mark.parametrize(
+    "table",
+    [
+        '[gateway.cache]\nenabled = "yes"\n',  # not a bool
+        "[gateway.cache]\nttl = -1\n",  # negative
+        "[gateway.cache]\nmax_entries = 0\n",  # not positive
+        "[gateway.cache]\nmax_bytes = 0\n",  # not positive
+        "[gateway]\ncache = 5\n",  # cache must be a table
+    ],
+)
+def test_bad_cache_config_rejected(table):
+    config = table + '\n[gateway.models.local]\nbase_url = "http://x/v1"\nmodel = "m"\n'
+    with pytest.raises(gateway.WayfinderConfigError):
+        gateway.gateway_config_from_toml(config)
