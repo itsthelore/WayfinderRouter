@@ -8,6 +8,16 @@ details, release history over commit history.
 
 ### Added
 
+- **Gateway rate limiting** (WF-ADR-0034, WF-ROADMAP-0006). An optional `[gateway.rate_limit]`
+  that caps requests-per-minute (`rpm`) and/or upstream-tokens-per-minute (`tpm`) over a fixed
+  `window` (default 60s); on breach the gateway returns **HTTP 429** with a
+  `Retry-After` header, an `x-wayfinder-router-rate-limit: rpm|tpm` header, and a
+  `wayfinder_router_rate_limited` error. It's the outermost guardrail — checked before scoring —
+  so a runaway client or retry storm can't flood an upstream. A cache hit still counts as a
+  request (RPM) but spends no upstream tokens (TPM); `/metrics` gains
+  `wayfinder_router_rate_limited_total`. Gateway-wide in v1 (per-key limits arrive with virtual
+  keys); pure deterministic counters, no model call (WF-ADR-0001). Completes the guardrails
+  trilogy with budgets (cost) and the cache (repeats).
 - **Exact-match response cache** (WF-ADR-0033, WF-ROADMAP-0006). An optional `[gateway.cache]`
   that replays a stored answer for an identical, deterministic request — instant, free repeats
   for eval/CI, dev loops, and agentic tools (it covers `/v1/messages`/Claude Code too). The key

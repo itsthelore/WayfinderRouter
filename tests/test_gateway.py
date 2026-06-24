@@ -1831,3 +1831,107 @@ def test_bad_cache_config_rejected(table):
     config = table + '\n[gateway.models.local]\nbase_url = "http://x/v1"\nmodel = "m"\n'
     with pytest.raises(gateway.WayfinderConfigError):
         gateway.gateway_config_from_toml(config)
+
+
+# --- rate limiting: RPM / TPM caps -> 429 (WF-ADR-0034) ---
+def _ratelimit_client(tmp_path, monkeypatch, rl_block, *, cache=False):
+    cache_block = "[gateway.cache]\nenabled = true\n\n" if cache else ""
+    config = (
+        f"[gateway.rate_limit]\n{rl_block}\n\n" + cache_block +
+        "[routing]\nthreshold = 0.2\n\n"
+        '[gateway.models.local]\nbase_url = "http://local.test/v1"\nmodel = "m-local"\n'
+    )
+    (tmp_path / "wayfinder-router.toml").write_text(config, encoding="utf-8")
+    calls = {"n": 0}
+
+    async def fake(url, headers, json_body, timeout=60.0):
+        calls["n"] += 1
+        return 200, json.dumps({
+            "choices": [{"message": {"role": "assistant", "content": "hi"}}],
+            "usage": {"prompt_tokens": 40, "completion_tokens": 20},  # 60 tokens/turn
+        }).encode(), "application/json"
+
+    monkeypatch.setattr(gateway, "aforward_request", fake)
+    return TestClient(gateway.build_app(start_dir=str(tmp_path))), calls
+
+
+def test_rate_limit_rpm_returns_429(tmp_path, monkeypatch):
+    tc, calls = _ratelimit_client(tmp_path, monkeypatch, "rpm = 2")
+    assert tc.post("/v1/chat/completions", json=TRIVIAL).status_code == 200
+    assert tc.post("/v1/chat/completions", json=TRIVIAL).status_code == 200
+    third = tc.post("/v1/chat/completions", json=TRIVIAL)
+    assert third.status_code == 429
+    assert third.json()["error"]["type"] == "wayfinder_router_rate_limited"
+    assert third.headers["x-wayfinder-router-rate-limit"] == "rpm"
+    assert int(third.headers["Retry-After"]) >= 1
+    assert calls["n"] == 2  # the rejected request never reached the upstream
+
+
+def test_rate_limit_tpm_returns_429(tmp_path, monkeypatch):
+    tc, calls = _ratelimit_client(tmp_path, monkeypatch, "tpm = 10")  # one 60-token turn exceeds it
+    assert tc.post("/v1/chat/completions", json=TRIVIAL).status_code == 200
+    second = tc.post("/v1/chat/completions", json=TRIVIAL)
+    assert second.status_code == 429
+    assert second.headers["x-wayfinder-router-rate-limit"] == "tpm"
+    assert calls["n"] == 1
+
+
+def test_no_rate_limit_by_default(tmp_path, monkeypatch):
+    (tmp_path / "wayfinder-router.toml").write_text(
+        "[routing]\nthreshold = 0.2\n\n"
+        '[gateway.models.local]\nbase_url = "http://local.test/v1"\nmodel = "m-local"\n',
+        encoding="utf-8",
+    )
+
+    async def fake(url, headers, json_body, timeout=60.0):
+        return 200, b'{"choices":[{"message":{"role":"assistant","content":"hi"}}]}', "application/json"
+
+    monkeypatch.setattr(gateway, "aforward_request", fake)
+    tc = TestClient(gateway.build_app(start_dir=str(tmp_path)))
+    for _ in range(20):
+        assert tc.post("/v1/chat/completions", json=TRIVIAL).status_code == 200  # unlimited
+
+
+def test_cache_hit_counts_toward_rpm(tmp_path, monkeypatch):
+    # A cache hit still consumes a request slot, so the 3rd identical request is rejected even
+    # though only the first reached the upstream.
+    tc, calls = _ratelimit_client(tmp_path, monkeypatch, "rpm = 2", cache=True)
+    assert tc.post("/v1/chat/completions", json=TRIVIAL).headers["x-wayfinder-router-cache"] == "miss"
+    assert tc.post("/v1/chat/completions", json=TRIVIAL).headers["x-wayfinder-router-cache"] == "hit"
+    assert tc.post("/v1/chat/completions", json=TRIVIAL).status_code == 429
+    assert calls["n"] == 1  # only the first (miss) hit the upstream
+
+
+def test_rate_limit_metric_increments(tmp_path, monkeypatch):
+    tc, _ = _ratelimit_client(tmp_path, monkeypatch, "rpm = 1")
+    tc.post("/v1/chat/completions", json=TRIVIAL)
+    tc.post("/v1/chat/completions", json=TRIVIAL)  # 429
+    assert 'wayfinder_router_rate_limited_total{limit="rpm"} 1' in tc.get("/metrics").text
+
+
+def test_rate_limit_config_round_trips():
+    body = (
+        "[gateway.rate_limit]\nrpm = 60\ntpm = 100000\nwindow = 30\n\n"
+        '[gateway.models.local]\nbase_url = "http://x/v1"\nmodel = "m"\n'
+    )
+    gw = gateway.gateway_config_from_toml(body)
+    assert gw.rate_limit == gateway.RateLimit(rpm=60, tpm=100000, window=30.0)
+    back = gateway.gateway_config_from_toml(gateway.dump_gateway_toml(gw))
+    assert back.rate_limit == gw.rate_limit
+
+
+@pytest.mark.parametrize(
+    "table",
+    [
+        "[gateway.rate_limit]\nwindow = 60\n",  # neither rpm nor tpm
+        "[gateway.rate_limit]\nrpm = 0\n",  # not positive
+        "[gateway.rate_limit]\ntpm = -5\n",  # negative
+        "[gateway.rate_limit]\nrpm = true\n",  # bool is not an int
+        "[gateway.rate_limit]\nrpm = 10\nwindow = 0\n",  # window not positive
+        "[gateway]\nrate_limit = 5\n",  # must be a table
+    ],
+)
+def test_bad_rate_limit_config_rejected(table):
+    config = table + '\n[gateway.models.local]\nbase_url = "http://x/v1"\nmodel = "m"\n'
+    with pytest.raises(gateway.WayfinderConfigError):
+        gateway.gateway_config_from_toml(config)

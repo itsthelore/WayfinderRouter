@@ -112,7 +112,9 @@ design reference.
 7. **Configurable rate limiting (RPM/TPM, per key/session).**
    Ops · workflow. *Job:* protect upstreams and contain blast radius. *Core:* deterministic
    sliding/fixed-window counters. *Effort:* S–M. *Closes:* rate limiting (LiteLLM,
-   Cloudflare, Helicone, Portkey). *Design to follow; rides on #5.*
+   Cloudflare, Helicone, Portkey). **Shipped (gateway-wide RPM/TPM, fixed-window, 429):
+   WF-ADR-0034.** Per-*key/session* limits ride on #5 (virtual keys); a sliding window is a
+   deferred refinement.
 
 ### Wave 3 — Deeper routing trust (mostly already specced)
 
