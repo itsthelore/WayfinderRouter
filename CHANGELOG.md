@@ -4,6 +4,25 @@ User-visible changes to Wayfinder, by release. Follows the spirit of
 [Keep a Changelog](https://keepachangelog.com/): user impact over implementation
 details, release history over commit history.
 
+## Unreleased
+
+### Added
+
+- **Exact-match response cache** (WF-ADR-0033, WF-ROADMAP-0006). An optional `[gateway.cache]`
+  that replays a stored answer for an identical, deterministic request — instant, free repeats
+  for eval/CI, dev loops, and agentic tools (it covers `/v1/messages`/Claude Code too). The key
+  is a SHA-256 of the normalized request (the prompt is hashed, never stored), keyed on the
+  served upstream model; the cache is **in-memory only, off by default**, and bounded by
+  `ttl` (default 300s), `max_entries` (1024), and `max_bytes` (64 MiB) — raise `max_bytes` to
+  give it more memory. A hit is **free**: it records no realized cost and doesn't consume a
+  budget, and the cost it avoided is reported separately (`wayfinder_router_cache_avoided_cost_total`,
+  plus `…_cache_hits_total` / `…_cache_misses_total`); every response carries
+  `x-wayfinder-router-cache: hit|miss`. Only deterministic requests are cached (no streaming,
+  `temperature` > 0, `tools`, `seed`, or `n` > 1), and an HTTP-200 error-shaped body is never
+  stored. The scored decision is never recomputed (WF-ADR-0001). As the project's first
+  response-body store it follows WF-DESIGN-0008's opt-in framing — disabling it purges the
+  in-memory bodies immediately, and cached content is never logged or surfaced.
+
 ## v2026.6.6 — 2026-06-24
 
 The gateway reaches further and spends safer. Point **Claude Code** at it with one

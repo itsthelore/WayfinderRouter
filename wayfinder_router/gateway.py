@@ -95,7 +95,7 @@ from .config import (
 )
 from .feedback import DEFAULT_LOG, record_label
 from .profiles import PROFILES
-from . import anthropic_adapter, pricing, reliability
+from . import anthropic_adapter, cache, pricing, reliability
 
 if TYPE_CHECKING:  # type-only; the runtime imports these lazily inside build_app
     from fastapi import FastAPI, Response
@@ -208,6 +208,9 @@ class Metrics:
         self.model_costs: dict[str, float] = {}  # model -> cost_per_1k (WF-ADR-0017)
         self.realized_cost = 0.0  # cumulative realized spend (WF-DESIGN-0007)
         self.baseline_cost = 0.0  # cumulative always-frontier counterfactual
+        self.cache_hits = 0  # exact-match cache hits (WF-ADR-0033)
+        self.cache_misses = 0  # cacheable requests that missed
+        self.cache_avoided_cost = 0.0  # cost a hit avoided (chosen-tier cost; distinct from savings)
 
     def set_model_costs(self, costs: dict[str, float]) -> None:
         """Record per-model cost metadata to surface as a gauge (informational)."""
@@ -232,6 +235,14 @@ class Metrics:
     def observe_upstream_error(self, model: str) -> None:
         self.upstream_errors[model] = self.upstream_errors.get(model, 0) + 1
 
+    def observe_cache_hit(self, avoided_cost: float) -> None:
+        """A cache hit served a stored answer; record the upstream cost it avoided (WF-ADR-0033)."""
+        self.cache_hits += 1
+        self.cache_avoided_cost = round(self.cache_avoided_cost + max(0.0, avoided_cost), 6)
+
+    def observe_cache_miss(self) -> None:
+        self.cache_misses += 1
+
     def record_reload_failure(self) -> None:
         self.reload_failures += 1
 
@@ -255,6 +266,23 @@ class Metrics:
             lines.append(
                 f'wayfinder_router_upstream_errors_total{{model="{_label_escape(model)}"}} {n}'
             )
+
+        lines.append(
+            "# HELP wayfinder_router_cache_hits_total Exact-match response cache hits (WF-ADR-0033)."
+        )
+        lines.append("# TYPE wayfinder_router_cache_hits_total counter")
+        lines.append(f"wayfinder_router_cache_hits_total {self.cache_hits}")
+        lines.append(
+            "# HELP wayfinder_router_cache_misses_total Cacheable requests that missed the cache."
+        )
+        lines.append("# TYPE wayfinder_router_cache_misses_total counter")
+        lines.append(f"wayfinder_router_cache_misses_total {self.cache_misses}")
+        lines.append(
+            "# HELP wayfinder_router_cache_avoided_cost_total Upstream cost avoided by cache hits "
+            "(chosen-tier cost; distinct from routing savings vs always-frontier)."
+        )
+        lines.append("# TYPE wayfinder_router_cache_avoided_cost_total counter")
+        lines.append(f"wayfinder_router_cache_avoided_cost_total {self.cache_avoided_cost:g}")
 
         lines.append(
             "# HELP wayfinder_router_config_reload_failures_total "
@@ -354,6 +382,21 @@ class Budget:
 
 
 @dataclass(frozen=True)
+class CacheConfig:
+    """Exact-match response cache settings (WF-ADR-0033, WF-ROADMAP-0006 #10).
+
+    OFF by default; enabling it opts into retaining response bodies in memory. Bounded by an
+    LRU entry count, a byte ceiling, and a TTL. The cache never changes the scored decision
+    (WF-ADR-0001) — it only replays a stored answer for an identical, deterministic request.
+    """
+
+    enabled: bool = False
+    ttl: float = cache.DEFAULT_TTL  # seconds an entry is served before it is stale (0 = no expiry)
+    max_entries: int = cache.DEFAULT_MAX_ENTRIES  # LRU bound on the number of cached responses
+    max_bytes: int = cache.DEFAULT_MAX_BYTES  # hard memory ceiling for cached bodies
+
+
+@dataclass(frozen=True)
 class GatewayConfig:
     """Maps recommended model names to upstream endpoints (from `[gateway.models]`).
 
@@ -379,6 +422,8 @@ class GatewayConfig:
     # Budget (WF-ROADMAP-0006): an optional spend cap that degrades to the cheapest tier
     # (or blocks) once the period's realized cost is reached. ``None`` = no cap.
     budget: Budget | None = None
+    # Response cache (WF-ADR-0033): an optional exact-match cache. ``None`` = no cache.
+    cache: CacheConfig | None = None
 
 
 # Which chat-message text the router scores. The deterministic core scores
@@ -425,6 +470,29 @@ def _budget_from_toml(raw: object, where: str) -> Budget | None:
     return Budget(limit=float(limit), window=window, on_breach=on_breach)
 
 
+def _cache_from_toml(raw: object, where: str) -> CacheConfig | None:
+    """Parse and validate the optional ``[gateway.cache]`` table (WF-ADR-0033)."""
+    if raw is None:
+        return None
+    if not isinstance(raw, dict):
+        raise WayfinderConfigError(f"{where}: '[gateway.cache]' must be a table")
+    enabled = raw.get("enabled", False)
+    if not isinstance(enabled, bool):
+        raise WayfinderConfigError(f"{where}: 'gateway.cache.enabled' must be a boolean")
+    ttl = raw.get("ttl", cache.DEFAULT_TTL)
+    if isinstance(ttl, bool) or not isinstance(ttl, (int, float)) or ttl < 0:
+        raise WayfinderConfigError(f"{where}: 'gateway.cache.ttl' must be a non-negative number")
+    max_entries = raw.get("max_entries", cache.DEFAULT_MAX_ENTRIES)
+    if isinstance(max_entries, bool) or not isinstance(max_entries, int) or max_entries < 1:
+        raise WayfinderConfigError(f"{where}: 'gateway.cache.max_entries' must be a positive integer")
+    max_bytes = raw.get("max_bytes", cache.DEFAULT_MAX_BYTES)
+    if isinstance(max_bytes, bool) or not isinstance(max_bytes, int) or max_bytes < 1:
+        raise WayfinderConfigError(f"{where}: 'gateway.cache.max_bytes' must be a positive integer")
+    return CacheConfig(
+        enabled=enabled, ttl=float(ttl), max_entries=max_entries, max_bytes=max_bytes
+    )
+
+
 def gateway_config_from_toml(text: str, where: str = "wayfinder-router.toml") -> GatewayConfig:
     """Parse a :class:`GatewayConfig` from ``wayfinder-router.toml`` text (file-free)."""
     try:
@@ -462,6 +530,7 @@ def gateway_config_from_toml(text: str, where: str = "wayfinder-router.toml") ->
             f"{where}: 'gateway.failover' must be one of {', '.join(reliability.FAILOVER_POLICIES)}"
         )
     budget = _budget_from_toml(gateway.get("budget"), where)
+    cache_cfg = _cache_from_toml(gateway.get("cache"), where)
     raw_models = gateway.get("models") or {}
     if not isinstance(raw_models, dict):
         raise WayfinderConfigError(f"{where}: '[gateway.models]' must be a table")
@@ -539,7 +608,7 @@ def gateway_config_from_toml(text: str, where: str = "wayfinder-router.toml") ->
     return GatewayConfig(
         models=models, route_on=route_on, sticky=sticky, sticky_cooldown=cooldown,
         retries=retries, breaker_threshold=breaker_threshold, breaker_cooldown=breaker_cooldown,
-        failover=failover, budget=budget,
+        failover=failover, budget=budget, cache=cache_cfg,
     )
 
 
@@ -580,6 +649,16 @@ def dump_gateway_toml(gateway: GatewayConfig) -> str:
             lines.append(f'window = "{b.window}"')
         if b.on_breach != "degrade":
             lines.append(f'on_breach = "{b.on_breach}"')
+        blocks.append("\n".join(lines))
+    if gateway.cache is not None:  # emitted as its own [gateway.cache] sub-table
+        c = gateway.cache
+        lines = ["[gateway.cache]", f"enabled = {str(c.enabled).lower()}"]
+        if c.ttl != cache.DEFAULT_TTL:
+            lines.append(f"ttl = {round(c.ttl, 6)!r}")
+        if c.max_entries != cache.DEFAULT_MAX_ENTRIES:
+            lines.append(f"max_entries = {c.max_entries}")
+        if c.max_bytes != cache.DEFAULT_MAX_BYTES:
+            lines.append(f"max_bytes = {c.max_bytes}")
         blocks.append("\n".join(lines))
     for name, model in gateway.models.items():
         lines = [
@@ -1141,15 +1220,23 @@ def build_app(
         except OSError as exc:  # best-effort; never break a request
             logger.warning("could not persist savings ledger to %s: %s", savings_path, exc)
 
-    def _record_turn(
-        entry: dict, chosen: str, decision: object, gw: GatewayConfig,
-        response: object, prompt_text: str, completion_text: str,
-    ) -> None:
-        """Cost the turn from token usage x the price table; record it (no model call)."""
+    def _price_table(gw: GatewayConfig, decision: object) -> tuple[dict[str, float], bool]:
+        """The cost table for this turn's tier ladder (``{model: cost_per_1k}``, priced?)."""
         model_costs = {n: m.cost_per_1k for n, m in gw.models.items()}
         tiers = getattr(decision, "tiers", None) or ()
         ladder = [t.model for t in tiers] or list(gw.models)
-        costs, priced = pricing.price_table(model_costs, ladder)
+        return pricing.price_table(model_costs, ladder)
+
+    def _record_turn(
+        entry: dict, chosen: str, decision: object, gw: GatewayConfig,
+        response: object, prompt_text: str, completion_text: str,
+    ) -> tuple[int, int, bool]:
+        """Cost the turn from token usage x the price table; record it (no model call).
+
+        Returns ``(prompt_tokens, completion_tokens, estimated)`` so a caller (e.g. the response
+        cache) can reuse the counts without re-tokenizing.
+        """
+        costs, priced = _price_table(gw, decision)
         ledger.priced = priced
         pt, ct, estimated = pricing.usage_tokens(
             response, prompt_text=prompt_text, completion_text=completion_text
@@ -1163,6 +1250,7 @@ def build_app(
             "unit": "usd" if priced else "relative", "estimated": estimated,
         }
         _persist_savings()
+        return pt, ct, estimated
 
     app = FastAPI(title="wayfinder-router-gateway")
 
@@ -1196,6 +1284,14 @@ def build_app(
     # come from the initial config so this runtime state survives routing/cost hot-reloads.
     breaker = reliability.CircuitBreaker(
         threshold=gw0.breaker_threshold, cooldown=gw0.breaker_cooldown
+    )
+
+    # Response cache (WF-ADR-0033): one long-lived store for the gateway's lifetime. Off unless
+    # configured; the handler keeps it in sync with hot-reloaded config (disabling purges it).
+    _cache0 = gw0.cache or CacheConfig()
+    response_cache = cache.ResponseCache(
+        enabled=_cache0.enabled, ttl=_cache0.ttl,
+        max_entries=_cache0.max_entries, max_bytes=_cache0.max_bytes,
     )
 
     def _auth_headers(model: GatewayModel) -> dict[str, str]:
@@ -1419,6 +1515,20 @@ def build_app(
         request_id = uuid.uuid4().hex[:12]
         routing, gw = holder.current()
 
+        # Keep the long-lived response cache in sync with hot-reloaded config; disabling it
+        # purges any retained bodies immediately (WF-ADR-0033). When no cache is configured we
+        # only touch the instance if it was previously enabled (to purge), else leave it idle.
+        if gw.cache is not None:
+            response_cache.reconfigure(
+                enabled=gw.cache.enabled, ttl=gw.cache.ttl,
+                max_entries=gw.cache.max_entries, max_bytes=gw.cache.max_bytes,
+            )
+        elif response_cache.enabled:
+            response_cache.reconfigure(
+                enabled=False, ttl=response_cache.ttl,
+                max_entries=response_cache.max_entries, max_bytes=response_cache.max_bytes,
+            )
+
         def _reject(exc: BadOverride) -> JSONResponse:
             logger.info("request %s rejected: %s", request_id, exc)
             return JSONResponse(
@@ -1606,6 +1716,40 @@ def build_app(
                 },
                 headers=wf_headers,
             )
+
+        # Response cache (WF-ADR-0033): an exact-match, deterministic, non-streaming hit replays
+        # a stored answer with no upstream call, no breaker effect, and no budget spend (it is
+        # free). Keyed on the *served upstream model id* so a different model never replays
+        # another's answer. Skipped for streaming, non-deterministic, tool, or debug requests.
+        cache_state: str | None = None
+        cache_key_value: str | None = None
+        if (
+            gw.cache is not None and gw.cache.enabled and not debug
+            and body.get("stream") is not True and cache.is_cacheable(body)
+        ):
+            cache_key_value = cache.cache_key(target.model, body)
+            cached = response_cache.get(cache_key_value)
+            if cached is not None:
+                costs, _ = _price_table(gw, decision)
+                avoided = pricing.turn_cost(
+                    chosen, cached.prompt_tokens, cached.completion_tokens,
+                    costs, estimated=cached.estimated,
+                ).realized
+                metrics.observe_cache_hit(avoided)
+                entry["cache"] = "hit"  # decision-feed metadata only — never the body
+                logger.info("request %s cache hit (served-by %s)", request_id, chosen)
+                return Response(
+                    content=cached.body, status_code=cached.status,
+                    media_type=cached.content_type,
+                    headers={
+                        **wf_headers,
+                        "x-wayfinder-router-served-by": chosen,
+                        "x-wayfinder-router-cache": "hit",
+                    },
+                )
+            metrics.observe_cache_miss()
+            cache_state = "miss"
+
         # Delivery plan (WF-ADR-0031): the chosen tier's endpoint, its same-tier fallbacks,
         # then cross-tier candidates per the failover policy — minus any whose breaker is
         # open or that fail the pre-call check. The scored decision is unchanged either way.
@@ -1688,16 +1832,29 @@ def build_app(
             except json.JSONDecodeError:
                 response_obj = None
         if status < 400:  # record realized cost & savings, attributed to the target that served
-            _record_turn(
+            pt, ct, estimated = _record_turn(
                 entry, served_by, decision, gw, response_obj,
                 prompt_all, _first_choice_text(response_obj),
             )
+            # Store the raw success (captured BEFORE any debug mutation), keyed on the model that
+            # actually served — so a failover turn populates the served model's key, not chosen's.
+            if cache_state == "miss" and cache.is_storable(status, content_type, response_obj):
+                response_cache.put(
+                    cache.cache_key(gw.models[served_by].model, body),
+                    cache.CachedResponse(
+                        status=status, content_type=content_type, body=content,
+                        prompt_tokens=pt, completion_tokens=ct, estimated=estimated,
+                        stored_at=response_cache.clock(),
+                    ),
+                )
         if debug and isinstance(response_obj, dict):
             response_obj["wayfinder"] = _explain_payload()
             content = json.dumps(response_obj).encode()
+        headers = _served_headers(served_by)
+        if cache_state is not None:  # surface the miss (a hit returned earlier)
+            headers = {**headers, "x-wayfinder-router-cache": cache_state}
         return Response(
-            content=content, status_code=status, media_type=content_type,
-            headers=_served_headers(served_by),
+            content=content, status_code=status, media_type=content_type, headers=headers,
         )
 
     @app.post("/v1/messages")
