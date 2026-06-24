@@ -4,7 +4,14 @@ User-visible changes to Wayfinder, by release. Follows the spirit of
 [Keep a Changelog](https://keepachangelog.com/): user impact over implementation
 details, release history over commit history.
 
-## Unreleased
+## v2026.6.6 — 2026-06-24
+
+The gateway reaches further and spends safer. Point **Claude Code** at it with one
+environment variable — a new Anthropic `/v1/messages` adapter translates Messages ⇄ Chat
+Completions (streaming and tool use included) — and cap spend with **budgets** that degrade
+to the cheapest tier on breach rather than failing. Both are pure additions around the same
+deterministic router: scoring, failover, and the savings ledger are reused unchanged, and
+the scored decision stays offline (WF-ADR-0001).
 
 ### Added
 
