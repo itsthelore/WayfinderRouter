@@ -151,3 +151,19 @@ def test_ledger_spent_by_window():
     assert led.spent("day", today=today) == 0.01  # just today's bucket
     assert led.spent("month", today=today) == 0.02  # both June days, not May
     assert led.spent("all", today=today) == 0.03  # everything
+
+
+def test_ledger_per_key_attribution_and_spend():
+    led = pricing.SavingsLedger(priced=True)
+    costs = {"local": 0.0, "cloud": 0.01}
+    day = date(2026, 6, 24)
+    led.record(pricing.turn_cost("cloud", 1000, 0, costs, estimated=False), when=day, vkey="team-a")
+    led.record(pricing.turn_cost("cloud", 1000, 0, costs, estimated=False), when=day, vkey="team-b")
+    led.record(pricing.turn_cost("local", 1000, 0, costs, estimated=False), when=day)  # unattributed
+    assert led.spent("day", today=day) == 0.02  # all keys + unattributed
+    assert led.spent("day", vkey="team-a", today=day) == 0.01  # just team-a
+    assert led.spent("day", vkey="absent", today=day) == 0.0
+    rep = led.period(today=day)
+    assert rep["by_key"]["team-a"]["realized"] == 0.01
+    assert rep["by_key"]["team-b"]["requests"] == 1
+    assert "team-a" in rep["by_key"] and "team-b" in rep["by_key"]
