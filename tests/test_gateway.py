@@ -2060,3 +2060,58 @@ def test_bad_vkeys_config_rejected(table):
     config = table + '\n[gateway.models.local]\nbase_url = "http://x/v1"\nmodel = "m"\n'
     with pytest.raises(gateway.WayfinderConfigError):
         gateway.gateway_config_from_toml(config)
+
+
+# --- per-key model allowlists: clamp to nearest allowed tier (WF-ADR-0035 follow-up) ---
+def test_clamp_to_allowed_pure():
+    c = gateway._clamp_to_allowed
+    ladder = ["local", "mid", "cloud"]
+    assert c("cloud", ladder, frozenset({"cloud"})) == "cloud"        # already allowed
+    assert c("cloud", ladder, frozenset()) == "cloud"                 # unrestricted
+    assert c("cloud", ladder, frozenset({"local"})) == "local"        # clamp down
+    assert c("cloud", ladder, frozenset({"local", "mid"})) == "mid"   # nearest allowed below
+    assert c("local", ladder, frozenset({"cloud"})) == "cloud"        # up when none at/below
+    assert c("x", [], frozenset({"a"})) == "a"                        # no ladder -> stable choice
+
+
+def test_key_allowlist_clamps_down(tmp_path, monkeypatch):
+    key, h = vkeys.generate()
+    cfg = _vkeys_config(f'[gateway.keys.team-a]\nhash = "{h}"\nmodels = ["local"]\n')
+    tc = _vkeys_client(tmp_path, monkeypatch, cfg)
+    resp = tc.post("/v1/chat/completions", json=COMPLEX, headers={"Authorization": f"Bearer {key}"})
+    assert resp.status_code == 200
+    assert resp.headers["x-wayfinder-router-model"] == "local"  # clamped from cloud (not allowed)
+    assert resp.headers["x-wayfinder-router-mode"] == "key-scoped"
+    assert resp.headers["x-wayfinder-router-served-by"] == "local"
+
+
+def test_key_allowlist_permits_listed_model(tmp_path, monkeypatch):
+    key, h = vkeys.generate()
+    cfg = _vkeys_config(f'[gateway.keys.team-a]\nhash = "{h}"\nmodels = ["local", "cloud"]\n')
+    tc = _vkeys_client(tmp_path, monkeypatch, cfg)
+    resp = tc.post("/v1/chat/completions", json=COMPLEX, headers={"Authorization": f"Bearer {key}"})
+    assert resp.headers["x-wayfinder-router-model"] == "cloud"  # allowed -> no clamp
+    assert resp.headers["x-wayfinder-router-mode"] == "scored"
+
+
+def test_key_allowlist_clamps_up_when_none_at_or_below(tmp_path, monkeypatch):
+    key, h = vkeys.generate()
+    cfg = _vkeys_config(f'[gateway.keys.team-a]\nhash = "{h}"\nmodels = ["cloud"]\n')
+    tc = _vkeys_client(tmp_path, monkeypatch, cfg)
+    resp = tc.post("/v1/chat/completions", json=TRIVIAL, headers={"Authorization": f"Bearer {key}"})
+    assert resp.headers["x-wayfinder-router-model"] == "cloud"  # only cloud allowed -> clamp up
+    assert resp.headers["x-wayfinder-router-mode"] == "key-scoped"
+
+
+def test_key_allowlist_round_trips_and_rejects_unknown():
+    _, h = vkeys.generate()
+    good = _vkeys_config(f'[gateway.keys.team-a]\nhash = "{h}"\nmodels = ["local", "cloud"]\n')
+    gw = gateway.gateway_config_from_toml(good)
+    assert gw.keys["team-a"].models == ("local", "cloud")
+    assert gateway.gateway_config_from_toml(gateway.dump_gateway_toml(gw)).keys == gw.keys
+    bad = (
+        f'[gateway.keys.team-a]\nhash = "{h}"\nmodels = ["ghost"]\n\n'
+        '[gateway.models.local]\nbase_url = "http://x/v1"\nmodel = "m"\n'
+    )
+    with pytest.raises(gateway.WayfinderConfigError):
+        gateway.gateway_config_from_toml(bad)

@@ -444,14 +444,16 @@ class VirtualKey:
 
     ``hash`` is the SHA-256 hex of the key — the plaintext is never stored. ``tags`` label the
     key for attribution. ``budget`` / ``rate_limit``, when set, apply that key's own cap on top
-    of any gateway-wide one (the stricter wins). Virtual keys gate access to the *gateway*; they
-    are not provider keys (those still come from the environment, WF-ADR-0004).
+    of any gateway-wide one (the stricter wins). ``models`` is an optional allowlist of the
+    configured models this key may use (empty = unrestricted). Virtual keys gate access to the
+    *gateway*; they are not provider keys (those still come from the environment, WF-ADR-0004).
     """
 
     hash: str
     tags: tuple[str, ...] = ()
     budget: Budget | None = None
     rate_limit: RateLimit | None = None
+    models: tuple[str, ...] = ()  # allowlist of permitted model names; empty = any
 
 
 @dataclass(frozen=True)
@@ -586,6 +588,26 @@ def _is_sha256_hex(value: object) -> bool:
     )
 
 
+def _clamp_to_allowed(chosen: str, ladder: list[str], allowed: frozenset[str]) -> str:
+    """The allowed model nearest ``chosen`` in the tier ``ladder`` (preferring not to raise cost).
+
+    For a virtual key's model allowlist (WF-ADR-0035): if ``chosen`` is not permitted, route to
+    the closest allowed tier — the highest allowed tier at or below ``chosen`` if one exists
+    (cheaper, on-brand), else the cheapest allowed tier above it. Falls back to a stable allowed
+    model when the ladder does not position ``chosen`` (e.g. classifier mode). Pure; no model call.
+    """
+    if not allowed or chosen in allowed:
+        return chosen
+    in_ladder = [m for m in ladder if m in allowed]
+    if not in_ladder:
+        return sorted(allowed)[0]  # no tier ordering to clamp along; stable and deterministic
+    if chosen in ladder:
+        ci = ladder.index(chosen)
+        below = [m for m in in_ladder if ladder.index(m) <= ci]
+        return below[-1] if below else in_ladder[0]
+    return in_ladder[0]
+
+
 def _keys_from_toml(raw: object, where: str) -> dict[str, VirtualKey]:
     """Parse and validate ``[gateway.keys.<id>]`` tables (WF-ADR-0035).
 
@@ -609,12 +631,20 @@ def _keys_from_toml(raw: object, where: str) -> dict[str, VirtualKey]:
         tags = entry.get("tags", [])
         if not isinstance(tags, list) or not all(isinstance(t, str) and t for t in tags):
             raise WayfinderConfigError(f"{where}: 'gateway.keys.{kid}.tags' must be a list of strings")
+        allowed_models = entry.get("models", [])
+        if not isinstance(allowed_models, list) or not all(
+            isinstance(m, str) and m for m in allowed_models
+        ):
+            raise WayfinderConfigError(
+                f"{where}: 'gateway.keys.{kid}.models' must be a list of model names"
+            )
         scope = f"{where} [gateway.keys.{kid}]"
         keys[kid] = VirtualKey(
             hash=str(khash).lower(),  # _is_sha256_hex guaranteed a 64-char hex str
             tags=tuple(tags),
             budget=_budget_from_toml(entry.get("budget"), scope),
             rate_limit=_rate_limit_from_toml(entry.get("rate_limit"), scope),
+            models=tuple(allowed_models),
         )
     return keys
 
@@ -733,6 +763,12 @@ def gateway_config_from_toml(text: str, where: str = "wayfinder-router.toml") ->
                 raise WayfinderConfigError(
                     f"{where}: 'gateway.models.{name}.fallbacks' cannot include itself"
                 )
+    for kid, vk in keys.items():  # a key's model allowlist must name configured models
+        for m in vk.models:
+            if m not in models:
+                raise WayfinderConfigError(
+                    f"{where}: 'gateway.keys.{kid}.models' names unknown model '{m}'"
+                )
     return GatewayConfig(
         models=models, route_on=route_on, sticky=sticky, sticky_cooldown=cooldown,
         retries=retries, breaker_threshold=breaker_threshold, breaker_cooldown=breaker_cooldown,
@@ -802,6 +838,8 @@ def dump_gateway_toml(gateway: GatewayConfig) -> str:
         lines = [f"[gateway.keys.{kid}]", f'hash = "{vk.hash}"']
         if vk.tags:
             lines.append("tags = [" + ", ".join(f'"{t}"' for t in vk.tags) + "]")
+        if vk.models:
+            lines.append("models = [" + ", ".join(f'"{m}"' for m in vk.models) + "]")
         blocks.append("\n".join(lines))
         if vk.budget is not None:
             b = vk.budget
@@ -1868,6 +1906,16 @@ def build_app(
                 cheapest = tiers_sorted[0].model if tiers_sorted else None
                 if cheapest is not None and cheapest != chosen:
                     chosen, mode = cheapest, "budget-degraded"
+
+        # Per-key model allowlist (WF-ADR-0035): a key may only use its permitted models. If the
+        # chosen model (however it was picked — scored, pinned, sticky, budget-degraded) isn't
+        # allowed, clamp to the nearest allowed tier rather than reject, so the request still
+        # succeeds on a permitted model. Applied last, so it is the final word on the route.
+        if key_cfg is not None and key_cfg.models:
+            ladder = [t.model for t in sorted(decision.tiers or (), key=lambda t: t.min_score)]
+            clamped = _clamp_to_allowed(chosen, ladder, frozenset(key_cfg.models))
+            if clamped != chosen:
+                chosen, mode = clamped, "key-scoped"
 
         wf_headers = {
             "x-wayfinder-router-model": chosen,

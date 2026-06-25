@@ -16,10 +16,13 @@ details, release history over commit history.
   (backward compatible). Each request is attributed to its key: in the `/router/recent` feed, in
   `wayfinder_router_key_requests_total{key=…}`, and — the FinOps payoff no competitor offers — as
   per-key realized/**savings** under `by_key` in `/v1/savings`. A key can carry its own
-  `[gateway.keys.<id>.budget]` and `[gateway.keys.<id>.rate_limit]`; the key's cap and the
-  gateway-wide cap both apply, strictest wins. Hashed-in-config, hot-reloaded, deterministic, no
-  model call (WF-ADR-0001); provider keys still come from your environment (WF-ADR-0004). Runtime
-  create/revoke and per-key model allowlists are deferred follow-ups.
+  `[gateway.keys.<id>.budget]`, `[gateway.keys.<id>.rate_limit]`, and a `models` allowlist; the
+  key's cap and the gateway-wide cap both apply, strictest wins. A **`models` allowlist** restricts
+  which configured models a key may use — if routing picks one the key isn't allowed, the request
+  **clamps to the nearest allowed tier** (preferring not to raise cost, reported as
+  `mode: key-scoped`) rather than failing. Hashed-in-config, hot-reloaded, deterministic, no model
+  call (WF-ADR-0001); provider keys still come from your environment (WF-ADR-0004). Runtime
+  create/revoke is a deferred follow-up.
 
 - **Gateway rate limiting** (WF-ADR-0034, WF-ROADMAP-0006). An optional `[gateway.rate_limit]`
   that caps requests-per-minute (`rpm`) and/or upstream-tokens-per-minute (`tpm`) over a fixed
