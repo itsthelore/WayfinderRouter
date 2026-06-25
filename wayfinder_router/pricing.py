@@ -135,6 +135,7 @@ def _empty_bucket() -> dict:
     b = _empty_route()
     b["estimated_n"] = 0
     b["by_route"] = {}
+    b["by_key"] = {}  # per virtual-key attribution (WF-ADR-0035); empty when keys are unused
     return b
 
 
@@ -161,15 +162,23 @@ class SavingsLedger:
     days: dict[str, dict] = field(default_factory=dict)
     _lock: threading.Lock = field(default_factory=threading.Lock, repr=False, compare=False)
 
-    def record(self, tc: TurnCost, *, when: date | None = None) -> None:
-        key = (when or _utc_today()).isoformat()
+    def record(self, tc: TurnCost, *, when: date | None = None, vkey: str | None = None) -> None:
+        """Record a turn into its day bucket; optionally attribute it to a virtual key.
+
+        ``vkey`` adds the turn to that key's per-day tally (WF-ADR-0035), which powers per-key
+        budgets and the per-key savings breakdown. ``None`` leaves the key tally untouched.
+        """
+        day = (when or _utc_today()).isoformat()
         with self._lock:
-            bucket = self.days.setdefault(key, _empty_bucket())
+            bucket = self.days.setdefault(day, _empty_bucket())
             _accumulate(bucket, tc)
             if tc.estimated:
                 bucket["estimated_n"] += 1
             route = bucket["by_route"].setdefault(tc.route, _empty_route())
             _accumulate(route, tc)
+            if vkey is not None:
+                kstats = bucket.setdefault("by_key", {}).setdefault(vkey, _empty_route())
+                _accumulate(kstats, tc)
             self._prune_locked()
 
     def _prune_locked(self) -> None:
@@ -194,6 +203,10 @@ class SavingsLedger:
                     tgt = agg["by_route"].setdefault(route, _empty_route())
                     for f in ("n", "realized", "baseline", "savings", "tokens"):
                         tgt[f] = round(tgt[f] + rstats[f], 6) if isinstance(tgt[f], float) else tgt[f] + rstats[f]
+                for vkey, kstats in bucket.get("by_key", {}).items():
+                    tgt = agg["by_key"].setdefault(vkey, _empty_route())
+                    for f in ("n", "realized", "baseline", "savings", "tokens"):
+                        tgt[f] = round(tgt[f] + kstats[f], 6) if isinstance(tgt[f], float) else tgt[f] + kstats[f]
             return self._summary(agg, days)
 
     def _summary(self, agg: dict, days: int | None) -> dict:
@@ -221,6 +234,16 @@ class SavingsLedger:
                 }
                 for route, r in sorted(agg["by_route"].items())
             },
+            "by_key": {
+                vkey: {
+                    "requests": r["n"],
+                    "realized": round(r["realized"], 6),
+                    "baseline": round(r["baseline"], 6),
+                    "saved": round(r["savings"], 6),
+                    "tokens": r["tokens"],
+                }
+                for vkey, r in sorted(agg["by_key"].items())
+            },
         }
 
     def totals(self) -> dict[str, float]:
@@ -230,23 +253,32 @@ class SavingsLedger:
             b = sum(d["baseline"] for d in self.days.values())
             return {"realized": round(r, 6), "baseline": round(b, 6), "saved": round(b - r, 6)}
 
-    def spent(self, window: str = "day", *, today: date | None = None) -> float:
+    def spent(
+        self, window: str = "day", *, vkey: str | None = None, today: date | None = None
+    ) -> float:
         """Realized spend in the current ``window`` — for budget enforcement (WF-ROADMAP-0006).
 
         ``"day"`` is today's UTC bucket; ``"month"`` is the current calendar month; anything
-        else is all-time. Meaningful only when ``priced`` (else the figures are relative units).
+        else is all-time. With ``vkey`` set, returns only that virtual key's spend in the window
+        (WF-ADR-0035). Meaningful only when ``priced`` (else the figures are relative units).
         """
         today = today or _utc_today()
+
+        def _realized(bucket: dict) -> float:
+            if vkey is None:
+                return bucket["realized"]
+            return bucket.get("by_key", {}).get(vkey, {}).get("realized", 0.0)
+
         with self._lock:
             if window == "day":
                 bucket = self.days.get(today.isoformat())
-                return round(bucket["realized"], 6) if bucket else 0.0
+                return round(_realized(bucket), 6) if bucket else 0.0
             if window == "month":
                 prefix = today.isoformat()[:7]  # YYYY-MM
                 return round(
-                    sum(b["realized"] for k, b in self.days.items() if k.startswith(prefix)), 6
+                    sum(_realized(b) for k, b in self.days.items() if k.startswith(prefix)), 6
                 )
-            return round(sum(b["realized"] for b in self.days.values()), 6)
+            return round(sum(_realized(b) for b in self.days.values()), 6)
 
     # --- persistence (best-effort; never raise into the request path) ---------
     def to_dict(self) -> dict:

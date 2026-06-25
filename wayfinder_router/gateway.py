@@ -95,7 +95,7 @@ from .config import (
 )
 from .feedback import DEFAULT_LOG, record_label
 from .profiles import PROFILES
-from . import anthropic_adapter, cache, pricing, ratelimit, reliability
+from . import anthropic_adapter, cache, pricing, ratelimit, reliability, vkeys
 
 if TYPE_CHECKING:  # type-only; the runtime imports these lazily inside build_app
     from fastapi import FastAPI, Response
@@ -212,6 +212,7 @@ class Metrics:
         self.cache_misses = 0  # cacheable requests that missed
         self.cache_avoided_cost = 0.0  # cost a hit avoided (chosen-tier cost; distinct from savings)
         self.rate_limited: dict[str, int] = {}  # 429s by tripped limit ("rpm"/"tpm"; WF-ADR-0034)
+        self.key_requests: dict[str, int] = {}  # requests by virtual-key id (WF-ADR-0035)
 
     def set_model_costs(self, costs: dict[str, float]) -> None:
         """Record per-model cost metadata to surface as a gauge (informational)."""
@@ -247,6 +248,10 @@ class Metrics:
     def observe_rate_limited(self, limit: str) -> None:
         """A request was rejected with 429 by the ``rpm`` or ``tpm`` cap (WF-ADR-0034)."""
         self.rate_limited[limit] = self.rate_limited.get(limit, 0) + 1
+
+    def observe_key_request(self, key_id: str) -> None:
+        """An authenticated request was attributed to a virtual key (WF-ADR-0035)."""
+        self.key_requests[key_id] = self.key_requests.get(key_id, 0) + 1
 
     def record_reload_failure(self) -> None:
         self.reload_failures += 1
@@ -296,6 +301,16 @@ class Metrics:
         lines.append("# TYPE wayfinder_router_rate_limited_total counter")
         for limit, n in sorted(self.rate_limited.items()):
             lines.append(f'wayfinder_router_rate_limited_total{{limit="{_label_escape(limit)}"}} {n}')
+
+        if self.key_requests:
+            lines.append(
+                "# HELP wayfinder_router_key_requests_total Requests by virtual-key id (WF-ADR-0035)."
+            )
+            lines.append("# TYPE wayfinder_router_key_requests_total counter")
+            for key_id, n in sorted(self.key_requests.items()):
+                lines.append(
+                    f'wayfinder_router_key_requests_total{{key="{_label_escape(key_id)}"}} {n}'
+                )
 
         lines.append(
             "# HELP wayfinder_router_config_reload_failures_total "
@@ -424,6 +439,22 @@ class RateLimit:
 
 
 @dataclass(frozen=True)
+class VirtualKey:
+    """A gateway-issued credential (WF-ADR-0035): a stored hash plus optional scope/attribution.
+
+    ``hash`` is the SHA-256 hex of the key — the plaintext is never stored. ``tags`` label the
+    key for attribution. ``budget`` / ``rate_limit``, when set, apply that key's own cap on top
+    of any gateway-wide one (the stricter wins). Virtual keys gate access to the *gateway*; they
+    are not provider keys (those still come from the environment, WF-ADR-0004).
+    """
+
+    hash: str
+    tags: tuple[str, ...] = ()
+    budget: Budget | None = None
+    rate_limit: RateLimit | None = None
+
+
+@dataclass(frozen=True)
 class GatewayConfig:
     """Maps recommended model names to upstream endpoints (from `[gateway.models]`).
 
@@ -453,6 +484,8 @@ class GatewayConfig:
     cache: CacheConfig | None = None
     # Rate limit (WF-ADR-0034): an optional RPM/TPM cap. ``None`` = no limit.
     rate_limit: RateLimit | None = None
+    # Virtual keys (WF-ADR-0035): gateway-issued credentials by id. Empty = open (no auth).
+    keys: dict[str, VirtualKey] = field(default_factory=dict)
 
 
 # Which chat-message text the router scores. The deterministic core scores
@@ -547,6 +580,45 @@ def _rate_limit_from_toml(raw: object, where: str) -> RateLimit | None:
     return RateLimit(rpm=rpm, tpm=tpm, window=float(window))
 
 
+def _is_sha256_hex(value: object) -> bool:
+    return isinstance(value, str) and len(value) == 64 and all(
+        c in "0123456789abcdefABCDEF" for c in value
+    )
+
+
+def _keys_from_toml(raw: object, where: str) -> dict[str, VirtualKey]:
+    """Parse and validate ``[gateway.keys.<id>]`` tables (WF-ADR-0035).
+
+    Each key stores a SHA-256 ``hash`` (never the plaintext) and may carry ``tags`` plus its own
+    nested ``budget`` / ``rate_limit`` (validated by the same helpers as the gateway-wide ones).
+    """
+    if raw is None:
+        return {}
+    if not isinstance(raw, dict):
+        raise WayfinderConfigError(f"{where}: '[gateway.keys]' must be a table")
+    keys: dict[str, VirtualKey] = {}
+    for kid, entry in raw.items():
+        if not isinstance(entry, dict):
+            raise WayfinderConfigError(f"{where}: '[gateway.keys.{kid}]' must be a table")
+        khash = entry.get("hash")
+        if not _is_sha256_hex(khash):
+            raise WayfinderConfigError(
+                f"{where}: 'gateway.keys.{kid}.hash' must be a 64-char SHA-256 hex digest "
+                "(mint a key with `wayfinder-router keys new`)"
+            )
+        tags = entry.get("tags", [])
+        if not isinstance(tags, list) or not all(isinstance(t, str) and t for t in tags):
+            raise WayfinderConfigError(f"{where}: 'gateway.keys.{kid}.tags' must be a list of strings")
+        scope = f"{where} [gateway.keys.{kid}]"
+        keys[kid] = VirtualKey(
+            hash=str(khash).lower(),  # _is_sha256_hex guaranteed a 64-char hex str
+            tags=tuple(tags),
+            budget=_budget_from_toml(entry.get("budget"), scope),
+            rate_limit=_rate_limit_from_toml(entry.get("rate_limit"), scope),
+        )
+    return keys
+
+
 def gateway_config_from_toml(text: str, where: str = "wayfinder-router.toml") -> GatewayConfig:
     """Parse a :class:`GatewayConfig` from ``wayfinder-router.toml`` text (file-free)."""
     try:
@@ -586,6 +658,7 @@ def gateway_config_from_toml(text: str, where: str = "wayfinder-router.toml") ->
     budget = _budget_from_toml(gateway.get("budget"), where)
     cache_cfg = _cache_from_toml(gateway.get("cache"), where)
     rate_limit = _rate_limit_from_toml(gateway.get("rate_limit"), where)
+    keys = _keys_from_toml(gateway.get("keys"), where)
     raw_models = gateway.get("models") or {}
     if not isinstance(raw_models, dict):
         raise WayfinderConfigError(f"{where}: '[gateway.models]' must be a table")
@@ -663,7 +736,7 @@ def gateway_config_from_toml(text: str, where: str = "wayfinder-router.toml") ->
     return GatewayConfig(
         models=models, route_on=route_on, sticky=sticky, sticky_cooldown=cooldown,
         retries=retries, breaker_threshold=breaker_threshold, breaker_cooldown=breaker_cooldown,
-        failover=failover, budget=budget, cache=cache_cfg, rate_limit=rate_limit,
+        failover=failover, budget=budget, cache=cache_cfg, rate_limit=rate_limit, keys=keys,
     )
 
 
@@ -725,6 +798,29 @@ def dump_gateway_toml(gateway: GatewayConfig) -> str:
         if rl.window != ratelimit.DEFAULT_WINDOW:
             lines.append(f"window = {round(rl.window, 6)!r}")
         blocks.append("\n".join(lines))
+    for kid, vk in gateway.keys.items():  # [gateway.keys.<id>] + optional nested scope tables
+        lines = [f"[gateway.keys.{kid}]", f'hash = "{vk.hash}"']
+        if vk.tags:
+            lines.append("tags = [" + ", ".join(f'"{t}"' for t in vk.tags) + "]")
+        blocks.append("\n".join(lines))
+        if vk.budget is not None:
+            b = vk.budget
+            blines = [f"[gateway.keys.{kid}.budget]", f"limit = {round(b.limit, 6)!r}"]
+            if b.window != "day":
+                blines.append(f'window = "{b.window}"')
+            if b.on_breach != "degrade":
+                blines.append(f'on_breach = "{b.on_breach}"')
+            blocks.append("\n".join(blines))
+        if vk.rate_limit is not None:
+            rlk = vk.rate_limit
+            rlines = [f"[gateway.keys.{kid}.rate_limit]"]
+            if rlk.rpm is not None:
+                rlines.append(f"rpm = {rlk.rpm}")
+            if rlk.tpm is not None:
+                rlines.append(f"tpm = {rlk.tpm}")
+            if rlk.window != ratelimit.DEFAULT_WINDOW:
+                rlines.append(f"window = {round(rlk.window, 6)!r}")
+            blocks.append("\n".join(rlines))
     for name, model in gateway.models.items():
         lines = [
             f"[gateway.models.{name}]",
@@ -1294,12 +1390,13 @@ def build_app(
 
     def _record_turn(
         entry: dict, chosen: str, decision: object, gw: GatewayConfig,
-        response: object, prompt_text: str, completion_text: str,
+        response: object, prompt_text: str, completion_text: str, vkey: str | None = None,
     ) -> tuple[int, int, bool]:
         """Cost the turn from token usage x the price table; record it (no model call).
 
-        Returns ``(prompt_tokens, completion_tokens, estimated)`` so a caller (e.g. the response
-        cache) can reuse the counts without re-tokenizing.
+        ``vkey`` attributes the turn to a virtual key in the ledger (WF-ADR-0035). Returns
+        ``(prompt_tokens, completion_tokens, estimated)`` so a caller (e.g. the response cache)
+        can reuse the counts without re-tokenizing.
         """
         costs, priced = _price_table(gw, decision)
         ledger.priced = priced
@@ -1307,7 +1404,7 @@ def build_app(
             response, prompt_text=prompt_text, completion_text=completion_text
         )
         tc = pricing.turn_cost(chosen, pt, ct, costs, estimated=estimated)
-        ledger.record(tc)
+        ledger.record(tc, vkey=vkey)
         metrics.observe_cost(tc.realized, tc.baseline)
         entry["cost"] = {  # metadata only — dollars and token counts, never prompt text
             "realized": tc.realized, "baseline": tc.baseline, "saved": tc.savings,
@@ -1363,6 +1460,20 @@ def build_app(
     # hot-reloads (like the breaker), and the handler keeps the limits in sync.
     _rl0 = gw0.rate_limit or RateLimit()
     rate_limiter = ratelimit.RateLimiter(rpm=_rl0.rpm, tpm=_rl0.tpm, window=_rl0.window)
+
+    # Per-virtual-key rate limiters (WF-ADR-0035): one per key, created on first use and kept
+    # alive across requests so each key's window counters persist. Synced to current config.
+    key_limiters: dict[str, ratelimit.RateLimiter] = {}
+
+    def _key_limiter(key_id: str, rl_cfg: RateLimit) -> ratelimit.RateLimiter:
+        lim = key_limiters.get(key_id)
+        if lim is None:
+            lim = key_limiters[key_id] = ratelimit.RateLimiter(
+                rpm=rl_cfg.rpm, tpm=rl_cfg.tpm, window=rl_cfg.window
+            )
+        else:
+            lim.reconfigure(rpm=rl_cfg.rpm, tpm=rl_cfg.tpm, window=rl_cfg.window)
+        return lim
 
     def _auth_headers(model: GatewayModel) -> dict[str, str]:
         headers = {"Content-Type": "application/json"}
@@ -1581,9 +1692,36 @@ def build_app(
         x_wayfinder_sticky_cooldown: str | None = Header(default=None),
         x_wayfinder_debug: str | None = Header(default=None),
         x_wayfinder_failover: str | None = Header(default=None),
+        authorization: str | None = Header(default=None),
     ) -> Response:
         request_id = uuid.uuid4().hex[:12]
         routing, gw = holder.current()
+
+        # Virtual-key auth (WF-ADR-0035): when keys are configured, require a valid bearer token;
+        # with none configured the gateway stays open (backward compatible). The resolved key id
+        # selects per-key budget/rate-limit scope and tags attribution. Provider keys are
+        # unaffected — they still come from the environment (WF-ADR-0004).
+        key_id: str | None = None
+        key_cfg: VirtualKey | None = None
+        if gw.keys:
+            key_id = vkeys.match(
+                vkeys.extract_bearer(authorization), {k: v.hash for k, v in gw.keys.items()}
+            )
+            if key_id is None:
+                logger.info("request %s unauthorized (missing/invalid virtual key)", request_id)
+                return JSONResponse(
+                    status_code=401,
+                    content={"error": {
+                        "message": "missing or invalid API key",
+                        "type": "wayfinder_router_unauthorized",
+                    }},
+                    headers={
+                        "x-wayfinder-router-request-id": request_id,
+                        "WWW-Authenticate": "Bearer",
+                    },
+                )
+            key_cfg = gw.keys[key_id]
+            metrics.observe_key_request(key_id)
 
         # Keep the long-lived response cache in sync with hot-reloaded config; disabling it
         # purges any retained bodies immediately (WF-ADR-0033). When no cache is configured we
@@ -1607,25 +1745,34 @@ def build_app(
         elif rate_limiter.active():
             rate_limiter.reconfigure(rpm=None, tpm=None, window=rate_limiter.window)
 
-        # Rate-limit admission (WF-ADR-0034): the outermost guardrail — reject a flood with 429
-        # before spending any work. A cache hit still counts as a request (RPM); only real
-        # upstream calls count against TPM (added after delivery).
-        rl = rate_limiter.admit()
-        if not rl.allowed:
-            metrics.observe_rate_limited(rl.limit)
-            logger.info("request %s rate-limited (%s)", request_id, rl.limit)
+        # Rate-limit admission (WF-ADR-0034/0035): the outermost guardrail — reject a flood with
+        # 429 before spending any work. The gateway-wide cap AND this key's own cap both apply.
+        # A cache hit still counts as a request (RPM); only real upstream calls count against TPM.
+        def _too_many(result: ratelimit.RateResult, scope: str) -> JSONResponse:
+            metrics.observe_rate_limited(result.limit)
+            logger.info("request %s rate-limited (%s%s)", request_id, result.limit, scope)
             return JSONResponse(
                 status_code=429,
                 content={"error": {
-                    "message": f"{rl.limit} rate limit exceeded",
+                    "message": f"{result.limit} rate limit exceeded",
                     "type": "wayfinder_router_rate_limited",
                 }},
                 headers={
                     "x-wayfinder-router-request-id": request_id,
-                    "x-wayfinder-router-rate-limit": rl.limit,
-                    "Retry-After": str(rl.retry_after),
+                    "x-wayfinder-router-rate-limit": result.limit,
+                    "Retry-After": str(result.retry_after),
                 },
             )
+
+        rl = rate_limiter.admit()
+        if not rl.allowed:
+            return _too_many(rl, "")
+        key_limiter: ratelimit.RateLimiter | None = None
+        if key_id is not None and key_cfg is not None and key_cfg.rate_limit is not None:
+            key_limiter = _key_limiter(key_id, key_cfg.rate_limit)
+            krl = key_limiter.admit()
+            if not krl.allowed:
+                return _too_many(krl, f" key={key_id}")
 
         def _reject(exc: BadOverride) -> JSONResponse:
             logger.info("request %s rejected: %s", request_id, exc)
@@ -1679,37 +1826,48 @@ def build_app(
             except BadOverride as exc:
                 return _reject(exc)
 
-        # Budget enforcement (WF-ROADMAP-0006): a spend cap on the realized cost in the
-        # configured window. Only meaningful with real costs (``priced``); a relative-unit
-        # demo has no dollars to cap. On breach we either degrade to the cheapest tier — the
-        # failover ``degrade`` primitive (WF-ADR-0031), which never raises cost — or block
-        # with 402. This changes only *delivery*; the scored decision above is untouched.
+        # Budget enforcement (WF-ROADMAP-0006): a spend cap on realized cost in the configured
+        # window — gateway-wide (WF-ADR-0032) and, when the request carries a virtual key, that
+        # key's own budget (WF-ADR-0035). Both apply; the strictest wins (a block beats a
+        # degrade). Only meaningful with real costs (``priced``). On a degrade we route to the
+        # cheapest tier (the failover ``degrade`` primitive, never raising cost); on a block we
+        # return 402. This changes only *delivery*; the scored decision above is untouched.
         budget_state: str | None = None
-        budget = gw.budget
-        if budget is not None and ledger.priced and ledger.spent(budget.window) >= budget.limit:
-            if budget.on_breach == "block":
-                logger.info(
-                    "request %s blocked: %s budget of %s reached",
-                    request_id, budget.window, budget.limit,
+        if ledger.priced:
+            applicable: list[tuple[Budget, float]] = []
+            if gw.budget is not None:
+                applicable.append((gw.budget, ledger.spent(gw.budget.window)))
+            if key_cfg is not None and key_cfg.budget is not None and key_id is not None:
+                applicable.append(
+                    (key_cfg.budget, ledger.spent(key_cfg.budget.window, vkey=key_id))
                 )
-                return JSONResponse(
-                    status_code=402,
-                    content={"error": {
-                        "message": f"{budget.window} budget of {budget.limit} reached",
-                        "type": "wayfinder_router_budget_exhausted",
-                    }},
-                    headers={
-                        "x-wayfinder-router-request-id": request_id,
-                        "x-wayfinder-router-budget": "blocked",
-                    },
-                )
-            # degrade: route to the cheapest tier (lowest min_score). A no-op if the chosen
-            # tier is already the cheapest, or in classifier mode (no tier ladder to descend).
-            tiers_sorted = sorted(decision.tiers or (), key=lambda t: t.min_score)
-            cheapest = tiers_sorted[0].model if tiers_sorted else None
-            if cheapest is not None and cheapest != chosen:
-                chosen, mode = cheapest, "budget-degraded"
-            budget_state = "degraded"
+            for bud, spent in applicable:
+                if spent < bud.limit:
+                    continue
+                if bud.on_breach == "block":
+                    logger.info(
+                        "request %s blocked: %s budget of %s reached",
+                        request_id, bud.window, bud.limit,
+                    )
+                    return JSONResponse(
+                        status_code=402,
+                        content={"error": {
+                            "message": f"{bud.window} budget of {bud.limit} reached",
+                            "type": "wayfinder_router_budget_exhausted",
+                        }},
+                        headers={
+                            "x-wayfinder-router-request-id": request_id,
+                            "x-wayfinder-router-budget": "blocked",
+                        },
+                    )
+                budget_state = "degraded"
+            if budget_state == "degraded":
+                # cheapest tier (lowest min_score); a no-op if chosen is already cheapest or in
+                # classifier mode (no tier ladder to descend).
+                tiers_sorted = sorted(decision.tiers or (), key=lambda t: t.min_score)
+                cheapest = tiers_sorted[0].model if tiers_sorted else None
+                if cheapest is not None and cheapest != chosen:
+                    chosen, mode = cheapest, "budget-degraded"
 
         wf_headers = {
             "x-wayfinder-router-model": chosen,
@@ -1729,6 +1887,8 @@ def build_app(
             "mode": mode,
             "ts": time.time(),
         }
+        if key_id is not None:  # attribution: which virtual key this turn belongs to (WF-ADR-0035)
+            entry["key"] = key_id
         recent.append(entry)
         # Full prompt text, used only as a token-count fallback when the upstream omits `usage`.
         prompt_all = extract_prompt(messages, route_on="all")
@@ -1901,9 +2061,11 @@ def build_app(
                     # No upstream `usage` over SSE by default, so estimate from the streamed text.
                     completion_text = "".join(parse_sse_deltas("".join(streamed).splitlines()))
                     s_pt, s_ct, _ = _record_turn(
-                        entry, served, decision, gw, None, prompt_all, completion_text
+                        entry, served, decision, gw, None, prompt_all, completion_text, vkey=key_id
                     )
                     rate_limiter.add_tokens(s_pt + s_ct)  # count served tokens toward TPM
+                    if key_limiter is not None:
+                        key_limiter.add_tokens(s_pt + s_ct)  # ...and the key's own TPM window
                     if debug:
                         meta = json.dumps(_explain_payload())
                         yield f"event: wayfinder\ndata: {meta}\n\n".encode()
@@ -1935,9 +2097,11 @@ def build_app(
         if status < 400:  # record realized cost & savings, attributed to the target that served
             pt, ct, estimated = _record_turn(
                 entry, served_by, decision, gw, response_obj,
-                prompt_all, _first_choice_text(response_obj),
+                prompt_all, _first_choice_text(response_obj), vkey=key_id,
             )
             rate_limiter.add_tokens(pt + ct)  # count served tokens toward TPM (WF-ADR-0034)
+            if key_limiter is not None:
+                key_limiter.add_tokens(pt + ct)  # ...and the key's own TPM window
             # Store the raw success (captured BEFORE any debug mutation), keyed on the model that
             # actually served — so a failover turn populates the served model's key, not chosen's.
             if cache_state == "miss" and cache.is_storable(status, content_type, response_obj):
@@ -1961,7 +2125,10 @@ def build_app(
 
     @app.post("/v1/messages")
     @app.post("/messages")  # path tolerance, like /v1/chat/completions
-    async def messages(body: dict = Body(...)) -> Response:  # noqa: B008 - FastAPI default
+    async def messages(  # noqa: B008 - FastAPI default
+        body: dict = Body(...),
+        authorization: str | None = Header(default=None),
+    ) -> Response:
         """Claude Code adapter (WF-DESIGN-0011): Anthropic Messages ⇄ OpenAI Chat Completions.
 
         Pure translation around the existing router — this scores nothing and calls no model
@@ -1983,6 +2150,7 @@ def build_app(
             x_wayfinder_sticky_cooldown=None,
             x_wayfinder_debug=None,
             x_wayfinder_failover=None,
+            authorization=authorization,  # virtual-key auth applies to Claude Code too (WF-ADR-0035)
         )
         request_id = inner.headers.get("x-wayfinder-router-request-id", "")
         message_id = f"msg_{request_id}" if request_id else "msg_unknown"

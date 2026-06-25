@@ -99,7 +99,8 @@ design reference.
    spend *and savings* to each. *Core:* deterministic key validation + request tagging; no
    model call. *Effort:* M–L. *Closes:* virtual keys with attribution (LiteLLM, Portkey,
    Vercel, Cloudflare) — Wayfinder resolves *provider* keys but issues none of its own.
-   *Design to follow.*
+   **Shipped (hashed-in-config keys: auth + per-key attribution + per-key budgets/rate-limits):
+   WF-ADR-0035.** Runtime create/revoke (#14) and per-key model allowlists are deferred follow-ups.
 
 6. **Budgets & spend caps with auto-reset — degrade to local on breach.**
    Fin / Ops · cost. *Job:* cap spend per key/window without surprises. *Core:* deterministic

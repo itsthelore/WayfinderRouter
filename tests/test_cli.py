@@ -371,3 +371,17 @@ def test_init_interactive_writes_config_and_reports_keys(tmp_path, monkeypatch, 
     assert "[gateway.models.cloud]" in cfg and "claude-sonnet-4-6" in cfg
     assert (tmp_path / ".env.example").read_text(encoding="utf-8").count("ANTHROPIC_API_KEY=") == 1
     assert "✗ not set" in out  # the cloud key check still runs after the wizard
+
+
+def test_keys_new_mints_paste_able_block(capsys):
+    from wayfinder_router import vkeys
+    from wayfinder_router.cli import main
+
+    assert main(["keys", "new", "--id", "team-a", "--tag", "prod"]) == 0
+    out = capsys.readouterr().out
+    assert "[gateway.keys.team-a]" in out and 'tags = ["prod"]' in out
+    # the printed key verifies against the printed hash
+    import re
+    key = [ln.strip() for ln in out.splitlines() if ln.strip().startswith("wf-")][0]
+    khash = re.search(r'hash = "([0-9a-f]{64})"', out).group(1)
+    assert vkeys.verify(key, khash)

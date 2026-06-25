@@ -407,6 +407,23 @@ def _cmd_init(args: argparse.Namespace) -> int:
     return EXIT_OK
 
 
+def _cmd_keys(args: argparse.Namespace) -> int:
+    """Mint a virtual API key (WF-ADR-0035): prints the paste-able config block + the key once."""
+    from . import vkeys
+
+    if args.action != "new":  # only "new" today; choices guards this, kept for clarity
+        return EXIT_USAGE
+    plaintext, key_hash = vkeys.generate()
+    lines = [f"[gateway.keys.{args.id}]", f'hash = "{key_hash}"']
+    if args.tag:
+        lines.append("tags = [" + ", ".join(f'"{t}"' for t in args.tag) + "]")
+    print("# Paste into wayfinder-router.toml (only the hash is stored — never the key):")
+    print("\n".join(lines))
+    print("\n# Give this key to the caller; it is shown once and cannot be recovered:")
+    print(plaintext)
+    return EXIT_OK
+
+
 def _cmd_doctor(args: argparse.Namespace) -> int:
     from . import bootstrap
     from .config import find_config_file
@@ -767,6 +784,18 @@ def build_parser() -> argparse.ArgumentParser:
         "--dir", default=".", help="Where to start the search for wayfinder-router.toml."
     )
     p_doctor.set_defaults(func=_cmd_doctor)
+
+    p_keys = sub.add_parser(
+        "keys", help="Mint a virtual API key for the gateway (WF-ADR-0035)."
+    )
+    p_keys.add_argument("action", choices=["new"], help="Action to perform (currently: new).")
+    p_keys.add_argument(
+        "--id", default="team-1", help="Key id for the [gateway.keys.<id>] block."
+    )
+    p_keys.add_argument(
+        "--tag", action="append", default=[], help="Attribution tag (repeatable)."
+    )
+    p_keys.set_defaults(func=_cmd_keys)
     return parser
 
 

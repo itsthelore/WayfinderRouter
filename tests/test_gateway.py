@@ -17,7 +17,7 @@ import pytest
 pytest.importorskip("fastapi")
 from fastapi.testclient import TestClient  # noqa: E402
 
-from wayfinder_router import gateway  # noqa: E402
+from wayfinder_router import gateway, vkeys  # noqa: E402
 
 TRIVIAL = {"model": "auto", "messages": [{"role": "user", "content": "hi"}]}
 COMPLEX_TEXT = (
@@ -1932,6 +1932,131 @@ def test_rate_limit_config_round_trips():
     ],
 )
 def test_bad_rate_limit_config_rejected(table):
+    config = table + '\n[gateway.models.local]\nbase_url = "http://x/v1"\nmodel = "m"\n'
+    with pytest.raises(gateway.WayfinderConfigError):
+        gateway.gateway_config_from_toml(config)
+
+
+# --- virtual keys: auth + attribution + per-key budgets/limits (WF-ADR-0035) ---
+def _vkeys_config(keys_toml, *, extra=""):
+    return (
+        keys_toml + "\n" + extra +
+        "[routing]\nthreshold = 0.2\n\n"
+        '[gateway.models.local]\nbase_url = "http://local.test/v1"\nmodel = "m-local"\ncost_per_1k = 0.0\n\n'
+        '[gateway.models.cloud]\nbase_url = "http://cloud.test/v1"\nmodel = "m-cloud"\ncost_per_1k = 1.0\n'
+    )
+
+
+def _vkeys_client(tmp_path, monkeypatch, config):
+    (tmp_path / "wayfinder-router.toml").write_text(config, encoding="utf-8")
+
+    async def fake(url, headers, json_body, timeout=60.0):
+        return 200, json.dumps({
+            "choices": [{"message": {"role": "assistant", "content": "hi"}}],
+            "usage": {"prompt_tokens": 40, "completion_tokens": 20},
+        }).encode(), "application/json"
+
+    monkeypatch.setattr(gateway, "aforward_request", fake)
+    return TestClient(gateway.build_app(start_dir=str(tmp_path)))
+
+
+def test_gateway_open_without_keys(tmp_path, monkeypatch):
+    tc = _vkeys_client(tmp_path, monkeypatch, _vkeys_config(""))  # no [gateway.keys]
+    assert tc.post("/v1/chat/completions", json=TRIVIAL).status_code == 200  # no auth required
+
+
+def test_missing_or_invalid_key_is_401(tmp_path, monkeypatch):
+    _, h = vkeys.generate()
+    tc = _vkeys_client(tmp_path, monkeypatch, _vkeys_config(f'[gateway.keys.team-a]\nhash = "{h}"\n'))
+    assert tc.post("/v1/chat/completions", json=TRIVIAL).status_code == 401  # no Authorization
+    bad = tc.post("/v1/chat/completions", json=TRIVIAL, headers={"Authorization": "Bearer wf-nope"})
+    assert bad.status_code == 401
+    assert bad.json()["error"]["type"] == "wayfinder_router_unauthorized"
+    assert bad.headers.get("WWW-Authenticate") == "Bearer"
+
+
+def test_valid_key_authorizes_and_attributes(tmp_path, monkeypatch):
+    key, h = vkeys.generate()
+    tc = _vkeys_client(tmp_path, monkeypatch, _vkeys_config(f'[gateway.keys.team-a]\nhash = "{h}"\n'))
+    resp = tc.post("/v1/chat/completions", json=COMPLEX, headers={"Authorization": f"Bearer {key}"})
+    assert resp.status_code == 200
+    assert 'wayfinder_router_key_requests_total{key="team-a"} 1' in tc.get("/metrics").text
+    by_key = tc.get("/v1/savings").json()["by_key"]
+    assert "team-a" in by_key and by_key["team-a"]["realized"] > 0  # spend attributed to the key
+
+
+def test_per_key_rate_limit_429(tmp_path, monkeypatch):
+    key, h = vkeys.generate()
+    cfg = _vkeys_config(
+        f'[gateway.keys.team-a]\nhash = "{h}"\n[gateway.keys.team-a.rate_limit]\nrpm = 1\n'
+    )
+    tc = _vkeys_client(tmp_path, monkeypatch, cfg)
+    hdr = {"Authorization": f"Bearer {key}"}
+    assert tc.post("/v1/chat/completions", json=TRIVIAL, headers=hdr).status_code == 200
+    assert tc.post("/v1/chat/completions", json=TRIVIAL, headers=hdr).status_code == 429
+
+
+def test_per_key_budget_blocks(tmp_path, monkeypatch):
+    key, h = vkeys.generate()
+    cfg = _vkeys_config(
+        f'[gateway.keys.team-a]\nhash = "{h}"\n'
+        '[gateway.keys.team-a.budget]\nlimit = 0.001\non_breach = "block"\n'
+    )
+    tc = _vkeys_client(tmp_path, monkeypatch, cfg)
+    hdr = {"Authorization": f"Bearer {key}"}
+    assert tc.post("/v1/chat/completions", json=COMPLEX, headers=hdr).status_code == 200  # spends
+    blocked = tc.post("/v1/chat/completions", json=COMPLEX, headers=hdr)
+    assert blocked.status_code == 402
+    assert blocked.json()["error"]["type"] == "wayfinder_router_budget_exhausted"
+
+
+def test_per_key_block_beats_gateway_degrade(tmp_path, monkeypatch):
+    # Gateway-wide budget would degrade; the key's budget blocks -> the stricter (block) wins.
+    key, h = vkeys.generate()
+    cfg = _vkeys_config(
+        f'[gateway.keys.team-a]\nhash = "{h}"\n'
+        '[gateway.keys.team-a.budget]\nlimit = 0.001\non_breach = "block"\n',
+        extra='[gateway.budget]\nlimit = 0.001\non_breach = "degrade"\n\n',
+    )
+    tc = _vkeys_client(tmp_path, monkeypatch, cfg)
+    hdr = {"Authorization": f"Bearer {key}"}
+    assert tc.post("/v1/chat/completions", json=COMPLEX, headers=hdr).status_code == 200
+    assert tc.post("/v1/chat/completions", json=COMPLEX, headers=hdr).status_code == 402  # block wins
+
+
+def test_v1_messages_requires_key(tmp_path, monkeypatch):
+    key, h = vkeys.generate()
+    tc = _vkeys_client(tmp_path, monkeypatch, _vkeys_config(f'[gateway.keys.team-a]\nhash = "{h}"\n'))
+    req = {"model": "claude-x", "max_tokens": 16, "messages": [{"role": "user", "content": "hi"}]}
+    assert tc.post("/v1/messages", json=req).status_code == 401  # Claude Code needs a key too
+    ok = tc.post("/v1/messages", json=req, headers={"Authorization": f"Bearer {key}"})
+    assert ok.status_code == 200
+
+
+def test_vkeys_config_round_trips():
+    _, h = vkeys.generate()
+    body = (
+        f'[gateway.keys.team-a]\nhash = "{h}"\ntags = ["a", "prod"]\n'
+        "[gateway.keys.team-a.rate_limit]\nrpm = 5\n"
+        "[gateway.keys.team-a.budget]\nlimit = 2.0\n\n"
+        '[gateway.models.local]\nbase_url = "http://x/v1"\nmodel = "m"\n'
+    )
+    gw = gateway.gateway_config_from_toml(body)
+    vk = gw.keys["team-a"]
+    assert vk.tags == ("a", "prod") and vk.rate_limit.rpm == 5 and vk.budget.limit == 2.0
+    assert gateway.gateway_config_from_toml(gateway.dump_gateway_toml(gw)).keys == gw.keys
+
+
+@pytest.mark.parametrize(
+    "table",
+    [
+        '[gateway.keys.x]\nhash = "tooshort"\n',  # not a 64-char hex digest
+        '[gateway.keys.x]\ntags = ["a"]\n',  # missing hash
+        '[gateway.keys.x]\nhash = "' + "g" * 64 + '"\n',  # not hex
+        "[gateway]\nkeys = 5\n",  # keys must be a table
+    ],
+)
+def test_bad_vkeys_config_rejected(table):
     config = table + '\n[gateway.models.local]\nbase_url = "http://x/v1"\nmodel = "m"\n'
     with pytest.raises(gateway.WayfinderConfigError):
         gateway.gateway_config_from_toml(config)
