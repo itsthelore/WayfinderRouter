@@ -4,7 +4,13 @@ User-visible changes to Wayfinder, by release. Follows the spirit of
 [Keep a Changelog](https://keepachangelog.com/): user impact over implementation
 details, release history over commit history.
 
-## Unreleased
+## v2026.6.7 — 2026-06-25
+
+The gateway becomes a control plane. It now issues **virtual API keys** — authenticate callers,
+attribute spend *and savings* per team, and scope each key's budget, rate limit, and allowed
+models — and completes the **guardrails trilogy** by adding RPM/TPM **rate limiting** alongside
+budgets and an exact-match **response cache** for instant, free repeats. All opt-in and additive;
+the scored decision stays deterministic and offline (WF-ADR-0001).
 
 ### Added
 
