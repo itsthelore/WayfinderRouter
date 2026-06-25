@@ -92,6 +92,20 @@ class RateLimiter:
         with self._lock:
             return {"requests": self._requests, "tokens": self._tokens}
 
+    def snapshot(self, now: float | None = None) -> tuple[int, int, int] | None:
+        """The request-rate dimension as ``(limit, remaining, reset_seconds)``, or ``None``.
+
+        ``None`` when no RPM cap is set. ``remaining`` is the headroom left in the current window
+        (after requests already admitted); ``reset_seconds`` is the time until the window rolls.
+        Used for informational ``X-RateLimit-*`` response headers (WF-ADR-0034).
+        """
+        if self.rpm is None:
+            return None
+        now = self.clock() if now is None else now
+        with self._lock:
+            self._roll_locked(now)
+            return self.rpm, max(0, self.rpm - self._requests), self._retry_after_locked(now)
+
     def _roll_locked(self, now: float) -> None:
         wid = int(now // self.window)
         if wid != self._window_id:
