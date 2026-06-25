@@ -60,6 +60,14 @@ resolves the real provider keys from the environment. Virtual keys are not provi
    degrade; a request must pass both rate limiters). Per-key budgets read the key's own ledger
    spend; per-key rate limits use a per-key limiter whose window persists across requests.
 
+4a. **A key may carry a `models` allowlist** (configured model names it is permitted to use; empty
+   = unrestricted). If routing picks a model the key isn't allowed, the request **clamps to the
+   nearest allowed tier** — the highest allowed tier at or below the chosen one (preferring not to
+   raise cost), else the cheapest allowed tier above it — rather than rejecting, so it still
+   succeeds on a permitted model (reported as `mode: key-scoped`). Clamping is on-brand (degrade,
+   not fail) and applied last, after scoring/pin/sticky/budget, so it is the final word on the
+   route. A reject-on-disallowed posture was considered and rejected as less useful.
+
 5. **Hashed-in-config, not a runtime store, in v1.** Keys live in `wayfinder-router.toml` (hot-
    reloaded like the rest of the config) — deterministic, no database, no secret persisted. Runtime
    create/revoke via an admin API is a deliberate later option (WF-ROADMAP-0006 #14), not v1.
@@ -79,8 +87,8 @@ resolves the real provider keys from the environment. Virtual keys are not provi
   removed; mitigated by easy rotation (mint a new key, swap the hash) and constant-time matching.
 - **Limitation — per process.** Per-key limiters and the ledger are in-memory per worker, like the
   breaker/cache; a multi-process deployment scopes per worker until a shared store exists.
-- **Limitation — no model allowlist, no runtime CRUD** in v1 (deferred). Auth covers all `/v1/*`
-  uniformly; finer per-key route scoping is a follow-up.
+- **Limitation — no runtime CRUD** in v1 (deferred to WF-ROADMAP-0006 #12). Keys are managed by
+  editing config; runtime create/revoke needs persistence and an admin-auth surface.
 
 ## Alternatives Considered
 
