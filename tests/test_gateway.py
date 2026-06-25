@@ -2115,3 +2115,31 @@ def test_key_allowlist_round_trips_and_rejects_unknown():
     )
     with pytest.raises(gateway.WayfinderConfigError):
         gateway.gateway_config_from_toml(bad)
+
+
+# --- informational X-RateLimit-* headers (WF-ADR-0034) ---
+def test_rate_limit_headers_on_success(tmp_path, monkeypatch):
+    tc, _ = _ratelimit_client(tmp_path, monkeypatch, "rpm = 10")
+    r = tc.post("/v1/chat/completions", json=TRIVIAL)
+    assert r.status_code == 200
+    assert r.headers["x-ratelimit-limit"] == "10"
+    assert r.headers["x-ratelimit-remaining"] == "9"  # one request consumed this window
+    assert int(r.headers["x-ratelimit-reset"]) >= 1
+
+
+def test_no_rate_limit_headers_when_unlimited(client):
+    tc, _ = client
+    r = tc.post("/v1/chat/completions", json=TRIVIAL)
+    assert "x-ratelimit-limit" not in r.headers  # no headers unless a rate limit is configured
+
+
+def test_rate_limit_headers_reflect_tighter_key_limit(tmp_path, monkeypatch):
+    key, h = vkeys.generate()
+    cfg = _vkeys_config(
+        f'[gateway.keys.team-a]\nhash = "{h}"\n[gateway.keys.team-a.rate_limit]\nrpm = 2\n',
+        extra="[gateway.rate_limit]\nrpm = 100\n\n",
+    )
+    tc = _vkeys_client(tmp_path, monkeypatch, cfg)
+    r = tc.post("/v1/chat/completions", json=TRIVIAL, headers={"Authorization": f"Bearer {key}"})
+    assert r.headers["x-ratelimit-limit"] == "2"  # the key's tighter cap, not the gateway's 100
+    assert r.headers["x-ratelimit-remaining"] == "1"

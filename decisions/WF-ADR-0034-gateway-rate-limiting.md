@@ -70,7 +70,9 @@ Two constraints frame the decision, as with the other guardrails:
 - **Completes the guardrails trilogy**: cost cap (budgets) + repeat dedupe (cache) + volume cap
   (rate limit), all on the invocation layer, all reusing the `[gateway.*]` config pattern.
 - **A 429 surfaces `Retry-After`** so well-behaved clients back off; `/metrics` gains
-  `wayfinder_router_rate_limited_total{limit=…}`.
+  `wayfinder_router_rate_limited_total{limit=…}`. Successful responses also carry informational
+  `X-RateLimit-Limit` / `-Remaining` / `-Reset` (the tightest applicable request cap), so clients
+  can self-pace before a breach (added in v2026.6.8).
 - **Risk — a fixed window allows a 2× burst at the boundary** (the classic fixed-window edge). A
   sliding window or token bucket is a deliberate later refinement; fixed-window is the simplest
   deterministic counter and matches the savings ledger's bucket style.

@@ -1925,6 +1925,19 @@ def build_app(
         }
         if budget_state is not None:
             wf_headers["x-wayfinder-router-budget"] = budget_state
+        # Informational rate-limit headers (WF-ADR-0034): tell well-behaved clients how much
+        # headroom they have so they can self-pace before hitting a 429. Reflects the tightest
+        # applicable RPM cap (gateway-wide vs this key's), by remaining headroom.
+        rate_snaps = [
+            s for s in (rate_limiter.snapshot(),
+                        key_limiter.snapshot() if key_limiter is not None else None)
+            if s is not None
+        ]
+        if rate_snaps:
+            limit, remaining, reset = min(rate_snaps, key=lambda s: s[1])
+            wf_headers["X-RateLimit-Limit"] = str(limit)
+            wf_headers["X-RateLimit-Remaining"] = str(remaining)
+            wf_headers["X-RateLimit-Reset"] = str(reset)
         logger.info(
             "request %s -> %s (score %.2f, mode %s)", request_id, chosen, decision.score, mode
         )

@@ -4,6 +4,20 @@ User-visible changes to Wayfinder, by release. Follows the spirit of
 [Keep a Changelog](https://keepachangelog.com/): user impact over implementation
 details, release history over commit history.
 
+## v2026.6.8 — 2026-06-25
+
+A small hardening on top of v2026.6.7 (and the first build of all of v2026.6.7's gateway
+work to reach PyPI).
+
+### Added
+
+- **Informational `X-RateLimit-*` response headers** (WF-ADR-0034). When a rate limit is
+  configured, every response now carries `X-RateLimit-Limit`, `X-RateLimit-Remaining`, and
+  `X-RateLimit-Reset` (seconds until the window rolls), so a well-behaved client can see its
+  headroom and self-pace *before* hitting a `429`. The headers reflect the tightest applicable
+  request cap — gateway-wide or the request's virtual key — and are absent when no limit is set.
+  Purely additive; no change to routing or enforcement.
+
 ## v2026.6.7 — 2026-06-25
 
 The gateway becomes a control plane. It now issues **virtual API keys** — authenticate callers,

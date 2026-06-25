@@ -73,3 +73,13 @@ def test_rpm_and_tpm_together():
     assert not d.allowed and d.limit == "tpm"  # tpm trips before rpm here
     clock.advance(60.0)
     assert rl.admit().allowed and rl.stats()["tokens"] == 0
+
+
+def test_snapshot_reports_headroom():
+    rl = ratelimit.RateLimiter(rpm=5, window=60.0, clock=lambda: 0.0)
+    assert rl.snapshot() == (5, 5, 60)
+    rl.admit()
+    rl.admit()
+    assert rl.snapshot() == (5, 3, 60)  # two consumed -> 3 remaining
+    assert ratelimit.RateLimiter().snapshot() is None          # no caps
+    assert ratelimit.RateLimiter(tpm=100).snapshot() is None   # tpm-only -> no request headers
