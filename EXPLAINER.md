@@ -1,8 +1,8 @@
 # Wayfinder — a one-page explainer
 
-**Wayfinder is a smart switchboard you put in front of your models.** Your app
-keeps talking to "the OpenAI API" exactly as it does today — you just change one
-setting (the server address) to point at Wayfinder. For every prompt, Wayfinder
+**Wayfinder is a router you put in front of your models.** Your app keeps talking
+to "the OpenAI API" exactly as it does today; you just change one setting (the
+server address) to point at Wayfinder. For every prompt, Wayfinder
 looks at how heavy it is and sends the easy ones to your cheap/local model and the
 hard ones to the expensive/cloud model, using **your own** API keys. You get the
 same responses back, plus a note saying where each one went. Nothing about your

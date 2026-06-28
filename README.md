@@ -37,22 +37,22 @@ local or cloud model, offline, with no model call to decide.</strong></p>
 </tr>
 </table>
 
-Wayfinder reads the shape of a prompt — its length, headings, lists, and code —
-plus difficulty cues in the wording, like proofs, math, and hard constraints, and
-tells you whether to send it to your small local model or your big cloud one. It
-decides in microseconds, runs offline, and never calls another model to make the
-call. No API key, no network, no model call to decide. You get a score and a
-recommendation; what you do with it is up to you.
+Wayfinder looks at a prompt's structure (length, headings, lists, code) and its
+wording (proofs, math, hard constraints), then tells you whether to send it to your
+small local model or your big cloud one. It decides in microseconds, runs offline,
+and never calls another model to make the call: no API key, no network, no model
+call to decide. You get a score and a recommendation, and what you do with it is up
+to you.
 
-Cheap prompts stay local, hard ones go to the expensive model, and you stop paying
-frontier prices for "summarize this" and "fix my typo."
+Cheap prompts stay local and hard ones go to the expensive model, so you stop paying
+top-tier prices for "summarize this" and "fix my typo."
 
 ## How it compares
 
 Most routers decide by calling a model: a trained classifier, an LLM judge, or a
-hosted API. That adds latency, cost, and a little randomness to the exact step
-that is meant to save you money. Wayfinder reads structure and wording instead, so
-the decision is free and the same every time.
+hosted API. That adds latency, cost, and randomness to the exact step meant to save
+you money. Wayfinder reads structure and wording instead, so the decision is free
+and the same every time.
 
 | router | decides by | model call? | self-host | calibrate |
 | --- | --- | :-: | :-: | :-: |
@@ -60,22 +60,29 @@ the decision is free and the same every time.
 | RouteLLM | trained classifier (preference data) | yes | yes | retrain |
 | NotDiamond / Martian | learned, hosted | yes | no | via platform |
 | OpenRouter (Auto) | hosted auto-router | yes | no | — |
-| LiteLLM | provider proxy (not complexity-routed) | no | yes | n/a |
+| Bifrost / LiteLLM | provider gateway (not complexity-routed) | no | yes | n/a |
 
-Wayfinder is not chasing a top accuracy number. It is the one router you can run
-offline, with zero model calls, and tune on your own traffic. By default it scores
-prompt *structure* only. It can also read lexical cues (proofs, math, constraints),
-but those ship **off by default**: a [double-blind test](benchmarks/blind-eval.md)
-on independently-authored prompts showed the lexical lift does *not* generalize (it
-catches ~20% of unseen hard prompts and loses to a plain word-count baseline), so
-they are opt-in — raise their weights only if you've calibrated them to your own
-traffic's vocabulary. A prompt whose difficulty is purely semantic — a subtle code
-snippet, an innocent-looking "what is the 100th prime number?" — has no structural
-tell, and a semantic router will beat it there. The edge that survives the blind
-test is the one to lead with: a deterministic, sub-millisecond, offline routing
-decision with no model call. The [benchmark](benchmarks/README.md) (`make benchmark`)
-shows where it wins and where it loses, against honest baselines and a perfect
-oracle. Point it at RouterBench or RouterArena for graded numbers.
+The gateways in the last two rows (OpenRouter, Bifrost, LiteLLM) answer a different
+question: *which provider* serves a call, by price, availability, and failover.
+Wayfinder answers *which tier a prompt deserves*: cheap vs expensive, by difficulty,
+decided offline. The two compose. Run Wayfinder to make the cheap-vs-expensive call,
+and a gateway underneath to reach the providers.
+
+Wayfinder is not chasing a top accuracy number. What it gives you is a routing
+decision you can run offline, with no model call, and tune on your own traffic. By
+default it scores prompt *structure* only. It can also read lexical cues (proofs,
+math, constraints), but those ship **off by default**: a
+[double-blind test](benchmarks/blind-eval.md) on independently-authored prompts
+showed the lexical lift does *not* generalize (it catches ~20% of unseen hard
+prompts and loses to a plain word-count baseline), so they are opt-in. Raise their
+weights only if you've calibrated them to your own traffic's vocabulary. A prompt
+whose difficulty is purely semantic (a subtle code snippet, an innocent-looking
+"what is the 100th prime number?") has no structural tell, and a semantic router
+will beat it there. What holds up under the blind test is the part to rely on: a
+deterministic, sub-millisecond, offline routing decision with no model call. The
+[benchmark](benchmarks/README.md) (`make benchmark`) shows where it wins and where
+it loses, against honest baselines and a perfect oracle. Point it at RouterBench or
+RouterArena for graded numbers.
 
 New here, or weighing it up? The [FAQ](docs/faq.md) gives straight answers —
 including where it loses (it's no better than random on RouterBench's short-but-hard
@@ -203,9 +210,10 @@ just change one `base_url`.
 
 Easy prompts go local, hard ones go cloud, and every response carries
 `x-wayfinder-router-model` and `x-wayfinder-router-score` so you can see where it
-went. Want to steer one request? Pin it with `model="cloud"` / `prefer-local`, or
-move the cut for a single call with an `X-Wayfinder-Threshold` header (see
-[Steer a single request](#steer-a-single-request)).
+went. Want to force a tier for one request? Set `model="local"` or `"cloud"` (or
+`prefer-local` / `prefer-hosted`), move the cut for a single call with an
+`X-Wayfinder-Threshold` header, or start a chat message with `/local` or `/cloud`
+(see [Steer a single request](#steer-a-single-request)).
 
 Check it's working:
 
