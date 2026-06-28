@@ -2143,3 +2143,114 @@ def test_rate_limit_headers_reflect_tighter_key_limit(tmp_path, monkeypatch):
     r = tc.post("/v1/chat/completions", json=TRIVIAL, headers={"Authorization": f"Bearer {key}"})
     assert r.headers["x-ratelimit-limit"] == "2"  # the key's tighter cap, not the gateway's 100
     assert r.headers["x-ratelimit-remaining"] == "1"
+
+
+# --- in-message slash routing directives (WF-ADR-0036) ---
+def _slash_client(tmp_path, monkeypatch, *, enabled=True, extra=""):
+    sd = "slash_directives = true\n" if enabled else ""
+    config = (
+        f"[gateway]\n{sd}\n" + extra +
+        "[routing]\nthreshold = 0.2\n\n"
+        '[gateway.models.local]\nbase_url = "http://local.test/v1"\nmodel = "m-local"\n\n'
+        '[gateway.models.cloud]\nbase_url = "http://cloud.test/v1"\nmodel = "m-cloud"\n'
+    )
+    (tmp_path / "wayfinder-router.toml").write_text(config, encoding="utf-8")
+    captured: dict = {}
+
+    async def fake(url, headers, json_body, timeout=60.0):
+        captured["body"] = json_body
+        return 200, b'{"choices":[{"message":{"role":"assistant","content":"hi"}}]}', "application/json"
+
+    monkeypatch.setattr(gateway, "aforward_request", fake)
+    return TestClient(gateway.build_app(start_dir=str(tmp_path))), captured
+
+
+def test_resolve_slash_directive_pure():
+    from wayfinder_router.complexity import RoutingConfig
+    r = RoutingConfig.binary(threshold=0.5)
+    gw = gateway.gateway_config_from_toml(
+        '[gateway.models.local]\nbase_url="http://x/v1"\nmodel="m"\n\n'
+        '[gateway.models.cloud]\nbase_url="http://y/v1"\nmodel="c"\n'
+    )
+    f = gateway.resolve_slash_directive
+    assert f([{"role": "user", "content": "/local do it"}], r, gw) == (
+        "local", [{"role": "user", "content": "do it"}]
+    )
+    assert f([{"role": "user", "content": "/prefer-hosted hi"}], r, gw)[0] == "cloud"
+    assert f([{"role": "user", "content": "/auto hi"}], r, gw) == (
+        None, [{"role": "user", "content": "hi"}]
+    )
+    assert f([{"role": "user", "content": "/foo hi"}], r, gw) == (None, None)       # unknown
+    assert f([{"role": "user", "content": "/etc/passwd?"}], r, gw) == (None, None)  # a path
+    assert f([{"role": "user", "content": "plain text"}], r, gw) == (None, None)
+    assert f([{"role": "user", "content": "/localhost?"}], r, gw) == (None, None)   # not /local
+
+
+def test_slash_directive_routes_and_strips(tmp_path, monkeypatch):
+    tc, captured = _slash_client(tmp_path, monkeypatch)
+    resp = tc.post("/v1/chat/completions", json={
+        "model": "auto", "messages": [{"role": "user", "content": "/local " + COMPLEX_TEXT}]})
+    assert resp.status_code == 200
+    assert resp.headers["x-wayfinder-router-model"] == "local"  # forced, despite a complex prompt
+    assert resp.headers["x-wayfinder-router-mode"] == "slash-pinned"
+    assert captured["body"]["messages"][-1]["content"] == COMPLEX_TEXT  # directive stripped upstream
+
+
+def test_slash_directive_off_by_default(tmp_path, monkeypatch):
+    tc, captured = _slash_client(tmp_path, monkeypatch, enabled=False)
+    resp = tc.post("/v1/chat/completions", json={
+        "model": "auto", "messages": [{"role": "user", "content": "/local hi"}]})
+    assert captured["body"]["messages"][-1]["content"] == "/local hi"  # untouched, ordinary text
+    assert resp.headers["x-wayfinder-router-mode"] != "slash-pinned"
+
+
+def test_slash_prefer_hosted_pins_high_tier(tmp_path, monkeypatch):
+    tc, _ = _slash_client(tmp_path, monkeypatch)
+    resp = tc.post("/v1/chat/completions", json={
+        "model": "auto", "messages": [{"role": "user", "content": "/prefer-hosted hi"}]})
+    assert resp.headers["x-wayfinder-router-model"] == "cloud"
+    assert resp.headers["x-wayfinder-router-mode"] == "slash-pinned"
+
+
+def test_model_field_pin_beats_slash(tmp_path, monkeypatch):
+    tc, _ = _slash_client(tmp_path, monkeypatch)
+    resp = tc.post("/v1/chat/completions", json={
+        "model": "cloud", "messages": [{"role": "user", "content": "/local hi"}]})
+    assert resp.headers["x-wayfinder-router-model"] == "cloud"  # explicit API pin wins
+    assert resp.headers["x-wayfinder-router-mode"] == "pinned"
+
+
+def test_slash_auto_forces_scoring_and_strips(tmp_path, monkeypatch):
+    tc, captured = _slash_client(tmp_path, monkeypatch)
+    resp = tc.post("/v1/chat/completions", json={
+        "model": "auto", "messages": [{"role": "user", "content": "/auto hi"}]})
+    assert resp.headers["x-wayfinder-router-mode"] == "scored"
+    assert captured["body"]["messages"][-1]["content"] == "hi"  # stripped even when not pinning
+
+
+def test_slash_pin_subject_to_key_allowlist(tmp_path, monkeypatch):
+    key, h = vkeys.generate()
+    extra = f'[gateway.keys.team-a]\nhash = "{h}"\nmodels = ["local"]\n\n'
+    tc, _ = _slash_client(tmp_path, monkeypatch, extra=extra)
+    resp = tc.post(
+        "/v1/chat/completions",
+        json={"model": "auto", "messages": [{"role": "user", "content": "/cloud hi"}]},
+        headers={"Authorization": f"Bearer {key}"},
+    )
+    assert resp.headers["x-wayfinder-router-model"] == "local"  # /cloud clamped to the allowed tier
+    assert resp.headers["x-wayfinder-router-mode"] == "key-scoped"
+
+
+def test_slash_directives_config_round_trips():
+    gw = gateway.gateway_config_from_toml(
+        '[gateway]\nslash_directives = true\n\n[gateway.models.local]\nbase_url="http://x/v1"\nmodel="m"\n'
+    )
+    assert gw.slash_directives is True
+    assert gateway.gateway_config_from_toml(gateway.dump_gateway_toml(gw)).slash_directives is True
+
+
+def test_bad_slash_directives_config_rejected():
+    with pytest.raises(gateway.WayfinderConfigError):
+        gateway.gateway_config_from_toml(
+            '[gateway]\nslash_directives = "yes"\n\n[gateway.models.local]\nbase_url="http://x/v1"\nmodel="m"\n'
+        )

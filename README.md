@@ -404,6 +404,11 @@ where the request goes; the prompt is still scored, and nothing adds a model cal
   router (`prefer-cloud` still works as an alias of `prefer-hosted`).
 - **An `X-Wayfinder-Threshold` header re-cuts the decision** for that request, a
   number in `0.0`-`1.0` reusing your weights (binary routers only).
+- **An in-message `/directive`** (opt-in: `[gateway] slash_directives = true`) lets a
+  plain chat box steer routing — start a message with `/local`, `/cloud`, `/prefer-hosted`,
+  or `/auto` and it pins that turn (stripped before the model sees it). Only known
+  directives are acted on; anything else starting with `/` is left as ordinary text
+  (WF-ADR-0036).
 
 ```python
 # Pin one call to cloud regardless of score:
