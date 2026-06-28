@@ -4,6 +4,21 @@ User-visible changes to Wayfinder, by release. Follows the spirit of
 [Keep a Changelog](https://keepachangelog.com/): user impact over implementation
 details, release history over commit history.
 
+## v2026.6.9 — 2026-06-25
+
+### Added
+
+- **In-message slash routing directives** (WF-ADR-0036). With `[gateway] slash_directives = true`
+  (off by default), a recognized `/directive` at the start of the latest user message forces the
+  route for that turn — `/local refactor this` pins to `local`, `/prefer-hosted …` to the top tier,
+  `/auto …` back to scoring. It lets anyone steer routing from a plain chat box (or Claude Code,
+  via `/v1/messages`) with no `model` field or header control. The directive is **stripped** before
+  the prompt is scored or forwarded, so the model never sees it. Only a *known* directive (a
+  configured model name, `prefer-*`, or `auto`) is acted on — a path like `/etc/...`, a `/help`, or
+  any other slash-prefixed text is left untouched. An explicit `model`-field pin still wins; a
+  slash-routed turn reports `mode: slash-pinned` and is still clamped by a virtual key's model
+  allowlist. Deterministic, no model call (WF-ADR-0001).
+
 ## v2026.6.8 — 2026-06-25
 
 A small hardening on top of v2026.6.7 (and the first build of all of v2026.6.7's gateway

@@ -472,6 +472,9 @@ class GatewayConfig:
     route_on: str = "turn"
     sticky: bool = False
     sticky_cooldown: int = 0
+    # In-message routing override (WF-ADR-0036): when on, a recognized "/directive" at the start
+    # of the latest user message pins the route (e.g. "/local …"). Off by default.
+    slash_directives: bool = False
     # Reliability (WF-ADR-0031): bounded retries on transport/429/5xx, and a per-target
     # circuit breaker. ``failover`` governs crossing tiers on exhaustion — "same-tier"
     # (default), "degrade" (cheaper), or "escalate" (dearer); same-tier fallbacks are per-model.
@@ -671,6 +674,9 @@ def gateway_config_from_toml(text: str, where: str = "wayfinder-router.toml") ->
     cooldown = gateway.get("sticky_cooldown", 0)
     if isinstance(cooldown, bool) or not isinstance(cooldown, int) or cooldown < 0:
         raise WayfinderConfigError(f"{where}: 'gateway.sticky_cooldown' must be a non-negative integer")
+    slash_directives = gateway.get("slash_directives", False)
+    if not isinstance(slash_directives, bool):
+        raise WayfinderConfigError(f"{where}: 'gateway.slash_directives' must be a boolean")
     retries = gateway.get("retries", 2)
     if isinstance(retries, bool) or not isinstance(retries, int) or retries < 0:
         raise WayfinderConfigError(f"{where}: 'gateway.retries' must be a non-negative integer")
@@ -771,6 +777,7 @@ def gateway_config_from_toml(text: str, where: str = "wayfinder-router.toml") ->
                 )
     return GatewayConfig(
         models=models, route_on=route_on, sticky=sticky, sticky_cooldown=cooldown,
+        slash_directives=slash_directives,
         retries=retries, breaker_threshold=breaker_threshold, breaker_cooldown=breaker_cooldown,
         failover=failover, budget=budget, cache=cache_cfg, rate_limit=rate_limit, keys=keys,
     )
@@ -786,6 +793,7 @@ def dump_gateway_toml(gateway: GatewayConfig) -> str:
     blocks: list[str] = []
     nondefault_gateway = (
         gateway.route_on != "turn" or gateway.sticky or gateway.sticky_cooldown
+        or gateway.slash_directives
         or gateway.retries != 2 or gateway.breaker_threshold != 5 or gateway.breaker_cooldown != 30.0
         or gateway.failover != "same-tier"
     )
@@ -797,6 +805,8 @@ def dump_gateway_toml(gateway: GatewayConfig) -> str:
             lines.append("sticky = true")
         if gateway.sticky_cooldown:
             lines.append(f"sticky_cooldown = {gateway.sticky_cooldown}")
+        if gateway.slash_directives:
+            lines.append("slash_directives = true")
         if gateway.retries != 2:
             lines.append(f"retries = {gateway.retries}")
         if gateway.breaker_threshold != 5:
@@ -966,6 +976,53 @@ def resolve_pin(model_field: object, routing: RoutingConfig, gateway: GatewayCon
         if name == _PREFER_HIGH or name in _PREFER_HIGH_ALIASES:
             return routing.tiers[-1].model
     return name if name in gateway.models else None
+
+
+def resolve_slash_directive(
+    messages: object, routing: RoutingConfig, gateway: GatewayConfig
+) -> tuple[str | None, list | None]:
+    """Detect a ``/directive`` at the very start of the latest user message (WF-ADR-0036).
+
+    Lets a chat-box user force routing inline — ``/local refactor this`` pins the call to
+    ``local`` and the upstream sees only ``refactor this``. The token after the slash must be a
+    *recognized* directive: a configured endpoint name, ``prefer-local`` / ``prefer-hosted``, or
+    ``auto`` (force scoring). Anything else (a path, a UI's own ``/help``, code) is left untouched
+    as ordinary text — never stripped or rerouted.
+
+    Returns ``(pin, cleaned_messages)``: ``pin`` is the resolved endpoint (``None`` for ``/auto``
+    or no match), ``cleaned_messages`` is a copy with the directive removed (``None`` when nothing
+    was recognized, so the caller leaves the request as-is). Pure; no model call (WF-ADR-0001).
+    """
+    if not isinstance(messages, list):
+        return None, None
+    idx = next(
+        (
+            i for i in range(len(messages) - 1, -1, -1)
+            if isinstance(messages[i], dict)
+            and messages[i].get("role") == "user"
+            and isinstance(messages[i].get("content"), str)
+        ),
+        None,
+    )
+    if idx is None:
+        return None, None
+    content = messages[idx]["content"]
+    stripped = content.lstrip()
+    if not stripped.startswith("/"):
+        return None, None
+    parts = stripped[1:].split(None, 1)  # token must be followed by whitespace or end
+    if not parts:
+        return None, None
+    token, remainder = parts[0], (parts[1] if len(parts) > 1 else "")
+    if token == _AUTO:
+        pin: str | None = None
+    else:
+        pin = resolve_pin(token, routing, gateway)
+        if pin is None:  # not a recognized directive — leave the message alone
+            return None, None
+    cleaned = list(messages)
+    cleaned[idx] = {**messages[idx], "content": remainder}
+    return pin, cleaned
 
 
 def parse_threshold_header(value: str | None) -> float | None:
@@ -1836,12 +1893,23 @@ def build_app(
         # scoring time is the decision-latency metric (WF-ADR-0018).
         score_started = time.perf_counter()
         messages = body.get("messages")
+        # In-message routing override (WF-ADR-0036): a recognized "/directive" at the start of
+        # the latest user message pins the route and is stripped before scoring/forwarding, so
+        # the upstream never sees it. Opt-in; resolved deterministically, no model call.
+        slash_pin: str | None = None
+        if gw.slash_directives:
+            slash_pin, cleaned = resolve_slash_directive(messages, routing, gw)
+            if cleaned is not None:
+                body["messages"] = cleaned
+                messages = cleaned
         decision = score_complexity(extract_prompt(messages, route_on=route_on), config=routing)
         decision_seconds = time.perf_counter() - score_started
 
         pin = resolve_pin(body.get("model"), routing, gw)
         if pin is not None:
             chosen, mode = pin, "pinned"
+        elif slash_pin is not None:
+            chosen, mode = slash_pin, "slash-pinned"
         else:
             try:
                 threshold = parse_threshold_header(x_wayfinder_threshold)
