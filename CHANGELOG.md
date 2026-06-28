@@ -26,6 +26,14 @@ The **feedback release** — features driven by post-launch feedback.
   default (a governed response-body store, WF-DESIGN-0008). An LLM-backed judge is a planned
   drop-in through the same `Judge` seam.
 
+- **Offline-first delivery** (WF-ADR-0039, WF-ROADMAP-0007). Set `[gateway] offline = true` (or send
+  `X-Wayfinder-Offline: true` for one request) and Wayfinder serves the **cheapest/local tier and
+  never calls a dearer/cloud tier** — so a request can't hang on a timeout when there's no network
+  (the "works on a plane" case), and it doubles as a privacy / air-gapped mode. It reuses the existing
+  `degrade` failover + circuit breaker; the scored decision is unchanged and still reported, with a new
+  `x-wayfinder-router-offline: true` header marking the degrade. Explicit signal only (reactive
+  cloud-down is already handled by the breaker); no model call enters the decision path (WF-ADR-0001).
+
 ### Changed
 
 - **Docs & positioning pass** (from post-launch feedback). Plainer, less marketing-flavored copy

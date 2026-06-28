@@ -127,6 +127,82 @@ def test_response_body_is_relayed_unchanged(client):
     assert resp.json() == {"id": "resp-1", "object": "chat.completion"}
 
 
+# --- Offline-first delivery (WF-ADR-0039) -----------------------------------
+
+_OFFLINE_CONFIG = (
+    "[routing]\nthreshold = 0.2\n\n"
+    "[gateway]\noffline = true\n\n"
+    "[gateway.models.local]\n"
+    'base_url = "http://localhost:11434/v1"\n'
+    'model = "llama3.2"\n\n'
+    "[gateway.models.cloud]\n"
+    'base_url = "https://api.example.com/v1"\n'
+    'model = "big-model"\n'
+    'api_key_env = "EXAMPLE_API_KEY"\n'
+)
+
+
+def test_offline_config_forces_cheapest_tier(tmp_path, monkeypatch):
+    (tmp_path / "wayfinder-router.toml").write_text(_OFFLINE_CONFIG, encoding="utf-8")
+    monkeypatch.setenv("EXAMPLE_API_KEY", "sekret")
+    captured: dict = {}
+
+    async def fake(url, headers, json_body, timeout=60.0):
+        captured["url"] = url
+        captured["body"] = json_body
+        return 200, b'{"id": "r"}', "application/json"
+
+    monkeypatch.setattr(gateway, "aforward_request", fake)
+    tc = TestClient(gateway.build_app(start_dir=str(tmp_path)))
+    resp = tc.post("/v1/chat/completions", json=COMPLEX)
+    assert resp.status_code == 200
+    # The scored decision is unchanged (the complex prompt still *scores* cloud)...
+    assert resp.headers["x-wayfinder-router-model"] == "cloud"
+    # ...but delivery degrades to the cheapest/local tier, and the dear tier is never called.
+    assert resp.headers["x-wayfinder-router-offline"] == "true"
+    assert resp.headers["x-wayfinder-router-served-by"] == "local"
+    assert captured["url"] == "http://localhost:11434/v1/chat/completions"
+    assert captured["body"]["model"] == "llama3.2"
+    # An offline degrade is signaled by the offline header, not as a failover.
+    assert "x-wayfinder-router-failover" not in resp.headers
+
+
+def test_offline_header_forces_cheapest_tier(client, monkeypatch):
+    test_client, captured = client  # CONFIG has offline off; the header turns it on per request
+    monkeypatch.setenv("EXAMPLE_API_KEY", "sekret")
+    resp = test_client.post(
+        "/v1/chat/completions", json=COMPLEX, headers={"X-Wayfinder-Offline": "true"}
+    )
+    assert resp.status_code == 200
+    assert resp.headers["x-wayfinder-router-model"] == "cloud"
+    assert resp.headers["x-wayfinder-router-offline"] == "true"
+    assert captured["url"] == "http://localhost:11434/v1/chat/completions"  # served local, not cloud
+
+
+def test_offline_off_by_default_still_routes_cloud(client, monkeypatch):
+    test_client, captured = client
+    monkeypatch.setenv("EXAMPLE_API_KEY", "sekret")
+    resp = test_client.post("/v1/chat/completions", json=COMPLEX)
+    assert resp.headers["x-wayfinder-router-model"] == "cloud"
+    assert captured["url"] == "https://api.example.com/v1/chat/completions"
+    assert "x-wayfinder-router-offline" not in resp.headers
+
+
+def test_offline_config_round_trips():
+    cfg = gateway.gateway_config_from_toml(
+        '[gateway]\noffline = true\n\n[gateway.models.local]\nbase_url = "http://x/v1"\nmodel = "m"\n'
+    )
+    assert cfg.offline is True
+    dumped = gateway.dump_gateway_toml(cfg)
+    assert "offline = true" in dumped
+    assert gateway.gateway_config_from_toml(dumped).offline is True
+
+
+def test_offline_must_be_boolean():
+    with pytest.raises(gateway.WayfinderConfigError):
+        gateway.gateway_config_from_toml('[gateway]\noffline = "yes"\n')
+
+
 def test_response_carries_a_request_id(client):
     test_client, _ = client
     resp = test_client.post("/v1/chat/completions", json=TRIVIAL)
