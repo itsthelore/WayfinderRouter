@@ -78,8 +78,11 @@ upstreams in `[gateway.models.*]`, forwards an OpenAI-style request, and sends t
 and hosted APIs (OpenAI, and **Anthropic via its OpenAI-compatible endpoint**, `https://api.anthropic.com/v1`)
 alike. The tiers don't have to be local-vs-cloud: a cheap **Haiku** local tier and a capable **Sonnet**
 cloud tier (both on `api.anthropic.com`) is a verified two-tier setup. Keys are set as environment
-variables named by `api_key_env` — never written into the config. Copy-paste examples (Ollama+OpenAI and
-two-tier Anthropic) are in [`examples/wayfinder-router.lexical.toml`](../examples/wayfinder-router.lexical.toml).
+variables named by `api_key_env` — never written into the config. The two tiers don't even have to be
+two *different* models: pointing both at the same model with reasoning on for the dear tier and off for
+the cheap one (a **think / no-think** split) is a valid two-tier setup — the router just decides which
+mode a turn is worth. Copy-paste examples (Ollama+OpenAI and two-tier Anthropic) are in
+[`examples/wayfinder-router.lexical.toml`](../examples/wayfinder-router.lexical.toml).
 
 ## Can I route between models that behave very differently?
 
@@ -106,6 +109,42 @@ dependency, and its own failure modes (judge bias, reward-hacking). For routing 
 saving money, paying a call to decide can eat the savings on exactly the cheap requests you're protecting.
 A judge shines as a *training* signal (e.g. OpenPipe's RULER) or when you're happy to pay to decide;
 Wayfinder is the deterministic, free, offline option for the serving path.
+
+## Can it route the same prompt to several models, compare the answers, and learn which one each needs?
+
+Yes — but offline, at calibration time, never on the live request. Calling several models to compare
+them *is* a model call, which by [WF-ADR-0001](../decisions/WF-ADR-0001-standalone-deterministic-router.md)
+can't enter the routing decision. So Wayfinder runs that compare-and-grade loop *once, out of band*:
+`wayfinder-router judge` ([WF-ADR-0037](../decisions/WF-ADR-0037-automated-sufficiency-judge.md)) sends a
+sample of your prompts through both tiers, has an automated **sufficiency judge** decide whether the cheap
+tier's answer was good enough, and mints `{text, label}` rows behind trust gates. `calibrate` then bakes
+those labels into the deterministic cut. The heuristic — *which prompts actually need the big model* — is
+learned from real outcomes, then frozen into a free, offline decision; the comparison happens once, not on
+every request.
+
+Contrast running a *cheap classifier model* to pick the tier per turn: that still pays a model call on the
+serving path, on exactly the cheap requests you're trying to protect. Wayfinder pays that cost once at
+calibration and scores the live turn structurally for free — and it scores only the **current turn**, not
+the whole transcript ([`route_on`](../decisions/WF-ADR-0021-multi-turn-routing-scope.md)), so the router
+never has to ingest the full context to decide (which would be the expensive part).
+
+## Can I make the routing decision without running the gateway?
+
+Yes — the decision is decoupled from the proxy by design, and that separation is the whole of
+[WF-ADR-0001](../decisions/WF-ADR-0001-standalone-deterministic-router.md). The entire decision is a pure
+function:
+
+```python
+from wayfinder_router import score_complexity, RoutingConfig
+
+result = score_complexity(prompt, config=RoutingConfig.binary(threshold=0.7))
+# result.score -> 0–1 float; result.recommendation -> the chosen model. No proxy, no key, no socket.
+```
+
+You dispatch however you like. The HTTP gateway is just one consumer of that function — you can call the
+router in-process and route yourself, vendor it as a library, or put your own transport (a queue, a gRPC
+service, an SSH-tunnelled call) in front of it. The OpenAI-compatible proxy is a convenience for HTTP
+traffic, not a requirement for routing.
 
 ## If a conversation routes to different models on different turns, how is the context kept?
 
@@ -147,6 +186,24 @@ classify, extract, and other requests that are independent or tolerate a per-req
 **quota-stretching** (send a share of the easy requests to a cheaper model). Reach for it on a stream
 of varied, mostly-independent requests; pin a model for one long tool-using agent session. (See also
 the structural-vs-semantic limit above: a short-but-hard prompt has no structural tell.)
+
+## If a task routes to different models partway through, does the new model lose what the first one was doing?
+
+Partly — and it's an honest cost of switching mid-task, separate from the cost question. The *transcript*
+always travels (every model sees the full `messages` history, as above), but a different model
+re-deriving from that text doesn't inherit the first model's *latent* state: the half-formed plan, the
+reason it chose one approach over another, the parts of a codebase it had paged in. So a switch mid-task
+can re-open a settled decision or quietly regress, and it bites hardest in long agentic edit loops —
+especially when you've changed files *outside* the AI flow and the next model re-reads them, doesn't see
+why, and "corrects" your edit back. The transcript carries *what was said*, not *what the model was
+thinking*.
+
+This is the same reason the agentic-harness answer above says pin one model (or use `sticky`): routing's
+sweet spot is independent or loosely-coupled requests, where each turn stands on its own — not a single
+evolving task where continuity of the *model's own* reasoning is what you're paying for. If your workload
+is one long task, pin a model; if it's a stream of varied requests, route. And if you do route a thread,
+the conversation latch ([WF-ADR-0022](../decisions/WF-ADR-0022-conversation-latch.md)) at least keeps it
+from ping-ponging once a turn has needed the stronger model.
 
 ## Can I use a cheap model for the mechanical phases and escalate on failure?
 
