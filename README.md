@@ -234,6 +234,29 @@ before wiring up real models.
 | `pip install "wayfinder-router[ui]"` | adds the local calibrate / explain / configure UI |
 | `pip install "wayfinder-router[all]"` | gateway and UI on top of the default install |
 
+## Run it as a local service
+
+Make Wayfinder your machine's always-on LLM endpoint, so every OpenAI-compatible app
+can share one local `base_url` and you set your keys up once. `service install`
+registers it with the OS service manager to start at login and restart if it exits:
+
+```bash
+wayfinder-router service install     # macOS (launchd) or Linux (systemd user unit)
+wayfinder-router service status      # is it running? endpoint + /healthz
+wayfinder-router service uninstall
+```
+
+Then point your apps at it once — most OpenAI-compatible tools read `OPENAI_BASE_URL`:
+
+```bash
+export OPENAI_BASE_URL=http://127.0.0.1:8088/v1
+```
+
+macOS is the primary target; Linux works too. `--print` emits the unit file without
+installing, and if no service manager is present it writes the unit and prints the one
+command to start it. It's the same gateway, just kept running — the routing decision is
+unchanged.
+
 ## How it works
 
 Wayfinder sits behind whatever OpenAI-compatible client you already use. You point
