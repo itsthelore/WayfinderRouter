@@ -104,10 +104,32 @@ but always *sends* the full history to the chosen model; and if you'd rather a t
 at all, the conversation latch (`[gateway] sticky`, [WF-ADR-0022](../decisions/WF-ADR-0022-conversation-latch.md))
 keeps it on the strongest model any turn has needed.
 
+One caveat on savings: because the whole transcript travels to whichever model serves a turn, routing
+saves the most on **short or independent requests** (and varied streams where difficulty differs from
+one request to the next). On a *long single-model conversation*, switching to the dear tier mid-chat
+sends the entire history there, so the per-turn savings shrink as the transcript grows — for those,
+pin one model (or use `sticky`) rather than routing every turn.
+
 A side effect: because a growing conversation is a different request every turn, it won't hit the
 exact-match response cache — and that's by design. The cache (WF-ADR-0033) is for byte-identical
 *repeats* (eval/CI runs, agent tools re-asking the same thing), not evolving chats; multi-turn
 correctness comes from forwarding the full context, not from caching.
+
+## Should I route inside an agentic coding harness (Claude Code, Codex)?
+
+Usually not — pin one model there. Agentic, tool-heavy harnesses are tuned to a *specific* model's
+tool-calling and quietly compensate for its quirks (response shapes, tool-call truncation, context
+handling). Swapping models between turns of one session can fight those compensations and make the
+harness flakier, so for a single agent run, pin a model (`model="cloud"` or a configured endpoint) or
+turn on the `sticky` latch ([WF-ADR-0022](../decisions/WF-ADR-0022-conversation-latch.md)) so the whole
+session stays on one model. Routing across the turns of a single tool-using loop is exactly where a
+high-level proxy can get in the way.
+
+Where Wayfinder fits instead: **per-request routing of heterogeneous traffic** — chat, summarize,
+classify, extract, and other requests that are independent or tolerate a per-request model choice — and
+**quota-stretching** (send a share of the easy requests to a cheaper model). Reach for it on a stream
+of varied, mostly-independent requests; pin a model for one long tool-using agent session. (See also
+the structural-vs-semantic limit above: a short-but-hard prompt has no structural tell.)
 
 ## Does it handle streaming, chat, and multi-turn?
 
