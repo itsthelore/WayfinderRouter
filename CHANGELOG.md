@@ -26,6 +26,17 @@ The **feedback release** — features driven by post-launch feedback.
   default (a governed response-body store, WF-DESIGN-0008). An LLM-backed judge is a planned
   drop-in through the same `Judge` seam.
 
+### Changed
+
+- **Docs & positioning pass** (from post-launch feedback). Plainer, less marketing-flavored copy
+  across the README, explainer, and demo. The "How it compares" table now lists **Bifrost**
+  alongside LiteLLM and spells out the distinction: OpenRouter / Bifrost / LiteLLM are
+  multi-provider gateways (they pick *which provider* serves a call), while Wayfinder routes by
+  prompt *difficulty* (cheap vs expensive) and decides offline — and the two compose. Forcing a
+  tier for one request (`local` / `cloud`, `prefer-local` / `prefer-hosted`, the
+  `X-Wayfinder-Threshold` header, or a `/local` / `/cloud` chat directive) is now surfaced in the
+  Quickstart. No behavior change.
+
 ## v2026.6.9 — 2026-06-25
 
 ### Added
