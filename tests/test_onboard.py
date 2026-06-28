@@ -44,3 +44,22 @@ def test_onboarding_requires_two_arms(tmp_path):
 def test_onboarding_rejects_unknown_judge_arm(tmp_path):
     with pytest.raises(ValueError):
         run_onboarding(["x"], ["a", "b"], lambda a, p: "", lambda p, o: "c", str(tmp_path / "f"))
+
+
+def test_onboarding_skips_abstentions(tmp_path):
+    # An automated judge (WF-ADR-0037) may abstain by returning None: the prompt is
+    # skipped and no label is recorded, so threshold calibration's two-label contract holds.
+    log = str(tmp_path / "fb.jsonl")
+
+    def judge(prompt, outputs):
+        return None if prompt == "skip" else "local"
+
+    summary = run_onboarding(["easy", "skip", "easy2"], ["local", "cloud"], lambda a, p: a, judge, log)
+
+    assert summary.judged == 2
+    assert summary.abstained == 1
+    assert summary.label_counts == {"local": 2}
+    assert read_labels(log) == [
+        {"text": "easy", "label": "local"},
+        {"text": "easy2", "label": "local"},
+    ]

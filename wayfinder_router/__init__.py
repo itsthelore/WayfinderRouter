@@ -47,8 +47,15 @@ from .config import (
     routing_config_from_toml,
 )
 from .feedback import read_labels, record_label
+from .judge import HeuristicJudge, Judge, Verdict, as_onboard_judge
 from .onboard import OnboardSummary, run_onboarding
 from .recalibrate import RecalibrationResult, recalibrate
+from .sufficiency import (
+    GateReport,
+    cohens_kappa,
+    cross_validated_accuracy,
+    evaluate,
+)
 
 __version__ = "2026.6.9"
 
@@ -87,4 +94,13 @@ __all__ = [
     "OnboardSummary",
     "recalibrate",
     "RecalibrationResult",
+    # Automated sufficiency judging (the label faucet) + trust gates (WF-ADR-0037).
+    "Judge",
+    "Verdict",
+    "HeuristicJudge",
+    "as_onboard_judge",
+    "evaluate",
+    "GateReport",
+    "cohens_kappa",
+    "cross_validated_accuracy",
 ]

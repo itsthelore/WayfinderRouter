@@ -19,14 +19,19 @@ from dataclasses import dataclass, field
 from .feedback import record_label
 
 RunModel = Callable[[str, str], str]  # (arm, prompt) -> output text
-Judge = Callable[[str, dict], str]  # (prompt, {arm: output}) -> chosen arm
+# (prompt, {arm: output}) -> chosen arm, or None to *abstain* (skip; record nothing).
+# The interactive human judge always returns an arm; an automated judge (WF-ADR-0037)
+# may return None when it has no grounds — the loop then skips the prompt, so threshold
+# calibration's "exactly two labels" contract is never broken by a third "abstain" label.
+Judge = Callable[[str, dict], "str | None"]
 
 
 @dataclass
 class OnboardSummary:
-    """How many prompts were judged, and the label distribution."""
+    """How many prompts were judged, how many were skipped, and the label distribution."""
 
     judged: int = 0
+    abstained: int = 0
     label_counts: dict[str, int] = field(default_factory=dict)
 
 
@@ -37,10 +42,11 @@ def run_onboarding(
     judge: Judge,
     log_path: str,
 ) -> OnboardSummary:
-    """Run the A/B onboarding loop, recording one label per prompt.
+    """Run the A/B onboarding loop, recording one label per judged prompt.
 
-    Each prompt is run through every arm (the A/B comparison the user sees);
-    ``judge`` returns the arm that was good enough, which is recorded as the label.
+    Each prompt is run through every arm (the A/B comparison); ``judge`` returns the arm
+    that was good enough — recorded as the label — or ``None`` to abstain, in which case
+    the prompt is skipped and no label is recorded (counted in ``abstained``).
     """
     if len(arms) < 2:
         raise ValueError("onboarding needs at least two arms (e.g. a local and a hosted model)")
@@ -48,6 +54,9 @@ def run_onboarding(
     for prompt in prompts:
         outputs = {arm: run_model(arm, prompt) for arm in arms}
         label = judge(prompt, outputs)
+        if label is None:
+            summary.abstained += 1
+            continue
         if label not in arms:
             raise ValueError(f"judge returned an unknown arm: {label!r}")
         record_label(log_path, prompt, label)

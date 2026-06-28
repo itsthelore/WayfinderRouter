@@ -548,6 +548,164 @@ def _cmd_onboard(args: argparse.Namespace) -> int:
     return EXIT_OK
 
 
+def _judge_provenance_banner(judge_version, args, sample_count, report) -> str:
+    """A leading comment block stamping how a judge-minted config was derived (WF-ADR-0037).
+
+    The derivation is not bit-reproducible (the arm responses are not), so the banner records
+    *what judged what* — judge version, prompt/gold file hashes, the gates that passed, and
+    the tool version — in place of a replay guarantee. Extends ``recalibrate``'s
+    ``# recalibrated from feedback:`` comment convention.
+    """
+    import datetime
+    import hashlib
+
+    def _file_hash(path: str | None) -> str:
+        if not path or not Path(path).is_file():
+            return "none"
+        return hashlib.sha256(Path(path).read_bytes()).hexdigest()[:12]
+
+    generated = datetime.datetime.now(datetime.timezone.utc).isoformat(timespec="seconds")
+    return "\n".join([
+        "# wayfinder-router judge: trusted config (WF-ADR-0037)",
+        f"# judge={judge_version} mode={args.mode} samples={sample_count}",
+        f"# kappa={report.kappa:.2f} (floor {report.kappa_floor:.2f}, gold n={report.n_gold}) "
+        f"cv_acc={report.cv_accuracy:.2f} baseline={report.majority_baseline:.2f} "
+        f"lift={report.lift:+.2f}",
+        f"# prompts={_file_hash(args.prompts)} gold={_file_hash(args.gold)} "
+        f"tool={__version__} generated={generated}",
+    ])
+
+
+def _cmd_judge(args: argparse.Namespace) -> int:
+    from . import bootstrap
+    from .calibrate import load_dataset
+    from .gateway import GatewayUnavailable, invoke_model, load_gateway_config
+    from .judge import HeuristicJudge, as_onboard_judge
+    from .onboard import run_onboarding
+    from .sufficiency import evaluate
+
+    if not Path(args.prompts).is_file():
+        print(f"wayfinder-router: file not found: {args.prompts}", file=sys.stderr)
+        return EXIT_USAGE
+    if args.gold and not Path(args.gold).is_file():
+        print(f"wayfinder-router: file not found: {args.gold}", file=sys.stderr)
+        return EXIT_USAGE
+    try:
+        gateway = load_gateway_config(".")
+    except WayfinderConfigError as exc:
+        print(f"wayfinder-router: {exc}", file=sys.stderr)
+        return EXIT_CONFIG
+    bootstrap.resolve_keys(gateway.models)  # fill keys from a secret store (WF-DESIGN-0006)
+    arms = [a.strip() for a in args.arms.split(",")] if args.arms else list(gateway.models)
+    arms = arms[:2]
+    if len(arms) < 2:
+        print(
+            "wayfinder-router: judge needs two gateway models in cheap,expensive order; "
+            "configure [gateway.models.*] or pass --arms cheap,expensive",
+            file=sys.stderr,
+        )
+        return EXIT_USAGE
+    missing = [a for a in arms if a not in gateway.models]
+    if missing:
+        print(f"wayfinder-router: no [gateway.models] entry for: {', '.join(missing)}", file=sys.stderr)
+        return EXIT_USAGE
+    cheap, expensive = arms
+
+    judge_impl = HeuristicJudge()
+
+    def run_model(arm: str, prompt: str) -> str:
+        return invoke_model(gateway.models[arm], prompt)
+
+    # Optional comparison audit log: a response-body store, so off by default and only
+    # written when explicitly requested (WF-DESIGN-0008 capture posture). Enables a future
+    # deterministic re-judge from saved bodies with no re-calling.
+    on_verdict = None
+    if args.save_comparisons:
+        comp_path = args.save_comparisons
+
+        def on_verdict(prompt: str, outputs: dict, verdict) -> None:
+            row = {
+                "text": prompt,
+                "cheap": {"arm": cheap, "model": gateway.models[cheap].model,
+                          "response": outputs[cheap]},
+                "expensive": {"arm": expensive, "model": gateway.models[expensive].model,
+                              "response": outputs[expensive]},
+                "verdict": {"sufficient": verdict.sufficient,
+                            "comparator": verdict.comparator, "reason": verdict.reason},
+                "judge_version": judge_impl.version,
+            }
+            with open(comp_path, "a", encoding="utf-8") as handle:
+                handle.write(json.dumps(row, ensure_ascii=False) + "\n")
+
+    # Gate 1 input: run the judge over the human-labeled gold set and pair its verdicts
+    # against the human labels (abstentions are excluded from kappa, only counted).
+    gold_pairs: list[tuple[str, str]] = []
+    gold_abstained = 0
+    try:
+        if args.gold:
+            from .feedback import read_labels
+
+            for row in read_labels(args.gold):
+                text, gold_label = row.get("text"), row.get("label")
+                if not isinstance(text, str) or not isinstance(gold_label, str):
+                    continue
+                outputs = {arm: run_model(arm, text) for arm in arms}
+                verdict = judge_impl.judge(text, outputs[cheap], outputs[expensive])
+                if on_verdict is not None:
+                    on_verdict(text, outputs, verdict)
+                if verdict.sufficient is True:
+                    gold_pairs.append((cheap, gold_label))
+                elif verdict.sufficient is False:
+                    gold_pairs.append((expensive, gold_label))
+                else:
+                    gold_abstained += 1
+
+        # Main collection: judge every prompt, record non-abstained labels to the log.
+        prompts = _load_prompts(args.prompts)
+        if args.limit:
+            prompts = prompts[: args.limit]
+        judge_fn = as_onboard_judge(judge_impl, cheap, expensive, on_verdict=on_verdict)
+        summary = run_onboarding(prompts, arms, run_model, judge_fn, args.log)
+    except GatewayUnavailable as exc:
+        print(f"wayfinder-router: {exc}", file=sys.stderr)
+        return EXIT_USAGE
+
+    print(
+        f"wayfinder-router: judged {summary.judged} prompts "
+        f"({summary.abstained} abstained) -> {summary.label_counts}",
+        file=sys.stderr,
+    )
+    print(f"wayfinder-router: labels appended to {args.log}", file=sys.stderr)
+
+    try:
+        samples = load_dataset(args.log)
+    except CalibrationError as exc:
+        print(f"wayfinder-router: {exc}", file=sys.stderr)
+        return EXIT_CONFIG
+
+    report = evaluate(gold_pairs, samples, kappa_floor=args.kappa_floor,
+                      k=args.folds, gold_abstained=gold_abstained)
+    print(report.render(), file=sys.stderr)
+    if not report.passed:
+        print(
+            "wayfinder-router: refusing to emit a config — trust gates failed "
+            "(labels were still recorded to the log)",
+            file=sys.stderr,
+        )
+        return EXIT_CONFIG
+
+    try:
+        result = calibrate(samples, args.mode)
+    except CalibrationError as exc:
+        print(f"wayfinder-router: {exc}", file=sys.stderr)
+        return EXIT_CONFIG
+    print(_judge_provenance_banner(judge_impl.version, args, len(samples), report))
+    print(result.toml)
+    summary_line = ", ".join(f"{k}={v}" for k, v in result.summary.items())
+    print(f"wayfinder-router: {summary_line}", file=sys.stderr)
+    return EXIT_OK
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="wayfinder-router",
@@ -735,6 +893,50 @@ def build_parser() -> argparse.ArgumentParser:
         help="Calibration mode for --calibrate (default: threshold).",
     )
     p_onboard.set_defaults(func=_cmd_onboard)
+
+    p_judge = sub.add_parser(
+        "judge",
+        help="Auto-label prompts by comparing two tiers, gated by trust checks (WF-ADR-0037).",
+    )
+    p_judge.add_argument(
+        "prompts", help="A file of prompts: one per line, or JSONL {\"text\": ...}."
+    )
+    p_judge.add_argument(
+        "--arms",
+        default=None,
+        help="Two gateway model names in cheap,expensive order (default: first two).",
+    )
+    p_judge.add_argument(
+        "--gold",
+        default=None,
+        help="A human-labeled {\"text\",\"label\"} JSONL set; required to mint a trusted config "
+             "(the kappa agreement gate).",
+    )
+    p_judge.add_argument(
+        "--log", default="wayfinder-router-feedback.jsonl", help="Label log to append to."
+    )
+    p_judge.add_argument(
+        "--mode",
+        choices=["threshold", "tiers", "classifier"],
+        default="threshold",
+        help="Calibration mode for the emitted config (default: threshold).",
+    )
+    p_judge.add_argument(
+        "--kappa-floor", type=float, default=0.6,
+        help="Minimum judge-vs-gold Cohen's kappa to trust the labels (default: 0.6).",
+    )
+    p_judge.add_argument(
+        "--folds", type=int, default=5, help="Cross-validation folds for the lift gate (default: 5)."
+    )
+    p_judge.add_argument(
+        "--limit", type=int, default=None, help="Judge at most this many prompts (caps cost)."
+    )
+    p_judge.add_argument(
+        "--save-comparisons", default=None,
+        help="Also write a JSONL of prompts+responses+verdicts here (a response-body store; "
+             "off by default).",
+    )
+    p_judge.set_defaults(func=_cmd_judge)
 
     p_recal = sub.add_parser(
         "recalibrate",
