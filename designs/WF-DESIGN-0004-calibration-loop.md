@@ -96,6 +96,10 @@ JSON alongside for scripting. No step requires a GUI.
 
 - **Label acquisition is the hard part** — how much can be auto-derived from gateway logs +
   thumbs feedback versus hand-labelled? A good converter is most of the battle.
+  *(Partly resolved: WF-ADR-0037 adds an automated sufficiency judge — `wayfinder-router judge`
+  runs two tiers and auto-labels "was the cheaper one good enough?", gated by judge-vs-gold κ and
+  the same cross-validated lift below before any config is trusted. Still needs a small human gold
+  set; an LLM judge is a planned drop-in.)*
 - CV fold strategy for small datasets (few hundred rows) without misleading variance.
 - How to present the cost-vs-accuracy tradeoff — a single recommended threshold, or a small
   frontier the user picks a point on.

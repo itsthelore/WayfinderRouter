@@ -472,6 +472,22 @@ The comparison goes to stderr; `--calibrate` prints the resulting config to stdo
 Each judgment appends a `{"text", "label"}` line to a feedback log, which is itself
 the `calibrate` dataset, so the log turns straight into a config.
 
+To skip the manual grading, let `wayfinder-router judge` label automatically. It runs
+both tiers and asks an automated judge *"was the cheaper tier good enough?"* — the same
+sufficiency question, no person in the loop:
+
+```bash
+wayfinder-router judge prompts.jsonl --arms local,cloud --gold gold.jsonl > wayfinder-router.toml
+```
+
+The built-in judge is a deterministic text comparator that **abstains** rather than guess
+when it can't tell. Because a bad label would silently degrade live routing, `judge` will
+only emit a config once it **passes trust gates** — agreement with your human-labeled
+`--gold` set (Cohen's κ ≥ 0.6), out-of-fold lift over the majority baseline, and both arms
+represented. If the gates fail it prints the confusion matrix and refuses (the labels are
+still recorded). Pass `--save-comparisons out.jsonl` to also keep the raw responses (off by
+default — it's a body store).
+
 Once you're routing automatically, keep it honest by recording which model was
 actually good enough:
 

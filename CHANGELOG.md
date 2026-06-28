@@ -4,6 +4,28 @@ User-visible changes to Wayfinder, by release. Follows the spirit of
 [Keep a Changelog](https://keepachangelog.com/): user impact over implementation
 details, release history over commit history.
 
+## Unreleased
+
+The **feedback release** — features driven by post-launch feedback.
+
+### Added
+
+- **Automated sufficiency judge for calibration** (WF-ADR-0037). `wayfinder-router judge
+  prompts.jsonl --gold gold.jsonl` closes the calibration loop without a human grading every
+  prompt: it runs each prompt through two tiers, asks an automated judge *"was the cheaper tier
+  good enough to skip the dearer one?"*, and records the answer as a label that `calibrate`
+  already consumes. The built-in `HeuristicJudge` is a pure, deterministic text comparator
+  (refusal/error detection, agreement, similarity) that **abstains** rather than guess when it
+  can't tell. Because a bad label silently degrades *live* routing, a config is **untrusted until
+  it clears mandatory gates** — judge-vs-gold Cohen's κ (≥ 0.6), out-of-fold cross-validated lift
+  over the majority baseline, and a degenerate-collapse check; on failure the command prints the
+  confusion matrix and refuses to emit a config (the labels are still recorded). Emitted configs
+  carry a provenance banner (judge version, dataset/gold hashes, the gates that passed). All
+  judging is offline / calibration-time in the invocation layer — the deterministic decision path
+  makes no model call (WF-ADR-0001). Saving raw prompts+responses (`--save-comparisons`) is off by
+  default (a governed response-body store, WF-DESIGN-0008). An LLM-backed judge is a planned
+  drop-in through the same `Judge` seam.
+
 ## v2026.6.9 — 2026-06-25
 
 ### Added
