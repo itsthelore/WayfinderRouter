@@ -90,6 +90,25 @@ saving money, paying a call to decide can eat the savings on exactly the cheap r
 A judge shines as a *training* signal (e.g. OpenPipe's RULER) or when you're happy to pay to decide;
 Wayfinder is the deterministic, free, offline option for the serving path.
 
+## If a conversation routes to different models on different turns, how is the context kept?
+
+Your client keeps it, not Wayfinder. The OpenAI chat API is stateless: your app sends the full message
+history on every turn, and Wayfinder forwards that whole `messages` array to whichever model it routes
+to. So when one turn goes local and the next goes cloud, the second model still receives the entire
+conversation so far — including the first model's replies. There is nothing to hand off between models;
+the transcript travels with each request, so ordinary multi-turn chats work, not just one-off prompts.
+
+Two things keep that predictable: by default Wayfinder *scores* only the current turn (so the score
+doesn't drift toward cloud as the transcript grows, [WF-ADR-0021](../decisions/WF-ADR-0021-multi-turn-routing-scope.md))
+but always *sends* the full history to the chosen model; and if you'd rather a thread not switch models
+at all, the conversation latch (`[gateway] sticky`, [WF-ADR-0022](../decisions/WF-ADR-0022-conversation-latch.md))
+keeps it on the strongest model any turn has needed.
+
+A side effect: because a growing conversation is a different request every turn, it won't hit the
+exact-match response cache — and that's by design. The cache (WF-ADR-0033) is for byte-identical
+*repeats* (eval/CI runs, agent tools re-asking the same thing), not evolving chats; multi-turn
+correctness comes from forwarding the full context, not from caching.
+
 ## Does it handle streaming, chat, and multi-turn?
 
 The routing decision is made once, up front, then the request is proxied to the chosen model — so
