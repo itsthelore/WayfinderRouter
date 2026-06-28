@@ -81,6 +81,23 @@ cloud tier (both on `api.anthropic.com`) is a verified two-tier setup. Keys are 
 variables named by `api_key_env` — never written into the config. Copy-paste examples (Ollama+OpenAI and
 two-tier Anthropic) are in [`examples/wayfinder-router.lexical.toml`](../examples/wayfinder-router.lexical.toml).
 
+## Can I route between models that behave very differently?
+
+Cautiously, and it's on you to pick substitutable tiers — Wayfinder routes a prompt to a *tier*, it
+doesn't reconcile what the models do once they're there. Two models with different context windows,
+tool-calling conventions, or formatting habits won't behave identically just because a request was routed
+cleanly, and a harness tuned to compensate for one model's quirks can fight a mid-stream switch to
+another. So the decision is most defensible when the tiers are close substitutes for your traffic: a
+small and a large model in the *same* family (Haiku↔Sonnet, gpt-4o-mini↔gpt-4o), or a local and a hosted
+model of similar shape — not two models you'd hand-prompt differently.
+
+The gateway guards the two divergences it can see structurally: it skips a target whose `context_window`
+can't fit the prompt ([WF-ADR-0031](../decisions/WF-ADR-0031-gateway-failover-policy.md)), and the
+conversation latch (`[gateway] sticky`, [WF-ADR-0022](../decisions/WF-ADR-0022-conversation-latch.md))
+stops a thread from ping-ponging once a turn has needed the stronger model. What it can't do is normalize
+tool-use semantics or response shapes across models — for tool-heavy agent loops that's exactly why you'd
+pin one model (see *Should I route inside an agentic coding harness?* below).
+
 ## Why not an LLM-as-judge router instead?
 
 An LLM-as-judge will likely *rank* difficulty better than a structural scan — for fuzzy tasks it almost
@@ -130,6 +147,23 @@ classify, extract, and other requests that are independent or tolerate a per-req
 **quota-stretching** (send a share of the easy requests to a cheaper model). Reach for it on a stream
 of varied, mostly-independent requests; pin a model for one long tool-using agent session. (See also
 the structural-vs-semantic limit above: a short-but-hard prompt has no structural tell.)
+
+## Can I use a cheap model for the mechanical phases and escalate on failure?
+
+Yes, and it's a good pattern — but you orchestrate it; the scorer doesn't watch task outcomes. Pin the
+mechanical, structurally-easy steps (formatting, linting, a test run, a boilerplate edit) to the cheap
+tier with `model="local"` (or `prefer-local`), and when a step's *result* is bad — tests fail, the patch
+won't apply — retry that request pinned to `model="cloud"`. The per-request `model` directive plus the
+`x-wayfinder-router-*` response headers make that a one-line decision in your own loop.
+
+Don't confuse this with the built-in **failover**: `failover = escalate`
+([WF-ADR-0031](../decisions/WF-ADR-0031-gateway-failover-policy.md)) reacts to *transport* failures — a
+timeout, a `5xx`, a `429` — not to a low-quality-but-successful answer. Quality- or phase-driven
+escalation lives in your harness, which is the only thing that knows whether the cheap model's output was
+actually good enough. And the cost math favors trying cheap first: because the whole transcript travels
+to whichever tier serves a turn, sending the *full* context to the cheap model is often still cheaper than
+sending even a little to the dear one — which is why the default leans local and escalates only when
+difficulty (or your own retry) calls for it.
 
 ## Does it handle streaming, chat, and multi-turn?
 
