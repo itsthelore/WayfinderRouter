@@ -71,10 +71,16 @@ From a clean, up-to-date `main`:
 4. **Roll the changelog** in `CHANGELOG.md`: rename `## Unreleased` to `## v<new> — <YYYY-MM-DD>`
    (today's date), keeping its theme line and entries, then add a fresh empty `## Unreleased` above it.
 
-5. **Commit both files together**, matching the existing history's style:
+5. **Commit both files together** with a `chore(release)` subject, a `[release:<new>]` trailer, and a
+   body (every commit carries a descriptive body):
 
    ```sh
-   git commit -am "release: cut v<new> — <one-line theme>"
+   git commit -F - <<'MSG'
+   chore(release): roll the v<new> changelog and bump __version__ [release:<new>]
+
+   <one short paragraph: what the release contains and that it is a mechanical
+   cut — version bump + changelog roll, no behaviour change.>
+   MSG
    ```
 
 6. **Tag the release commit** (annotated, bare, matching `__version__` exactly) and push:
