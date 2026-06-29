@@ -1,0 +1,44 @@
+name: Publish terminal client
+
+# Publish the wayfinder-terminal npm package (clients/terminal) when a `terminal-v*`
+# tag is pushed — e.g. `terminal-v0.1.0` — or on demand via the Actions UI. The npm
+# client versions independently of the PyPI CalVer, so it uses its own tag namespace
+# (`terminal-v*`, which deliberately does not match the PyPI release.yml triggers).
+on:
+  push:
+    tags:
+      - "terminal-v*"
+  workflow_dispatch:
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: clients/terminal
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          registry-url: "https://registry.npmjs.org"
+      - name: Verify the tag matches package.json version
+        if: startsWith(github.ref, 'refs/tags/terminal-v')
+        run: |
+          tag="${GITHUB_REF_NAME#terminal-v}"
+          ver="$(node -p "require('./package.json').version")"
+          if [ "$tag" != "$ver" ]; then
+            echo "::error::tag $GITHUB_REF_NAME ($tag) does not match package version $ver"
+            exit 1
+          fi
+          echo "publishing wayfinder-terminal $ver"
+      - name: Install (with dev deps for build + smoke)
+        run: npm ci
+      - name: Build
+        run: npm run build
+      - name: Smoke test
+        run: node smoke.js
+      - name: Publish to npm
+        run: npm publish --access public
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
