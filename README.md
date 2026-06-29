@@ -102,6 +102,10 @@ Every turn shows where it routed (`● LOCAL` / `◆ CLOUD`), the structural sco
 the chat, `/route` · `/local` · `/cloud` force a turn, and conversations persist across
 sessions (`/threads`).
 
+There's also a standalone **[terminal client](clients/terminal)** (`npx wayfinder-terminal`) — the same
+decision-first chat as a thin client over a running gateway, shipped separately on npm
+([WF-ADR-0041](decisions/WF-ADR-0041-ink-terminal-client.md)).
+
 **In your browser** — the web chat UI with a live threshold slider:
 
 ```bash

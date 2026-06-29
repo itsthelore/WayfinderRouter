@@ -6,6 +6,15 @@ details, release history over commit history.
 
 ## Unreleased
 
+### Added
+
+- **`wayfinder-terminal` — a terminal client on npm** (WF-ADR-0041). The Ink (React-for-the-terminal)
+  decision-first chat, promoted from spike to a standalone package under `clients/terminal/` and shipped
+  on npm (run with `npx wayfinder-terminal --base-url …`). It's a pure **client** of the gateway — routes
+  and streams over the HTTP API, never scores (WF-ADR-0001) — and the same React/Ink components seed a
+  future web/desktop client. The Python package is unchanged (the in-process Textual `chat` still
+  ships); the Ink client is separate so the stdlib-only core stays dependency-free.
+
 ## v2026.6.10 — 2026-06-29
 
 The **feedback release** — features driven by post-launch feedback.

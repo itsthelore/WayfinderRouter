@@ -1,0 +1,48 @@
+{
+  "name": "wayfinder-terminal",
+  "version": "0.1.0",
+  "description": "Terminal client for the Wayfinder router gateway — decision-first chat with live routing, streaming replies, and slash-command panels. Built with Ink.",
+  "type": "module",
+  "license": "Apache-2.0",
+  "bin": {
+    "wayfinder": "bin/wayfinder.js",
+    "wayfinder-terminal": "bin/wayfinder.js"
+  },
+  "files": [
+    "bin",
+    "dist",
+    "src",
+    "README.md"
+  ],
+  "scripts": {
+    "build": "esbuild src/app.jsx --bundle --format=esm --jsx=automatic --packages=external --outfile=dist/app.js",
+    "smoke": "npm run build && node smoke.js",
+    "start": "npm run build && node bin/wayfinder.js",
+    "prepublishOnly": "npm run build"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "dependencies": {
+    "ink": "^5.2.1",
+    "react": "^18.3.1"
+  },
+  "devDependencies": {
+    "esbuild": "^0.28.1",
+    "ink-testing-library": "^4.0.0"
+  },
+  "keywords": [
+    "wayfinder",
+    "llm",
+    "router",
+    "terminal",
+    "tui",
+    "ink",
+    "openai"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/itsthelore/wayfinder-router",
+    "directory": "clients/terminal"
+  }
+}
