@@ -6,6 +6,8 @@ details, release history over commit history.
 
 ## Unreleased
 
+## v2026.6.10 — 2026-06-29
+
 The **feedback release** — features driven by post-launch feedback.
 
 ### Added
@@ -36,6 +38,17 @@ The **feedback release** — features driven by post-launch feedback.
   tier for one request (`local` / `cloud`, `prefer-local` / `prefer-hosted`, the
   `X-Wayfinder-Threshold` header, or a `/local` / `/cloud` chat directive) is now surfaced in the
   Quickstart. No behavior change.
+- **README reframe & de-slop, expanded FAQ** (HN feedback, second pass). The README now leads with the
+  one fast, offline *hard-or-easy* decision (composing a model-router behind it is the optional part),
+  states "offline / no model call / deterministic" once instead of repeatedly, and moves the gateway
+  operator settings to a dedicated [`docs/gateway-config.md`](docs/gateway-config.md). The FAQ gained
+  honest answers to a second round of Show HN questions — context across model switches, multi-turn
+  cost, routing inside agentic harnesses, behaviorally-different models, phased escalation, multi-model
+  compare (it's the offline sufficiency judge above), using the routing decision without the proxy, and
+  mid-task context loss. No behavior change.
+- **Documented the release process** ([`RELEASE.md`](RELEASE.md)). The CalVer `YYYY.MM.MICRO` scheme,
+  the single source of version truth (`wayfinder_router.__version__`), the cut checklist, and the
+  tag-triggered PyPI publish are now written down.
 
 ## v2026.6.9 — 2026-06-25
 
