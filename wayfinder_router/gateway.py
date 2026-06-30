@@ -1539,8 +1539,8 @@ def build_app(
             logger.warning("gateway model '%s' references unset env var %s", name, model.api_key_env)
     if not gw0.models and not dry_run:
         logger.warning(
-            "no [gateway.models] configured; requests will fail until you add an endpoint "
-            "(or run with --dry-run to see routing decisions without backends)"
+            "no [gateway.models] configured; requests return routing decisions only "
+            "(decision-only, WF-ADR-0042) until you add an endpoint — add one to get replies"
         )
     if feedback_token is None:
         logger.info(
@@ -2131,6 +2131,20 @@ def build_app(
             return JSONResponse(
                 status_code=200,
                 content={"wayfinder": {**_explain_payload(), "dry_run": True}},
+                headers=wf_headers,
+            )
+
+        # Decision-only degrade (WF-ADR-0042): a LIVE gateway with no models configured at all
+        # answers with the routing decision (like a dry run) instead of a 500, so onboarding can
+        # show real routing before any backend exists, and the desktop app can render decisions
+        # while a local model (e.g. Ollama) is still starting. Only DELIVERY is skipped — the
+        # decision is computed offline and unchanged (WF-ADR-0001). This is distinct from the
+        # breaker/offline 503 below ("models exist but are cooling down"), which stays a real error.
+        if not gw.models:
+            wf_headers["x-wayfinder-router-decision-only"] = "true"
+            return JSONResponse(
+                status_code=200,
+                content={"wayfinder": {**_explain_payload(), "decision_only": True}},
                 headers=wf_headers,
             )
 
