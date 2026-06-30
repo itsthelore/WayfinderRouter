@@ -101,6 +101,14 @@ offline (WF-ADR-0001).
   `X-Wayfinder-Sticky` / `X-Wayfinder-Sticky-Cooldown` headers — so what the status bar shows is what
   routes, identically across both backends. Still pure and offline (WF-ADR-0001).
 
+- **Decision-only replies when no model is configured** (WF-ADR-0042). A running gateway with no
+  `[gateway.models]` now answers `/v1/chat/completions` with the routing **decision** (HTTP 200,
+  `{"wayfinder": {…}}` and an `x-wayfinder-router-decision-only: true` header) instead of a `500` — so
+  you see real routing the moment the gateway starts, before wiring any backend, and a client can
+  render decisions while a local model is still warming up. Only delivery is skipped; the decision is
+  computed offline and is identical to `--dry-run` (WF-ADR-0001). A genuine outage (models configured
+  but all cooling down) still returns its `503`.
+
 ## v2026.6.10 — 2026-06-29
 
 The **feedback release** — features driven by post-launch feedback.
