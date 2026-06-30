@@ -57,6 +57,23 @@ details, release history over commit history.
   are now buffered per index and emitted as complete, non-interleaved blocks, so each keeps its real
   id, name, and full arguments. Text streaming and non-streaming responses are unaffected.
 
+### Fixed
+
+- **The Configure UI saves back to the config it loaded.** Edits made through the web Configure tab
+  were written to `wayfinder-router.toml` in the current directory, even when the config actually in
+  use lived in a parent directory (the loaders walk up). Running the UI from a subdirectory could thus
+  create a second, ignored file and silently lose the edit. Save now targets the same file the read
+  resolved, only creating a new one when none exists up the tree.
+- **An unknown onboarding arm returns a clean 400** instead of an opaque 500. The browser onboarding A/B
+  endpoint crashed on a model name it didn't recognize (a stale client, or a hand-rolled request).
+- **Thread ids resist collisions.** A saved conversation's id used a 1-second timestamp plus only two
+  random bytes, so two chats created in the same second could collide and one silently overwrite the
+  other's transcript. The random suffix is now eight bytes; ids still sort by creation time.
+- **`service install` reports failure when it fails.** It printed "installed and loaded" / "installed and
+  started" and exited 0 even when `launchctl`/`systemctl` errored. It now verifies the agent is actually
+  loaded (launchd) / the unit enabled (systemd), surfaces the manager's error, and exits non-zero on
+  failure — while still treating an already-loaded agent as success.
+
 ## v2026.6.10 — 2026-06-29
 
 The **feedback release** — features driven by post-launch feedback.

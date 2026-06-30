@@ -43,10 +43,15 @@ def _now() -> str:
 
 
 def new_thread() -> Thread:
-    """A fresh, empty thread with a sortable, collision-resistant id."""
+    """A fresh, empty thread with a sortable, collision-resistant id.
+
+    The id is a 1-second timestamp plus 8 random bytes (2^64). ``save_thread`` overwrites by id
+    (correct for re-saving the same thread), so the random suffix is what keeps two threads created
+    in the same wall-clock second from colliding and silently clobbering each other's transcript.
+    """
     stamp = time.strftime("%Y%m%dT%H%M%S", time.gmtime())
     now = _now()
-    return Thread(id=f"{stamp}-{os.urandom(2).hex()}", created=now, updated=now)
+    return Thread(id=f"{stamp}-{os.urandom(8).hex()}", created=now, updated=now)
 
 
 def title_from(messages: list[dict], *, limit: int = 50) -> str:

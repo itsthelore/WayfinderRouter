@@ -30,6 +30,7 @@ from typing import TYPE_CHECKING
 from .calibrate import CalibrationError, calibrate, parse_dataset, sweep_curve
 from .complexity import RoutingConfig, binary_tiers, explain_score, score_complexity
 from .config import (
+    CONFIG_FILE,
     WayfinderConfigError,
     dump_routing_toml,
     find_config_file,
@@ -103,11 +104,18 @@ def validate_config_text(text: str) -> str | None:
 
 
 def save_config_text(text: str, start_dir: str = ".") -> str | None:
-    """Validate then write ``wayfinder-router.toml``; return an error string or None."""
+    """Validate then write ``wayfinder-router.toml``; return an error string or None.
+
+    Writes back to the *same* file the read resolved via ``find_config_file`` (which walks up to
+    a parent), so editing from a subdirectory updates the config every other code path actually
+    loads — never a second, ignored file beside the cwd. Only when no config exists yet does it
+    create one in ``start_dir``.
+    """
     error = validate_config_text(text)
     if error is not None:
         return error
-    (Path(start_dir) / "wayfinder-router.toml").write_text(text, encoding="utf-8")
+    target = find_config_file(start_dir) or (Path(start_dir) / CONFIG_FILE)
+    target.write_text(text, encoding="utf-8")
     return None
 
 
@@ -124,6 +132,9 @@ def onboard_run(start_dir: str, prompt: str, arms: list[str] | None = None) -> d
     """Run ``prompt`` through each arm and return its output (invokes models, BYO key)."""
     gateway = load_gateway_config(start_dir)
     chosen = arms or list(gateway.models)[:2]
+    unknown = [arm for arm in chosen if arm not in gateway.models]
+    if unknown:  # a stale client or a hand-rolled request — a clean 400, not an opaque 500
+        raise GatewayUnavailable(f"unknown model arm(s): {', '.join(unknown)}")
     return {arm: invoke_model(gateway.models[arm], prompt) for arm in chosen}
 
 

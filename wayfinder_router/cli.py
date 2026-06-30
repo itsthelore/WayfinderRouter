@@ -781,15 +781,38 @@ def _cmd_service(args: argparse.Namespace) -> int:
             loaded = subprocess.run(
                 [manager, "bootstrap", f"gui/{uid}", str(unit_file)], capture_output=True, text=True
             )
-            if loaded.returncode != 0:  # older macOS
-                subprocess.run([manager, "load", "-w", str(unit_file)], capture_output=True, text=True)
+            if loaded.returncode != 0:  # older macOS, or already bootstrapped — try the legacy load
+                loaded = subprocess.run(
+                    [manager, "load", "-w", str(unit_file)], capture_output=True, text=True
+                )
+            # Trust the end state, not the command's exit code: ``bootstrap`` returns non-zero when the
+            # agent is already loaded (not a failure). Probe whether launchd actually has it loaded.
+            probe = subprocess.run(
+                [manager, "print", f"gui/{uid}/{service.LAUNCHD_LABEL}"], capture_output=True, text=True
+            )
+            if probe.returncode != 0:
+                detail = (loaded.stderr or loaded.stdout or "").strip()
+                print(
+                    f"wayfinder-router: launchctl could not load {unit_file}"
+                    + (f": {detail}" if detail else ""),
+                    file=sys.stderr,
+                )
+                return EXIT_CONFIG
             print(f"wayfinder-router: installed and loaded {unit_file}", file=sys.stderr)
         elif plat == "linux" and manager:
             subprocess.run([manager, "--user", "daemon-reload"], capture_output=True, text=True)
-            subprocess.run(
+            enabled = subprocess.run(
                 [manager, "--user", "enable", "--now", service.SYSTEMD_UNIT_NAME],
                 capture_output=True, text=True,
             )
+            if enabled.returncode != 0:
+                detail = (enabled.stderr or enabled.stdout or "").strip()
+                print(
+                    f"wayfinder-router: systemctl could not enable {service.SYSTEMD_UNIT_NAME}"
+                    + (f": {detail}" if detail else ""),
+                    file=sys.stderr,
+                )
+                return EXIT_CONFIG
             print(f"wayfinder-router: installed and started {unit_file}", file=sys.stderr)
         else:
             hint = (
