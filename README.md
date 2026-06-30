@@ -5,8 +5,9 @@
   <img alt="Wayfinder" src="docs/banner-light.png" width="640">
 </picture>
 
-<p><strong>Deterministic prompt-complexity routing — send each prompt to your
-local or cloud model, offline, with no model call to decide.</strong></p>
+<p><strong>A fast, offline hard-or-easy call on every prompt — scored deterministically,
+with no model call. Route the easy ones to your small/local model and the hard ones to your
+big one, or compose any model-router behind it.</strong></p>
 
 <p>
   <a href="#quickstart">Quickstart</a> ·
@@ -37,12 +38,12 @@ local or cloud model, offline, with no model call to decide.</strong></p>
 </tr>
 </table>
 
-Wayfinder looks at a prompt's structure (length, headings, lists, code) and its
-wording (proofs, math, hard constraints), then tells you whether to send it to your
-small local model or your big cloud one. It decides in microseconds, runs offline,
-and never calls another model to make the call: no API key, no network, no model
-call to decide. You get a score and a recommendation, and what you do with it is up
-to you.
+Wayfinder scores a prompt's structure (length, headings, lists, code) and wording
+(proofs, math, hard constraints) into a `0.0`–`1.0` complexity score, then routes the easy
+ones to your small/local model and the hard ones to your big one. The decision is the
+product: deterministic, sub-millisecond, and entirely offline — no API key, no network, no
+model call to make it. What you route *to* is yours: two tiers, an N-tier ladder, or a
+model-router composed behind it.
 
 Cheap prompts stay local and hard ones go to the expensive model, so you stop paying
 top-tier prices for "summarize this" and "fix my typo."
@@ -68,25 +69,18 @@ Wayfinder answers *which tier a prompt deserves*: cheap vs expensive, by difficu
 decided offline. The two compose. Run Wayfinder to make the cheap-vs-expensive call,
 and a gateway underneath to reach the providers.
 
-Wayfinder is not chasing a top accuracy number. What it gives you is a routing
-decision you can run offline, with no model call, and tune on your own traffic. By
-default it scores prompt *structure* only. It can also read lexical cues (proofs,
-math, constraints), but those ship **off by default**: a
-[double-blind test](benchmarks/blind-eval.md) on independently-authored prompts
-showed the lexical lift does *not* generalize (it catches ~20% of unseen hard
-prompts and loses to a plain word-count baseline), so they are opt-in. Raise their
-weights only if you've calibrated them to your own traffic's vocabulary. A prompt
-whose difficulty is purely semantic (a subtle code snippet, an innocent-looking
-"what is the 100th prime number?") has no structural tell, and a semantic router
-will beat it there. What holds up under the blind test is the part to rely on: a
-deterministic, sub-millisecond, offline routing decision with no model call. The
-[benchmark](benchmarks/README.md) (`make benchmark`) shows where it wins and where
-it loses, against honest baselines and a perfect oracle. Point it at RouterBench or
-RouterArena for graded numbers.
-
-New here, or weighing it up? The [FAQ](docs/faq.md) gives straight answers —
-including where it loses (it's no better than random on RouterBench's short-but-hard
-items) and why you'd still run it.
+Wayfinder isn't chasing a top accuracy number — it gives you a routing decision you
+can run offline and tune on your own traffic. By default it scores prompt
+*structure* only; it can also read lexical cues (proofs, math, constraints), but
+those ship **off by default** because a
+[double-blind test](benchmarks/blind-eval.md) showed the lift doesn't generalize
+(it caught ~20% of unseen hard prompts and lost to a plain word-count baseline). A
+prompt whose difficulty is purely semantic (a subtle code snippet, "what is the
+100th prime number?") has no structural tell, and a semantic router will beat it
+there. The [benchmark](benchmarks/README.md) (`make benchmark`) shows where it wins
+and loses against honest baselines and a perfect oracle; the [FAQ](docs/faq.md)
+gives the straight version — including that it's no better than random on
+RouterBench's short-but-hard items, and why you'd still run it.
 
 ## Try the demo (no keys)
 
@@ -117,12 +111,10 @@ wayfinder-router webchat --dry-run
 ```
 
 `webchat` is a thin launcher over `serve` (the gateway and its `/demo` page; `--no-open`,
-`--port`, `--host 0.0.0.0`, `--dry-run`); `serve` is the headless command. Both surfaces
-show, for every message, where it routed (local vs cloud), the complexity score and *why*
-(the feature breakdown), and the cost saved vs always-cloud. With no config both are
-decision-only (`--dry-run` for the web; the terminal's preview), so you can poke at it with
-zero setup. To get real replies, run `wayfinder-router init` to scaffold `[gateway.models]`
-(then `wayfinder-router doctor` to confirm your keys resolve) — see [Quickstart](#quickstart).
+`--port`, `--host 0.0.0.0`, `--dry-run`); `serve` is the headless command. With no config
+it's decision-only (`--dry-run`), so you can poke at it with zero setup; to get real
+replies, run `wayfinder-router init` to scaffold `[gateway.models]` (then
+`wayfinder-router doctor` to confirm your keys resolve) — see [Quickstart](#quickstart).
 
 ## Works with any OpenAI-compatible API
 
@@ -242,6 +234,29 @@ before wiring up real models.
 | `pip install "wayfinder-router[ui]"` | adds the local calibrate / explain / configure UI |
 | `pip install "wayfinder-router[all]"` | gateway and UI on top of the default install |
 
+## Run it as a local service
+
+Make Wayfinder your machine's always-on LLM endpoint, so every OpenAI-compatible app
+can share one local `base_url` and you set your keys up once. `service install`
+registers it with the OS service manager to start at login and restart if it exits:
+
+```bash
+wayfinder-router service install     # macOS (launchd) or Linux (systemd user unit)
+wayfinder-router service status      # is it running? endpoint + /healthz
+wayfinder-router service uninstall
+```
+
+Then point your apps at it once — most OpenAI-compatible tools read `OPENAI_BASE_URL`:
+
+```bash
+export OPENAI_BASE_URL=http://127.0.0.1:8088/v1
+```
+
+macOS is the primary target; Linux works too. `--print` emits the unit file without
+installing, and if no service manager is present it writes the unit and prints the one
+command to start it. It's the same gateway, just kept running — the routing decision is
+unchanged.
+
 ## How it works
 
 Wayfinder sits behind whatever OpenAI-compatible client you already use. You point
@@ -272,13 +287,6 @@ A few things follow from this:
   (Ollama, LM Studio, vLLM, llama.cpp) speaking OpenAI's `/v1`; the hosted one is
   the same shape. The user never switches UIs and usually never knows which model
   answered.
-- **The score is computed, not a second opinion.** Asking a model how hard a
-  prompt is would be slow, non-deterministic, and would cost a model call to decide
-  whether to make a model call. Wayfinder scans the prompt instead — structure
-  (length, headings, steps, links, code, tables) and difficulty cues in the wording
-  (reasoning terms, math symbols, constraints) — into a `0.0`-`1.0` value and
-  compares it to your threshold. Same prompt, same threshold, same answer. It is a
-  proxy for difficulty, not a verdict, which is why the threshold is yours to tune.
 
 Keys are read from the environment at request time and never touch the config file
 or the scored path.
@@ -572,24 +580,14 @@ The gateway forwards asynchronously and streams: a request with `stream: true`
 comes back as Server-Sent-Events, so chat clients render tokens as they arrive. An
 upstream timeout or connection failure returns an OpenAI-shaped error instead of a
 bare 500, every response carries a request id for tracing, and routing decisions
-and reload failures are logged. The knobs:
+and reload failures are logged.
 
-| setting | effect |
-| --- | --- |
-| `WAYFINDER_ROUTER_TIMEOUT` / `serve --timeout` | upstream timeout in seconds (default 60) |
-| `WAYFINDER_ROUTER_FEEDBACK_TOKEN` | when set, `/v1/feedback` requires `Authorization: Bearer <token>` |
-| `serve --dry-run` | return routing decisions without calling any upstream |
-| `GET /healthz` | reports `degraded` and lists `missing_keys` when a configured `api_key_env` is unset |
-| `GET /router` | read-only dashboard of recent decisions, with `X-Wayfinder-Debug: true` surfacing one in the body |
-| `GET /v1/savings?period=today\|7d\|30d\|all` | realized vs always-frontier cost and the savings between them, per route (WF-DESIGN-0007) |
-| `WAYFINDER_ROUTER_SAVINGS_FILE` | where the savings ledger is persisted (default `<config-dir>/wayfinder-savings.json`) |
-| `[gateway] retries` / `breaker_threshold` / `breaker_cooldown` | reliability: bounded retries on transport/`429`/`5xx`, and a per-target circuit breaker (WF-ADR-0031) |
-| `[gateway] failover = same-tier\|degrade\|escalate` | on exhaustion, stay on the tier (default), fall to a cheaper one (never raises cost), or a dearer one (opt-in); per-request `X-Wayfinder-Failover` |
-| `[gateway.models.<name>] fallbacks = [...]` / `context_window` | same-tier endpoints to try on failure; skip a target whose window can't fit the prompt. Responses carry `x-wayfinder-router-served-by` |
-| `[gateway.budget] limit` / `window = day\|month\|all` / `on_breach = degrade\|block` | spend cap: once `limit` realized cost is reached, degrade to the cheapest tier (default, never raises cost) or block with HTTP 402. Surfaced via `x-wayfinder-router-budget`; needs real `cost_per_1k` prices (WF-ADR-0032) |
-| `[gateway.cache] enabled` / `ttl` / `max_entries` / `max_bytes` | exact-match response cache: replay a stored answer for an identical deterministic request — instant, free repeats. Off by default; in-memory only; raise `max_bytes` (default 64 MiB) for more. A hit is free and surfaced via `x-wayfinder-router-cache: hit\|miss`; disabling purges it (WF-ADR-0033) |
-| `[gateway.rate_limit] rpm` / `tpm` / `window` | cap requests-per-minute and/or upstream-tokens-per-minute over a fixed `window` (default 60s); on breach returns `429` with `Retry-After`. The outermost guardrail (checked before scoring); gateway-wide. Successful responses carry `X-RateLimit-Limit`/`-Remaining`/`-Reset` so clients can self-pace; surfaced via `x-wayfinder-router-rate-limit` and `wayfinder_router_rate_limited_total` (WF-ADR-0034) |
-| `[gateway.keys.<id>] hash` / `tags` / `models` (+ nested `budget` / `rate_limit`) | virtual API keys: when any is set, `/v1/*` requires a valid `Authorization: Bearer` token (else `401`). Mint with `wayfinder-router keys new`; only the SHA-256 hash is stored. Spend & **savings** are attributed per key (`by_key` in `/v1/savings`, `wayfinder_router_key_requests_total`); a key can carry its own budget/rate-limit (strictest wins) and a `models` allowlist (clamps to the nearest allowed tier) (WF-ADR-0035) |
+Beyond that it has the production knobs you'd expect — per-request **timeouts**,
+bounded **retries** with a per-target **circuit breaker** and **failover**, a spend
+**budget** cap, an exact-match response **cache**, **rate limiting**, and **virtual
+API keys** with per-key budgets and allowlists. They're all off or generous by
+default; see **[Gateway configuration reference](docs/gateway-config.md)** for every
+setting and the headers each one surfaces.
 
 ## Explain and tune
 

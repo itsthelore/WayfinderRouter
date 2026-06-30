@@ -57,7 +57,7 @@ from .sufficiency import (
     evaluate,
 )
 
-__version__ = "2026.6.9"
+__version__ = "2026.6.10"
 
 __all__ = [
     "__version__",

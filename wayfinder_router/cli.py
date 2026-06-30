@@ -706,6 +706,135 @@ def _cmd_judge(args: argparse.Namespace) -> int:
     return EXIT_OK
 
 
+def _resolve_serve_args(host: str, port: int) -> list[str]:
+    """ProgramArguments to launch the gateway: the installed console script, else ``python -m``."""
+    import shutil
+
+    exe = shutil.which("wayfinder-router")
+    base = [exe] if exe else [sys.executable, "-m", "wayfinder_router.cli"]
+    return [*base, "serve", "--host", host, "--port", str(port)]
+
+
+def _probe_health(host: str, port: int) -> str:
+    """A tolerant `/healthz` probe for `service status` (bypasses any HTTP proxy for localhost)."""
+    import urllib.request
+
+    opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+    try:
+        with opener.open(f"http://{host}:{port}/healthz", timeout=1.5) as resp:
+            return f"ok ({resp.status})" if resp.status == 200 else f"status {resp.status}"
+    except Exception:
+        return "unreachable (service not running?)"
+
+
+def _cmd_service(args: argparse.Namespace) -> int:
+    import os
+    import shutil
+    import subprocess
+
+    from . import service
+
+    plat = service.detect_platform()
+    if plat == "other":
+        print(
+            "wayfinder-router: service supports macOS (launchd) and Linux (systemd user units); "
+            "elsewhere run `wayfinder-router serve` yourself.",
+            file=sys.stderr,
+        )
+        return EXIT_USAGE
+
+    program_args = _resolve_serve_args(args.host, args.port)
+    endpoint = f"http://{args.host}:{args.port}/v1"
+    # launchd does not expand ``~`` in StandardOutPath/StandardErrorPath — an unresolved tilde
+    # makes it fail to open the log file and refuse to spawn (EX_CONFIG). Resolve the log dir to
+    # an absolute path here, in the I/O layer, just as we resolve the program path with ``which``.
+    mac_log_dir = os.path.expanduser("~/Library/Logs")
+    if plat == "macos":
+        unit_text = service.launchd_plist(program_args, log_dir=mac_log_dir)
+        unit_file = service.agent_path()
+        manager = shutil.which("launchctl")
+    else:  # linux
+        unit_text = service.systemd_unit(program_args)
+        unit_file = service.systemd_unit_path()
+        manager = shutil.which("systemctl")
+
+    if args.action == "install":
+        if args.print:
+            print(unit_text)
+            return EXIT_OK
+        unit_file.parent.mkdir(parents=True, exist_ok=True)
+        unit_file.write_text(unit_text, encoding="utf-8")
+        if plat == "macos" and manager:
+            uid = os.getuid()
+            os.makedirs(mac_log_dir, exist_ok=True)  # launchd needs the StandardOut/Err dir present
+            loaded = subprocess.run(
+                [manager, "bootstrap", f"gui/{uid}", str(unit_file)], capture_output=True, text=True
+            )
+            if loaded.returncode != 0:  # older macOS
+                subprocess.run([manager, "load", "-w", str(unit_file)], capture_output=True, text=True)
+            print(f"wayfinder-router: installed and loaded {unit_file}", file=sys.stderr)
+        elif plat == "linux" and manager:
+            subprocess.run([manager, "--user", "daemon-reload"], capture_output=True, text=True)
+            subprocess.run(
+                [manager, "--user", "enable", "--now", service.SYSTEMD_UNIT_NAME],
+                capture_output=True, text=True,
+            )
+            print(f"wayfinder-router: installed and started {unit_file}", file=sys.stderr)
+        else:
+            hint = (
+                f"launchctl bootstrap gui/$(id -u) {unit_file}"
+                if plat == "macos"
+                else f"systemctl --user enable --now {service.SYSTEMD_UNIT_NAME}"
+            )
+            print(f"wayfinder-router: wrote {unit_file}; start it with:\n  {hint}", file=sys.stderr)
+        print(f"wayfinder-router: point your apps at OPENAI_BASE_URL={endpoint}", file=sys.stderr)
+        return EXIT_OK
+
+    if args.action == "uninstall":
+        if plat == "macos" and manager and unit_file.is_file():
+            uid = os.getuid()
+            booted = subprocess.run(
+                [manager, "bootout", f"gui/{uid}/{service.LAUNCHD_LABEL}"], capture_output=True, text=True
+            )
+            if booted.returncode != 0:
+                subprocess.run([manager, "unload", "-w", str(unit_file)], capture_output=True, text=True)
+        elif plat == "linux" and manager and unit_file.is_file():
+            subprocess.run(
+                [manager, "--user", "disable", "--now", service.SYSTEMD_UNIT_NAME],
+                capture_output=True, text=True,
+            )
+        existed = unit_file.is_file()
+        unit_file.unlink(missing_ok=True)
+        print(
+            f"wayfinder-router: removed {unit_file}"
+            if existed
+            else f"wayfinder-router: nothing to remove ({unit_file} not present)",
+            file=sys.stderr,
+        )
+        return EXIT_OK
+
+    # status
+    installed = unit_file.is_file()
+    print(f"unit file: {unit_file} ({'present' if installed else 'absent'})", file=sys.stderr)
+    print(f"endpoint:  {endpoint}", file=sys.stderr)
+    if manager and installed:
+        if plat == "macos":
+            uid = os.getuid()
+            probe = subprocess.run(
+                [manager, "print", f"gui/{uid}/{service.LAUNCHD_LABEL}"], capture_output=True, text=True
+            )
+            print(f"launchd:   {'loaded' if probe.returncode == 0 else 'not loaded'}", file=sys.stderr)
+        else:
+            probe = subprocess.run(
+                [manager, "--user", "is-active", service.SYSTEMD_UNIT_NAME], capture_output=True, text=True
+            )
+            print(f"systemd:   {probe.stdout.strip() or 'unknown'}", file=sys.stderr)
+    print(f"health:    {_probe_health(args.host, args.port)}", file=sys.stderr)
+    if not installed:
+        print(f"\ninstall with: wayfinder-router service install --port {args.port}", file=sys.stderr)
+    return EXIT_OK
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="wayfinder-router",
@@ -801,6 +930,21 @@ def build_parser() -> argparse.ArgumentParser:
         help="Upstream request timeout in seconds (default: WAYFINDER_ROUTER_TIMEOUT or 60).",
     )
     p_serve.set_defaults(func=_cmd_serve)
+
+    p_service = sub.add_parser(
+        "service",
+        help="Run the gateway as an always-on local service (macOS launchd / Linux systemd).",
+    )
+    p_service.add_argument(
+        "action", choices=["install", "uninstall", "status"], help="What to do."
+    )
+    p_service.add_argument("--host", default="127.0.0.1", help="Gateway host (default: 127.0.0.1).")
+    p_service.add_argument("--port", type=int, default=8088, help="Gateway port (default: 8088).")
+    p_service.add_argument(
+        "--print", action="store_true",
+        help="Print the generated unit file instead of installing it.",
+    )
+    p_service.set_defaults(func=_cmd_service)
 
     p_chat = sub.add_parser(
         "chat",
