@@ -1520,6 +1520,40 @@ def test_failover_degrade_serves_cheaper_tier_without_recomputing_decision(tmp_p
     assert resp.headers["x-wayfinder-router-failover"] == "true"
 
 
+def test_auth_failure_opens_breaker_then_degrades(tmp_path, monkeypatch):
+    # WF-ADR-0031: a stale/expired upstream key (401) is a target failure, not a "success." Repeats
+    # open the breaker so the next request degrades to the local tier instead of forever 401-ing.
+    async def fake(url, headers, json_body, timeout=60.0):
+        if "cloud.test" in url:
+            return 401, b'{"error": {"message": "invalid api key"}}', "application/json"
+        return 200, b'{"object":"chat.completion"}', "application/json"
+
+    tc = _failover_client(tmp_path, monkeypatch, _failover_config("degrade"), fake)
+    for _ in range(5):  # the default breaker threshold is 5 consecutive failures
+        r = tc.post("/v1/chat/completions", json=COMPLEX)  # scores cloud -> bad key -> 401
+        assert r.status_code == 401
+        assert r.headers["x-wayfinder-router-served-by"] == "cloud"
+    # The breaker is now open for cloud, so delivery degrades to local on the next request.
+    degraded = tc.post("/v1/chat/completions", json=COMPLEX)
+    assert degraded.status_code == 200
+    assert degraded.headers["x-wayfinder-router-served-by"] == "local"
+
+
+def test_client_4xx_does_not_open_breaker(tmp_path, monkeypatch):
+    # An ordinary client 4xx (the caller's fault) means the target is reachable, so it must NOT count
+    # as a breaker failure — repeated 400s never spuriously degrade an otherwise-healthy upstream.
+    async def fake(url, headers, json_body, timeout=60.0):
+        if "cloud.test" in url:
+            return 400, b'{"error": {"message": "bad request"}}', "application/json"
+        return 200, b'{"object":"chat.completion"}', "application/json"
+
+    tc = _failover_client(tmp_path, monkeypatch, _failover_config("degrade"), fake)
+    for _ in range(8):  # well past the breaker threshold
+        r = tc.post("/v1/chat/completions", json=COMPLEX)
+        assert r.status_code == 400
+        assert r.headers["x-wayfinder-router-served-by"] == "cloud"  # never degrades
+
+
 def test_failover_escalate_serves_dearer_tier(tmp_path, monkeypatch):
     async def fake(url, headers, json_body, timeout=60.0):
         if "local.test" in url:
@@ -1637,6 +1671,36 @@ def test_budget_block_returns_402_after_breach(tmp_path, monkeypatch):
     assert blocked.json()["error"]["type"] == "wayfinder_router_budget_exhausted"
     assert blocked.headers["x-wayfinder-router-budget"] == "blocked"
     assert calls["n"] == 1  # the blocked request never reached an upstream
+
+
+def test_budget_uses_current_priced_state_after_reload(tmp_path, monkeypatch):
+    # The budget gate reads priced-ness from the *current* config, not the ledger's lagging flag: a
+    # hot reload that drops cost_per_1k makes the very next request unpriced (budget a no-op), not
+    # one request late. With the stale-flag bug this request would still be 402'd.
+    config = tmp_path / "wayfinder-router.toml"
+    models = (
+        "[routing]\nthreshold = 0.2\n\n"
+        '[gateway.models.local]\nbase_url = "http://local.test/v1"\nmodel = "m-local"\n{lc}\n'
+        '[gateway.models.cloud]\nbase_url = "http://cloud.test/v1"\nmodel = "m-cloud"\n{cc}'
+    )
+    budget = '[gateway.budget]\nlimit = 0.001\non_breach = "block"\n\n'
+    config.write_text(
+        budget + models.format(lc="cost_per_1k = 0.0\n", cc="cost_per_1k = 1.0\n"), encoding="utf-8"
+    )
+
+    async def fake(url, headers, json_body, timeout=60.0):
+        return 200, b'{"object":"chat.completion"}', "application/json"
+
+    monkeypatch.setattr(gateway, "aforward_request", fake)
+    tc = TestClient(gateway.build_app(start_dir=str(tmp_path)))
+    assert tc.post("/v1/chat/completions", json=COMPLEX).status_code == 200  # priced; spends > cap
+    assert tc.post("/v1/chat/completions", json=COMPLEX).status_code == 402  # now over budget
+
+    # Hot-reload to an UNPRICED config (no cost_per_1k anywhere): the budget must go no-op at once.
+    config.write_text(budget + models.format(lc="", cc=""), encoding="utf-8")
+    future = time.time() + 10  # push mtime so the holder's change-detection fires
+    os.utime(config, (future, future))
+    assert tc.post("/v1/chat/completions", json=COMPLEX).status_code == 200  # 402 with the stale bug
 
 
 def test_under_budget_routes_normally(tmp_path, monkeypatch):
@@ -2140,6 +2204,23 @@ def test_missing_or_invalid_key_is_401(tmp_path, monkeypatch):
     assert bad.status_code == 401
     assert bad.json()["error"]["type"] == "wayfinder_router_unauthorized"
     assert bad.headers.get("WWW-Authenticate") == "Bearer"
+
+
+def test_unauthenticated_flood_is_rate_limited_before_auth(tmp_path, monkeypatch):
+    # Rate-limit admission is the outermost guardrail (WF-ADR-0034): an unauthenticated flood gets a
+    # 429 once the gateway-wide cap is hit, not an endless run of one-at-a-time 401s (each of which
+    # costs a SHA-256 + constant-time compare against every configured key).
+    _, h = vkeys.generate()
+    cfg = _vkeys_config(
+        f'[gateway.keys.team-a]\nhash = "{h}"\n',
+        extra="[gateway.rate_limit]\nrpm = 1\n\n",
+    )
+    tc = _vkeys_client(tmp_path, monkeypatch, cfg)
+    first = tc.post("/v1/chat/completions", json=TRIVIAL)  # admitted (rpm=1), then auth -> 401
+    assert first.status_code == 401
+    second = tc.post("/v1/chat/completions", json=TRIVIAL)  # rpm exhausted -> 429 *before* auth
+    assert second.status_code == 429
+    assert second.headers["x-wayfinder-router-rate-limit"] == "rpm"
 
 
 def test_valid_key_authorizes_and_attributes(tmp_path, monkeypatch):
