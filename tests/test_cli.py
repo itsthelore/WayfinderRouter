@@ -91,6 +91,23 @@ def test_route_file_not_found_is_usage_error(capsys):
     assert "file not found" in capsys.readouterr().err
 
 
+def test_route_non_utf8_file_is_usage_error(tmp_path, capsys):
+    # A non-UTF-8 input file is a clean usage error (EXIT_USAGE), not a raw UnicodeDecodeError traceback.
+    bad = tmp_path / "prompt.bin"
+    bad.write_bytes(b"\xff\xfe\x00\x80 not utf-8")
+    rc = main(["route", str(bad)])
+    assert rc == 2
+    assert "not valid UTF-8" in capsys.readouterr().err
+
+
+def test_calibrate_non_utf8_file_is_usage_error(tmp_path, capsys):
+    bad = tmp_path / "data.jsonl"
+    bad.write_bytes(b"\xff\xfe\x00\x80 not utf-8")
+    rc = main(["calibrate", str(bad)])
+    assert rc == 2
+    assert "not valid UTF-8" in capsys.readouterr().err
+
+
 def test_route_threshold_out_of_range_is_usage_error(monkeypatch, capsys):
     _feed_stdin(monkeypatch, TRIVIAL)
     rc = main(["route", "-", "--threshold", "5"])

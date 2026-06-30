@@ -98,6 +98,9 @@ def _cmd_route(args: argparse.Namespace) -> int:
     except WayfinderConfigError as exc:
         print(f"wayfinder-router: {exc}", file=sys.stderr)
         return EXIT_CONFIG
+    except UnicodeDecodeError:
+        print(f"wayfinder-router: {args.prompt} is not valid UTF-8 text", file=sys.stderr)
+        return EXIT_USAGE
 
     if args.json:
         print(json.dumps(result.to_dict(), indent=2))
@@ -164,6 +167,9 @@ def _cmd_calibrate(args: argparse.Namespace) -> int:
     except CalibrationError as exc:
         print(f"wayfinder-router: {exc}", file=sys.stderr)
         return EXIT_CONFIG
+    except UnicodeDecodeError:
+        print(f"wayfinder-router: {args.dataset} is not valid UTF-8 text", file=sys.stderr)
+        return EXIT_USAGE
 
     if args.out:
         Path(args.out).write_text(result.toml, encoding="utf-8")
@@ -534,6 +540,9 @@ def _cmd_onboard(args: argparse.Namespace) -> int:
     except GatewayUnavailable as exc:
         print(f"wayfinder-router: {exc}", file=sys.stderr)
         return EXIT_USAGE
+    except UnicodeDecodeError:
+        print(f"wayfinder-router: {args.prompts} is not valid UTF-8 text", file=sys.stderr)
+        return EXIT_USAGE
     counts = ", ".join(f"{k}={v}" for k, v in summary.label_counts.items())
     print(f"wayfinder-router: judged {summary.judged} prompts -> {counts}", file=sys.stderr)
     print(f"wayfinder-router: labels appended to {args.log}", file=sys.stderr)
@@ -668,6 +677,9 @@ def _cmd_judge(args: argparse.Namespace) -> int:
         summary = run_onboarding(prompts, arms, run_model, judge_fn, args.log)
     except GatewayUnavailable as exc:
         print(f"wayfinder-router: {exc}", file=sys.stderr)
+        return EXIT_USAGE
+    except UnicodeDecodeError:
+        print(f"wayfinder-router: {args.prompts} is not valid UTF-8 text", file=sys.stderr)
         return EXIT_USAGE
 
     print(

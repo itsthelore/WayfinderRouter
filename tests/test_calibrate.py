@@ -212,6 +212,16 @@ def test_classifier_round_trips_and_predicts(tmp_path):
     assert score_complexity(LARGE, config=config).recommendation == "cloud"
 
 
+def test_classifier_rejects_nonpositive_l2(tmp_path):
+    # l2 is a caller-supplied knob (CLI --l2). l2<=0 can make the Hessian singular on separable
+    # data — a clean CalibrationError, not a raw ZeroDivisionError from the solver.
+    samples = load_dataset(_dataset(tmp_path, _binary_rows()))
+    with pytest.raises(CalibrationError):
+        calibrate(samples, "classifier", l2=0.0)
+    with pytest.raises(CalibrationError):
+        calibrate(samples, "classifier", l2=-0.5)
+
+
 # --- dataset loading --------------------------------------------------------
 
 

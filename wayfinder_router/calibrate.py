@@ -402,6 +402,8 @@ def fit_classifier(
     The feature space is tiny (a dozen features x a few classes), so this
     converges in a handful of iterations regardless of dataset size (WF-ADR-0003).
     """
+    if l2 <= 0:  # the L2 term is what keeps the Hessian positive-definite; 0/negative can go singular
+        raise CalibrationError(f"--l2 must be > 0 (got {l2}); it keeps the solve well-posed")
     order = models_order or _labels_by_mean_score(samples)
     present = set(s.label for s in samples)
     if set(order) != present:

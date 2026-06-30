@@ -74,6 +74,19 @@ details, release history over commit history.
   loaded (launchd) / the unit enabled (systemd), surfaces the manager's error, and exits non-zero on
   failure — while still treating an already-loaded agent as success.
 
+### Fixed
+
+- **A malformed or older-schema savings ledger no longer crashes the next stats query.** A persisted
+  bucket missing a field added in a later version (e.g. `estimated_n`), or any partial corruption, could
+  raise a `KeyError` from `/v1/savings` — contradicting the ledger's "best-effort persistence, never raise
+  into the request path." Loaded buckets are now normalized to the current schema on read.
+- **`calibrate --l2 0` (or a negative value) gives a clean error.** A non-positive L2 term can make the
+  classifier's Hessian singular and previously surfaced as a raw `ZeroDivisionError`; it is now a
+  `CalibrationError` explaining that `--l2` must be positive (the default `0.01` is unaffected).
+- **Non-UTF-8 input files give a usage error, not a traceback.** `route`, `calibrate`, `onboard`, and
+  `judge` reading a binary/non-UTF-8 file now print a clear message and exit with the usage code (2),
+  matching how a missing file is already handled.
+
 ## v2026.6.10 — 2026-06-29
 
 The **feedback release** — features driven by post-launch feedback.

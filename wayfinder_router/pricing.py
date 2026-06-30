@@ -139,6 +139,36 @@ def _empty_bucket() -> dict:
     return b
 
 
+def _num(value: object, default: float | int) -> float | int:
+    """``value`` if it is a real (non-bool) number, else ``default`` — for tolerant load."""
+    if isinstance(value, (int, float)) and not isinstance(value, bool):
+        return value
+    return default
+
+
+def _coerce_bucket(raw: Mapping) -> dict:
+    """Normalize a persisted bucket to the current schema so reads can index it directly.
+
+    Fills any missing top-level field from :func:`_empty_bucket` and each ``by_route`` / ``by_key``
+    sub-stat from :func:`_empty_route`, keeping only numeric values. An older-schema file (missing a
+    field added later, e.g. ``estimated_n``) or a partially-corrupted bucket then can't ``KeyError``
+    a later stats query — persistence stays best-effort and never raises into the request path.
+    """
+    bucket = _empty_bucket()
+    for f in ("n", "realized", "baseline", "savings", "tokens", "estimated_n"):
+        bucket[f] = _num(raw.get(f), bucket[f])
+    for field_name in ("by_route", "by_key"):
+        sub = raw.get(field_name)
+        if isinstance(sub, Mapping):
+            for name, rstats in sub.items():
+                if isinstance(rstats, Mapping):
+                    route = _empty_route()
+                    for f in route:
+                        route[f] = _num(rstats.get(f), route[f])
+                    bucket[field_name][str(name)] = route
+    return bucket
+
+
 def _accumulate(target: dict, tc: TurnCost) -> None:
     target["n"] += 1
     target["realized"] = round(target["realized"] + tc.realized, 6)
@@ -290,7 +320,9 @@ class SavingsLedger:
         led = cls(max_days=int(data.get("max_days", 400)), priced=bool(data.get("priced", True)))
         days = data.get("days")
         if isinstance(days, dict):
-            led.days = {str(k): v for k, v in days.items() if isinstance(v, dict)}
+            led.days = {
+                str(k): _coerce_bucket(v) for k, v in days.items() if isinstance(v, Mapping)
+            }
         return led
 
     def save(self, path: str) -> None:
