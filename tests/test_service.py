@@ -7,6 +7,7 @@ Linux); ``--print`` and these golden checks cover the generated unit text.
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
 
 from wayfinder_router import service
@@ -71,3 +72,17 @@ def test_service_install_print_emits_a_unit_without_touching_the_system(monkeypa
     assert rc == 0
     assert out.startswith('<?xml version="1.0"')
     assert service.LAUNCHD_LABEL in out
+
+
+def test_service_install_resolves_an_absolute_log_path(monkeypatch, capsys):
+    # launchd cannot expand ``~`` in StandardOutPath/StandardErrorPath; an unresolved tilde
+    # makes the agent fail to spawn (EX_CONFIG). The CLI must emit an absolute log path.
+    monkeypatch.setattr(service, "detect_platform", lambda platform=None: "macos")
+    args = build_parser().parse_args(["service", "install", "--print"])
+    rc = args.func(args)
+    out = capsys.readouterr().out
+    assert rc == 0
+    assert "<string>~/" not in out  # no unexpanded tilde anywhere in the emitted plist
+    home = os.path.expanduser("~")
+    assert f"<string>{home}/Library/Logs/wayfinder-router.log</string>" in out
+    assert f"<string>{home}/Library/Logs/wayfinder-router.err.log</string>" in out

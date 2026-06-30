@@ -745,8 +745,12 @@ def _cmd_service(args: argparse.Namespace) -> int:
 
     program_args = _resolve_serve_args(args.host, args.port)
     endpoint = f"http://{args.host}:{args.port}/v1"
+    # launchd does not expand ``~`` in StandardOutPath/StandardErrorPath — an unresolved tilde
+    # makes it fail to open the log file and refuse to spawn (EX_CONFIG). Resolve the log dir to
+    # an absolute path here, in the I/O layer, just as we resolve the program path with ``which``.
+    mac_log_dir = os.path.expanduser("~/Library/Logs")
     if plat == "macos":
-        unit_text = service.launchd_plist(program_args)
+        unit_text = service.launchd_plist(program_args, log_dir=mac_log_dir)
         unit_file = service.agent_path()
         manager = shutil.which("launchctl")
     else:  # linux
@@ -762,6 +766,7 @@ def _cmd_service(args: argparse.Namespace) -> int:
         unit_file.write_text(unit_text, encoding="utf-8")
         if plat == "macos" and manager:
             uid = os.getuid()
+            os.makedirs(mac_log_dir, exist_ok=True)  # launchd needs the StandardOut/Err dir present
             loaded = subprocess.run(
                 [manager, "bootstrap", f"gui/{uid}", str(unit_file)], capture_output=True, text=True
             )
