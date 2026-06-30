@@ -6,6 +6,11 @@ details, release history over commit history.
 
 ## Unreleased
 
+## v2026.7.0 — 2026-06-30
+
+The **always-on release** — Wayfinder becomes your machine's local LLM service: one
+endpoint that starts at login and keeps working when the network doesn't.
+
 ### Added
 
 - **Run the gateway as a local service** (WF-ADR-0038, WF-ROADMAP-0007). `wayfinder-router service
