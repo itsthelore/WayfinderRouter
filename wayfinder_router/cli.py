@@ -202,8 +202,13 @@ def _cmd_recalibrate(args: argparse.Namespace) -> int:
 
 
 def _cmd_serve(args: argparse.Namespace) -> int:
+    import os
+
+    from .config import CONFIG_PATH_ENV
     from .gateway import GatewayUnavailable, run
 
+    if args.config:
+        os.environ[CONFIG_PATH_ENV] = args.config
     try:
         run(
             start_dir=".",
@@ -737,13 +742,21 @@ def _cmd_judge(args: argparse.Namespace) -> int:
     return EXIT_OK
 
 
-def _resolve_serve_args(host: str, port: int) -> list[str]:
-    """ProgramArguments to launch the gateway: the installed console script, else ``python -m``."""
+def _resolve_serve_args(host: str, port: int, config: str | None = None) -> list[str]:
+    """ProgramArguments to launch the gateway: the installed console script, else ``python -m``.
+
+    When ``config`` is given it is appended as ``--config PATH`` so a service-managed gateway
+    (launchd / systemd, whose working directory is unpredictable) loads a fixed file rather than
+    walking up from its cwd (WF-ADR-0042).
+    """
     import shutil
 
     exe = shutil.which("wayfinder-router")
     base = [exe] if exe else [sys.executable, "-m", "wayfinder_router.cli"]
-    return [*base, "serve", "--host", host, "--port", str(port)]
+    serve_args = [*base, "serve", "--host", host, "--port", str(port)]
+    if config:
+        serve_args += ["--config", config]
+    return serve_args
 
 
 def _probe_health(host: str, port: int) -> str:
@@ -785,7 +798,7 @@ def _cmd_service(args: argparse.Namespace) -> int:
         )
         return EXIT_USAGE
 
-    program_args = _resolve_serve_args(args.host, args.port)
+    program_args = _resolve_serve_args(args.host, args.port, args.config)
     endpoint = f"http://{args.host}:{args.port}/v1"
     # launchd does not expand ``~`` in StandardOutPath/StandardErrorPath — an unresolved tilde
     # makes it fail to open the log file and refuse to spawn (EX_CONFIG). Resolve the log dir to
@@ -994,6 +1007,11 @@ def build_parser() -> argparse.ArgumentParser:
         default=None,
         help="Upstream request timeout in seconds (default: WAYFINDER_ROUTER_TIMEOUT or 60).",
     )
+    p_serve.add_argument(
+        "--config",
+        default=None,
+        help="Path to wayfinder-router.toml (overrides the cwd search; sets WAYFINDER_CONFIG).",
+    )
     p_serve.set_defaults(func=_cmd_serve)
 
     p_service = sub.add_parser(
@@ -1005,6 +1023,11 @@ def build_parser() -> argparse.ArgumentParser:
     )
     p_service.add_argument("--host", default="127.0.0.1", help="Gateway host (default: 127.0.0.1).")
     p_service.add_argument("--port", type=int, default=8088, help="Gateway port (default: 8088).")
+    p_service.add_argument(
+        "--config", default=None,
+        help="Path to wayfinder-router.toml baked into the unit, so the service loads a fixed file "
+             "regardless of its working directory.",
+    )
     p_service.add_argument(
         "--print", action="store_true",
         help="Print the generated unit file instead of installing it.",
