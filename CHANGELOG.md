@@ -6,6 +6,20 @@ details, release history over commit history.
 
 ## Unreleased
 
+### Added
+
+- **Run the gateway as a local service** (WF-ADR-0038, WF-ROADMAP-0007). `wayfinder-router service
+  install` registers Wayfinder with the OS service manager so it auto-starts at login on a stable
+  `127.0.0.1:8088` and restarts if it exits — turning it into your machine's always-on local LLM
+  endpoint that every OpenAI-compatible app can share (point them at it once with
+  `OPENAI_BASE_URL`). **macOS** (launchd LaunchAgent) is the primary target; **Linux** (systemd user
+  unit) ships alongside; `uninstall` and `status` round it out, and `--print` emits the unit without
+  installing. If no service manager is present it writes the unit and prints the one command to start
+  it. Packaging only — the deterministic decision is unchanged (WF-ADR-0001); your keys stay in the
+  gateway config. The near-term, localhost slice of the "LLM routing as infrastructure" idea.
+
+## v2026.6.10 — 2026-06-29
+
 The **feedback release** — features driven by post-launch feedback.
 
 ### Added
@@ -26,16 +40,6 @@ The **feedback release** — features driven by post-launch feedback.
   default (a governed response-body store, WF-DESIGN-0008). An LLM-backed judge is a planned
   drop-in through the same `Judge` seam.
 
-- **Run the gateway as a local service** (WF-ADR-0038, WF-ROADMAP-0007). `wayfinder-router service
-  install` registers Wayfinder with the OS service manager so it auto-starts at login on a stable
-  `127.0.0.1:8088` and restarts if it exits — turning it into your machine's always-on local LLM
-  endpoint that every OpenAI-compatible app can share (point them at it once with
-  `OPENAI_BASE_URL`). **macOS** (launchd LaunchAgent) is the primary target; **Linux** (systemd user
-  unit) ships alongside; `uninstall` and `status` round it out, and `--print` emits the unit without
-  installing. If no service manager is present it writes the unit and prints the one command to start
-  it. Packaging only — the deterministic decision is unchanged (WF-ADR-0001); your keys stay in the
-  gateway config. The near-term, localhost slice of the "LLM routing as infrastructure" idea.
-
 ### Changed
 
 - **Docs & positioning pass** (from post-launch feedback). Plainer, less marketing-flavored copy
@@ -46,6 +50,17 @@ The **feedback release** — features driven by post-launch feedback.
   tier for one request (`local` / `cloud`, `prefer-local` / `prefer-hosted`, the
   `X-Wayfinder-Threshold` header, or a `/local` / `/cloud` chat directive) is now surfaced in the
   Quickstart. No behavior change.
+- **README reframe & de-slop, expanded FAQ** (HN feedback, second pass). The README now leads with the
+  one fast, offline *hard-or-easy* decision (composing a model-router behind it is the optional part),
+  states "offline / no model call / deterministic" once instead of repeatedly, and moves the gateway
+  operator settings to a dedicated [`docs/gateway-config.md`](docs/gateway-config.md). The FAQ gained
+  honest answers to a second round of Show HN questions — context across model switches, multi-turn
+  cost, routing inside agentic harnesses, behaviorally-different models, phased escalation, multi-model
+  compare (it's the offline sufficiency judge above), using the routing decision without the proxy, and
+  mid-task context loss. No behavior change.
+- **Documented the release process** ([`RELEASE.md`](RELEASE.md)). The CalVer `YYYY.MM.MICRO` scheme,
+  the single source of version truth (`wayfinder_router.__version__`), the cut checklist, and the
+  tag-triggered PyPI publish are now written down.
 
 ## v2026.6.9 — 2026-06-25
 
