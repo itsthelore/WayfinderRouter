@@ -6,6 +6,18 @@ details, release history over commit history.
 
 ## Unreleased
 
+### Added
+
+- **Run the gateway as a local service** (WF-ADR-0038, WF-ROADMAP-0007). `wayfinder-router service
+  install` registers Wayfinder with the OS service manager so it auto-starts at login on a stable
+  `127.0.0.1:8088` and restarts if it exits — turning it into your machine's always-on local LLM
+  endpoint that every OpenAI-compatible app can share (point them at it once with
+  `OPENAI_BASE_URL`). **macOS** (launchd LaunchAgent) is the primary target; **Linux** (systemd user
+  unit) ships alongside; `uninstall` and `status` round it out, and `--print` emits the unit without
+  installing. If no service manager is present it writes the unit and prints the one command to start
+  it. Packaging only — the deterministic decision is unchanged (WF-ADR-0001); your keys stay in the
+  gateway config. The near-term, localhost slice of the "LLM routing as infrastructure" idea.
+
 ## v2026.6.10 — 2026-06-29
 
 The **feedback release** — features driven by post-launch feedback.
