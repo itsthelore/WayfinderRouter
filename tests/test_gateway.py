@@ -121,6 +121,59 @@ def test_unconfigured_model_is_a_clear_misconfig_error(tmp_path, monkeypatch):
     assert resp.json()["error"]["type"] == "wayfinder_router_misconfigured"
 
 
+# --- Decision-only degrade: a no-models live gateway answers with the decision (WF-ADR-0042) ---
+
+_NO_MODELS_CONFIG = "[routing]\nthreshold = 0.2\n"
+
+
+def test_no_models_live_returns_decision_only(tmp_path, monkeypatch):
+    # The onboarding cold-start: a LIVE gateway with no [gateway.models] returns the routing
+    # decision (HTTP 200) instead of a 500, and never contacts an upstream.
+    (tmp_path / "wayfinder-router.toml").write_text(_NO_MODELS_CONFIG, encoding="utf-8")
+    called = False
+
+    async def fail_aforward(*a, **k):
+        nonlocal called
+        called = True
+        return 200, b"{}", "application/json"
+
+    monkeypatch.setattr(gateway, "aforward_request", fail_aforward)
+    test_client = TestClient(gateway.build_app(start_dir=str(tmp_path)))
+    resp = test_client.post("/v1/chat/completions", json=COMPLEX)
+    assert resp.status_code == 200
+    assert resp.headers["x-wayfinder-router-decision-only"] == "true"
+    body = resp.json()["wayfinder"]
+    assert body["decision_only"] is True
+    assert "dry_run" not in body
+    assert body["model"] and isinstance(body["score"], (int, float))
+    assert called is False  # no upstream was contacted — the decision stays offline (WF-ADR-0001)
+
+
+def test_dry_run_still_flags_dry_run_not_decision_only(tmp_path, monkeypatch):
+    # An explicit --dry-run (models configured) keeps its own flag; it is not decision-only.
+    (tmp_path / "wayfinder-router.toml").write_text(CONFIG, encoding="utf-8")
+    monkeypatch.setattr(gateway, "aforward_request", _ok_aforward)
+    test_client = TestClient(gateway.build_app(start_dir=str(tmp_path), dry_run=True))
+    resp = test_client.post("/v1/chat/completions", json=COMPLEX)
+    body = resp.json()["wayfinder"]
+    assert body["dry_run"] is True
+    assert "decision_only" not in body
+    assert "x-wayfinder-router-decision-only" not in resp.headers
+
+
+def test_no_models_live_decision_matches_dry_run(tmp_path, monkeypatch):
+    # The decision a no-models live gateway returns is identical to the dry-run decision for the
+    # same prompt+config — only DELIVERY is skipped, the decision is unchanged (WF-ADR-0001).
+    (tmp_path / "wayfinder-router.toml").write_text(_NO_MODELS_CONFIG, encoding="utf-8")
+    monkeypatch.setattr(gateway, "aforward_request", _ok_aforward)
+    live = TestClient(gateway.build_app(start_dir=str(tmp_path)))
+    dry = TestClient(gateway.build_app(start_dir=str(tmp_path), dry_run=True))
+    lw = live.post("/v1/chat/completions", json=COMPLEX).json()["wayfinder"]
+    dw = dry.post("/v1/chat/completions", json=COMPLEX).json()["wayfinder"]
+    assert (lw["model"], lw["score"], lw["features"]) == (dw["model"], dw["score"], dw["features"])
+    assert lw["decision_only"] is True and dw["dry_run"] is True
+
+
 def test_response_body_is_relayed_unchanged(client):
     test_client, _ = client
     resp = test_client.post("/v1/chat/completions", json=TRIVIAL)
