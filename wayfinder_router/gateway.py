@@ -1642,7 +1642,11 @@ def build_app(
     def healthz() -> dict:
         _, gw = holder.current()
         missing = _missing_keys(gw)
-        body: dict = {"status": "degraded" if missing else "ok", "models": sorted(gw.models)}
+        body: dict = {
+            "status": "degraded" if missing else "ok",
+            "models": sorted(gw.models),
+            "offline": gw.offline,  # standing config knob (WF-ADR-0039); per-request header is separate
+        }
         if missing:
             body["missing_keys"] = missing
         return body
@@ -1942,6 +1946,12 @@ def build_app(
             except BadOverride as exc:
                 return _reject(exc)
 
+        # Offline-first (WF-ADR-0039): decided once, here, so it precedes BOTH the budget
+        # hard-block and the response cache below. A request that can't reach the network must
+        # never be rejected for spend it won't incur, nor replay a dearer tier's cached answer —
+        # it degrades to the cheapest/local tier instead. Delivery only; the decision is untouched.
+        offline = gw.offline or (x_wayfinder_offline or "").strip().lower() in ("1", "true", "yes")
+
         # Budget enforcement (WF-ROADMAP-0006): a spend cap on realized cost in the configured
         # window — gateway-wide (WF-ADR-0032) and, when the request carries a virtual key, that
         # key's own budget (WF-ADR-0035). Both apply; the strictest wins (a block beats a
@@ -1960,7 +1970,7 @@ def build_app(
             for bud, spent in applicable:
                 if spent < bud.limit:
                     continue
-                if bud.on_breach == "block":
+                if bud.on_breach == "block" and not offline:
                     logger.info(
                         "request %s blocked: %s budget of %s reached",
                         request_id, bud.window, bud.limit,
@@ -1976,10 +1986,13 @@ def build_app(
                             "x-wayfinder-router-budget": "blocked",
                         },
                     )
+                # An offline request over the cap is not rejected: offline delivery already routes
+                # to the cheapest/local tier (zero cloud spend), so a hard block softens to a degrade.
                 budget_state = "degraded"
-            if budget_state == "degraded":
+            if budget_state == "degraded" and not offline:
                 # cheapest tier (lowest min_score); a no-op if chosen is already cheapest or in
-                # classifier mode (no tier ladder to descend).
+                # classifier mode (no tier ladder to descend). Skipped when offline: offline never
+                # rewrites the reported decision — it adapts delivery, which already lands cheapest.
                 tiers_sorted = sorted(decision.tiers or (), key=lambda t: t.min_score)
                 cheapest = tiers_sorted[0].model if tiers_sorted else None
                 if cheapest is not None and cheapest != chosen:
@@ -2003,6 +2016,8 @@ def build_app(
         }
         if budget_state is not None:
             wf_headers["x-wayfinder-router-budget"] = budget_state
+        if offline:  # set once, so every path (cache hit, dry-run, delivery) carries the marker
+            wf_headers["x-wayfinder-router-offline"] = "true"
         # Informational rate-limit headers (WF-ADR-0034): tell well-behaved clients how much
         # headroom they have so they can self-pace before hitting a 429. Reflects the tightest
         # applicable RPM cap (gateway-wide vs this key's), by remaining headroom.
@@ -2078,6 +2093,7 @@ def build_app(
                 "model": chosen,
                 "score": round(decision.score, 2),
                 "mode": mode,
+                "offline": offline,
                 "request_id": request_id,
                 "features": dict(decision.features),
                 "contributions": [fc.to_dict() for fc in explain_score(decision.features, routing.weights)],
@@ -2114,33 +2130,41 @@ def build_app(
                 headers=wf_headers,
             )
 
+        # Effective delivery model (WF-ADR-0039): offline serves the cheapest tier; otherwise the
+        # scored choice. Equals `chosen` whenever offline is off, so the normal path is unchanged.
+        # The cache lookup and the delivery plan below both key off this, so an offline request
+        # never looks up — let alone replays — a dearer tier's cached answer.
+        ladder = [t.model for t in sorted(decision.tiers or (), key=lambda t: t.min_score)]
+        deliver_from = ladder[0] if (offline and ladder) else chosen
+
         # Response cache (WF-ADR-0033): an exact-match, deterministic, non-streaming hit replays
         # a stored answer with no upstream call, no breaker effect, and no budget spend (it is
         # free). Keyed on the *served upstream model id* so a different model never replays
         # another's answer. Skipped for streaming, non-deterministic, tool, or debug requests.
         cache_state: str | None = None
         cache_key_value: str | None = None
+        serve_target = gw.models.get(deliver_from)
         if (
-            gw.cache is not None and gw.cache.enabled and not debug
+            gw.cache is not None and gw.cache.enabled and not debug and serve_target is not None
             and body.get("stream") is not True and cache.is_cacheable(body)
         ):
-            cache_key_value = cache.cache_key(target.model, body)
+            cache_key_value = cache.cache_key(serve_target.model, body)
             cached = response_cache.get(cache_key_value)
             if cached is not None:
                 costs, _ = _price_table(gw, decision)
                 avoided = pricing.turn_cost(
-                    chosen, cached.prompt_tokens, cached.completion_tokens,
+                    deliver_from, cached.prompt_tokens, cached.completion_tokens,
                     costs, estimated=cached.estimated,
                 ).realized
                 metrics.observe_cache_hit(avoided)
                 entry["cache"] = "hit"  # decision-feed metadata only — never the body
-                logger.info("request %s cache hit (served-by %s)", request_id, chosen)
+                logger.info("request %s cache hit (served-by %s)", request_id, deliver_from)
                 return Response(
                     content=cached.body, status_code=cached.status,
                     media_type=cached.content_type,
                     headers={
                         **wf_headers,
-                        "x-wayfinder-router-served-by": chosen,
+                        "x-wayfinder-router-served-by": deliver_from,
                         "x-wayfinder-router-cache": "hit",
                     },
                 )
@@ -2150,8 +2174,6 @@ def build_app(
         # Delivery plan (WF-ADR-0031): the chosen tier's endpoint, its same-tier fallbacks,
         # then cross-tier candidates per the failover policy — minus any whose breaker is
         # open or that fail the pre-call check. The scored decision is unchanged either way.
-        ladder = [t.model for t in sorted(decision.tiers or (), key=lambda t: t.min_score)]
-        offline = gw.offline or (x_wayfinder_offline or "").strip().lower() in ("1", "true", "yes")
         prompt_estimate = pricing.estimate_tokens(prompt_all)
 
         def _precall_ok(name: str) -> bool:  # skip a target whose window can't fit the prompt
@@ -2159,13 +2181,12 @@ def build_app(
             return model is None or reliability.precheck_ok(prompt_estimate, model.context_window)
 
         if offline and ladder:
-            # Offline-first (WF-ADR-0039): deliver to the cheapest tier only and never attempt a
-            # dearer/cloud tier, so a request can't hang on a network timeout when there is no
-            # connectivity. The scored decision is unchanged and still reported; only delivery adapts.
-            deliver_from = ladder[0]
+            # Offline-first (WF-ADR-0039): deliver to the cheapest tier only (`deliver_from`,
+            # computed above) and never attempt a dearer/cloud tier, so a request can't hang on a
+            # network timeout when there is no connectivity. The scored decision is unchanged and
+            # still reported (the offline header was already set on wf_headers); only delivery adapts.
             fallbacks = gw.models[deliver_from].fallbacks if deliver_from in gw.models else ()
             plan = reliability.delivery_plan(deliver_from, fallbacks, breaker, allow=_precall_ok)
-            wf_headers["x-wayfinder-router-offline"] = "true"
         else:
             policy = (
                 x_wayfinder_failover

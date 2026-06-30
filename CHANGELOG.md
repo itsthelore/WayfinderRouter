@@ -25,6 +25,11 @@ details, release history over commit history.
   `degrade` failover + circuit breaker; the scored decision is unchanged and still reported, with a new
   `x-wayfinder-router-offline: true` header marking the degrade. Explicit signal only (reactive
   cloud-down is already handled by the breaker); no model call enters the decision path (WF-ADR-0001).
+  Offline takes precedence over the response cache (it never replays a dearer tier's cached answer —
+  the cache keys on the served, cheapest tier) and over a hard budget block (a request that incurs no
+  cloud spend is delivered from local rather than rejected with a 402). The standing mode is reported at
+  `/healthz`, in `wayfinder-router service status`, and in the `?debug` decision payload, so you can
+  confirm air-gapped mode is on without inspecting a request's headers.
 
 ## v2026.6.10 — 2026-06-29
 

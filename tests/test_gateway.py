@@ -203,6 +203,97 @@ def test_offline_must_be_boolean():
         gateway.gateway_config_from_toml('[gateway]\noffline = "yes"\n')
 
 
+def test_offline_does_not_replay_cloud_cache(tmp_path, monkeypatch):
+    # WF-ADR-0039: a cloud answer cached while online must NOT be replayed for an offline
+    # request — offline serves (and keys the cache on) the cheapest/local tier instead.
+    (tmp_path / "wayfinder-router.toml").write_text(_CACHE_ON, encoding="utf-8")
+    seen: list[str] = []
+
+    async def fake(url, headers, json_body, timeout=60.0):
+        seen.append(url)
+        tag = "cloud" if "cloud.test" in url else "local"
+        body = {
+            "choices": [
+                {"message": {"role": "assistant", "content": f"answer from {tag}"},
+                 "finish_reason": "stop"}
+            ],
+            "usage": {"prompt_tokens": 50, "completion_tokens": 10},
+            "object": "chat.completion",
+        }
+        return 200, json.dumps(body).encode(), "application/json"
+
+    monkeypatch.setattr(gateway, "aforward_request", fake)
+    tc = TestClient(gateway.build_app(start_dir=str(tmp_path)))
+
+    # 1) Online: COMPLEX scores cloud, is served by the cloud tier, and cached under its key.
+    online = tc.post("/v1/chat/completions", json=COMPLEX)
+    assert online.headers["x-wayfinder-router-served-by"] == "cloud"
+    assert online.headers["x-wayfinder-router-cache"] == "miss"
+    assert b"answer from cloud" in online.content
+    assert seen[-1].startswith("http://cloud.test")
+
+    # 2) Offline, same prompt: the decision is unchanged (cloud) but delivery degrades to local;
+    #    the cloud cache entry is NOT replayed — the local upstream is called and marked offline.
+    off = tc.post("/v1/chat/completions", json=COMPLEX, headers={"X-Wayfinder-Offline": "true"})
+    assert off.status_code == 200
+    assert off.headers["x-wayfinder-router-model"] == "cloud"
+    assert off.headers["x-wayfinder-router-served-by"] == "local"
+    assert off.headers["x-wayfinder-router-offline"] == "true"
+    assert off.headers["x-wayfinder-router-cache"] == "miss"
+    assert b"answer from local" in off.content  # not the cached cloud body
+    assert seen[-1].startswith("http://local.test")
+
+    # 3) A second offline request replays the LOCAL tier's own cached answer, still marked offline.
+    again = tc.post("/v1/chat/completions", json=COMPLEX, headers={"X-Wayfinder-Offline": "true"})
+    assert again.headers["x-wayfinder-router-cache"] == "hit"
+    assert again.headers["x-wayfinder-router-served-by"] == "local"
+    assert again.headers["x-wayfinder-router-offline"] == "true"
+    assert b"answer from local" in again.content
+
+
+def test_offline_overrides_budget_block(tmp_path, monkeypatch):
+    # WF-ADR-0039: a hard budget block must not 402 an offline request — offline delivery routes
+    # to the cheapest/local tier (zero cloud spend), so the block softens to a degrade.
+    tc, calls = _budget_client(tmp_path, monkeypatch, _budget_config(0.001, on_breach="block"))
+    first = tc.post("/v1/chat/completions", json=COMPLEX)  # under budget -> cloud
+    assert first.status_code == 200
+    assert first.headers["x-wayfinder-router-served-by"] == "cloud"
+
+    # Now over budget. Online this is a 402 (see test_budget_block_returns_402_after_breach);
+    # with offline on it is delivered from local instead, never rejected.
+    off = tc.post("/v1/chat/completions", json=COMPLEX, headers={"X-Wayfinder-Offline": "true"})
+    assert off.status_code == 200
+    assert off.headers["x-wayfinder-router-served-by"] == "local"
+    assert off.headers["x-wayfinder-router-offline"] == "true"
+    assert off.headers["x-wayfinder-router-budget"] == "degraded"
+    assert off.headers["x-wayfinder-router-model"] == "cloud"  # the scored decision is unchanged
+    assert calls["n"] == 2  # both requests reached an upstream; neither was blocked
+
+
+def test_healthz_reports_offline(tmp_path, monkeypatch):
+    monkeypatch.setenv("EXAMPLE_API_KEY", "sekret")
+    (tmp_path / "wayfinder-router.toml").write_text(_OFFLINE_CONFIG, encoding="utf-8")
+    tc = TestClient(gateway.build_app(start_dir=str(tmp_path)))
+    assert tc.get("/healthz").json()["offline"] is True
+
+
+def test_healthz_offline_false_by_default(client):
+    test_client, _ = client  # CONFIG has no [gateway] offline
+    assert test_client.get("/healthz").json()["offline"] is False
+
+
+def test_explain_payload_marks_offline(client, monkeypatch):
+    test_client, _ = client
+    monkeypatch.setenv("EXAMPLE_API_KEY", "sekret")
+    resp = test_client.post(
+        "/v1/chat/completions",
+        json=COMPLEX,
+        headers={"X-Wayfinder-Offline": "true", "X-Wayfinder-Debug": "true"},
+    )
+    assert resp.json()["wayfinder"]["offline"] is True
+    assert resp.headers["x-wayfinder-router-offline"] == "true"
+
+
 def test_response_carries_a_request_id(client):
     test_client, _ = client
     resp = test_client.post("/v1/chat/completions", json=TRIVIAL)
