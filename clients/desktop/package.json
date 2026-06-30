@@ -1,0 +1,10 @@
+{
+  "name": "@wayfinder/desktop",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Wayfinder Desktop — Tauri v2 macOS menu-bar app (WF-ADR-0042). Bundles the gateway as a PyInstaller sidecar; a thin client over its loopback HTTP API. (Scaffold; Tauri/React wiring lands in Phases 3–4.)",
+  "dependencies": {
+    "@wayfinder/shared": "*"
+  }
+}
