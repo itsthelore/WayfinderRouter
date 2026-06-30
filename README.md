@@ -425,6 +425,11 @@ where the request goes; the prompt is still scored, and nothing adds a model cal
   or `/auto` and it pins that turn (stripped before the model sees it). Only known
   directives are acted on; anything else starting with `/` is left as ordinary text
   (WF-ADR-0036).
+- **Offline mode** keeps you working with no network. Set `[gateway] offline = true`
+  (or send `X-Wayfinder-Offline: true` for one request) and Wayfinder serves the
+  cheapest/local tier and never calls the cloud tier — so a request can't hang on a
+  timeout on a plane. The prompt is still scored and reported; only delivery changes
+  (WF-ADR-0039).
 
 ```python
 # Pin one call to cloud regardless of score:

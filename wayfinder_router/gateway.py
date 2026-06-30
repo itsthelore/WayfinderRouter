@@ -482,6 +482,10 @@ class GatewayConfig:
     breaker_threshold: int = 5
     breaker_cooldown: float = 30.0
     failover: str = "same-tier"
+    # Offline-first (WF-ADR-0039): when on, deliver to the cheapest/local tier and skip dearer tiers
+    # entirely (reusing the ``degrade`` primitive) so no cloud call is attempted with no network. The
+    # scored decision is unchanged. Off by default; also settable per request via X-Wayfinder-Offline.
+    offline: bool = False
     # Budget (WF-ROADMAP-0006): an optional spend cap that degrades to the cheapest tier
     # (or blocks) once the period's realized cost is reached. ``None`` = no cap.
     budget: Budget | None = None
@@ -677,6 +681,9 @@ def gateway_config_from_toml(text: str, where: str = "wayfinder-router.toml") ->
     slash_directives = gateway.get("slash_directives", False)
     if not isinstance(slash_directives, bool):
         raise WayfinderConfigError(f"{where}: 'gateway.slash_directives' must be a boolean")
+    offline = gateway.get("offline", False)
+    if not isinstance(offline, bool):
+        raise WayfinderConfigError(f"{where}: 'gateway.offline' must be a boolean")
     retries = gateway.get("retries", 2)
     if isinstance(retries, bool) or not isinstance(retries, int) or retries < 0:
         raise WayfinderConfigError(f"{where}: 'gateway.retries' must be a non-negative integer")
@@ -777,7 +784,7 @@ def gateway_config_from_toml(text: str, where: str = "wayfinder-router.toml") ->
                 )
     return GatewayConfig(
         models=models, route_on=route_on, sticky=sticky, sticky_cooldown=cooldown,
-        slash_directives=slash_directives,
+        slash_directives=slash_directives, offline=offline,
         retries=retries, breaker_threshold=breaker_threshold, breaker_cooldown=breaker_cooldown,
         failover=failover, budget=budget, cache=cache_cfg, rate_limit=rate_limit, keys=keys,
     )
@@ -793,7 +800,7 @@ def dump_gateway_toml(gateway: GatewayConfig) -> str:
     blocks: list[str] = []
     nondefault_gateway = (
         gateway.route_on != "turn" or gateway.sticky or gateway.sticky_cooldown
-        or gateway.slash_directives
+        or gateway.slash_directives or gateway.offline
         or gateway.retries != 2 or gateway.breaker_threshold != 5 or gateway.breaker_cooldown != 30.0
         or gateway.failover != "same-tier"
     )
@@ -807,6 +814,8 @@ def dump_gateway_toml(gateway: GatewayConfig) -> str:
             lines.append(f"sticky_cooldown = {gateway.sticky_cooldown}")
         if gateway.slash_directives:
             lines.append("slash_directives = true")
+        if gateway.offline:
+            lines.append("offline = true")
         if gateway.retries != 2:
             lines.append(f"retries = {gateway.retries}")
         if gateway.breaker_threshold != 5:
@@ -1787,6 +1796,7 @@ def build_app(
         x_wayfinder_sticky_cooldown: str | None = Header(default=None),
         x_wayfinder_debug: str | None = Header(default=None),
         x_wayfinder_failover: str | None = Header(default=None),
+        x_wayfinder_offline: str | None = Header(default=None),
         authorization: str | None = Header(default=None),
     ) -> Response:
         request_id = uuid.uuid4().hex[:12]
@@ -2140,20 +2150,30 @@ def build_app(
         # Delivery plan (WF-ADR-0031): the chosen tier's endpoint, its same-tier fallbacks,
         # then cross-tier candidates per the failover policy — minus any whose breaker is
         # open or that fail the pre-call check. The scored decision is unchanged either way.
-        policy = (
-            x_wayfinder_failover
-            if x_wayfinder_failover in reliability.FAILOVER_POLICIES
-            else gw.failover
-        )
         ladder = [t.model for t in sorted(decision.tiers or (), key=lambda t: t.min_score)]
-        candidates = [*target.fallbacks, *reliability.failover_candidates(chosen, ladder, policy)]
+        offline = gw.offline or (x_wayfinder_offline or "").strip().lower() in ("1", "true", "yes")
         prompt_estimate = pricing.estimate_tokens(prompt_all)
 
         def _precall_ok(name: str) -> bool:  # skip a target whose window can't fit the prompt
             model = gw.models.get(name)
             return model is None or reliability.precheck_ok(prompt_estimate, model.context_window)
 
-        plan = reliability.delivery_plan(chosen, candidates, breaker, allow=_precall_ok)
+        if offline and ladder:
+            # Offline-first (WF-ADR-0039): deliver to the cheapest tier only and never attempt a
+            # dearer/cloud tier, so a request can't hang on a network timeout when there is no
+            # connectivity. The scored decision is unchanged and still reported; only delivery adapts.
+            deliver_from = ladder[0]
+            fallbacks = gw.models[deliver_from].fallbacks if deliver_from in gw.models else ()
+            plan = reliability.delivery_plan(deliver_from, fallbacks, breaker, allow=_precall_ok)
+            wf_headers["x-wayfinder-router-offline"] = "true"
+        else:
+            policy = (
+                x_wayfinder_failover
+                if x_wayfinder_failover in reliability.FAILOVER_POLICIES
+                else gw.failover
+            )
+            candidates = [*target.fallbacks, *reliability.failover_candidates(chosen, ladder, policy)]
+            plan = reliability.delivery_plan(chosen, candidates, breaker, allow=_precall_ok)
         if not plan:  # chosen and every fallback are tripped, cooling down, or too small
             logger.warning("request %s: no available upstream for '%s'", request_id, chosen)
             return JSONResponse(
@@ -2167,7 +2187,7 @@ def build_app(
 
         def _served_headers(served: str) -> dict[str, str]:
             out = {**wf_headers, "x-wayfinder-router-served-by": served}
-            if served != chosen:
+            if served != chosen and not offline:  # offline degrade is signaled separately
                 out["x-wayfinder-router-failover"] = "true"
             return out
 
@@ -2279,6 +2299,7 @@ def build_app(
             x_wayfinder_sticky_cooldown=None,
             x_wayfinder_debug=None,
             x_wayfinder_failover=None,
+            x_wayfinder_offline=None,
             authorization=authorization,  # virtual-key auth applies to Claude Code too (WF-ADR-0035)
         )
         request_id = inner.headers.get("x-wayfinder-router-request-id", "")

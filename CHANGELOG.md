@@ -18,6 +18,14 @@ details, release history over commit history.
   it. Packaging only — the deterministic decision is unchanged (WF-ADR-0001); your keys stay in the
   gateway config. The near-term, localhost slice of the "LLM routing as infrastructure" idea.
 
+- **Offline-first delivery** (WF-ADR-0039, WF-ROADMAP-0007). Set `[gateway] offline = true` (or send
+  `X-Wayfinder-Offline: true` for one request) and Wayfinder serves the **cheapest/local tier and
+  never calls a dearer/cloud tier** — so a request can't hang on a timeout when there's no network
+  (the "works on a plane" case), and it doubles as a privacy / air-gapped mode. It reuses the existing
+  `degrade` failover + circuit breaker; the scored decision is unchanged and still reported, with a new
+  `x-wayfinder-router-offline: true` header marking the degrade. Explicit signal only (reactive
+  cloud-down is already handled by the breaker); no model call enters the decision path (WF-ADR-0001).
+
 ## v2026.6.10 — 2026-06-29
 
 The **feedback release** — features driven by post-launch feedback.
