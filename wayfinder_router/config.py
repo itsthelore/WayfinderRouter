@@ -41,6 +41,11 @@ from .complexity import (
 _MAX_LEXICON_TERMS = 2000
 
 CONFIG_FILE = "wayfinder-router.toml"
+# An explicit path to the config file, overriding the cwd walk-up. Lets a launchd-spawned gateway
+# (whose cwd is unpredictable) and the desktop app agree on one well-known file — e.g.
+# ~/Library/Application Support/Wayfinder/wayfinder-router.toml (WF-ADR-0042). `serve --config PATH`
+# sets it.
+CONFIG_PATH_ENV = "WAYFINDER_CONFIG"
 # Convenience override for one-off runs of the binary router without editing the
 # file. Ignored when explicit tiers or a classifier are configured.
 THRESHOLD_ENV = "WAYFINDER_ROUTER_THRESHOLD"
@@ -51,7 +56,17 @@ class WayfinderConfigError(Exception):
 
 
 def find_config_file(start_dir: str) -> Path | None:
-    """The nearest ``wayfinder-router.toml`` at or above ``start_dir``, or None."""
+    """The config file to load: an explicit ``WAYFINDER_CONFIG`` override, else the nearest
+    ``wayfinder-router.toml`` at or above ``start_dir``, else None.
+
+    The override is absolute: when ``WAYFINDER_CONFIG`` is set but the file is missing, the result
+    is ``None`` (a clear "your configured file isn't there"), never a silent walk-up to some other
+    config that happens to be above the cwd.
+    """
+    override = os.environ.get(CONFIG_PATH_ENV)
+    if override:
+        path = Path(override).expanduser()
+        return path if path.is_file() else None
     current = Path(start_dir).resolve()
     for directory in (current, *current.parents):
         candidate = directory / CONFIG_FILE
