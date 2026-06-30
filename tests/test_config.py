@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 from wayfinder_router.complexity import DEFAULT_THRESHOLD
-from wayfinder_router.config import THRESHOLD_ENV
+from wayfinder_router.config import CONFIG_PATH_ENV, THRESHOLD_ENV, find_config_file
 
 from wayfinder_router import RoutingConfig, WayfinderConfigError, load_routing_config
 
@@ -12,6 +12,7 @@ from wayfinder_router import RoutingConfig, WayfinderConfigError, load_routing_c
 @pytest.fixture(autouse=True)
 def _clear_env(monkeypatch):
     monkeypatch.delenv(THRESHOLD_ENV, raising=False)
+    monkeypatch.delenv(CONFIG_PATH_ENV, raising=False)
 
 
 def _write(tmp_path, body: str) -> str:
@@ -63,6 +64,38 @@ def test_config_is_discovered_by_walking_up(tmp_path):
     nested = tmp_path / "a" / "b"
     nested.mkdir(parents=True)
     assert load_routing_config(str(nested)).tiers[1].min_score == 0.9
+
+
+# --- WAYFINDER_CONFIG override (WF-ADR-0042) --------------------------------
+
+
+def test_wayfinder_config_env_overrides_walk_up(tmp_path, monkeypatch):
+    # An explicit WAYFINDER_CONFIG wins over any wayfinder-router.toml found by walking up.
+    walked = tmp_path / "walked"
+    walked.mkdir()
+    _write(walked, "[routing]\nthreshold = 0.9\n")  # would be found by the walk-up
+    chosen = tmp_path / "elsewhere" / "wayfinder-router.toml"
+    chosen.parent.mkdir()
+    chosen.write_text("[routing]\nthreshold = 0.2\n", encoding="utf-8")
+    monkeypatch.setenv(CONFIG_PATH_ENV, str(chosen))
+    assert find_config_file(str(walked)).samefile(chosen)
+    assert load_routing_config(str(walked)).tiers[1].min_score == 0.2
+
+
+def test_wayfinder_config_env_missing_file_is_none_not_walk_up(tmp_path, monkeypatch):
+    # A configured-but-absent override is a clear None, never a silent walk-up to another file.
+    _write(tmp_path, "[routing]\nthreshold = 0.9\n")  # present, but must be ignored
+    monkeypatch.setenv(CONFIG_PATH_ENV, str(tmp_path / "does-not-exist.toml"))
+    assert find_config_file(str(tmp_path)) is None
+    assert load_routing_config(str(tmp_path)).tiers[1].min_score == DEFAULT_THRESHOLD
+
+
+def test_wayfinder_config_unset_uses_walk_up(tmp_path):
+    # With the env unset (the autouse fixture clears it), behaviour is the unchanged walk-up.
+    _write(tmp_path, "[routing]\nthreshold = 0.77\n")
+    nested = tmp_path / "x" / "y"
+    nested.mkdir(parents=True)
+    assert find_config_file(str(nested)).samefile(tmp_path / "wayfinder-router.toml")
 
 
 # --- tiers ------------------------------------------------------------------

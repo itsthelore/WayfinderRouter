@@ -133,6 +133,25 @@ def test_service_install_reports_systemctl_failure(monkeypatch, tmp_path, capsys
     assert "could not enable" in err and "permission denied" in err
 
 
+def test_resolve_serve_args_includes_config_when_given():
+    args = _resolve_serve_args("127.0.0.1", 8088, "/etc/wf/wayfinder-router.toml")
+    assert args[-2:] == ["--config", "/etc/wf/wayfinder-router.toml"]
+    assert "--config" not in _resolve_serve_args("127.0.0.1", 8088)  # absent by default
+
+
+def test_service_install_print_bakes_config_into_the_unit(monkeypatch, capsys):
+    # `service install --config PATH --print` threads --config into the unit's ProgramArguments,
+    # so a launchd / systemd gateway loads a fixed file regardless of its working directory.
+    monkeypatch.setattr(service, "detect_platform", lambda platform=None: "macos")
+    args = build_parser().parse_args(
+        ["service", "install", "--print", "--config", "/etc/wf/wayfinder-router.toml"]
+    )
+    assert args.func(args) == 0
+    out = capsys.readouterr().out
+    assert "<string>--config</string>" in out
+    assert "<string>/etc/wf/wayfinder-router.toml</string>" in out
+
+
 def test_service_install_resolves_an_absolute_log_path(monkeypatch, capsys):
     # launchd cannot expand ``~`` in StandardOutPath/StandardErrorPath; an unresolved tilde
     # makes the agent fail to spawn (EX_CONFIG). The CLI must emit an absolute log path.

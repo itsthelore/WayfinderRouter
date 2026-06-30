@@ -109,6 +109,15 @@ offline (WF-ADR-0001).
   computed offline and is identical to `--dry-run` (WF-ADR-0001). A genuine outage (models configured
   but all cooling down) still returns its `503`.
 
+- **`serve --config` / `WAYFINDER_CONFIG`** (WF-ADR-0042). Point the gateway at a specific
+  `wayfinder-router.toml` instead of relying on the working-directory search: `wayfinder-router serve
+  --config <path>` (or set `WAYFINDER_CONFIG`). `service install --config <path>` bakes it into the
+  launchd / systemd unit, so a service-managed gateway loads a fixed file regardless of where it was
+  launched — and a desktop app and the service can share one well-known config. Precedence is
+  `--config` → `WAYFINDER_CONFIG` → the existing cwd walk-up → built-in defaults; an
+  explicitly-configured-but-missing file is a clear "not found" (never a silent fallback to some other
+  file). Fully backward-compatible — unset means the unchanged behavior.
+
 ## v2026.6.10 — 2026-06-29
 
 The **feedback release** — features driven by post-launch feedback.
