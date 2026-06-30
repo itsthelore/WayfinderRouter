@@ -260,10 +260,12 @@ def _parse_sse_data(line: str) -> object | None:
 class MessagesStreamTranslator:
     """Turn a stream of OpenAI chat chunks into the Anthropic SSE event sequence.
 
-    A small state machine: it opens a content block on the first text/tool delta, emits deltas,
-    and closes blocks in order (Anthropic blocks are sequential — switching block type closes the
-    current one first). ``start`` / ``feed`` / ``finish`` each return a list of encoded SSE events,
-    so the whole thing is drivable synchronously in a test.
+    Text streams incrementally as a single content block. Tool calls are **buffered** by their
+    OpenAI index (id / name / argument fragments) and emitted as complete, non-interleaved
+    ``tool_use`` blocks in :meth:`finish` — because OpenAI can interleave parallel tool-call deltas
+    across indices, which Anthropic's sequential, one-block-at-a-time stream cannot represent (a
+    block can't be reopened once closed). ``start`` / ``feed`` / ``finish`` each return a list of
+    encoded SSE events, so the whole thing is drivable synchronously in a test.
     """
 
     def __init__(self, *, model: str, message_id: str, input_tokens: int = 0) -> None:
@@ -271,7 +273,10 @@ class MessagesStreamTranslator:
         self.message_id = message_id
         self.input_tokens = input_tokens
         self._next_index = 0
-        self._current: tuple | None = None  # ("text", idx) | ("tool", openai_idx, idx)
+        self._current: tuple | None = None  # the open text block ("text", idx), or None
+        # Tool calls accumulated by OpenAI index: {oidx: {"id", "name", "args": [fragment, ...]}}.
+        # Insertion order is the emit order; flushed as whole blocks in finish().
+        self._tools: dict[int, dict] = {}
         self._finish_reason: object = None
         self._output_tokens = 0
         self._usage_seen = False
@@ -331,27 +336,20 @@ class MessagesStreamTranslator:
                     continue
                 oidx = tc.get("index", 0)
                 fn = tc.get("function") or {}
-                if not (self._current and self._current[0] == "tool" and self._current[1] == oidx):
-                    out += self._close_current()
-                    index = self._next_index
-                    self._next_index += 1
-                    self._current = ("tool", oidx, index)
-                    out.append(_sse("content_block_start", {
-                        "type": "content_block_start", "index": index,
-                        "content_block": {
-                            "type": "tool_use",
-                            "id": tc.get("id") or f"toolu_{index}",
-                            "name": fn.get("name") or "",
-                            "input": {},
-                        },
-                    }))
+                slot = self._tools.get(oidx)
+                if slot is None:  # first delta for this OpenAI tool-call index
+                    slot = {"id": None, "name": "", "args": []}
+                    self._tools[oidx] = slot
+                tid = tc.get("id")  # id / name arrive on the first delta; args stream across deltas
+                if isinstance(tid, str) and tid:
+                    slot["id"] = tid
+                name = fn.get("name")
+                if isinstance(name, str) and name:
+                    slot["name"] = name
                 args = fn.get("arguments")
                 if isinstance(args, str) and args:
+                    slot["args"].append(args)
                     self._completion.append(args)
-                    out.append(_sse("content_block_delta", {
-                        "type": "content_block_delta", "index": self._current[-1],
-                        "delta": {"type": "input_json_delta", "partial_json": args},
-                    }))
 
             if choice.get("finish_reason"):
                 self._finish_reason = choice["finish_reason"]
@@ -359,14 +357,35 @@ class MessagesStreamTranslator:
 
     def finish(self) -> list[bytes]:
         out: list[bytes] = []
-        if self._next_index == 0:  # nothing streamed — emit one empty text block
+        out += self._close_current()  # close the open text block, if any
+        # Flush buffered tool calls as complete tool_use blocks, in first-seen order — each its own
+        # start / single input_json_delta / stop — so parallel or interleaved calls keep their real
+        # id and name instead of being merged or losing one to a synthetic block.
+        for slot in self._tools.values():
+            index = self._next_index
+            self._next_index += 1
+            out.append(_sse("content_block_start", {
+                "type": "content_block_start", "index": index,
+                "content_block": {
+                    "type": "tool_use",
+                    "id": slot["id"] or f"toolu_{index}",
+                    "name": slot["name"],
+                    "input": {},
+                },
+            }))
+            joined = "".join(slot["args"])
+            if joined:
+                out.append(_sse("content_block_delta", {
+                    "type": "content_block_delta", "index": index,
+                    "delta": {"type": "input_json_delta", "partial_json": joined},
+                }))
+            out.append(_sse("content_block_stop", {"type": "content_block_stop", "index": index}))
+        if self._next_index == 0:  # nothing streamed at all — emit one empty text block
             out.append(_sse("content_block_start", {
                 "type": "content_block_start", "index": 0,
                 "content_block": {"type": "text", "text": ""},
             }))
             out.append(_sse("content_block_stop", {"type": "content_block_stop", "index": 0}))
-        else:
-            out += self._close_current()
         if not self._usage_seen and self._output_tokens == 0:
             self._output_tokens = estimate_tokens("".join(self._completion))
         out.append(_sse("message_delta", {

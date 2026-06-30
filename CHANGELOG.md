@@ -48,6 +48,15 @@ details, release history over commit history.
   toggled `cost_per_1k` it enforced (or skipped) the budget on stale state. It now derives priced-ness
   from the live config at decision time.
 
+### Fixed
+
+- **Parallel tool calls survive streaming through the Claude Code adapter** (WF-DESIGN-0011). When an
+  upstream interleaved two streaming tool calls (index 0 opens, index 1 opens, index 0 continues), the
+  Anthropic translator closed the wrong content block and emitted a third, synthetic `tool_use` block
+  with an empty name and a placeholder id — silently dropping one call's real id and name. Tool calls
+  are now buffered per index and emitted as complete, non-interleaved blocks, so each keeps its real
+  id, name, and full arguments. Text streaming and non-streaming responses are unaffected.
+
 ## v2026.6.10 — 2026-06-29
 
 The **feedback release** — features driven by post-launch feedback.
