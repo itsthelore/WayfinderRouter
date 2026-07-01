@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 import sys
 from pathlib import Path
 
@@ -413,6 +414,24 @@ def _cmd_init(args: argparse.Namespace) -> int:
     return EXIT_OK
 
 
+_BARE_TOML_KEY = re.compile(r"^[A-Za-z0-9_-]+$")
+
+
+def _toml_key(key: str) -> str:
+    """Render ``key`` as a TOML key: bare when simple, else a quoted, escaped basic string.
+
+    Without this a ``--id`` containing a dot, quote, bracket, or space would silently produce
+    malformed TOML (or inject extra structure) in the paste-able config block.
+    """
+    return key if _BARE_TOML_KEY.match(key) else json.dumps(key)
+
+
+def _toml_str(value: str) -> str:
+    """Render ``value`` as a TOML basic string. JSON and TOML share basic-string escaping
+    (``\\"``, ``\\\\``, ``\\n``, ``\\uXXXX``), so ``json.dumps`` is a correct, escaped encoder."""
+    return json.dumps(value)
+
+
 def _cmd_keys(args: argparse.Namespace) -> int:
     """Mint a virtual API key (WF-ADR-0035): prints the paste-able config block + the key once."""
     from . import vkeys
@@ -420,9 +439,9 @@ def _cmd_keys(args: argparse.Namespace) -> int:
     if args.action != "new":  # only "new" today; choices guards this, kept for clarity
         return EXIT_USAGE
     plaintext, key_hash = vkeys.generate()
-    lines = [f"[gateway.keys.{args.id}]", f'hash = "{key_hash}"']
+    lines = [f"[gateway.keys.{_toml_key(args.id)}]", f'hash = "{key_hash}"']
     if args.tag:
-        lines.append("tags = [" + ", ".join(f'"{t}"' for t in args.tag) + "]")
+        lines.append("tags = [" + ", ".join(_toml_str(t) for t in args.tag) + "]")
     print("# Paste into wayfinder-router.toml (only the hash is stored — never the key):")
     print("\n".join(lines))
     print("\n# Give this key to the caller; it is shown once and cannot be recovered:")

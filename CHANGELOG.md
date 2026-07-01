@@ -87,6 +87,17 @@ details, release history over commit history.
   `judge` reading a binary/non-UTF-8 file now print a clear message and exit with the usage code (2),
   matching how a missing file is already handled.
 
+### Fixed
+
+- **`keys new` emits valid TOML for any `--id` / `--tag`.** A key id or tag containing a dot, quote,
+  bracket, or space produced a malformed (or structure-injecting) paste-able config block; ids and tags
+  are now TOML-escaped, so the snippet always round-trips to exactly what you passed.
+- **The launchd unit generator resolves `~` on its own.** `service.launchd_plist` left a literal `~` in
+  the log paths when called without an explicit `log_dir` (launchd doesn't expand it, so the agent failed
+  to spawn); the default is now resolved to an absolute path for every caller, not just the CLI's.
+- **`cross_validated_accuracy` rejects `k < 2`** with a clear error instead of silently returning `0.0`
+  (which read as a genuine "no lift" verdict). Cross-validation needs at least two folds.
+
 ## v2026.6.10 — 2026-06-29
 
 The **feedback release** — features driven by post-launch feedback.

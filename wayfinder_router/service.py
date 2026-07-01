@@ -12,6 +12,7 @@ packaging in the invocation layer — the deterministic decision core is untouch
 
 from __future__ import annotations
 
+import os
 import shlex
 import sys
 from pathlib import Path
@@ -47,7 +48,9 @@ def launchd_plist(
     exits — the always-on behavior that makes the gateway feel like infrastructure.
     """
     args_xml = "\n".join(f"      <string>{_xml_escape(arg)}</string>" for arg in program_args)
-    logs = log_dir.rstrip("/")
+    # launchd does not expand ``~`` in StandardOut/ErrPath — an unresolved tilde makes the agent
+    # fail to spawn (EX_CONFIG). Resolve it here so every caller (not just the CLI) is safe.
+    logs = os.path.expanduser(log_dir).rstrip("/")
     return (
         '<?xml version="1.0" encoding="UTF-8"?>\n'
         '<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" '
