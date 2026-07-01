@@ -6,6 +6,14 @@ details, release history over commit history.
 
 ## Unreleased
 
+## v2026.7.0 — 2026-07-01
+
+The **run-it-anywhere** release. Install the gateway as an always-on **local service**, route
+**offline-first** when there's no network, and lean on a broad **production-audit hardening pass** that
+closes reliability, correctness, and input-validation gaps across the request path and the surface tools
+(with a stronger test suite behind them). All additive; the scored decision stays deterministic and
+offline (WF-ADR-0001).
+
 ### Added
 
 - **Run the gateway as a local service** (WF-ADR-0038, WF-ROADMAP-0007). `wayfinder-router service
@@ -47,18 +55,12 @@ details, release history over commit history.
   `priced` flag written at the *end* of the previous request, so for one request after a hot reload that
   toggled `cost_per_1k` it enforced (or skipped) the budget on stale state. It now derives priced-ness
   from the live config at decision time.
-
-### Fixed
-
 - **Parallel tool calls survive streaming through the Claude Code adapter** (WF-DESIGN-0011). When an
   upstream interleaved two streaming tool calls (index 0 opens, index 1 opens, index 0 continues), the
   Anthropic translator closed the wrong content block and emitted a third, synthetic `tool_use` block
   with an empty name and a placeholder id — silently dropping one call's real id and name. Tool calls
   are now buffered per index and emitted as complete, non-interleaved blocks, so each keeps its real
   id, name, and full arguments. Text streaming and non-streaming responses are unaffected.
-
-### Fixed
-
 - **The Configure UI saves back to the config it loaded.** Edits made through the web Configure tab
   were written to `wayfinder-router.toml` in the current directory, even when the config actually in
   use lived in a parent directory (the loaders walk up). Running the UI from a subdirectory could thus
@@ -73,9 +75,6 @@ details, release history over commit history.
   started" and exited 0 even when `launchctl`/`systemctl` errored. It now verifies the agent is actually
   loaded (launchd) / the unit enabled (systemd), surfaces the manager's error, and exits non-zero on
   failure — while still treating an already-loaded agent as success.
-
-### Fixed
-
 - **A malformed or older-schema savings ledger no longer crashes the next stats query.** A persisted
   bucket missing a field added in a later version (e.g. `estimated_n`), or any partial corruption, could
   raise a `KeyError` from `/v1/savings` — contradicting the ledger's "best-effort persistence, never raise
@@ -86,9 +85,6 @@ details, release history over commit history.
 - **Non-UTF-8 input files give a usage error, not a traceback.** `route`, `calibrate`, `onboard`, and
   `judge` reading a binary/non-UTF-8 file now print a clear message and exit with the usage code (2),
   matching how a missing file is already handled.
-
-### Fixed
-
 - **`keys new` emits valid TOML for any `--id` / `--tag`.** A key id or tag containing a dot, quote,
   bracket, or space produced a malformed (or structure-injecting) paste-able config block; ids and tags
   are now TOML-escaped, so the snippet always round-trips to exactly what you passed.
@@ -97,9 +93,6 @@ details, release history over commit history.
   to spawn); the default is now resolved to an absolute path for every caller, not just the CLI's.
 - **`cross_validated_accuracy` rejects `k < 2`** with a clear error instead of silently returning `0.0`
   (which read as a genuine "no lift" verdict). Cross-validation needs at least two folds.
-
-### Fixed
-
 - **The terminal chat's `/scope` and `/sticky` commands now actually affect routing.** They set and
   displayed state but neither backend consulted it, so `/scope all` and `/sticky on 5` changed only the
   status bar. The in-process backend now applies the route-on scope (WF-ADR-0021) and the sticky
