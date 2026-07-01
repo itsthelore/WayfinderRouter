@@ -1616,9 +1616,17 @@ def build_app(
                     if attempt < gw.retries:
                         await asyncio.sleep(delays[attempt])
                     continue
-                if not reliability.is_retryable(status):  # 2xx or a client 4xx — done
-                    metrics.observe_upstream(name, time.perf_counter() - started)
-                    breaker.record(name, True)
+                if not reliability.is_retryable(status):  # 2xx or a non-retryable 4xx — done
+                    if reliability.is_auth_failure(status):
+                        # A bad/expired/forbidden upstream key makes this target unusable, not just
+                        # this request bad: count it as a breaker failure so repeats open the breaker
+                        # and delivery degrades (WF-ADR-0031). Still return it so the client sees the
+                        # auth error; retrying a bad key is pointless.
+                        metrics.observe_upstream_error(name)
+                        breaker.record(name, False)
+                    else:  # genuine 2xx or an ordinary client 4xx — the target is reachable
+                        metrics.observe_upstream(name, time.perf_counter() - started)
+                        breaker.record(name, True)
                     return name, status, content, ctype
                 last_error = f"upstream returned {status}"  # 429/5xx — retry/fall back
                 metrics.observe_upstream_error(name)
@@ -1806,32 +1814,6 @@ def build_app(
         request_id = uuid.uuid4().hex[:12]
         routing, gw = holder.current()
 
-        # Virtual-key auth (WF-ADR-0035): when keys are configured, require a valid bearer token;
-        # with none configured the gateway stays open (backward compatible). The resolved key id
-        # selects per-key budget/rate-limit scope and tags attribution. Provider keys are
-        # unaffected — they still come from the environment (WF-ADR-0004).
-        key_id: str | None = None
-        key_cfg: VirtualKey | None = None
-        if gw.keys:
-            key_id = vkeys.match(
-                vkeys.extract_bearer(authorization), {k: v.hash for k, v in gw.keys.items()}
-            )
-            if key_id is None:
-                logger.info("request %s unauthorized (missing/invalid virtual key)", request_id)
-                return JSONResponse(
-                    status_code=401,
-                    content={"error": {
-                        "message": "missing or invalid API key",
-                        "type": "wayfinder_router_unauthorized",
-                    }},
-                    headers={
-                        "x-wayfinder-router-request-id": request_id,
-                        "WWW-Authenticate": "Bearer",
-                    },
-                )
-            key_cfg = gw.keys[key_id]
-            metrics.observe_key_request(key_id)
-
         # Keep the long-lived response cache in sync with hot-reloaded config; disabling it
         # purges any retained bodies immediately (WF-ADR-0033). When no cache is configured we
         # only touch the instance if it was previously enabled (to purge), else leave it idle.
@@ -1854,9 +1836,12 @@ def build_app(
         elif rate_limiter.active():
             rate_limiter.reconfigure(rpm=None, tpm=None, window=rate_limiter.window)
 
-        # Rate-limit admission (WF-ADR-0034/0035): the outermost guardrail — reject a flood with
-        # 429 before spending any work. The gateway-wide cap AND this key's own cap both apply.
-        # A cache hit still counts as a request (RPM); only real upstream calls count against TPM.
+        # Rate-limit admission (WF-ADR-0034/0035): the outermost guardrail — applied BEFORE auth so
+        # an unauthenticated flood is shed cheaply with one 429 instead of a per-request 401 (each a
+        # SHA-256 + constant-time compare against every configured key). The gateway-wide cap is
+        # enforced here; this request's own virtual-key cap is checked after auth (it needs the
+        # resolved key id). A cache hit still counts as a request (RPM); only real upstream calls
+        # count against TPM.
         def _too_many(result: ratelimit.RateResult, scope: str) -> JSONResponse:
             metrics.observe_rate_limited(result.limit)
             logger.info("request %s rate-limited (%s%s)", request_id, result.limit, scope)
@@ -1876,6 +1861,34 @@ def build_app(
         rl = rate_limiter.admit()
         if not rl.allowed:
             return _too_many(rl, "")
+
+        # Virtual-key auth (WF-ADR-0035): when keys are configured, require a valid bearer token;
+        # with none configured the gateway stays open (backward compatible). The resolved key id
+        # selects per-key budget/rate-limit scope and tags attribution. Provider keys are
+        # unaffected — they still come from the environment (WF-ADR-0004). Runs after the
+        # gateway-wide rate-limit admission above, so a token flood can't bypass the limiter.
+        key_id: str | None = None
+        key_cfg: VirtualKey | None = None
+        if gw.keys:
+            key_id = vkeys.match(
+                vkeys.extract_bearer(authorization), {k: v.hash for k, v in gw.keys.items()}
+            )
+            if key_id is None:
+                logger.info("request %s unauthorized (missing/invalid virtual key)", request_id)
+                return JSONResponse(
+                    status_code=401,
+                    content={"error": {
+                        "message": "missing or invalid API key",
+                        "type": "wayfinder_router_unauthorized",
+                    }},
+                    headers={
+                        "x-wayfinder-router-request-id": request_id,
+                        "WWW-Authenticate": "Bearer",
+                    },
+                )
+            key_cfg = gw.keys[key_id]
+            metrics.observe_key_request(key_id)
+
         key_limiter: ratelimit.RateLimiter | None = None
         if key_id is not None and key_cfg is not None and key_cfg.rate_limit is not None:
             key_limiter = _key_limiter(key_id, key_cfg.rate_limit)
@@ -1959,7 +1972,11 @@ def build_app(
         # cheapest tier (the failover ``degrade`` primitive, never raising cost); on a block we
         # return 402. This changes only *delivery*; the scored decision above is untouched.
         budget_state: str | None = None
-        if ledger.priced:
+        # Priced-ness from the *current* config, not the ledger's lagging ``priced`` flag (which is
+        # only written at the end of a request, in _record_turn) — so a hot reload that adds/removes
+        # cost_per_1k enforces (or skips) the budget on this very request, not one request late.
+        _, budget_priced = _price_table(gw, decision)
+        if budget_priced:
             applicable: list[tuple[Budget, float]] = []
             if gw.budget is not None:
                 applicable.append((gw.budget, ledger.spent(gw.budget.window)))

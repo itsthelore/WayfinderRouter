@@ -18,6 +18,12 @@ from dataclasses import dataclass, field
 # 4xx (bad request, auth) is the client's fault and is never retried.
 RETRYABLE_STATUS = frozenset({429, 500, 502, 503, 504})
 
+# Statuses that mean *this target is unusable* rather than *this request was bad*: a
+# missing/expired/forbidden upstream key. They are not retryable (retrying a bad key is
+# pointless), but — unlike an ordinary client 4xx — they must count as a breaker *failure*
+# so a stale key eventually opens the breaker and delivery degrades (WF-ADR-0031).
+AUTH_FAILURE_STATUS = frozenset({401, 403, 407})
+
 
 def is_retryable(status: int | None) -> bool:
     """Whether a forward attempt should be retried.
@@ -26,6 +32,11 @@ def is_retryable(status: int | None) -> bool:
     retryable. An HTTP status is retryable only for rate-limit / transient 5xx.
     """
     return status is None or status in RETRYABLE_STATUS
+
+
+def is_auth_failure(status: int | None) -> bool:
+    """Whether ``status`` means the upstream target is unusable (bad/expired/forbidden key)."""
+    return status in AUTH_FAILURE_STATUS
 
 
 def retry_delays(

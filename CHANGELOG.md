@@ -31,6 +31,23 @@ details, release history over commit history.
   `/healthz`, in `wayfinder-router service status`, and in the `?debug` decision payload, so you can
   confirm air-gapped mode is on without inspecting a request's headers.
 
+### Fixed
+
+- **A bad/expired upstream key now trips the circuit breaker** (WF-ADR-0031). A non-retryable auth
+  failure (401/403/407) from a provider was being recorded as a breaker *success*, so a stale key —
+  the most common real-world failure — never opened the breaker and failover/degrade never engaged.
+  Such statuses now count as a target failure: the response is still returned (you see the auth error),
+  and after repeats the breaker opens and delivery degrades to a healthy tier. Ordinary client 4xx stay
+  breaker-neutral.
+- **Rate-limit admission now precedes virtual-key auth** (WF-ADR-0034/0035). The gateway-wide RPM/TPM
+  cap is the documented "outermost guardrail," but auth ran first — so a flood of requests with no/invalid
+  token was 401'd one at a time and never rate-limited. The gateway-wide limiter now runs before auth (a
+  token flood is shed with a 429); the per-key limiter still runs after auth, where the key id is known.
+- **Budget enforcement reads the current config's pricing, not a stale flag.** The spend cap consulted a
+  `priced` flag written at the *end* of the previous request, so for one request after a hot reload that
+  toggled `cost_per_1k` it enforced (or skipped) the budget on stale state. It now derives priced-ness
+  from the live config at decision time.
+
 ## v2026.6.10 — 2026-06-29
 
 The **feedback release** — features driven by post-launch feedback.
