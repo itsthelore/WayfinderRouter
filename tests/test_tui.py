@@ -42,6 +42,87 @@ def test_decide_threshold_extremes_classify(tmp_path):
     assert cloud.is_local is False
 
 
+def test_decide_without_messages_is_unchanged(tmp_path):
+    # No `messages` -> scores the text directly, exactly as before (regression guard).
+    d = tui.decide("anything at all", start_dir=str(tmp_path), threshold=1.0)
+    assert d.is_local is True and d.text == "anything at all" and d.mode != "sticky"
+
+
+_HEAVY = "# Plan\n\n## Steps\n\n" + "".join(
+    f"- work through detailed subtask number {i}\n" for i in range(20)
+)
+
+
+def test_decide_scope_selects_what_is_scored(tmp_path):
+    # `/scope` reaches routing: `all` folds the heavy earlier turn into the score; `last_user`
+    # scores only the current (light) turn — and a cut between them flips the route.
+    convo = [{"role": "user", "content": _HEAVY}, {"role": "user", "content": "ok thanks"}]
+    last = tui.decide("ok thanks", start_dir=str(tmp_path), scope="last_user", messages=convo)
+    allm = tui.decide("ok thanks", start_dir=str(tmp_path), scope="all", messages=convo)
+    assert allm.score > last.score
+    mid = (last.score + allm.score) / 2
+    assert tui.decide(
+        "ok thanks", start_dir=str(tmp_path), threshold=mid, scope="last_user", messages=convo
+    ).is_local
+    assert not tui.decide(
+        "ok thanks", start_dir=str(tmp_path), threshold=mid, scope="all", messages=convo
+    ).is_local
+
+
+def test_decide_sticky_latches_to_conversation_high_water(tmp_path):
+    # `/sticky` reaches routing: a hard earlier turn latches the route up even though the current
+    # turn alone is light — the same rule the gateway applies (WF-ADR-0022).
+    heavy_score = tui.decide(_HEAVY, start_dir=str(tmp_path)).score
+    cut = heavy_score / 2  # the heavy turn is above this cut; a trivial turn is below
+    convo = [{"role": "user", "content": _HEAVY}, {"role": "user", "content": "hi"}]
+    plain = tui.decide(
+        "hi", start_dir=str(tmp_path), threshold=cut, scope="last_user", sticky=False, messages=convo
+    )
+    latched = tui.decide(
+        "hi", start_dir=str(tmp_path), threshold=cut, scope="last_user", sticky=True, messages=convo
+    )
+    assert plain.is_local  # the current light turn alone routes local
+    assert not latched.is_local and latched.mode == "sticky"  # sticky latches to the hard turn
+
+
+def _capture_post(monkeypatch, payload):
+    httpx = pytest.importorskip("httpx")
+    seen: dict = {}
+
+    class _Resp:
+        status_code = 200
+
+        def json(self):
+            return payload
+
+    def fake_post(url, *, json, headers, timeout):
+        seen["headers"] = headers
+        return _Resp()
+
+    monkeypatch.setattr(httpx, "post", fake_post)
+    return seen
+
+
+def test_remote_reply_sends_scope_and_sticky_headers(monkeypatch):
+    seen = _capture_post(monkeypatch, {"wayfinder": {}, "choices": [{"message": {"content": "hi"}}]})
+    tui.remote_reply(
+        "http://gw.test", [{"role": "user", "content": "hi"}], scope="all", sticky=True, cooldown=3
+    )
+    h = seen["headers"]
+    assert h["X-Wayfinder-Route-On"] == "all"
+    assert h["X-Wayfinder-Sticky"] == "true"
+    assert h["X-Wayfinder-Sticky-Cooldown"] == "3"
+
+
+def test_remote_reply_sticky_off_sends_false_and_omits_cooldown(monkeypatch):
+    seen = _capture_post(monkeypatch, {"choices": [{"message": {"content": "x"}}]})
+    tui.remote_reply("http://gw.test", [{"role": "user", "content": "hi"}], scope="turn", sticky=False)
+    h = seen["headers"]
+    assert h["X-Wayfinder-Route-On"] == "turn"
+    assert h["X-Wayfinder-Sticky"] == "false"
+    assert "X-Wayfinder-Sticky-Cooldown" not in h
+
+
 def test_render_decision_collapses_by_default_expands_on_demand():
     from rich.console import Console
 
