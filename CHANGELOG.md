@@ -98,6 +98,16 @@ details, release history over commit history.
 - **`cross_validated_accuracy` rejects `k < 2`** with a clear error instead of silently returning `0.0`
   (which read as a genuine "no lift" verdict). Cross-validation needs at least two folds.
 
+### Fixed
+
+- **The terminal chat's `/scope` and `/sticky` commands now actually affect routing.** They set and
+  displayed state but neither backend consulted it, so `/scope all` and `/sticky on 5` changed only the
+  status bar. The in-process backend now applies the route-on scope (WF-ADR-0021) and the sticky
+  conversation latch (WF-ADR-0022) by reusing the gateway's own `extract_prompt` /
+  `conversation_high_water`, and the `--base-url` backend sends the matching `X-Wayfinder-Route-On` /
+  `X-Wayfinder-Sticky` / `X-Wayfinder-Sticky-Cooldown` headers — so what the status bar shows is what
+  routes, identically across both backends. Still pure and offline (WF-ADR-0001).
+
 ## v2026.6.10 — 2026-06-29
 
 The **feedback release** — features driven by post-launch feedback.

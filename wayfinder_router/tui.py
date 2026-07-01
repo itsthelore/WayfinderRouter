@@ -148,28 +148,66 @@ class Decision:
     targets: list[str] = field(default_factory=list)
 
 
-def decide(text: str, *, start_dir: str = ".", threshold: float | None = None) -> Decision:
-    """Score ``text`` and classify the route — the same path as ``wayfinder-router route``.
+def _tier_index(model: str, tiers: tuple) -> int:
+    """The ladder position (0 = cheapest) of ``model`` among ``tiers``; 0 if not found."""
+    for i, tier in enumerate(tiers):
+        if tier.model == model:
+            return i
+    return 0
 
-    ``is_local`` is true when the recommendation falls in the lowest tier (the cheap,
-    local arm); any escalation reads as cloud. Pure and offline (WF-ADR-0001).
+
+def decide(
+    text: str,
+    *,
+    start_dir: str = ".",
+    threshold: float | None = None,
+    scope: str = "turn",
+    sticky: bool = False,
+    cooldown: int = 0,
+    messages: list[dict] | None = None,
+) -> Decision:
+    """Score the turn and classify the route — the same path as ``wayfinder-router route``.
+
+    ``is_local`` is true when the *chosen* model falls in the lowest tier (the cheap, local
+    arm); any escalation reads as cloud. When ``messages`` is given, ``scope`` (WF-ADR-0021)
+    selects which of them to score — ``turn`` / ``last_user`` / ``user`` / ``all`` — and
+    ``sticky`` (WF-ADR-0022) latches the route up to the highest tier any turn in the
+    conversation needed, decaying after ``cooldown`` calm turns. Both reuse the gateway's own
+    pure helpers so the in-process backend matches the remote one exactly. With ``messages``
+    omitted it scores ``text`` as before. Pure and offline (WF-ADR-0001).
     """
     config = load_routing_config(start_dir)
     if threshold is not None:
         config = RoutingConfig(
             weights=config.weights, tiers=binary_tiers(threshold), lexicon=config.lexicon
         )
-    score = score_complexity(text, config=config)
-    tiers = sorted(config.tiers or DEFAULT_TIERS, key=lambda t: t.min_score)
+    scored_text = text
+    if messages:
+        # Reuse the gateway's route-on scoping; its fastapi/httpx stay lazy, so this pulls no
+        # server deps and the decision stays offline.
+        from .gateway import extract_prompt
+
+        scored_text = extract_prompt(messages, route_on=scope)
+    score = score_complexity(scored_text, config=config)
+    tiers = tuple(sorted(config.tiers or DEFAULT_TIERS, key=lambda t: t.min_score))
     idx = 0
     for i, tier in enumerate(tiers):
         if score.score >= tier.min_score:
             idx = i
+    model, mode = score.recommendation, score.mode
+    # Conversation latch (WF-ADR-0022): escalate to the highest tier any single turn needed —
+    # the same rule the gateway applies, via the same function.
+    if sticky and messages and config.classifier is None and len(tiers) >= 2:
+        from .gateway import conversation_high_water
+
+        latched = conversation_high_water(messages, config, tiers, cooldown=cooldown)
+        if latched is not None and _tier_index(latched, tiers) > idx:
+            model, mode, idx = latched, "sticky", _tier_index(latched, tiers)
     return Decision(
-        text=text,
-        model=score.recommendation,
+        text=scored_text,
+        model=model,
         score=score.score,
-        mode=score.mode,
+        mode=mode,
         is_local=idx == 0,
         contributions=explain_score(score.features, config.weights),
         threshold=threshold,
@@ -777,7 +815,8 @@ def decision_from_debug(payload: dict, *, text: str = "") -> Decision:
 
 def remote_reply(
     base_url: str, messages: list[dict], *, model: str = "auto",
-    threshold: float | None = None, timeout: float = 60.0,
+    threshold: float | None = None, scope: str = "turn",
+    sticky: bool = False, cooldown: int = 0, timeout: float = 60.0,
 ) -> tuple[Decision | None, str | None]:
     """POST to a running gateway's ``/v1/chat/completions``; return ``(decision, reply)``.
 
@@ -785,6 +824,10 @@ def remote_reply(
     decision (surfaced via ``X-Wayfinder-Debug``) and the reply. Non-streaming. ``model``
     is the OpenAI ``model`` field — ``"auto"`` routes, a concrete name or
     ``prefer-local`` / ``prefer-hosted`` forces the call server-side (``resolve_pin``).
+    ``scope`` / ``sticky`` / ``cooldown`` ride along as the ``X-Wayfinder-Route-On`` /
+    ``X-Wayfinder-Sticky`` / ``X-Wayfinder-Sticky-Cooldown`` headers, so the gateway routes
+    with the same scope + latch the status bar shows (the client's state is authoritative,
+    overriding any gateway default).
     """
     from .gateway import GatewayUnavailable
 
@@ -794,9 +837,15 @@ def remote_reply(
         raise GatewayUnavailable(
             "the --base-url client needs httpx: pip install 'wayfinder-router[gateway]'"
         ) from exc
-    headers = {"X-Wayfinder-Debug": "1"}
+    headers = {
+        "X-Wayfinder-Debug": "1",
+        "X-Wayfinder-Route-On": scope,
+        "X-Wayfinder-Sticky": "true" if sticky else "false",
+    }
     if threshold is not None:
         headers["X-Wayfinder-Threshold"] = f"{threshold}"
+    if sticky:
+        headers["X-Wayfinder-Sticky-Cooldown"] = str(cooldown)
     body = {"model": model, "messages": list(messages)}
     url = base_url.rstrip("/") + "/v1/chat/completions"
     try:
@@ -1193,7 +1242,11 @@ def _build_chat_app() -> type:
                 return
 
             try:  # in-process: score locally, then call the chosen (or forced) model
-                decision = decide(text, start_dir=self.start_dir, threshold=self.state.threshold)
+                decision = decide(
+                    text, start_dir=self.start_dir, threshold=self.state.threshold,
+                    scope=self.state.scope, sticky=self.state.sticky,
+                    cooldown=self.state.cooldown, messages=convo,
+                )
             except WayfinderConfigError as exc:
                 self._warn(str(exc))
                 if not ephemeral:
@@ -1547,7 +1600,9 @@ def _build_chat_app() -> type:
             try:
                 decision, reply = remote_reply(
                     self.base_url, messages, model=model_field,
-                    threshold=self.state.threshold, timeout=self.timeout,
+                    threshold=self.state.threshold, scope=self.state.scope,
+                    sticky=self.state.sticky, cooldown=self.state.cooldown,
+                    timeout=self.timeout,
                 )
             except (GatewayUnavailable, UpstreamError, RuntimeError) as exc:
                 self.call_from_thread(self._warn, _friendly_error(str(exc), self.base_url))
