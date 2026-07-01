@@ -1,0 +1,22 @@
+<!-- See CONTRIBUTING.md for the full conventions. -->
+
+## Summary
+
+<!-- What does this change, and why? A couple of sentences. -->
+
+## Scope
+
+<!-- The single area touched: gateway, cli, tui, ui, adapter, pricing, service, calibrate, suite, … -->
+
+## Verification
+
+- [ ] `ruff check .`
+- [ ] `python -m mypy wayfinder_router`
+- [ ] `python -m pytest -q` — full suite, run via `python -m` (a bare `pytest` skips the gateway/ui/tui tests)
+
+## Checklist
+
+- [ ] Conventional, single-scope title (`type(scope): imperative summary`) with a descriptive body
+- [ ] No AI attribution in the commits or this PR
+- [ ] Behaviour change → an ADR/design/roadmap doc added with the **next free** number, plus a `CHANGELOG.md` `## Unreleased` entry
+- [ ] The scored decision path stays offline, deterministic, and keyless (WF-ADR-0001)
