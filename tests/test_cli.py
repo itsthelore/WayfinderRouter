@@ -402,3 +402,19 @@ def test_keys_new_mints_paste_able_block(capsys):
     key = [ln.strip() for ln in out.splitlines() if ln.strip().startswith("wf-")][0]
     khash = re.search(r'hash = "([0-9a-f]{64})"', out).group(1)
     assert vkeys.verify(key, khash)
+
+
+def test_keys_new_escapes_toml_unsafe_id_and_tag(capsys):
+    # A TOML-special --id/--tag (dot, quote) must produce valid TOML that round-trips to the exact
+    # id/tag, not a malformed block or injected structure.
+    import tomllib
+
+    from wayfinder_router.cli import main
+
+    assert main(["keys", "new", "--id", 'we"ird.id', "--tag", 'a"b', "--tag", "ok"]) == 0
+    out = capsys.readouterr().out
+    block = out.split("# Give this key", 1)[0]  # the config block (comments + TOML), before the key
+    data = tomllib.loads(block)
+    keys = data["gateway"]["keys"]
+    assert 'we"ird.id' in keys  # a single quoted key, not nested by the dot
+    assert keys['we"ird.id']["tags"] == ['a"b', "ok"]

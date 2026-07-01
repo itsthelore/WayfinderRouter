@@ -36,6 +36,15 @@ def test_launchd_plist_is_well_formed():
     assert "<string>8088</string>" in plist
 
 
+def test_launchd_plist_default_log_dir_is_absolute(monkeypatch):
+    # launchd cannot expand ~ in StandardOut/ErrPath; the default log_dir must be resolved even
+    # when a caller omits it (not only when the CLI pre-expands it).
+    monkeypatch.setenv("HOME", "/home/tester")
+    plist = service.launchd_plist(["/usr/local/bin/wayfinder-router", "serve"])
+    assert "~/Library/Logs" not in plist  # no unexpanded tilde reaches the plist
+    assert "/home/tester/Library/Logs" in plist
+
+
 def test_launchd_plist_xml_escapes_arguments():
     plist = service.launchd_plist(["/bin/x & <y>", "serve"])
     assert "<string>/bin/x &amp; &lt;y&gt;</string>" in plist

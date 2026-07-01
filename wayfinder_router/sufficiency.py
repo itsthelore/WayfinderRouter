@@ -88,7 +88,12 @@ def cross_validated_accuracy(samples: list[Sample], *, k: int = DEFAULT_CV_FOLDS
     reflects how the labels *generalize*, not how well a cut memorizes them. Folds whose
     training split lacks both labels are skipped (a cut needs two). Returns ``0.0`` when no
     fold is usable.
+
+    Raises ``ValueError`` for ``k < 2``: cross-validation needs at least two folds, and a bad
+    ``k`` should surface as an error, not a silent ``0.0`` that reads as a genuine "no lift".
     """
+    if k < 2:
+        raise ValueError(f"cross_validated_accuracy needs at least 2 folds (got k={k})")
     n = len(samples)
     if n < 2:
         return 0.0

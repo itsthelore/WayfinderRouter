@@ -6,6 +6,8 @@ Pure: builds ``Sample``s directly (accuracy-objective calibration reads only
 
 from __future__ import annotations
 
+import pytest
+
 from wayfinder_router import cohens_kappa, cross_validated_accuracy, evaluate
 from wayfinder_router.calibrate import Sample
 from wayfinder_router.sufficiency import confusion_matrix, majority_baseline
@@ -61,6 +63,13 @@ def test_cross_validated_accuracy_high_on_separable():
 
 def test_cross_validated_accuracy_low_on_noise():
     assert cross_validated_accuracy(NOISE, k=4) <= 0.6
+
+
+def test_cross_validated_accuracy_rejects_fewer_than_two_folds():
+    # A bad k must surface as an error, not a silent 0.0 that reads as a genuine "no lift".
+    for bad in (1, 0, -1):
+        with pytest.raises(ValueError):
+            cross_validated_accuracy(SEPARABLE, k=bad)
 
 
 def test_gates_pass_on_good_judge_and_separable_labels():
