@@ -44,6 +44,20 @@ network — just use the local model."
 4. **Tiered routers.** Offline needs a cost ladder to pick "cheapest"; in classifier mode (no tier
    ladder) it is a no-op and delivery proceeds normally.
 
+5. **Offline is decided early and takes precedence over the cache and a budget block.** The signal is
+   evaluated once, before both the response cache (WF-ADR-0033) and budget enforcement
+   (WF-ROADMAP-0006). The cache lookup keys on the *served* (cheapest) tier, so an offline request never
+   replays a dearer tier's cached answer and any hit carries the offline header. A hard budget block
+   (`on_breach = "block"`) **softens to a local delivery** rather than a 402 when offline — the local
+   tier incurs no cloud spend, so the cap is honored without rejecting a request the offline promise says
+   should still be served. (The budget *degrade* path already converges on the same cheapest tier; under
+   offline the reported decision is left unchanged, since offline adapts delivery only.)
+
+6. **The standing mode is observable.** `gw.offline` is reported at `/healthz`, surfaced by
+   `wayfinder-router service status`, and included in the `?debug` decision payload — so an operator can
+   confirm air-gapped/privacy mode is on without sending a request and inspecting its headers. (The
+   per-request header remains the transient, request-scoped signal.)
+
 ## Consequences
 
 - **Wayfinder keeps working with no network** — the felt half of josalhor's Show HN ask — by serving
@@ -71,11 +85,19 @@ network — just use the local model."
   **served by the cheapest/local tier**, the response carries `x-wayfinder-router-offline: true`, and no
   request is made to the dear tier (no timeout).
 - Off by default: a cloud-scored prompt still routes cloud, with no offline header.
+- A response cached by the cloud tier while online is **not** replayed for an offline request; the
+  offline request is served by the local tier and a later identical offline request replays the local
+  tier's own cached answer (offline header present on both).
+- With a hard budget block in force, an offline request returns 200 served by the local tier (budget
+  reported as `degraded`), not a 402.
+- `/healthz` reports `offline: true` when the config knob is set.
 - The scored decision/header is unchanged; the deterministic core makes no model call (WF-ADR-0001).
 
 ## Related
 
 - WF-ADR-0001 (deterministic, offline-decision core — untouched; this is delivery-layer)
 - WF-ADR-0031 (failover policy — `degrade` is the primitive this reuses proactively)
+- WF-ADR-0033 (response cache — offline keys it on the served/cheapest tier, never replaying a dearer one)
 - WF-ADR-0040 (macOS menu-bar "Offline" toggle flips this knob)
+- WF-ROADMAP-0006 (budget caps — a hard block softens to a local delivery when offline)
 - WF-ROADMAP-0007 (local-LLM-service vision — Initiative 2)

@@ -716,13 +716,24 @@ def _resolve_serve_args(host: str, port: int) -> list[str]:
 
 
 def _probe_health(host: str, port: int) -> str:
-    """A tolerant `/healthz` probe for `service status` (bypasses any HTTP proxy for localhost)."""
+    """A tolerant `/healthz` probe for `service status` (bypasses any HTTP proxy for localhost).
+
+    Surfaces the standing offline routing mode (WF-ADR-0039) when the gateway reports it, so an
+    operator can confirm air-gapped/privacy mode is actually on without sending a real request.
+    """
+    import json
     import urllib.request
 
     opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
     try:
         with opener.open(f"http://{host}:{port}/healthz", timeout=1.5) as resp:
-            return f"ok ({resp.status})" if resp.status == 200 else f"status {resp.status}"
+            if resp.status != 200:
+                return f"status {resp.status}"
+            try:
+                offline = json.loads(resp.read().decode("utf-8")).get("offline") is True
+            except Exception:
+                offline = False
+            return "ok (200, offline routing on)" if offline else "ok (200)"
     except Exception:
         return "unreachable (service not running?)"
 
