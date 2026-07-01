@@ -61,6 +61,32 @@ def test_decision_latency_histogram_is_present(tmp_path, monkeypatch):
     assert "wayfinder_router_decision_latency_seconds_count 1" in text
 
 
+def test_decision_latency_histogram_is_well_formed(tmp_path, monkeypatch):
+    # Parse the exposition (no prometheus_client dep): every bucket must be present and cumulative,
+    # the +Inf bucket must equal _count, _count must equal the observations, and TYPE appears once —
+    # so a dropped bucket, a non-cumulative regression, or a duplicated family would be caught.
+    import re
+
+    client = _client(tmp_path, monkeypatch)
+    n = 3
+    for _ in range(n):
+        client.post("/v1/chat/completions", json=TRIVIAL)
+    text = client.get("/metrics").text
+    name = "wayfinder_router_decision_latency_seconds"
+
+    assert text.count(f"# TYPE {name} histogram") == 1  # one family, one TYPE line
+
+    buckets = re.findall(rf'^{re.escape(name)}_bucket{{le="([^"]+)"}} (\d+)$', text, re.M)
+    les = [le for le, _ in buckets]
+    counts = [int(c) for _, c in buckets]
+    assert les == [f"{b:g}" for b in gateway._DECISION_BUCKETS] + ["+Inf"]  # complete, in order
+    assert counts == sorted(counts)  # cumulative: non-decreasing across the bounds
+    assert counts[-1] == n  # the +Inf bucket counts every observation
+
+    count_line = re.search(rf'^{re.escape(name)}_count (\d+)$', text, re.M)
+    assert count_line is not None and int(count_line.group(1)) == n  # _count matches +Inf
+
+
 def test_metrics_never_leak_prompt_text(tmp_path, monkeypatch):
     client = _client(tmp_path, monkeypatch)
     client.post(

@@ -68,6 +68,16 @@ def test_score_payload_threshold_override(tmp_path):
     assert payload["recommendation"] == "cloud"
 
 
+def test_score_payload_finds_a_config_above_start_dir(tmp_path):
+    # score_payload resolves the config by walking up, so a config in a parent directory is used
+    # when the UI is launched from a subdirectory (not the built-in default).
+    (tmp_path / "wayfinder-router.toml").write_text("[routing]\nthreshold = 0.05\n", encoding="utf-8")
+    sub = tmp_path / "nested"
+    sub.mkdir()
+    payload = score_payload(TRIVIAL, start_dir=str(sub))
+    assert payload["tiers"][1]["min_score"] == 0.05  # the parent's cut, not the default 0.5
+
+
 def test_calibrate_payload_threshold_returns_curve_and_fragment():
     payload = calibrate_payload(DATASET, "threshold")
     assert payload["summary"]["accuracy"] == 1.0

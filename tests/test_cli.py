@@ -173,8 +173,10 @@ def test_calibrate_cost_quality_accepts_custom_costs(tmp_path, capsys):
         "--objective", "cost-quality", "--target-savings", "0.3",
         "--costs", "local=0.1,cloud=1.0",
     ])
+    out = capsys.readouterr().out
     assert rc == 0
-    assert "cost = 0.1" in capsys.readouterr().out
+    assert "cost = 0.1" in out  # the cheap tier's cost
+    assert "cost = 1.0" in out  # ...and the dear tier's — each tier keeps its own cost
 
 
 def test_calibrate_unreachable_savings_is_config_error(tmp_path, capsys):
