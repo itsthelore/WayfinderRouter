@@ -94,6 +94,25 @@ def test_ledger_records_period_and_by_route():
     assert rep["by_route"]["cloud"]["saved"] == 0.0
 
 
+def test_from_dict_tolerates_an_old_or_partial_bucket():
+    # An older-schema bucket (missing a field added later, e.g. estimated_n) or a partially-corrupted
+    # one must not KeyError the next stats query — persistence is best-effort, never raising into reads.
+    raw = {
+        "priced": True,
+        "days": {
+            "2026-06-23": {  # no estimated_n at top level; the by_route sub-stat omits most fields
+                "n": 2, "realized": 0.009, "baseline": 0.018, "savings": 0.009, "tokens": 1000,
+                "by_route": {"local": {"n": 2, "savings": 0.009}},
+            }
+        },
+    }
+    led = pricing.SavingsLedger.from_dict(raw)
+    rep = led.period(today=date(2026, 6, 23))  # would KeyError before the coerce
+    assert rep["requests"] == 2
+    assert rep["estimated_requests"] == 0  # defaulted by the coerce
+    assert rep["by_route"]["local"]["saved"] == 0.009
+
+
 def test_ledger_period_window_filters_old_days():
     led = pricing.SavingsLedger(priced=True)
     costs = {"local": 0.0, "cloud": 1.0}
