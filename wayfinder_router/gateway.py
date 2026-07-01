@@ -1439,7 +1439,8 @@ class _ConfigHolder:
 
 
 def build_app(
-    start_dir: str = ".", *, dry_run: bool = False, timeout: float | None = None
+    start_dir: str = ".", *, dry_run: bool = False, timeout: float | None = None,
+    clock: Callable[[], float] = time.monotonic,
 ) -> FastAPI:
     """Build the FastAPI gateway app; config hot-reloads on ``wayfinder-router.toml`` change.
 
@@ -1563,7 +1564,7 @@ def build_app(
     # Rate limit (WF-ADR-0034): one long-lived limiter; its window counters survive config
     # hot-reloads (like the breaker), and the handler keeps the limits in sync.
     _rl0 = gw0.rate_limit or RateLimit()
-    rate_limiter = ratelimit.RateLimiter(rpm=_rl0.rpm, tpm=_rl0.tpm, window=_rl0.window)
+    rate_limiter = ratelimit.RateLimiter(rpm=_rl0.rpm, tpm=_rl0.tpm, window=_rl0.window, clock=clock)
 
     # Per-virtual-key rate limiters (WF-ADR-0035): one per key, created on first use and kept
     # alive across requests so each key's window counters persist. Synced to current config.
@@ -1573,7 +1574,7 @@ def build_app(
         lim = key_limiters.get(key_id)
         if lim is None:
             lim = key_limiters[key_id] = ratelimit.RateLimiter(
-                rpm=rl_cfg.rpm, tpm=rl_cfg.tpm, window=rl_cfg.window
+                rpm=rl_cfg.rpm, tpm=rl_cfg.tpm, window=rl_cfg.window, clock=clock
             )
         else:
             lim.reconfigure(rpm=rl_cfg.rpm, tpm=rl_cfg.tpm, window=rl_cfg.window)

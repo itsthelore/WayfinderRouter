@@ -2065,7 +2065,7 @@ def test_bad_cache_config_rejected(table):
 
 
 # --- rate limiting: RPM / TPM caps -> 429 (WF-ADR-0034) ---
-def _ratelimit_client(tmp_path, monkeypatch, rl_block, *, cache=False):
+def _ratelimit_client(tmp_path, monkeypatch, rl_block, *, cache=False, clock=None):
     cache_block = "[gateway.cache]\nenabled = true\n\n" if cache else ""
     config = (
         f"[gateway.rate_limit]\n{rl_block}\n\n" + cache_block +
@@ -2083,7 +2083,10 @@ def _ratelimit_client(tmp_path, monkeypatch, rl_block, *, cache=False):
         }).encode(), "application/json"
 
     monkeypatch.setattr(gateway, "aforward_request", fake)
-    return TestClient(gateway.build_app(start_dir=str(tmp_path))), calls
+    # Pin the limiter's clock so a run that straddles a real minute boundary can't roll the window
+    # and turn an expected 429 into a 200. Tests that exercise window rolling pass their own clock.
+    the_clock = clock if clock is not None else (lambda: 1000.0)
+    return TestClient(gateway.build_app(start_dir=str(tmp_path), clock=the_clock)), calls
 
 
 def test_rate_limit_rpm_returns_429(tmp_path, monkeypatch):
@@ -2105,6 +2108,17 @@ def test_rate_limit_tpm_returns_429(tmp_path, monkeypatch):
     assert second.status_code == 429
     assert second.headers["x-wayfinder-router-rate-limit"] == "tpm"
     assert calls["n"] == 1
+
+
+def test_rate_limit_window_rolls_with_the_injected_clock(tmp_path, monkeypatch):
+    # The limiter's clock is injectable through build_app, so window rolling is deterministic — and
+    # the fixed-clock helpers above can't flake into a 200 at a real minute boundary.
+    now = {"t": 1000.0}
+    tc, _ = _ratelimit_client(tmp_path, monkeypatch, "rpm = 1", clock=lambda: now["t"])
+    assert tc.post("/v1/chat/completions", json=TRIVIAL).status_code == 200  # window A
+    assert tc.post("/v1/chat/completions", json=TRIVIAL).status_code == 429  # window A, over rpm=1
+    now["t"] += 61  # advance past the 60s window
+    assert tc.post("/v1/chat/completions", json=TRIVIAL).status_code == 200  # window B, fresh budget
 
 
 def test_no_rate_limit_by_default(tmp_path, monkeypatch):
@@ -2188,7 +2202,8 @@ def _vkeys_client(tmp_path, monkeypatch, config):
         }).encode(), "application/json"
 
     monkeypatch.setattr(gateway, "aforward_request", fake)
-    return TestClient(gateway.build_app(start_dir=str(tmp_path)))
+    # Pin the per-key limiter's clock too, so the per-key rate-limit test can't flake at a window roll.
+    return TestClient(gateway.build_app(start_dir=str(tmp_path), clock=lambda: 1000.0))
 
 
 def test_gateway_open_without_keys(tmp_path, monkeypatch):
