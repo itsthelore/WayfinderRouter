@@ -9,11 +9,14 @@ tags: [packaging, desktop, demo, gateway, distribution]
 
 ## Status
 
-Proposed
+Superseded by WF-ADR-0042
 
-> Stub for WF-ROADMAP-0004 Initiative 4. The direction (a thin wrapper over the
-> existing `/demo` URL) is proposed; the specific tool (Pake vs pywebview) is
-> deferred to a spike and will be recorded as an amendment when chosen.
+> The spike this ADR deferred to was run (Tauri vs pywebview, plus an Ink terminal-client
+> comparison), and the outcome outgrew the URL-wrapper framing: the desktop surface is a
+> **Tauri v2 menu-bar client** rendering the gateway's decisions over loopback HTTP — not a
+> wrapped `/demo` tab. See WF-ADR-0042 for the architecture, WF-DESIGN-0012 for the popover
+> design, and WF-ROADMAP-0009 for delivery. The "don't grow a fork" discipline argued here
+> survives intact — the client renders decisions and never makes them.
 
 ## Category
 
