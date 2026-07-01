@@ -1,0 +1,3 @@
+# Default owner for the whole repository.
+# Takes effect on PRs when "Require review from Code Owners" is enabled in branch protection.
+*       @tcballard

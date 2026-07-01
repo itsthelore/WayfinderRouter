@@ -1,0 +1,57 @@
+name: Bug report
+description: Report a problem with Wayfinder
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for the report. One thing to check first: the **scored decision path is offline and
+        deterministic** — routing never depends on the network or a key — so if the problem is a provider
+        call failing, it's most likely in the gateway/delivery layer rather than the decision itself.
+  - type: dropdown
+    id: surface
+    attributes:
+      label: Which surface?
+      options:
+        - Scored core (route / library / calibrate)
+        - Gateway (serve / proxy)
+        - Terminal chat (TUI)
+        - Local UI (ui)
+        - Other / not sure
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Version
+      description: From `pip show wayfinder-router`, or the release tag.
+      placeholder: "2026.7.0"
+    validations:
+      required: true
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened?
+      description: What did you expect, and what happened instead?
+    validations:
+      required: true
+  - type: textarea
+    id: repro
+    attributes:
+      label: Steps to reproduce
+      description: Minimal steps plus the smallest prompt/config that triggers it. Redact any keys.
+      render: shell
+    validations:
+      required: true
+  - type: input
+    id: env
+    attributes:
+      label: Environment
+      description: OS, Python version, and install extras (gateway / ui / …).
+      placeholder: "macOS 15, Python 3.11, [gateway]"
+  - type: checkboxes
+    id: confirm
+    attributes:
+      label: Before submitting
+      options:
+        - label: I'm on the latest version, and this isn't a provider key/network problem outside the offline scored path.

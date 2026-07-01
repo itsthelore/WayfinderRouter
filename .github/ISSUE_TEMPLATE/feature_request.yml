@@ -1,0 +1,32 @@
+name: Feature request
+description: Suggest an improvement or a new capability
+labels: ["enhancement"]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: What's the problem or use case?
+      description: What are you trying to do that Wayfinder doesn't do well today?
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed behaviour
+    validations:
+      required: true
+  - type: dropdown
+    id: decision-path
+    attributes:
+      label: Does this touch the scored decision path?
+      description: The scored decision must stay offline, deterministic, and keyless (WF-ADR-0001).
+      options:
+        - "No — it's in the gateway / ui / tooling layer"
+        - "Yes — and it keeps the decision offline and deterministic"
+        - "Not sure"
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
