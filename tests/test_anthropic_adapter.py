@@ -227,6 +227,50 @@ def test_stream_text_then_tool_closes_text_block_first():
     assert events[5][1]["delta"] == {"type": "input_json_delta", "partial_json": '{"a":1}'}
 
 
+def test_stream_interleaved_parallel_tool_calls_keep_ids():
+    # OpenAI can interleave parallel tool-call deltas across indices (0 opens, 1 opens, 0 continues,
+    # 1 continues). Each call must keep its real id/name and full arguments — exactly two tool_use
+    # blocks, not a third synthetic one with a dropped id/name.
+    chunks = [
+        {"choices": [{"delta": {"tool_calls": [
+            {"index": 0, "id": "call_a", "function": {"name": "alpha", "arguments": '{"x":'}}]}}]},
+        {"choices": [{"delta": {"tool_calls": [
+            {"index": 1, "id": "call_b", "function": {"name": "beta", "arguments": '{"y":'}}]}}]},
+        {"choices": [{"delta": {"tool_calls": [
+            {"index": 0, "function": {"arguments": "1}"}}]}}]},  # continuation of index 0
+        {"choices": [{"delta": {"tool_calls": [
+            {"index": 1, "function": {"arguments": "2}"}}]}}]},  # continuation of index 1
+        {"choices": [{"delta": {}, "finish_reason": "tool_calls"}]},
+        "[DONE]",
+    ]
+    events = _events(A.translate_sse_chunks(chunks, model="m", message_id="i"))
+    starts = [d for t, d in events if t == "content_block_start"]
+    assert len(starts) == 2  # exactly two blocks, not three
+    assert starts[0]["content_block"] == {"type": "tool_use", "id": "call_a", "name": "alpha", "input": {}}
+    assert starts[1]["content_block"] == {"type": "tool_use", "id": "call_b", "name": "beta", "input": {}}
+    # Each call's argument fragments are concatenated, in order, onto its own block.
+    args = {d["index"]: d["delta"]["partial_json"] for t, d in events if t == "content_block_delta"}
+    assert args[starts[0]["index"]] == '{"x":1}'
+    assert args[starts[1]["index"]] == '{"y":2}'
+
+
+def test_stream_two_sequential_tool_calls_keep_ids():
+    # The non-interleaved case (index 0 fully, then index 1) is unchanged: two blocks, real ids/names.
+    chunks = [
+        {"choices": [{"delta": {"tool_calls": [
+            {"index": 0, "id": "c0", "function": {"name": "f0", "arguments": "{}"}}]}}]},
+        {"choices": [{"delta": {"tool_calls": [
+            {"index": 1, "id": "c1", "function": {"name": "f1", "arguments": "{}"}}]}}]},
+        {"choices": [{"delta": {}, "finish_reason": "tool_calls"}]},
+        "[DONE]",
+    ]
+    events = _events(A.translate_sse_chunks(chunks, model="m", message_id="i"))
+    starts = [d for t, d in events if t == "content_block_start"]
+    assert [s["content_block"]["id"] for s in starts] == ["c0", "c1"]
+    assert [s["content_block"]["name"] for s in starts] == ["f0", "f1"]
+    assert [s["index"] for s in starts] == [0, 1]
+
+
 def test_stream_empty_emits_one_empty_text_block():
     events = _events(A.translate_sse_chunks(["[DONE]"], model="m", message_id="i"))
     types = [t for t, _ in events]
