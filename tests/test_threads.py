@@ -20,6 +20,15 @@ def test_title_from_first_user_message_no_model_call():
     assert threads.title_from([]) == "(empty)"
 
 
+def test_new_thread_ids_are_unique_under_rapid_creation():
+    # save_thread overwrites by id, so two threads minted in the same wall-clock second must not
+    # collide and clobber each other's transcript. With 8 random bytes (2^64) per id, a burst of
+    # fresh threads is collision-free; the prefix still sorts by creation time.
+    ids = [threads.new_thread().id for _ in range(2000)]
+    assert len(set(ids)) == len(ids)  # no collisions across a tight burst
+    assert all("-" in tid for tid in ids)  # still the sortable "<stamp>-<rand>" shape
+
+
 def test_save_and_load_round_trip(tmp_path):
     thread = threads.new_thread()
     thread.messages = [

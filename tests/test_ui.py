@@ -103,6 +103,30 @@ def test_save_config_writes_valid_and_refuses_invalid(tmp_path):
     assert "0.7" in (tmp_path / "wayfinder-router.toml").read_text(encoding="utf-8")
 
 
+def test_save_config_writes_to_the_resolved_parent_not_a_new_subdir_file(tmp_path):
+    # A project whose config lives in a parent dir, edited via the UI launched from a subdir: Save must
+    # update the parent file every other code path loads — not silently create a second file in the subdir.
+    (tmp_path / "wayfinder-router.toml").write_text("[routing]\nthreshold = 0.3\n", encoding="utf-8")
+    sub = tmp_path / "nested"
+    sub.mkdir()
+    assert save_config_text("[routing]\nthreshold = 0.8\n", str(sub)) is None
+    assert "0.8" in (tmp_path / "wayfinder-router.toml").read_text(encoding="utf-8")  # parent updated
+    assert not (sub / "wayfinder-router.toml").exists()  # no stray, ignored file in the subdir
+
+
+def test_save_config_creates_a_file_when_none_exists(tmp_path):
+    # With no config anywhere up the tree, Save creates one in start_dir (the prior behaviour).
+    assert save_config_text("[routing]\nthreshold = 0.7\n", str(tmp_path)) is None
+    assert (tmp_path / "wayfinder-router.toml").read_text(encoding="utf-8").startswith("[routing]")
+
+
+def test_onboard_run_unknown_arm_raises_gateway_unavailable(tmp_path):
+    from wayfinder_router.gateway import GatewayUnavailable
+
+    with pytest.raises(GatewayUnavailable):
+        onboard_run(_with_gateway(tmp_path), "hi", ["nonexistent-model"])
+
+
 def test_onboard_arms_lists_the_two_gateway_models(tmp_path):
     assert onboard_arms(_with_gateway(tmp_path)) == ["local", "cloud"]
 
@@ -237,6 +261,12 @@ def test_api_onboard_run_returns_both_outputs(ob_client):
 def test_api_onboard_run_missing_prompt_is_400(ob_client):
     client, _ = ob_client
     assert client.post("/api/onboard/run", json={}).status_code == 400
+
+
+def test_api_onboard_run_unknown_arm_is_400(ob_client):
+    client, _ = ob_client  # an unknown arm name is a clean 400, not an opaque 500
+    resp = client.post("/api/onboard/run", json={"prompt": "hi", "arms": ["nope"]})
+    assert resp.status_code == 400
 
 
 def test_api_onboard_record_writes_the_shared_log(ob_client):

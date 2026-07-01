@@ -8,10 +8,13 @@ Linux); ``--print`` and these golden checks cover the generated unit text.
 from __future__ import annotations
 
 import os
+import shutil
+import subprocess
+import types
 from pathlib import Path
 
 from wayfinder_router import service
-from wayfinder_router.cli import _resolve_serve_args, build_parser
+from wayfinder_router.cli import EXIT_CONFIG, EXIT_OK, _resolve_serve_args, build_parser
 
 
 def test_detect_platform():
@@ -72,6 +75,53 @@ def test_service_install_print_emits_a_unit_without_touching_the_system(monkeypa
     assert rc == 0
     assert out.startswith('<?xml version="1.0"')
     assert service.LAUNCHD_LABEL in out
+
+
+def _proc(returncode=0, stdout="", stderr=""):
+    return types.SimpleNamespace(returncode=returncode, stdout=stdout, stderr=stderr)
+
+
+def test_service_install_reports_launchctl_failure(monkeypatch, tmp_path, capsys):
+    # `service install` must not claim success when launchctl couldn't load the agent.
+    monkeypatch.setenv("HOME", str(tmp_path))  # redirect agent_path / log dir into tmp
+    monkeypatch.setattr(service, "detect_platform", lambda platform=None: "macos")
+    monkeypatch.setattr(shutil, "which", lambda name: "/bin/launchctl")
+    # bootstrap, the legacy load fallback, and the end-state probe all fail.
+    monkeypatch.setattr(subprocess, "run", lambda *a, **k: _proc(1, stderr="Bootstrap failed: 5: busy"))
+    args = build_parser().parse_args(["service", "install"])
+    rc = args.func(args)
+    err = capsys.readouterr().err
+    assert rc == EXIT_CONFIG  # not EXIT_OK
+    assert "could not load" in err and "busy" in err
+
+
+def test_service_install_succeeds_when_launchctl_loads(monkeypatch, tmp_path, capsys):
+    monkeypatch.setenv("HOME", str(tmp_path))
+    monkeypatch.setattr(service, "detect_platform", lambda platform=None: "macos")
+    monkeypatch.setattr(shutil, "which", lambda name: "/bin/launchctl")
+    monkeypatch.setattr(subprocess, "run", lambda *a, **k: _proc(0))  # bootstrap + probe both OK
+    args = build_parser().parse_args(["service", "install"])
+    rc = args.func(args)
+    assert rc == EXIT_OK
+    assert "installed and loaded" in capsys.readouterr().err
+
+
+def test_service_install_reports_systemctl_failure(monkeypatch, tmp_path, capsys):
+    monkeypatch.setenv("HOME", str(tmp_path))
+    monkeypatch.setattr(service, "detect_platform", lambda platform=None: "linux")
+    monkeypatch.setattr(shutil, "which", lambda name: "/bin/systemctl")
+
+    def fake_run(cmd, *a, **k):
+        if "enable" in cmd:
+            return _proc(1, stderr="Failed to enable unit: permission denied")
+        return _proc(0)  # daemon-reload succeeds
+
+    monkeypatch.setattr(subprocess, "run", fake_run)
+    args = build_parser().parse_args(["service", "install"])
+    rc = args.func(args)
+    err = capsys.readouterr().err
+    assert rc == EXIT_CONFIG
+    assert "could not enable" in err and "permission denied" in err
 
 
 def test_service_install_resolves_an_absolute_log_path(monkeypatch, capsys):
