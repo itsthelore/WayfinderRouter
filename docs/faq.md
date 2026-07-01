@@ -265,6 +265,18 @@ calibrator place the cut at the cost-aware knee:
 wayfinder-router calibrate your-data.jsonl --mode threshold --objective knee --out wayfinder-router.toml
 ```
 
+If your actual prices should steer the cut, prefer `--objective min-cost`: it minimizes expected money
+plus a `--quality-penalty` (`Q`) charged whenever the cheap model botches a prompt that belonged on the
+strong one, so the boundary moves with the real cost gap and with how much a wrong answer costs you. (The
+knee, by contrast, maximizes quality × savings — a product in which the cost *ratio* cancels, so its cut
+is the same whether the strong model is 2× or 100× pricier.) `Q` defaults to the high-arm cost — a wrong
+answer costing roughly one strong-model redo — so raise it when a bad answer costs you more than a re-run:
+
+```bash
+wayfinder-router calibrate your-data.jsonl --mode threshold --objective min-cost \
+  --costs local=0.2,cloud=1.0 --quality-penalty 3.0 --out wayfinder-router.toml
+```
+
 To switch the lexical signals on for your domain, raise their weights and (optionally) supply your own
 trigger words — ideally mined from your labels rather than hand-picked. Full walkthrough, including the
 honest caveats, in [lexical-routing.md](lexical-routing.md). A ~20-prompt bootstrap is only a smoke test;

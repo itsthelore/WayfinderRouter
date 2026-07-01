@@ -178,15 +178,26 @@ def calibrate_threshold(
     objective: str = "accuracy",
     costs: dict[str, float] | None = None,
     target_savings: float | None = None,
+    quality_penalty: float | None = None,
     weights: dict[str, float] | None = None,
 ) -> CalibrationResult:
     """Binary calibration: sweep the local/cloud-style cut between two labels.
 
     ``objective="accuracy"`` (the default) picks the most accurate cut.
-    ``objective="knee"`` (WF-ADR-0017) picks the *cost-aware knee* — the cut that
-    maximizes quality-recovered × cost-saved, with no savings target to guess. On
-    skewed labels (one model usually right) the accuracy objective collapses to
-    always-routing-high; the knee balances quality and cost on its own.
+    ``objective="min-cost"`` (WF-ADR-0017) picks the cut that minimizes *expected
+    total cost per prompt* — money spent plus a ``quality_penalty`` (``Q``) charged
+    for every high-labeled prompt the cut sends to the cheap arm (a botched answer).
+    Unlike the knee, the cost ratio does not algebraically cancel: the minimum moves
+    with ``costs`` and ``Q``, so real prices actually steer the cut. ``Q`` is the one
+    honest knob — what a wrong answer costs you, in the same units as ``costs`` — and
+    defaults to the high-arm cost (a wrong answer ≈ one strong-model redo); raise it
+    when a bad answer costs more than a re-run.
+    ``objective="knee"`` (WF-ADR-0017) picks the *cost knee* — the cut that maximizes
+    quality-recovered × cost-saved, with no savings target to guess. On skewed labels
+    (one model usually right) the accuracy objective collapses to always-routing-high;
+    the knee keeps a real share on the cheap arm. Note the knee's cut is invariant to
+    the cost *ratio* (it cancels in the product), so use ``min-cost`` when the actual
+    prices should move the boundary.
     ``objective="cost-quality"`` picks the most accurate cut that still reaches
     ``target_savings`` against always-routing-high. All cost objectives take per-arm
     ``costs`` (defaulting to the benchmark's 0.2 / 1.0 units). Cost only moves where
@@ -218,6 +229,21 @@ def calibrate_threshold(
                      "models": [low, high], "accuracy": round(accuracy, 4),
                      "quality_recovered": round(recall, 4), "cost_savings": round(savings, 4),
                      "samples": len(samples)},
+        )
+    if objective == "min-cost":
+        cost_low, cost_high, low, high = _cost_ordered_arms(labels, costs)
+        q = cost_high if quality_penalty is None else float(quality_penalty)
+        if q < 0:
+            raise CalibrationError(f"quality_penalty must be >= 0 (got {q})")
+        scored = [(s.score, s.label == high) for s in samples]
+        threshold, accuracy, savings, recall = _sweep_cut_mincost(scored, cost_low, cost_high, q)
+        tiers = (Tier(0.0, low, cost_low), Tier(threshold, high, cost_high))
+        return CalibrationResult(
+            toml=prefix + _tiers_toml(tiers),
+            summary={"mode": "threshold", "objective": "min-cost", "threshold": threshold,
+                     "models": [low, high], "accuracy": round(accuracy, 4),
+                     "quality_recovered": round(recall, 4), "cost_savings": round(savings, 4),
+                     "quality_penalty": round(q, 4), "samples": len(samples)},
         )
     if objective == "cost-quality":
         if target_savings is None:
@@ -340,6 +366,48 @@ def _sweep_cut_knee(
         if obj > best_obj:
             best_obj, best_cuts = obj, [cut]
         elif obj == best_obj:
+            best_cuts.append(cut)
+    chosen = best_cuts[len(best_cuts) // 2]
+    accuracy = sum(1 for score, is_high in scored if (score >= chosen) == is_high) / total
+    recall = sum(1 for score, is_high in scored if is_high and score >= chosen) / n_high
+    return chosen, accuracy, _savings_at(scored, chosen, cost_low, cost_high), recall
+
+
+def _sweep_cut_mincost(
+    scored: list[tuple[float, bool]], cost_low: float, cost_high: float, quality_penalty: float
+) -> tuple[float, float, float, float]:
+    """The cut minimizing expected total cost per prompt: money + quality penalty.
+
+    Each prompt costs ``cost_high`` when routed high (``score >= cut``) else
+    ``cost_low``; each *high*-labeled prompt the cut routes low is additionally charged
+    ``quality_penalty`` (``Q``) — the price of the cheap model botching a prompt that
+    belonged on the strong one. Raising the cut trades money saved against quality lost,
+    and — crucially, unlike the knee — the cost ratio does **not** cancel: the minimum
+    moves with ``cost_low``, ``cost_high`` and ``Q``, so real prices steer the boundary.
+    Ties break to the median cut (a stable central choice).
+
+    The candidate set includes the score ceiling ``1.0`` so the sweep can express the
+    "route everything cheap" optimum a small ``Q`` genuinely wants — at these prices the
+    strong model isn't worth it for this traffic. It stops *at* the ceiling, not above:
+    a cut > 1.0 would route every prompt low, but the config schema caps ``min_score`` at
+    1.0 (a threshold above the score domain is rejected), so the honest, loadable way to
+    say "all cheap" is the ceiling cut. The lone residue — a prompt scoring exactly 1.0
+    still routes high under ``>=`` — is the schema's boundary rule, consistent everywhere.
+
+    Returns ``(threshold, accuracy, savings, recall)``.
+    """
+    candidates = sorted({0.0, 1.0, *(round(score, 4) for score, _ in scored)})
+    total = len(scored)
+    n_high = sum(1 for _, is_high in scored if is_high) or 1
+    best_obj: float | None = None
+    best_cuts: list[float] = []
+    for cut in candidates:
+        money = sum(cost_high if score >= cut else cost_low for score, _ in scored) / total
+        botched = sum(1 for score, is_high in scored if is_high and score < cut) / total
+        obj = money + quality_penalty * botched
+        if best_obj is None or obj < best_obj - 1e-12:
+            best_obj, best_cuts = obj, [cut]
+        elif abs(obj - best_obj) <= 1e-12:
             best_cuts.append(cut)
     chosen = best_cuts[len(best_cuts) // 2]
     accuracy = sum(1 for score, is_high in scored if (score >= chosen) == is_high) / total
@@ -578,14 +646,16 @@ def calibrate(
     objective: str = "accuracy",
     costs: dict[str, float] | None = None,
     target_savings: float | None = None,
+    quality_penalty: float | None = None,
     weights: dict[str, float] | None = None,
 ) -> CalibrationResult:
     """Dispatch to the requested calibration mode.
 
-    The cost-aware objective (WF-ADR-0017) is scoped to ``threshold`` mode in v1 —
-    the binary cut is where a savings target is well defined. ``weights`` (custom
-    feature weights, e.g. the lexical opt-in) applies to the score-based modes
-    (threshold, tiers); the classifier fits its own weights and ignores it.
+    The cost-aware objectives (WF-ADR-0017) are scoped to ``threshold``
+    mode — the binary cut is where a savings target or a per-prompt cost is well
+    defined. ``weights`` (custom feature weights, e.g. the lexical opt-in) applies to
+    the score-based modes (threshold, tiers); the classifier fits its own weights and
+    ignores it.
     """
     if objective != "accuracy" and mode != "threshold":
         raise CalibrationError(
@@ -594,7 +664,7 @@ def calibrate(
     if mode == "threshold":
         return calibrate_threshold(
             samples, objective=objective, costs=costs, target_savings=target_savings,
-            weights=weights,
+            quality_penalty=quality_penalty, weights=weights,
         )
     if mode == "tiers":
         return calibrate_tiers(samples, models_order=models_order, weights=weights)

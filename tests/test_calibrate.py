@@ -154,6 +154,86 @@ def test_knee_is_threshold_only():
 
 
 
+# --- min-cost objective (WF-ADR-0017) ---------------------------------------
+
+
+def _cost_separated_samples():
+    """A monotone score/label split so the min-cost sweep has a real interior optimum:
+    low-labeled prompts score low, high-labeled prompts score high, with a noisy middle."""
+    from wayfinder_router.calibrate import Sample
+
+    samples = []
+    for i in range(100):
+        s = round(i / 100, 4)
+        # mostly separable at ~0.4, with a noisy band so the cut placement matters
+        is_high = s >= 0.4 if i % 5 else s < 0.2
+        samples.append(Sample({}, "cloud" if is_high else "local", s))
+    return samples
+
+
+def test_min_cost_threshold_moves_with_the_cost_ratio():
+    # The whole point of min-cost over the knee: the actual prices steer the cut.
+    samples = _cost_separated_samples()
+    cheap_gap = calibrate(  # cheap arm nearly as costly as strong -> route more to strong (low cut)
+        samples, "threshold", objective="min-cost", costs={"local": 0.9, "cloud": 1.0}
+    )
+    wide_gap = calibrate(  # strong far pricier -> tolerate cheap routing (higher cut)
+        samples, "threshold", objective="min-cost", costs={"local": 0.05, "cloud": 1.0}
+    )
+    assert wide_gap.summary["threshold"] > cheap_gap.summary["threshold"]
+
+
+def test_min_cost_penalty_raises_the_high_arm_share():
+    # A bigger quality penalty makes botched cheap-routes costlier -> route more to strong.
+    samples = _cost_separated_samples()
+    costs = {"local": 0.2, "cloud": 1.0}
+    lax = calibrate(samples, "threshold", objective="min-cost", costs=costs, quality_penalty=0.5)
+    strict = calibrate(samples, "threshold", objective="min-cost", costs=costs, quality_penalty=50.0)
+    assert strict.summary["threshold"] <= lax.summary["threshold"]
+    assert strict.summary["quality_recovered"] >= lax.summary["quality_recovered"]
+
+
+def test_min_cost_is_deterministic():
+    samples = _cost_separated_samples()
+    assert calibrate(samples, "threshold", objective="min-cost").toml == \
+        calibrate(samples, "threshold", objective="min-cost").toml
+
+
+def test_min_cost_needs_no_target_and_emits_cost(tmp_path):
+    result = calibrate(_skewed_samples(), "threshold", objective="min-cost")  # no target
+    assert result.summary["objective"] == "min-cost"
+    assert "quality_penalty" in result.summary
+    (tmp_path / "wayfinder-router.toml").write_text(result.toml, encoding="utf-8")
+    config = load_routing_config(str(tmp_path))
+    assert [t.cost for t in config.tiers] == [0.2, 1.0]
+
+
+def test_min_cost_can_route_everything_cheap_at_the_ceiling(tmp_path):
+    # With no quality penalty the optimum is pure money: route all traffic to the cheap
+    # arm. The sweep expresses that as the score-ceiling cut (1.0), which is the highest
+    # min_score the config schema allows -- an honest "at these prices the strong model
+    # isn't worth it for this traffic," and still a loadable config.
+    result = calibrate(
+        _cost_separated_samples(), "threshold", objective="min-cost",
+        costs={"local": 0.05, "cloud": 1.0}, quality_penalty=0.0,
+    )
+    assert result.summary["threshold"] == 1.0
+    assert result.summary["quality_recovered"] == 0.0  # nothing routed to the strong arm
+    (tmp_path / "wayfinder-router.toml").write_text(result.toml, encoding="utf-8")
+    config = load_routing_config(str(tmp_path))
+    assert config.tiers[-1].min_score == 1.0
+
+
+def test_min_cost_rejects_a_negative_penalty():
+    with pytest.raises(CalibrationError):
+        calibrate(_cost_separated_samples(), "threshold", objective="min-cost", quality_penalty=-1.0)
+
+
+def test_min_cost_is_threshold_only():
+    with pytest.raises(CalibrationError):
+        calibrate(_skewed_samples(), "classifier", objective="min-cost")
+
+
 def test_cost_quality_only_in_threshold_mode(tmp_path):
     samples = load_dataset(_dataset(tmp_path, _binary_rows()))
     with pytest.raises(CalibrationError):
