@@ -89,7 +89,8 @@ def test_tiers_are_parsed_and_sorted(tmp_path):
             "[[routing.tiers]]\nmin_score = 0.0\nmodel = \"b\"\n"
         ),  # duplicate
         "[[routing.tiers]]\nmin_score = 0.0\nmodel = \"\"\n",  # empty model
-        "[[routing.tiers]]\nmin_score = 2.0\nmodel = \"a\"\n",  # out of range
+        "[[routing.tiers]]\nmin_score = 2.0\nmodel = \"a\"\n",  # out of range (high)
+        "[[routing.tiers]]\nmin_score = -0.1\nmodel = \"a\"\n",  # out of range (negative)
         "[[routing.tiers]]\nmin_score = 0.0\nmodel = \"a\"\ncost = -1.0\n",  # negative cost
         "[[routing.tiers]]\nmin_score = 0.0\nmodel = \"a\"\ncost = \"free\"\n",  # non-number cost
     ],
