@@ -40,3 +40,25 @@ jobs:
       - uses: actions/checkout@v4
       - name: Build the gateway image
         run: docker build -t wayfinder-router:ci .
+
+  parity:
+    # WF-ADR-0042: the shared JS decision core (clients/shared/src/scorer.js) ships in the
+    # desktop app's decision-only degraded mode ONLY while it is a byte-for-byte mirror of the
+    # Python scorer. Regenerate the golden corpus from the REAL Python core and fail on any drift.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Install the package (for the real Python scorer)
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e .
+      - name: JS-Python decision-core parity
+        run: |
+          python tools/golden.py > clients/shared/test/golden.json
+          node clients/shared/test/parity.mjs

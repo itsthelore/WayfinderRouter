@@ -1,0 +1,14 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "default",
+  "description": "Capabilities for the borderless popover window. The webview talks to the gateway by direct loopback fetch, not IPC; the few Rust commands it needs (tray title, notify, keychain, sidecar restart, open path) are added as they land in Phase 4.",
+  "windows": [
+    "popover"
+  ],
+  "permissions": [
+    "core:default",
+    "core:window:allow-show",
+    "core:window:allow-hide",
+    "core:window:allow-set-focus"
+  ]
+}
