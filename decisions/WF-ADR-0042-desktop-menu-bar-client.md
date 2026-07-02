@@ -56,8 +56,9 @@ honest statement of our posture is an app that *provably does less*.
    always framed as a preview ("local mirror — start the gateway"), never as a routed decision.
 
 3. **Tauri v2, menu-bar accessory shell.** No Dock icon; a template tray icon with three health
-   states; one borderless 360×480 vibrancy popover (hide-on-blur, state preserved); ⌥Space toggle
-   (rebindable); single-instance. The webview reaches the gateway by direct loopback fetch — not
+   states; one borderless 360×480 vibrancy popover summoned launcher-style at the bottom-center
+   of the active display (hide-on-blur, state preserved); ⌥W toggle (rebindable);
+   single-instance. The webview reaches the gateway by direct loopback fetch — not
    Rust IPC — so the Rust command surface and capabilities stay minimal and auditable.
 
 4. **Service-first lifecycle — the app never owns the gateway process.** Detect via `/healthz` and

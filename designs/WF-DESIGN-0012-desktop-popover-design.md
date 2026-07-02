@@ -23,7 +23,7 @@ The popover is Wayfinder's first bespoke GUI. The design goal is an **instrument
 should read like a native macOS popover that happens to show a routing decision beautifully, not a
 web page in a borderless window. The raw materials exist — `clients/shared/src/theme.js` carries the
 canonical light/dark tokens (mirrored from `demo.html`, WF-ADR-0020), `decision.js` the render
-helpers, `gateway.js` the wire client — and the shell (vibrancy, tray, ⌥Space, hide-on-blur) is
+helpers, `gateway.js` the wire client — and the shell (vibrancy, tray, ⌥W bottom-center summon, hide-on-blur) is
 built. This document is the contract the React implementation is reviewed against.
 
 ## Platform & toolchain

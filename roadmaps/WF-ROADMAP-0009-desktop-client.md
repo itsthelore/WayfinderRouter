@@ -16,7 +16,7 @@ Accepted
 Branch `claude/desktop-tauri-app` already carries the first two slices of WF-ADR-0042: the
 `clients/` npm workspace with `@wayfinder/shared` (wire client + byte-for-byte JS scorer behind a
 blocking golden-parity CI job) and the Tauri v2 menu-bar shell (vibrant 360×480 popover, tray,
-⌥Space, hide-on-blur, single-instance). This roadmap takes it to a shippable app: the decision-first
+⌥W, hide-on-blur, single-instance). This roadmap takes it to a shippable app: the decision-first
 popover (WF-DESIGN-0012), service-first lifecycle, Keychain-glue onboarding, and a signed, notarized,
 auto-updating DMG — the distribution playbook adapted from the June study, minus its remote backend.
 
@@ -31,7 +31,7 @@ untouched throughout (the entire tree lives under `clients/`, `decisions/`, `des
 ## Outcomes
 
 - A menu-bar app where the routing decision (● LOCAL / ◆ CLOUD, score, why) is glanceable and a chat
-  turn is one ⌥Space away — rendered, never computed, by the client (WF-ADR-0001).
+  turn is one ⌥W away — rendered, never computed, by the client (WF-ADR-0001).
 - A first run that goes: install service → (optionally) key into Keychain → first routed turn — with
   no terminal required after the gateway package is installed.
 - A signed, notarized, stapled universal DMG on a `desktop-v*` release lane with working in-place
@@ -83,7 +83,7 @@ service) in the app's help.
 FirstRunView flow: Install service (CTA) → scaffold config if none (`init --preset` shell-out) →
 optional provider key → Keychain (`security add-generic-password`) with only an `api_key_cmd`
 reference written to the gateway config (hot-reloaded; WF-ADR-0004 intact — the key never enters JS
-state). Settings row: shortcut rebind (⌥Space collides with common launchers; verify whether the
+state). Settings row: shortcut rebind (⌥W is rebindable for layouts/apps that claim it; verify whether the
 Accessibility note in `lib.rs` is even true — hotkey registration shouldn't need it), launch-at-
 login, and the **verify-lite privacy panel** with the honest claims (decision local/keyless; prompts
 go only to your chosen provider under your keys; offline mode alone guarantees nothing leaves).
