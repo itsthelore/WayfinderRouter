@@ -4,9 +4,9 @@
 // contributions: [{ name, value, share }], targets, decisionOnly, dryRun }`. They NEVER score
 // (WF-ADR-0001); they only shape what the gateway already decided.
 //
-// Output shapes mirror `wayfinder_router/menubar_core.py` (the golden-tested Python reference,
-// landed alongside this work). A parity check against that module is a TODO once it is on the
-// branch (Phase 0.D); until then these are kept deliberately small and literal.
+// The decision-render contract is pinned by the recorded golden gateway fixtures
+// (tools/record-fixtures.mjs → clients/desktop/src/test/fixtures), not by any Python module —
+// these helpers are kept deliberately small and literal so those fixtures fully cover them.
 
 export const LOCAL_GLYPH = '●';
 export const CLOUD_GLYPH = '◆';
@@ -46,7 +46,7 @@ export function topContributions(decision, n = 5) {
 
 /**
  * A one-line routing badge, e.g. "cloud · score 0.82" (+ " · cache hit" / " · offline" /
- * " · decision only"). Mirrors `menubar_core.format_routing_badge`'s intent.
+ * " · decision only") — the decision card's sub-line.
  */
 export function routingBadge(decision, { cache = false, offline = false } = {}) {
   if (!decision) return '';
