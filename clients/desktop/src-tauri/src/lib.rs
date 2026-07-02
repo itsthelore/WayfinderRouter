@@ -55,8 +55,10 @@ fn setup(app: &mut App) -> Result<(), Box<dyn std::error::Error>> {
     app.set_activation_policy(ActivationPolicy::Accessory);
 
     // Vibrant popover backdrop (NSVisualEffectView). Requires macOSPrivateApi + a transparent
-    // window; the webview keeps a transparent body so the material shows through. Best-effort:
-    // if the private API is unavailable we fall back to the webview's own background.
+    // window; the webview keeps a transparent body so the material shows through. The 13px
+    // material radius matches `#root { border-radius: 13px }` in globals.css so the CSS and
+    // material corners coincide (WF-DESIGN-0012). Best-effort: if the private API is
+    // unavailable we fall back to the webview's own background.
     #[cfg(target_os = "macos")]
     if let Some(win) = app.get_webview_window(POPOVER) {
         use window_vibrancy::{apply_vibrancy, NSVisualEffectMaterial, NSVisualEffectState};
@@ -64,7 +66,7 @@ fn setup(app: &mut App) -> Result<(), Box<dyn std::error::Error>> {
             &win,
             NSVisualEffectMaterial::Popover,
             Some(NSVisualEffectState::Active),
-            None,
+            Some(13.0),
         );
     }
 
