@@ -28,7 +28,7 @@
       }
     ],
     "security": {
-      "csp": null
+      "csp": "default-src 'self'; connect-src ipc: http://ipc.localhost http://127.0.0.1:8088 ws://127.0.0.1:8088 http://localhost:1420 ws://localhost:1420; img-src 'self' data:; style-src 'self' 'unsafe-inline'"
     }
   },
   "bundle": {
