@@ -1,14 +1,19 @@
-"""The `wayfinder-router` CLI.
+"""Command-line front door for ``wayfinder-router``.
 
     wayfinder-router route <prompt-file | ->  [--threshold N] [--json]
     wayfinder-router calibrate <dataset.jsonl> [--mode threshold|tiers|classifier]
                                         [--models a,b,c] [--out wayfinder-router.toml]
 
-`route` scores a prompt and recommends a model — read-only and offline, it never
-invokes a model. `calibrate` turns a labeled dataset into a `wayfinder-router.toml`
-fragment (printed to stdout, or written with `--out`); a one-line summary goes to
+``route`` scores a prompt and recommends a model — read-only and offline, it never
+invokes a model. ``calibrate`` turns a labeled dataset into a ``wayfinder-router.toml``
+fragment (printed to stdout, or written with ``--out``); a one-line summary goes to
 stderr. Exit codes: ``0`` success, ``1`` malformed config / calibration error,
 ``2`` usage error (file not found, bad argument).
+
+This module is a thin dispatcher: every handler is a small ``_cmd_*`` returning an
+exit code, and heavy or optional-extra dependencies (gateway, tui, ui, service,
+bootstrap, ...) are imported lazily inside the handler that needs them, so the base
+``route``/``calibrate`` surface stays runnable without any extras installed.
 """
 
 from __future__ import annotations
@@ -18,6 +23,7 @@ import json
 import re
 import sys
 from pathlib import Path
+from typing import Any, Callable
 
 from . import __version__
 from .calibrate import CalibrationError, calibrate, load_dataset
@@ -34,27 +40,35 @@ EXIT_OK = 0
 EXIT_CONFIG = 1
 EXIT_USAGE = 2
 
-# Seconds to wait before opening the browser for `chat`, so the server is listening first.
+# Delay before auto-opening the browser for `webchat`, giving the server a moment to bind.
 _CHAT_OPEN_DELAY = 1.0
+
+# stderr message shared by both `route` and `chat` when --threshold is out of range.
+_THRESHOLD_ERROR = "wayfinder-router: --threshold must be a number between 0.0 and 1.0"
+
+
+# --------------------------------------------------------------------------- #
+# route
+# --------------------------------------------------------------------------- #
 
 
 def _render_human(result: ComplexityScore, weights: dict[str, float] | None = None) -> str:
+    """Format a score for terminal reading: recommendation, score, tiers/candidates,
+    and either the full ``--explain`` breakdown or a compact feature list."""
     lines = [
         f"Recommended Model: {result.recommendation}",
         f"Complexity Score: {result.score:.2f}  (mode: {result.mode})",
     ]
     if result.tiers is not None:
-        lines.append("")
-        lines.append("Tiers:")
+        lines += ["", "Tiers:"]
         for tier in result.tiers:
             marker = " <-" if tier.model == result.recommendation else ""
             lines.append(f"  >= {tier.min_score:.2f}  {tier.model}{marker}")
     if result.models is not None:
-        lines.append("")
-        lines.append("Candidates: " + ", ".join(result.models))
+        lines += ["", "Candidates: " + ", ".join(result.models)]
     if weights is not None:
-        # --explain: show each feature's share of the score (value, normalized,
-        # weight, contribution), so the recommendation is auditable.
+        # --explain: expose every feature's share (value, normalized, weight, product)
+        # so the recommendation can be audited by hand.
         lines += ["", "Score Breakdown (feature: value  norm x weight = contribution):"]
         for fc in explain_score(result.features, weights):
             lines.append(
@@ -62,8 +76,7 @@ def _render_human(result: ComplexityScore, weights: dict[str, float] | None = No
                 f"{fc.normalized:.2f} x {fc.weight:<4g} = {fc.contribution:.3f}"
             )
     else:
-        lines.append("")
-        lines.append("Contributing Features:")
+        lines += ["", "Contributing Features:"]
         for name, value in result.features.items():
             lines.append(f"  {name.replace('_', ' ').title()}: {value}")
     return "\n".join(lines)
@@ -72,16 +85,17 @@ def _render_human(result: ComplexityScore, weights: dict[str, float] | None = No
 def _route(
     text: str, *, start_dir: str, threshold: float | None
 ) -> tuple[ComplexityScore, RoutingConfig]:
+    """Load the config for ``start_dir`` and score ``text``; an explicit ``threshold``
+    swaps in the binary local/cloud router for this run only."""
     config = load_routing_config(start_dir)
     if threshold is not None:
-        # An explicit per-run cut forces the binary local/cloud router.
         config = RoutingConfig(weights=config.weights, tiers=binary_tiers(threshold))
     return score_complexity(text, config=config), config
 
 
 def _cmd_route(args: argparse.Namespace) -> int:
     if args.threshold is not None and not 0.0 <= args.threshold <= 1.0:
-        print("wayfinder-router: --threshold must be a number between 0.0 and 1.0", file=sys.stderr)
+        print(_THRESHOLD_ERROR, file=sys.stderr)
         return EXIT_USAGE
     try:
         if args.prompt == "-":
@@ -110,39 +124,34 @@ def _cmd_route(args: argparse.Namespace) -> int:
     return EXIT_OK
 
 
-def _parse_costs(raw: str | None) -> dict[str, float] | None:
-    """Parse ``--costs local=0.2,cloud=1.0`` into a label->cost map (or None)."""
-    if not raw:
-        return None
-    costs: dict[str, float] = {}
-    for item in raw.split(","):
-        label, _, value = item.partition("=")
-        label = label.strip()
-        if not label or not value.strip():
-            raise CalibrationError(f"--costs must be label=number pairs, got {item!r}")
-        try:
-            costs[label] = float(value)
-        except ValueError as exc:
-            raise CalibrationError(f"--costs value for {label!r} must be a number") from exc
-    return costs
+# --------------------------------------------------------------------------- #
+# calibrate
+# --------------------------------------------------------------------------- #
 
 
-def _parse_weights_arg(raw: str | None) -> dict[str, float] | None:
-    """Parse ``--weights reasoning_term_count=5,math_symbol_count=3`` into a
-    feature->weight map (or None). Feature names are validated by the calibrator."""
+def _parse_pairs(raw: str | None, what: str) -> dict[str, float] | None:
+    """Parse a ``key=number,key=number`` list into a map, or ``None`` when empty.
+
+    Shared by ``--costs`` (arm costs) and ``--weights`` (feature weights); ``what``
+    names the flag in the error text. Keys are validated downstream by the calibrator.
+    """
     if not raw:
         return None
-    weights: dict[str, float] = {}
+    parsed: dict[str, float] = {}
     for item in raw.split(","):
-        name, _, value = item.partition("=")
-        name = name.strip()
-        if not name or not value.strip():
-            raise CalibrationError(f"--weights must be feature=number pairs, got {item!r}")
+        key, _, value = item.partition("=")
+        key = key.strip()
+        if not key or not value.strip():
+            raise CalibrationError(f"--{what} must be {_pair_noun(what)} pairs, got {item!r}")
         try:
-            weights[name] = float(value)
+            parsed[key] = float(value)
         except ValueError as exc:
-            raise CalibrationError(f"--weights value for {name!r} must be a number") from exc
-    return weights
+            raise CalibrationError(f"--{what} value for {key!r} must be a number") from exc
+    return parsed
+
+
+def _pair_noun(what: str) -> str:
+    return "label=number" if what == "costs" else "feature=number"
 
 
 def _cmd_calibrate(args: argparse.Namespace) -> int:
@@ -151,8 +160,8 @@ def _cmd_calibrate(args: argparse.Namespace) -> int:
         return EXIT_USAGE
     models = [m.strip() for m in args.models.split(",")] if args.models else None
     try:
-        costs = _parse_costs(args.costs)
-        weights = _parse_weights_arg(args.weights)
+        costs = _parse_pairs(args.costs, "costs")
+        weights = _parse_pairs(args.weights, "weights")
         samples = load_dataset(args.dataset)
         result = calibrate(
             samples,
@@ -177,9 +186,18 @@ def _cmd_calibrate(args: argparse.Namespace) -> int:
         print(f"wayfinder-router: wrote {args.out}", file=sys.stderr)
     else:
         print(result.toml)
-    summary = ", ".join(f"{k}={v}" for k, v in result.summary.items())
-    print(f"wayfinder-router: {summary}", file=sys.stderr)
+    print(f"wayfinder-router: {_summary_line(result.summary)}", file=sys.stderr)
     return EXIT_OK
+
+
+def _summary_line(summary: dict[str, Any]) -> str:
+    """Render a summary mapping as the ``k1=v1, k2=v2`` tail of a stderr recap."""
+    return ", ".join(f"{key}={value}" for key, value in summary.items())
+
+
+# --------------------------------------------------------------------------- #
+# recalibrate
+# --------------------------------------------------------------------------- #
 
 
 def _cmd_recalibrate(args: argparse.Namespace) -> int:
@@ -193,12 +211,17 @@ def _cmd_recalibrate(args: argparse.Namespace) -> int:
     if not result.written:
         print(f"wayfinder-router: skipped — {result.reason}", file=sys.stderr)
         return EXIT_OK
-    summary = ", ".join(f"{k}={v}" for k, v in (result.summary or {}).items())
+    recap = _summary_line(result.summary or {})
     print(
-        f"wayfinder-router: recalibrated {args.out} from {result.label_count} labels — {summary}",
+        f"wayfinder-router: recalibrated {args.out} from {result.label_count} labels — {recap}",
         file=sys.stderr,
     )
     return EXIT_OK
+
+
+# --------------------------------------------------------------------------- #
+# serve / webchat / ui / chat (optional-extra launchers)
+# --------------------------------------------------------------------------- #
 
 
 def _cmd_serve(args: argparse.Namespace) -> int:
@@ -219,12 +242,14 @@ def _cmd_serve(args: argparse.Namespace) -> int:
 
 
 def _demo_url(host: str, port: int) -> str:
-    """The browsable URL for the demo UI. A wildcard bind isn't navigable, so show loopback."""
+    """The browsable demo URL. A wildcard bind isn't navigable, so present loopback."""
     display = "127.0.0.1" if host in ("0.0.0.0", "::", "") else host
     return f"http://{display}:{port}/demo"
 
 
 def _cmd_webchat(args: argparse.Namespace) -> int:
+    # threading / webbrowser are referenced as module attributes below (not name-bound)
+    # so the tests' monkeypatches of threading.Timer / webbrowser.open take effect.
     import threading
     import webbrowser
 
@@ -233,7 +258,8 @@ def _cmd_webchat(args: argparse.Namespace) -> int:
     url = _demo_url(args.host, args.port)
     note = "  (dry-run: routing decisions only, no model calls)" if args.dry_run else ""
     print(f"wayfinder-router webchat → {url}{note}  (Ctrl-C to stop)")
-    if not args.dry_run:  # first-run nudge: no models means decision-only replies
+    if not args.dry_run:
+        # First-run nudge: with no models the demo can only echo routing decisions.
         try:
             if not load_gateway_config(".").models:
                 print(
@@ -243,7 +269,8 @@ def _cmd_webchat(args: argparse.Namespace) -> int:
                 )
         except WayfinderConfigError:
             pass
-    # uvicorn.run blocks, so open the browser from a short timer once the server is up.
+
+    # run() blocks in uvicorn, so open the browser from a short timer once it is listening.
     timer = None
     if not args.no_open:
         timer = threading.Timer(_CHAT_OPEN_DELAY, webbrowser.open, args=(url,))
@@ -280,7 +307,7 @@ def _cmd_chat(args: argparse.Namespace) -> int:
     from .tui import TUIUnavailable, run_tui
 
     if args.threshold is not None and not 0.0 <= args.threshold <= 1.0:
-        print("wayfinder-router: --threshold must be a number between 0.0 and 1.0", file=sys.stderr)
+        print(_THRESHOLD_ERROR, file=sys.stderr)
         return EXIT_USAGE
     try:
         run_tui(
@@ -298,14 +325,19 @@ def _cmd_chat(args: argparse.Namespace) -> int:
     return EXIT_OK
 
 
-def _print_key_report(statuses: list) -> None:
-    """Print a per-model key check: keyless, key set (✓), or named-but-unset (✗)."""
+# --------------------------------------------------------------------------- #
+# key-status reporting (shared by init + doctor)
+# --------------------------------------------------------------------------- #
+
+
+def _print_key_report(statuses: list[Any]) -> None:
+    """One line per model: keyless, key present (✓), or named-but-unset (✗)."""
     print("models")
     for s in statuses:
         if s.env_var is None:
             key = "keyless ✓"
         elif s.ok:
-            # After resolve_keys(), a command-filled key reads as set; note its source.
+            # After resolve_keys() a command-supplied key reads as set; flag its origin.
             key = f"{s.env_var} ✓ set" + (" (via command)" if s.cmd else "")
         else:
             key = f"{s.env_var} ✗ not set"
@@ -313,8 +345,8 @@ def _print_key_report(statuses: list) -> None:
 
 
 def _print_key_remedies(missing: list[str]) -> None:
-    """For each unset key: the plain `export`, plus an `api_key_cmd` for any secret
-    tool found on PATH (so the key can live in a manager, never in a shell file)."""
+    """For each unset key: the plain ``export``, then an ``api_key_cmd`` for any secret
+    helper on PATH — so the key can live in a manager rather than a shell rc file."""
     from . import bootstrap
 
     for var in missing:
@@ -323,17 +355,15 @@ def _print_key_remedies(missing: list[str]) -> None:
             print(f'  · or store it safely and add:  api_key_cmd = "{suggestion}"')
 
 
-def _summarize_routing(config: RoutingConfig) -> str:
-    if config.classifier is not None:
-        return f"classifier ({len(config.classifier.models)} models)"
-    if not config.tiers:
-        return "defaults"
-    return " · ".join(f"{t.model} ≥{t.min_score:.2f}" for t in config.tiers)
+# --------------------------------------------------------------------------- #
+# init
+# --------------------------------------------------------------------------- #
 
 
-def _console_io():
-    """Real terminal I/O for the wizard: prompts to stderr (so stdout stays pipeable),
-    answers from stdin. EOF (piped/exhausted input) falls back to the default."""
+def _console_io() -> tuple[Callable[..., str], Callable[[str], None]]:
+    """Terminal I/O for the interactive wizard. Prompts go to stderr (keeping stdout
+    pipeable); answers come from stdin, and EOF (piped/exhausted input) yields the default.
+    """
 
     def say(message: str) -> None:
         print(message, file=sys.stderr)
@@ -389,7 +419,7 @@ def _cmd_init(args: argparse.Namespace) -> int:
         return EXIT_USAGE
     print(f"✓ wrote {target}  (preset: {preset.name} — {preset.summary})")
 
-    # .env.example holds env-var NAMES only — never a secret; don't clobber silently.
+    # .env.example carries variable NAMES only, never a secret — and is not clobbered silently.
     if preset.env_vars:
         env_path = target.parent / ".env.example"
         if env_path.exists() and not args.force:
@@ -414,39 +444,57 @@ def _cmd_init(args: argparse.Namespace) -> int:
     return EXIT_OK
 
 
+# --------------------------------------------------------------------------- #
+# keys
+# --------------------------------------------------------------------------- #
+
+
 _BARE_TOML_KEY = re.compile(r"^[A-Za-z0-9_-]+$")
 
 
 def _toml_key(key: str) -> str:
-    """Render ``key`` as a TOML key: bare when simple, else a quoted, escaped basic string.
+    """Render ``key`` as a TOML key: bare when simple, else a quoted, escaped string.
 
-    Without this a ``--id`` containing a dot, quote, bracket, or space would silently produce
-    malformed TOML (or inject extra structure) in the paste-able config block.
+    Guards against a ``--id`` with a dot, quote, bracket, or space silently producing
+    malformed TOML (or injecting structure) in the paste-able block.
     """
     return key if _BARE_TOML_KEY.match(key) else json.dumps(key)
 
 
 def _toml_str(value: str) -> str:
-    """Render ``value`` as a TOML basic string. JSON and TOML share basic-string escaping
-    (``\\"``, ``\\\\``, ``\\n``, ``\\uXXXX``), so ``json.dumps`` is a correct, escaped encoder."""
+    """Render ``value`` as a TOML basic string. TOML and JSON share basic-string escaping,
+    so ``json.dumps`` is a correct escaped encoder."""
     return json.dumps(value)
 
 
 def _cmd_keys(args: argparse.Namespace) -> int:
-    """Mint a virtual API key (WF-ADR-0035): prints the paste-able config block + the key once."""
+    """Mint a virtual API key (WF-ADR-0035): print the paste-able block and the key once."""
     from . import vkeys
 
-    if args.action != "new":  # only "new" today; choices guards this, kept for clarity
+    if args.action != "new":  # `choices` already guards this; belt and suspenders.
         return EXIT_USAGE
     plaintext, key_hash = vkeys.generate()
     lines = [f"[gateway.keys.{_toml_key(args.id)}]", f'hash = "{key_hash}"']
     if args.tag:
-        lines.append("tags = [" + ", ".join(_toml_str(t) for t in args.tag) + "]")
+        lines.append("tags = [" + ", ".join(_toml_str(tag) for tag in args.tag) + "]")
     print("# Paste into wayfinder-router.toml (only the hash is stored — never the key):")
     print("\n".join(lines))
     print("\n# Give this key to the caller; it is shown once and cannot be recovered:")
     print(plaintext)
     return EXIT_OK
+
+
+# --------------------------------------------------------------------------- #
+# doctor
+# --------------------------------------------------------------------------- #
+
+
+def _summarize_routing(config: RoutingConfig) -> str:
+    if config.classifier is not None:
+        return f"classifier ({len(config.classifier.models)} models)"
+    if not config.tiers:
+        return "defaults"
+    return " · ".join(f"{tier.model} ≥{tier.min_score:.2f}" for tier in config.tiers)
 
 
 def _cmd_doctor(args: argparse.Namespace) -> int:
@@ -474,8 +522,9 @@ def _cmd_doctor(args: argparse.Namespace) -> int:
         print("models:  none configured — add [gateway.models] (see `wayfinder-router init`)")
         print("(chat / serve will show routing decisions only)")
         return EXIT_OK
-    # Verify readiness for real: run any api_key_cmd so a key kept in a secret store
-    # counts as present (WF-DESIGN-0006). In-memory only — nothing is written.
+
+    # Confirm readiness for real: run any api_key_cmd so a key kept in a secret store
+    # counts as present (WF-DESIGN-0006). Purely in-memory — nothing is written out.
     cmd_errors = bootstrap.resolve_keys(gateway.models)
     statuses = bootstrap.key_status(gateway.models)
     print()
@@ -495,11 +544,16 @@ def _cmd_doctor(args: argparse.Namespace) -> int:
     return EXIT_OK
 
 
+# --------------------------------------------------------------------------- #
+# onboard / judge (label faucets)
+# --------------------------------------------------------------------------- #
+
+
 def _load_prompts(path: str) -> list[str]:
-    """One prompt per line: a JSON object with a ``text`` field, or raw text."""
+    """One prompt per line: a JSON object with a string ``text`` field, or raw text."""
     prompts: list[str] = []
-    for line in Path(path).read_text(encoding="utf-8").splitlines():
-        line = line.strip()
+    for raw in Path(path).read_text(encoding="utf-8").splitlines():
+        line = raw.strip()
         if not line:
             continue
         if line.startswith("{"):
@@ -509,6 +563,36 @@ def _load_prompts(path: str) -> list[str]:
                 continue
         prompts.append(line)
     return prompts
+
+
+def _two_arms(
+    args: argparse.Namespace, models: dict[str, Any], noun: str, example: str
+) -> tuple[list[str] | None, int]:
+    """Resolve the two comparison arms from ``--arms`` (or the first two configured
+    models). Returns ``(arms, EXIT_OK)`` on success or ``(None, exit_code)`` with the
+    message already printed. ``noun``/``example`` tailor the guidance text.
+    """
+    arms = [a.strip() for a in args.arms.split(",")] if args.arms else list(models)
+    arms = arms[:2]
+    if len(arms) < 2:
+        print(
+            f"wayfinder-router: {noun} needs two gateway models {example}; "
+            f"configure [gateway.models.*] or pass --arms {_arm_hint(noun)}",
+            file=sys.stderr,
+        )
+        return None, EXIT_USAGE
+    missing = [a for a in arms if a not in models]
+    if missing:
+        print(
+            f"wayfinder-router: no [gateway.models] entry for: {', '.join(missing)}",
+            file=sys.stderr,
+        )
+        return None, EXIT_USAGE
+    return arms, EXIT_OK
+
+
+def _arm_hint(noun: str) -> str:
+    return "cheap,expensive" if noun == "judge" else "local,cloud"
 
 
 def _cmd_onboard(args: argparse.Namespace) -> int:
@@ -525,27 +609,17 @@ def _cmd_onboard(args: argparse.Namespace) -> int:
         print(f"wayfinder-router: {exc}", file=sys.stderr)
         return EXIT_CONFIG
     bootstrap.resolve_keys(gateway.models)  # fill keys from a secret store (WF-DESIGN-0006)
-    arms = [a.strip() for a in args.arms.split(",")] if args.arms else list(gateway.models)
-    arms = arms[:2]
-    if len(arms) < 2:
-        print(
-            "wayfinder-router: onboard needs two gateway models (e.g. local and hosted); "
-            "configure [gateway.models.*] or pass --arms local,cloud",
-            file=sys.stderr,
-        )
-        return EXIT_USAGE
-    missing = [a for a in arms if a not in gateway.models]
-    if missing:
-        print(f"wayfinder-router: no [gateway.models] entry for: {', '.join(missing)}", file=sys.stderr)
-        return EXIT_USAGE
 
+    arms, code = _two_arms(args, gateway.models, "onboard", "(e.g. local and hosted)")
+    if arms is None:
+        return code
     primary, fallback = arms
 
     def run_model(arm: str, prompt: str) -> str:
         return invoke_model(gateway.models[arm], prompt)
 
-    def judge(prompt: str, outputs: dict) -> str:
-        # Interactive A/B goes to stderr so stdout stays clean for --calibrate.
+    def judge(prompt: str, outputs: dict[str, str]) -> str:
+        # The interactive A/B goes to stderr, keeping stdout clean for --calibrate output.
         print(f"\n--- prompt ---\n{prompt}\n", file=sys.stderr)
         print(f"[{primary}]\n{outputs[primary]}\n", file=sys.stderr)
         print(f"[{fallback}]\n{outputs[fallback]}\n", file=sys.stderr)
@@ -562,7 +636,7 @@ def _cmd_onboard(args: argparse.Namespace) -> int:
     except UnicodeDecodeError:
         print(f"wayfinder-router: {args.prompts} is not valid UTF-8 text", file=sys.stderr)
         return EXIT_USAGE
-    counts = ", ".join(f"{k}={v}" for k, v in summary.label_counts.items())
+    counts = _summary_line(summary.label_counts)
     print(f"wayfinder-router: judged {summary.judged} prompts -> {counts}", file=sys.stderr)
     print(f"wayfinder-router: labels appended to {args.log}", file=sys.stderr)
 
@@ -571,18 +645,18 @@ def _cmd_onboard(args: argparse.Namespace) -> int:
 
         result = calibrate(load_dataset(args.log), args.mode)
         print(result.toml)
-        summary_line = ", ".join(f"{k}={v}" for k, v in result.summary.items())
-        print(f"wayfinder-router: {summary_line}", file=sys.stderr)
+        print(f"wayfinder-router: {_summary_line(result.summary)}", file=sys.stderr)
     return EXIT_OK
 
 
-def _judge_provenance_banner(judge_version, args, sample_count, report) -> str:
-    """A leading comment block stamping how a judge-minted config was derived (WF-ADR-0037).
+def _judge_provenance_banner(
+    judge_version: str, args: argparse.Namespace, sample_count: int, report: Any
+) -> str:
+    """A leading comment block recording how a judge-minted config was derived (WF-ADR-0037).
 
-    The derivation is not bit-reproducible (the arm responses are not), so the banner records
-    *what judged what* — judge version, prompt/gold file hashes, the gates that passed, and
-    the tool version — in place of a replay guarantee. Extends ``recalibrate``'s
-    ``# recalibrated from feedback:`` comment convention.
+    The derivation is not bit-reproducible (arm responses vary), so instead of a replay
+    guarantee the banner records *what judged what*: judge version, prompt/gold hashes,
+    the gates that passed, and the tool version. Extends ``recalibrate``'s comment style.
     """
     import datetime
     import hashlib
@@ -624,19 +698,10 @@ def _cmd_judge(args: argparse.Namespace) -> int:
         print(f"wayfinder-router: {exc}", file=sys.stderr)
         return EXIT_CONFIG
     bootstrap.resolve_keys(gateway.models)  # fill keys from a secret store (WF-DESIGN-0006)
-    arms = [a.strip() for a in args.arms.split(",")] if args.arms else list(gateway.models)
-    arms = arms[:2]
-    if len(arms) < 2:
-        print(
-            "wayfinder-router: judge needs two gateway models in cheap,expensive order; "
-            "configure [gateway.models.*] or pass --arms cheap,expensive",
-            file=sys.stderr,
-        )
-        return EXIT_USAGE
-    missing = [a for a in arms if a not in gateway.models]
-    if missing:
-        print(f"wayfinder-router: no [gateway.models] entry for: {', '.join(missing)}", file=sys.stderr)
-        return EXIT_USAGE
+
+    arms, code = _two_arms(args, gateway.models, "judge", "in cheap,expensive order")
+    if arms is None:
+        return code
     cheap, expensive = arms
 
     judge_impl = HeuristicJudge()
@@ -644,14 +709,13 @@ def _cmd_judge(args: argparse.Namespace) -> int:
     def run_model(arm: str, prompt: str) -> str:
         return invoke_model(gateway.models[arm], prompt)
 
-    # Optional comparison audit log: a response-body store, so off by default and only
-    # written when explicitly requested (WF-DESIGN-0008 capture posture). Enables a future
-    # deterministic re-judge from saved bodies with no re-calling.
-    on_verdict = None
+    # Optional comparison-audit log — a response-body store, so off unless requested
+    # (WF-DESIGN-0008). It enables a later deterministic re-judge with no re-calling.
+    on_verdict: Callable[[str, dict[str, str], Any], None] | None = None
     if args.save_comparisons:
         comp_path = args.save_comparisons
 
-        def on_verdict(prompt: str, outputs: dict, verdict) -> None:
+        def _record(prompt: str, outputs: dict[str, str], verdict: Any) -> None:
             row = {
                 "text": prompt,
                 "cheap": {"arm": cheap, "model": gateway.models[cheap].model,
@@ -665,8 +729,10 @@ def _cmd_judge(args: argparse.Namespace) -> int:
             with open(comp_path, "a", encoding="utf-8") as handle:
                 handle.write(json.dumps(row, ensure_ascii=False) + "\n")
 
-    # Gate 1 input: run the judge over the human-labeled gold set and pair its verdicts
-    # against the human labels (abstentions are excluded from kappa, only counted).
+        on_verdict = _record
+
+    # Gate-1 input: run the judge over the human-labeled gold set and pair each verdict
+    # with the human label (abstentions are excluded from kappa, only counted).
     gold_pairs: list[tuple[str, str]] = []
     gold_abstained = 0
     try:
@@ -688,7 +754,7 @@ def _cmd_judge(args: argparse.Namespace) -> int:
                 else:
                     gold_abstained += 1
 
-        # Main collection: judge every prompt, record non-abstained labels to the log.
+        # Main pass: judge every prompt and record the non-abstained labels to the log.
         prompts = _load_prompts(args.prompts)
         if args.limit:
             prompts = prompts[: args.limit]
@@ -732,13 +798,18 @@ def _cmd_judge(args: argparse.Namespace) -> int:
         return EXIT_CONFIG
     print(_judge_provenance_banner(judge_impl.version, args, len(samples), report))
     print(result.toml)
-    summary_line = ", ".join(f"{k}={v}" for k, v in result.summary.items())
-    print(f"wayfinder-router: {summary_line}", file=sys.stderr)
+    print(f"wayfinder-router: {_summary_line(result.summary)}", file=sys.stderr)
     return EXIT_OK
 
 
+# --------------------------------------------------------------------------- #
+# service (launchd / systemd)
+# --------------------------------------------------------------------------- #
+
+
 def _resolve_serve_args(host: str, port: int) -> list[str]:
-    """ProgramArguments to launch the gateway: the installed console script, else ``python -m``."""
+    """ProgramArguments to launch the gateway: the installed console script if on PATH,
+    else ``python -m wayfinder_router.cli``."""
     import shutil
 
     exe = shutil.which("wayfinder-router")
@@ -747,10 +818,9 @@ def _resolve_serve_args(host: str, port: int) -> list[str]:
 
 
 def _probe_health(host: str, port: int) -> str:
-    """A tolerant `/healthz` probe for `service status` (bypasses any HTTP proxy for localhost).
-
-    Surfaces the standing offline routing mode (WF-ADR-0039) when the gateway reports it, so an
-    operator can confirm air-gapped/privacy mode is actually on without sending a real request.
+    """A tolerant ``/healthz`` probe for ``service status`` (bypassing any HTTP proxy for
+    localhost). Surfaces the standing offline routing mode (WF-ADR-0039) when reported,
+    so an operator can confirm air-gapped mode without sending a real request.
     """
     import json
     import urllib.request
@@ -770,6 +840,8 @@ def _probe_health(host: str, port: int) -> str:
 
 
 def _cmd_service(args: argparse.Namespace) -> int:
+    # os / shutil / subprocess referenced as module attributes so the tests' patches of
+    # shutil.which / subprocess.run / service.detect_platform land.
     import os
     import shutil
     import subprocess
@@ -787,9 +859,9 @@ def _cmd_service(args: argparse.Namespace) -> int:
 
     program_args = _resolve_serve_args(args.host, args.port)
     endpoint = f"http://{args.host}:{args.port}/v1"
-    # launchd does not expand ``~`` in StandardOutPath/StandardErrorPath — an unresolved tilde
-    # makes it fail to open the log file and refuse to spawn (EX_CONFIG). Resolve the log dir to
-    # an absolute path here, in the I/O layer, just as we resolve the program path with ``which``.
+    # launchd will not expand ``~`` in StandardOut/ErrorPath; an unresolved tilde makes it
+    # fail to open the log and refuse to spawn (EX_CONFIG). Resolve the log dir here, in the
+    # I/O layer, just as the program path is resolved via ``which``.
     mac_log_dir = os.path.expanduser("~/Library/Logs")
     if plat == "macos":
         unit_text = service.launchd_plist(program_args, log_dir=mac_log_dir)
@@ -801,84 +873,112 @@ def _cmd_service(args: argparse.Namespace) -> int:
         manager = shutil.which("systemctl")
 
     if args.action == "install":
-        if args.print:
-            print(unit_text)
-            return EXIT_OK
-        unit_file.parent.mkdir(parents=True, exist_ok=True)
-        unit_file.write_text(unit_text, encoding="utf-8")
-        if plat == "macos" and manager:
-            uid = os.getuid()
-            os.makedirs(mac_log_dir, exist_ok=True)  # launchd needs the StandardOut/Err dir present
-            loaded = subprocess.run(
-                [manager, "bootstrap", f"gui/{uid}", str(unit_file)], capture_output=True, text=True
-            )
-            if loaded.returncode != 0:  # older macOS, or already bootstrapped — try the legacy load
-                loaded = subprocess.run(
-                    [manager, "load", "-w", str(unit_file)], capture_output=True, text=True
-                )
-            # Trust the end state, not the command's exit code: ``bootstrap`` returns non-zero when the
-            # agent is already loaded (not a failure). Probe whether launchd actually has it loaded.
-            probe = subprocess.run(
-                [manager, "print", f"gui/{uid}/{service.LAUNCHD_LABEL}"], capture_output=True, text=True
-            )
-            if probe.returncode != 0:
-                detail = (loaded.stderr or loaded.stdout or "").strip()
-                print(
-                    f"wayfinder-router: launchctl could not load {unit_file}"
-                    + (f": {detail}" if detail else ""),
-                    file=sys.stderr,
-                )
-                return EXIT_CONFIG
-            print(f"wayfinder-router: installed and loaded {unit_file}", file=sys.stderr)
-        elif plat == "linux" and manager:
-            subprocess.run([manager, "--user", "daemon-reload"], capture_output=True, text=True)
-            enabled = subprocess.run(
-                [manager, "--user", "enable", "--now", service.SYSTEMD_UNIT_NAME],
-                capture_output=True, text=True,
-            )
-            if enabled.returncode != 0:
-                detail = (enabled.stderr or enabled.stdout or "").strip()
-                print(
-                    f"wayfinder-router: systemctl could not enable {service.SYSTEMD_UNIT_NAME}"
-                    + (f": {detail}" if detail else ""),
-                    file=sys.stderr,
-                )
-                return EXIT_CONFIG
-            print(f"wayfinder-router: installed and started {unit_file}", file=sys.stderr)
-        else:
-            hint = (
-                f"launchctl bootstrap gui/$(id -u) {unit_file}"
-                if plat == "macos"
-                else f"systemctl --user enable --now {service.SYSTEMD_UNIT_NAME}"
-            )
-            print(f"wayfinder-router: wrote {unit_file}; start it with:\n  {hint}", file=sys.stderr)
-        print(f"wayfinder-router: point your apps at OPENAI_BASE_URL={endpoint}", file=sys.stderr)
-        return EXIT_OK
-
-    if args.action == "uninstall":
-        if plat == "macos" and manager and unit_file.is_file():
-            uid = os.getuid()
-            booted = subprocess.run(
-                [manager, "bootout", f"gui/{uid}/{service.LAUNCHD_LABEL}"], capture_output=True, text=True
-            )
-            if booted.returncode != 0:
-                subprocess.run([manager, "unload", "-w", str(unit_file)], capture_output=True, text=True)
-        elif plat == "linux" and manager and unit_file.is_file():
-            subprocess.run(
-                [manager, "--user", "disable", "--now", service.SYSTEMD_UNIT_NAME],
-                capture_output=True, text=True,
-            )
-        existed = unit_file.is_file()
-        unit_file.unlink(missing_ok=True)
-        print(
-            f"wayfinder-router: removed {unit_file}"
-            if existed
-            else f"wayfinder-router: nothing to remove ({unit_file} not present)",
-            file=sys.stderr,
+        return _service_install(
+            args, plat, unit_text, unit_file, manager, endpoint, mac_log_dir,
+            os=os, subprocess=subprocess, service=service,
         )
-        return EXIT_OK
+    if args.action == "uninstall":
+        return _service_uninstall(
+            plat, unit_file, manager, os=os, subprocess=subprocess, service=service,
+        )
+    return _service_status(
+        args, plat, unit_file, manager, endpoint,
+        os=os, subprocess=subprocess, service=service,
+    )
 
-    # status
+
+def _service_install(
+    args: argparse.Namespace, plat: str, unit_text: str, unit_file: Any, manager: str | None,
+    endpoint: str, mac_log_dir: str, *, os: Any, subprocess: Any, service: Any,
+) -> int:
+    # --print short-circuits before any filesystem write or subprocess.
+    if args.print:
+        print(unit_text)
+        return EXIT_OK
+    unit_file.parent.mkdir(parents=True, exist_ok=True)
+    unit_file.write_text(unit_text, encoding="utf-8")
+
+    if plat == "macos" and manager:
+        uid = os.getuid()
+        os.makedirs(mac_log_dir, exist_ok=True)  # launchd needs the StandardOut/Err dir present
+        loaded = subprocess.run(
+            [manager, "bootstrap", f"gui/{uid}", str(unit_file)], capture_output=True, text=True
+        )
+        if loaded.returncode != 0:  # older macOS, or already bootstrapped — try the legacy load
+            loaded = subprocess.run(
+                [manager, "load", "-w", str(unit_file)], capture_output=True, text=True
+            )
+        # Trust the end state, not the exit code: ``bootstrap`` returns non-zero when the
+        # agent is already loaded (not a failure). Probe whether launchd truly has it.
+        probe = subprocess.run(
+            [manager, "print", f"gui/{uid}/{service.LAUNCHD_LABEL}"], capture_output=True, text=True
+        )
+        if probe.returncode != 0:
+            detail = (loaded.stderr or loaded.stdout or "").strip()
+            print(
+                f"wayfinder-router: launchctl could not load {unit_file}"
+                + (f": {detail}" if detail else ""),
+                file=sys.stderr,
+            )
+            return EXIT_CONFIG
+        print(f"wayfinder-router: installed and loaded {unit_file}", file=sys.stderr)
+    elif plat == "linux" and manager:
+        subprocess.run([manager, "--user", "daemon-reload"], capture_output=True, text=True)
+        enabled = subprocess.run(
+            [manager, "--user", "enable", "--now", service.SYSTEMD_UNIT_NAME],
+            capture_output=True, text=True,
+        )
+        if enabled.returncode != 0:
+            detail = (enabled.stderr or enabled.stdout or "").strip()
+            print(
+                f"wayfinder-router: systemctl could not enable {service.SYSTEMD_UNIT_NAME}"
+                + (f": {detail}" if detail else ""),
+                file=sys.stderr,
+            )
+            return EXIT_CONFIG
+        print(f"wayfinder-router: installed and started {unit_file}", file=sys.stderr)
+    else:
+        hint = (
+            f"launchctl bootstrap gui/$(id -u) {unit_file}"
+            if plat == "macos"
+            else f"systemctl --user enable --now {service.SYSTEMD_UNIT_NAME}"
+        )
+        print(f"wayfinder-router: wrote {unit_file}; start it with:\n  {hint}", file=sys.stderr)
+    print(f"wayfinder-router: point your apps at OPENAI_BASE_URL={endpoint}", file=sys.stderr)
+    return EXIT_OK
+
+
+def _service_uninstall(
+    plat: str, unit_file: Any, manager: str | None, *, os: Any, subprocess: Any, service: Any,
+) -> int:
+    if plat == "macos" and manager and unit_file.is_file():
+        uid = os.getuid()
+        booted = subprocess.run(
+            [manager, "bootout", f"gui/{uid}/{service.LAUNCHD_LABEL}"],
+            capture_output=True, text=True,
+        )
+        if booted.returncode != 0:
+            subprocess.run([manager, "unload", "-w", str(unit_file)], capture_output=True, text=True)
+    elif plat == "linux" and manager and unit_file.is_file():
+        subprocess.run(
+            [manager, "--user", "disable", "--now", service.SYSTEMD_UNIT_NAME],
+            capture_output=True, text=True,
+        )
+    existed = unit_file.is_file()
+    unit_file.unlink(missing_ok=True)
+    print(
+        f"wayfinder-router: removed {unit_file}"
+        if existed
+        else f"wayfinder-router: nothing to remove ({unit_file} not present)",
+        file=sys.stderr,
+    )
+    return EXIT_OK
+
+
+def _service_status(
+    args: argparse.Namespace, plat: str, unit_file: Any, manager: str | None, endpoint: str,
+    *, os: Any, subprocess: Any, service: Any,
+) -> int:
     installed = unit_file.is_file()
     print(f"unit file: {unit_file} ({'present' if installed else 'absent'})", file=sys.stderr)
     print(f"endpoint:  {endpoint}", file=sys.stderr)
@@ -886,18 +986,25 @@ def _cmd_service(args: argparse.Namespace) -> int:
         if plat == "macos":
             uid = os.getuid()
             probe = subprocess.run(
-                [manager, "print", f"gui/{uid}/{service.LAUNCHD_LABEL}"], capture_output=True, text=True
+                [manager, "print", f"gui/{uid}/{service.LAUNCHD_LABEL}"],
+                capture_output=True, text=True,
             )
             print(f"launchd:   {'loaded' if probe.returncode == 0 else 'not loaded'}", file=sys.stderr)
         else:
             probe = subprocess.run(
-                [manager, "--user", "is-active", service.SYSTEMD_UNIT_NAME], capture_output=True, text=True
+                [manager, "--user", "is-active", service.SYSTEMD_UNIT_NAME],
+                capture_output=True, text=True,
             )
             print(f"systemd:   {probe.stdout.strip() or 'unknown'}", file=sys.stderr)
     print(f"health:    {_probe_health(args.host, args.port)}", file=sys.stderr)
     if not installed:
         print(f"\ninstall with: wayfinder-router service install --port {args.port}", file=sys.stderr)
     return EXIT_OK
+
+
+# --------------------------------------------------------------------------- #
+# parser + dispatch
+# --------------------------------------------------------------------------- #
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -1212,7 +1319,8 @@ def build_parser() -> argparse.ArgumentParser:
 
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
-    return args.func(args)
+    func: Callable[[argparse.Namespace], int] = args.func
+    return func(args)
 
 
 if __name__ == "__main__":  # pragma: no cover
