@@ -1,16 +1,21 @@
 """Anthropic Messages ⇄ OpenAI Chat Completions translation (WF-DESIGN-0011).
 
-Pure, offline format translation so an Anthropic-Messages-native client (notably
-**Claude Code**, via ``ANTHROPIC_BASE_URL``) can use the gateway. The adapter scores
-nothing and calls no model (WF-ADR-0001): the gateway's ``/v1/chat/completions`` handler
-remains the single router, and the endpoint in :mod:`gateway` delegates to it. This module
-only reshapes the request going in and the reply coming out — both directions, buffered and
-streamed.
+A pure, offline shim so an Anthropic-Messages-native client (notably **Claude Code**,
+pointed here via ``ANTHROPIC_BASE_URL``) can talk to the gateway. Nothing here scores or
+calls a model (WF-ADR-0001): the gateway's ``/v1/chat/completions`` handler stays the one
+router, and the ``/v1/messages`` endpoint delegates to it. This module only reshapes the
+request on the way in and the reply on the way out — in both the buffered and streamed
+directions.
 
-Everything here is a pure function of dicts / iterables, so it is fully unit-testable with no
-network and no keys. The streaming side is a small state machine (:class:`MessagesStreamTranslator`)
-that turns OpenAI SSE chunks into the Anthropic event sequence
-(``message_start`` → ``content_block_*`` → ``message_delta`` → ``message_stop``).
+Every function is a pure transform over dicts / iterables, so it is fully unit-testable
+with no network and no keys. The streaming half is a small state machine
+(:class:`MessagesStreamTranslator`) that rewrites OpenAI SSE chunks into the Anthropic
+event order (``message_start`` → ``content_block_*`` → ``message_delta`` → ``message_stop``).
+
+Wire-format note that recurs throughout: every ``data:`` payload and every embedded JSON
+string (tool-call ``arguments``, ``partial_json``) is serialized with
+``separators=(",", ":")``. The compact form is contract — golden tests pin the exact bytes
+(e.g. ``{"q":"cats"}``, not ``{"q": "cats"}``) at both the unit and gateway layers.
 """
 
 from __future__ import annotations
@@ -20,7 +25,8 @@ from collections.abc import AsyncIterable, AsyncIterator, Iterable, Mapping
 
 from .pricing import estimate_tokens
 
-# OpenAI ``finish_reason`` → Anthropic ``stop_reason``.
+# OpenAI ``finish_reason`` → Anthropic ``stop_reason``. Anything unmapped, and any
+# non-string (including ``None``), falls back to ``end_turn``.
 _STOP_REASONS = {
     "stop": "end_turn",
     "length": "max_tokens",
@@ -29,7 +35,10 @@ _STOP_REASONS = {
     "content_filter": "end_turn",
 }
 
-# HTTP status → Anthropic error ``type`` (best-effort nearest match).
+# HTTP status → Anthropic error ``type``. This is a per-status *lookup*, not a 4xx/5xx
+# range rule: the default for any code absent from the table (e.g. 418, 502) is
+# ``api_error``. Reproduce the entries verbatim — 402 mapping to invalid_request_error is
+# explicit, not derived.
 _ERROR_TYPES = {
     400: "invalid_request_error",
     401: "authentication_error",
@@ -46,7 +55,12 @@ _ERROR_TYPES = {
 
 # --- shared helpers ---------------------------------------------------------
 def _flatten_text(value: object) -> str:
-    """Text of an Anthropic content value — a string, or a list of text blocks."""
+    """Collapse an Anthropic content value to plain text.
+
+    A value is either a bare string, or a list of blocks. From a list we keep each block
+    that is a string, or a mapping carrying a string ``text``, and join the pieces with
+    newlines. Anything else (or ``None``) flattens to the empty string.
+    """
     if value is None:
         return ""
     if isinstance(value, str):
@@ -63,20 +77,28 @@ def _flatten_text(value: object) -> str:
 
 
 def _stop_reason(finish_reason: object) -> str:
-    return _STOP_REASONS.get(finish_reason, "end_turn") if isinstance(finish_reason, str) else "end_turn"
+    if isinstance(finish_reason, str):
+        return _STOP_REASONS.get(finish_reason, "end_turn")
+    return "end_turn"
 
 
 # --- request: Anthropic Messages → OpenAI Chat Completions ------------------
 def _translate_tool(tool: Mapping) -> dict:
-    """An Anthropic tool (``name``/``description``/``input_schema``) → OpenAI function tool."""
-    fn: dict = {"name": tool.get("name", ""), "parameters": tool.get("input_schema") or {}}
-    if isinstance(tool.get("description"), str) and tool["description"]:
-        fn["description"] = tool["description"]
-    return {"type": "function", "function": fn}
+    """An Anthropic tool spec (``name`` / ``input_schema`` / ``description``) → OpenAI function tool."""
+    function: dict = {"name": tool.get("name", ""), "parameters": tool.get("input_schema") or {}}
+    description = tool.get("description")
+    if isinstance(description, str) and description:
+        function["description"] = description
+    return {"type": "function", "function": function}
 
 
 def _translate_tool_choice(choice: object) -> object:
-    """Anthropic ``tool_choice`` → OpenAI ``tool_choice`` (tolerates an already-OpenAI value)."""
+    """Anthropic ``tool_choice`` → OpenAI ``tool_choice``.
+
+    A bare string is assumed to already be an OpenAI value and passed through. A mapping is
+    switched on its ``type``: auto→"auto", any→"required", none→"none", and a named tool→a
+    function selector. Anything unrecognized defaults to "auto".
+    """
     if isinstance(choice, str):
         return choice
     if isinstance(choice, Mapping):
@@ -93,11 +115,14 @@ def _translate_tool_choice(choice: object) -> object:
 
 
 def _translate_in_message(message: Mapping) -> list[dict]:
-    """One Anthropic message → the OpenAI message(s) it becomes.
+    """Expand one inbound Anthropic message into the OpenAI message(s) it becomes.
 
-    A user turn carrying ``tool_result`` blocks expands into ``role:"tool"`` messages (which
-    must precede any remaining user text, mirroring OpenAI's expected ordering); an assistant
-    turn with ``tool_use`` blocks becomes an assistant message with ``tool_calls``.
+    String content maps straight to one message (role passed through as-is). List content
+    is split by block type into text parts, ``tool_use`` calls, and ``tool_result`` returns.
+    The critical ordering: ``tool`` messages (a user turn answering the prior assistant
+    call) come *first*, before any trailing text — mirroring what OpenAI expects. An
+    assistant turn folds its text and tool_calls into a single message whose ``content`` may
+    be ``None`` when it only made tool calls.
     """
     role = message.get("role")
     content = message.get("content")
@@ -112,56 +137,62 @@ def _translate_in_message(message: Mapping) -> list[dict]:
     for block in content:
         if not isinstance(block, Mapping):
             continue
-        btype = block.get("type")
-        if btype == "text" and isinstance(block.get("text"), str):
+        block_type = block.get("type")
+        if block_type == "text" and isinstance(block.get("text"), str):
             text_parts.append(block["text"])
-        elif btype == "tool_use":  # assistant invoking a tool
+        elif block_type == "tool_use":  # assistant invoking a tool
             tool_calls.append({
                 "id": block.get("id", ""),
                 "type": "function",
                 "function": {
                     "name": block.get("name", ""),
+                    # Compact separators are contract: the golden pins ``{"q":"cats"}``.
                     "arguments": json.dumps(block.get("input") or {}, separators=(",", ":")),
                 },
             })
-        elif btype == "tool_result":  # user returning a tool's output
+        elif block_type == "tool_result":  # user returning a tool's output
             tool_msgs.append({
                 "role": "tool",
                 "tool_call_id": block.get("tool_use_id", ""),
                 "content": _flatten_text(block.get("content")),
             })
-        # image / unknown blocks are skipped (vision deferred, WF-DESIGN-0011)
+        # image / unknown blocks are silently dropped (vision deferred, WF-DESIGN-0011).
 
-    msgs: list[dict] = list(tool_msgs)  # tool results answer the prior assistant call first
+    # Tool results lead, answering the prior assistant call before any fresh text.
+    messages: list[dict] = list(tool_msgs)
     if role == "assistant":
         text = "\n".join(text_parts) if text_parts else None
         if text is not None or tool_calls:
-            amsg: dict = {"role": "assistant", "content": text}
+            assistant: dict = {"role": "assistant", "content": text}
             if tool_calls:
-                amsg["tool_calls"] = tool_calls
-            msgs.append(amsg)
+                assistant["tool_calls"] = tool_calls
+            messages.append(assistant)
     elif text_parts:
-        msgs.append({"role": role, "content": "\n".join(text_parts)})
-    return msgs
+        messages.append({"role": role, "content": "\n".join(text_parts)})
+    return messages
 
 
 def anthropic_to_openai_request(body: Mapping) -> dict:
-    """Translate an Anthropic ``/v1/messages`` request body into an OpenAI chat body.
+    """Translate an Anthropic ``/v1/messages`` body into an OpenAI chat-completions body.
 
-    The ``model`` is passed through so the gateway's existing ``resolve_pin`` decides (an
-    unconfigured Anthropic id like ``claude-opus-4-…`` falls through to score-and-route).
+    ``model`` is passed through untouched so the gateway's ``resolve_pin`` still decides
+    routing (an unconfigured Anthropic id falls through to score-and-route); absent, it
+    defaults to ``"auto"``. Sampling knobs are carried by key presence, ``stop_sequences``
+    and ``tools`` / ``tool_choice`` by truthiness, ``stream`` is normalized to literal
+    ``True``, and ``top_k`` (plus any other Anthropic-only field) is dropped.
     """
     out: dict = {"model": body.get("model", "auto")}
 
     messages: list[dict] = []
     system = _flatten_text(body.get("system"))
-    if system:
+    if system:  # only prepend a system message when there is actual system text
         messages.append({"role": "system", "content": system})
     for message in body.get("messages") or []:
         if isinstance(message, Mapping):
             messages.extend(_translate_in_message(message))
     out["messages"] = messages
 
+    # max_tokens carries by key presence — even a present 0 / None is forwarded verbatim.
     if "max_tokens" in body:
         out["max_tokens"] = body["max_tokens"]
     for key in ("temperature", "top_p"):
@@ -170,7 +201,7 @@ def anthropic_to_openai_request(body: Mapping) -> dict:
     if body.get("stop_sequences"):
         out["stop"] = body["stop_sequences"]
     if body.get("stream"):
-        out["stream"] = True
+        out["stream"] = True  # literal True, not the passthrough truthy value
     if body.get("tools"):
         out["tools"] = [_translate_tool(t) for t in body["tools"] if isinstance(t, Mapping)]
     if body.get("tool_choice") is not None:
@@ -180,13 +211,18 @@ def anthropic_to_openai_request(body: Mapping) -> dict:
 
 # --- response: OpenAI Chat Completions → Anthropic Messages (buffered) ------
 def _usage(response: object, *, prompt_text: str = "", completion_text: str = "") -> tuple[int, int]:
-    """``(input_tokens, output_tokens)`` — the upstream ``usage`` if present, else estimated."""
+    """Return ``(input_tokens, output_tokens)`` — upstream usage when trustworthy, else estimated.
+
+    Upstream usage is only trusted when *both* ``prompt_tokens`` and ``completion_tokens``
+    are ints; a partial/missing usage falls back to a full estimate of both sides (never a
+    mix). Estimation is ``pricing.estimate_tokens`` (~4 chars/token, min 1 for non-empty).
+    """
     if isinstance(response, Mapping):
         usage = response.get("usage")
         if isinstance(usage, Mapping):
-            pt, ct = usage.get("prompt_tokens"), usage.get("completion_tokens")
-            if isinstance(pt, int) and isinstance(ct, int):
-                return pt, ct
+            prompt_tokens, completion_tokens = usage.get("prompt_tokens"), usage.get("completion_tokens")
+            if isinstance(prompt_tokens, int) and isinstance(completion_tokens, int):
+                return prompt_tokens, completion_tokens
     return estimate_tokens(prompt_text), estimate_tokens(completion_text)
 
 
@@ -195,27 +231,28 @@ def openai_to_anthropic_response(
 ) -> dict:
     """Translate a non-streaming OpenAI chat completion into an Anthropic ``message`` object."""
     choice = (response.get("choices") or [{}])[0]
-    msg = choice.get("message") or {}
+    message = choice.get("message") or {}
 
     content: list[dict] = []
-    text = msg.get("content")
+    text = message.get("content")
     completion_text = text if isinstance(text, str) else ""
     if isinstance(text, str) and text:
         content.append({"type": "text", "text": text})
-    for i, tc in enumerate(msg.get("tool_calls") or []):
-        fn = tc.get("function") or {}
-        completion_text += fn.get("arguments") or ""
+    for i, tool_call in enumerate(message.get("tool_calls") or []):
+        function = tool_call.get("function") or {}
+        # Accumulate the raw argument text so the token estimate reflects tool output too.
+        completion_text += function.get("arguments") or ""
         try:
-            args = json.loads(fn.get("arguments") or "{}")
+            arguments = json.loads(function.get("arguments") or "{}")
         except (json.JSONDecodeError, TypeError):
-            args = {}
+            arguments = {}  # malformed arguments degrade to empty input, not a crash
         content.append({
             "type": "tool_use",
-            "id": tc.get("id") or f"toolu_{i}",
-            "name": fn.get("name", ""),
-            "input": args,
+            "id": tool_call.get("id") or f"toolu_{i}",  # synthesize an id only when absent
+            "name": function.get("name", ""),
+            "input": arguments,
         })
-    if not content:  # Anthropic messages always carry at least one block
+    if not content:  # an Anthropic message always carries at least one block
         content.append({"type": "text", "text": ""})
 
     input_tokens, output_tokens = _usage(
@@ -234,17 +271,23 @@ def openai_to_anthropic_response(
 
 
 def anthropic_error(status: int, message: str) -> dict:
-    """An Anthropic error envelope for a non-2xx (or untranslatable) upstream reply."""
+    """Wrap an upstream failure in an Anthropic error envelope (per-status ``type`` lookup)."""
     return {"type": "error", "error": {"type": _ERROR_TYPES.get(status, "api_error"), "message": message}}
 
 
 # --- response: OpenAI SSE → Anthropic SSE (streaming) -----------------------
 def _sse(event: str, data: dict) -> bytes:
+    """Encode one SSE event. The ``event: ``/``data: `` prefixes, compact JSON, and the
+    ``\\n\\n`` terminator are all byte-level contract — tests split on those exact tokens."""
     return f"event: {event}\ndata: {json.dumps(data, separators=(',', ':'))}\n\n".encode()
 
 
 def _parse_sse_data(line: str) -> object | None:
-    """Parse one ``data:`` line into a chunk dict, the ``"[DONE]"`` sentinel, or ``None``."""
+    """Parse one line into a chunk mapping, the ``"[DONE]"`` sentinel, or ``None`` to skip.
+
+    Only ``data:`` lines carry payload; blank lines, ``event:`` lines, and unparseable JSON
+    all return ``None`` and are ignored by the caller.
+    """
     line = line.strip()
     if not line.startswith("data:"):
         return None
@@ -258,14 +301,15 @@ def _parse_sse_data(line: str) -> object | None:
 
 
 class MessagesStreamTranslator:
-    """Turn a stream of OpenAI chat chunks into the Anthropic SSE event sequence.
+    """Rewrite a stream of OpenAI chat chunks into the Anthropic SSE event sequence.
 
-    Text streams incrementally as a single content block. Tool calls are **buffered** by their
-    OpenAI index (id / name / argument fragments) and emitted as complete, non-interleaved
-    ``tool_use`` blocks in :meth:`finish` — because OpenAI can interleave parallel tool-call deltas
-    across indices, which Anthropic's sequential, one-block-at-a-time stream cannot represent (a
-    block can't be reopened once closed). ``start`` / ``feed`` / ``finish`` each return a list of
-    encoded SSE events, so the whole thing is drivable synchronously in a test.
+    Text streams live as a single incremental content block. Tool calls, by contrast, are
+    *buffered* by their OpenAI index (id / name / argument fragments) and only flushed as
+    whole ``tool_use`` blocks in :meth:`finish`. OpenAI may interleave parallel tool-call
+    deltas across indices, which Anthropic's strictly sequential, one-block-at-a-time stream
+    cannot represent — a closed block cannot be reopened — so buffering is the only faithful
+    mapping. ``start`` / ``feed`` / ``finish`` each return a list of encoded events, which
+    keeps the machine drivable synchronously in tests.
     """
 
     def __init__(self, *, model: str, message_id: str, input_tokens: int = 0) -> None:
@@ -273,16 +317,19 @@ class MessagesStreamTranslator:
         self.message_id = message_id
         self.input_tokens = input_tokens
         self._next_index = 0
-        self._current: tuple | None = None  # the open text block ("text", idx), or None
-        # Tool calls accumulated by OpenAI index: {oidx: {"id", "name", "args": [fragment, ...]}}.
-        # Insertion order is the emit order; flushed as whole blocks in finish().
+        # The currently open text block as ``("text", index)``, or None when none is open.
+        self._current: tuple | None = None
+        # Buffered tool calls keyed by OpenAI index; insertion order is the emit order.
+        # Each slot: {"id": str|None, "name": str, "args": [fragment, ...]}.
         self._tools: dict[int, dict] = {}
         self._finish_reason: object = None
         self._output_tokens = 0
         self._usage_seen = False
-        self._completion: list[str] = []  # for the output-token estimate when usage is absent
+        # Streamed text + tool-arg fragments, kept for the output-token estimate fallback.
+        self._completion: list[str] = []
 
     def start(self) -> list[bytes]:
+        """Emit the opening ``message_start`` event (content empty, output_tokens 0)."""
         message: dict = {
             "id": self.message_id,
             "type": "message",
@@ -296,6 +343,7 @@ class MessagesStreamTranslator:
         return [_sse("message_start", {"type": "message_start", "message": message})]
 
     def _close_current(self) -> list[bytes]:
+        """Close the open block (if any) with a ``content_block_stop``."""
         if self._current is None:
             return []
         index = self._current[-1]
@@ -303,9 +351,12 @@ class MessagesStreamTranslator:
         return [_sse("content_block_stop", {"type": "content_block_stop", "index": index})]
 
     def feed(self, chunk: Mapping) -> list[bytes]:
+        """Consume one OpenAI chunk, emitting text-block events; tool deltas are buffered silently."""
         out: list[bytes] = []
         usage = chunk.get("usage")
         if isinstance(usage, Mapping):
+            # completion_tokens sets the authoritative output count; prompt_tokens revises
+            # input_tokens for the eventual message_delta (no re-emit of message_start).
             if isinstance(usage.get("completion_tokens"), int):
                 self._output_tokens = usage["completion_tokens"]
                 self._usage_seen = True
@@ -317,6 +368,7 @@ class MessagesStreamTranslator:
             text = delta.get("content")
             if isinstance(text, str) and text:
                 if self._current is None or self._current[0] != "text":
+                    # Open a fresh text block (closing any stale one first).
                     out += self._close_current()
                     index = self._next_index
                     self._next_index += 1
@@ -331,36 +383,39 @@ class MessagesStreamTranslator:
                     "delta": {"type": "text_delta", "text": text},
                 }))
 
-            for tc in delta.get("tool_calls") or []:
-                if not isinstance(tc, Mapping):
+            for tool_call in delta.get("tool_calls") or []:
+                if not isinstance(tool_call, Mapping):
                     continue
-                oidx = tc.get("index", 0)
-                fn = tc.get("function") or {}
-                slot = self._tools.get(oidx)
-                if slot is None:  # first delta for this OpenAI tool-call index
+                oindex = tool_call.get("index", 0)
+                function = tool_call.get("function") or {}
+                slot = self._tools.get(oindex)
+                if slot is None:  # first delta for this index fixes its emit position
                     slot = {"id": None, "name": "", "args": []}
-                    self._tools[oidx] = slot
-                tid = tc.get("id")  # id / name arrive on the first delta; args stream across deltas
-                if isinstance(tid, str) and tid:
-                    slot["id"] = tid
-                name = fn.get("name")
+                    self._tools[oindex] = slot
+                # id / name arrive on the first delta; argument fragments stream across deltas.
+                call_id = tool_call.get("id")
+                if isinstance(call_id, str) and call_id:
+                    slot["id"] = call_id
+                name = function.get("name")
                 if isinstance(name, str) and name:
                     slot["name"] = name
-                args = fn.get("arguments")
-                if isinstance(args, str) and args:
-                    slot["args"].append(args)
-                    self._completion.append(args)
+                arguments = function.get("arguments")
+                if isinstance(arguments, str) and arguments:
+                    slot["args"].append(arguments)
+                    self._completion.append(arguments)
 
-            if choice.get("finish_reason"):
+            if choice.get("finish_reason"):  # truthy guard: a None/"" won't clobber a real one
                 self._finish_reason = choice["finish_reason"]
         return out
 
     def finish(self) -> list[bytes]:
+        """Close any open text block, flush buffered tools, then emit message_delta/message_stop."""
         out: list[bytes] = []
-        out += self._close_current()  # close the open text block, if any
-        # Flush buffered tool calls as complete tool_use blocks, in first-seen order — each its own
-        # start / single input_json_delta / stop — so parallel or interleaved calls keep their real
-        # id and name instead of being merged or losing one to a synthetic block.
+        out += self._close_current()  # text block closes before any tool block opens
+        # Flush buffered tool calls as whole blocks, in first-seen order — each its own
+        # start / single concatenated input_json_delta / stop. Concatenating all fragments
+        # into ONE delta (not one per fragment) and keeping per-index ids/names is what lets
+        # parallel/interleaved calls survive without merging or losing a synthetic block.
         for slot in self._tools.values():
             index = self._next_index
             self._next_index += 1
@@ -368,7 +423,7 @@ class MessagesStreamTranslator:
                 "type": "content_block_start", "index": index,
                 "content_block": {
                     "type": "tool_use",
-                    "id": slot["id"] or f"toolu_{index}",
+                    "id": slot["id"] or f"toolu_{index}",  # synthesize an id only when absent
                     "name": slot["name"],
                     "input": {},
                 },
@@ -387,6 +442,7 @@ class MessagesStreamTranslator:
             }))
             out.append(_sse("content_block_stop", {"type": "content_block_stop", "index": 0}))
         if not self._usage_seen and self._output_tokens == 0:
+            # No upstream usage: estimate from the accumulated text + argument fragments.
             self._output_tokens = estimate_tokens("".join(self._completion))
         out.append(_sse("message_delta", {
             "type": "message_delta",
@@ -400,10 +456,12 @@ class MessagesStreamTranslator:
 def translate_sse_chunks(
     chunks: Iterable[object], *, model: str, message_id: str, input_tokens: int = 0
 ) -> list[bytes]:
-    """Drive :class:`MessagesStreamTranslator` over OpenAI chunk dicts — sync, for tests."""
-    translator = MessagesStreamTranslator(
-        model=model, message_id=message_id, input_tokens=input_tokens
-    )
+    """Drive :class:`MessagesStreamTranslator` over already-parsed OpenAI chunks (sync, for tests).
+
+    A ``"[DONE]"`` sentinel finishes and returns immediately; running off the end of the
+    iterable without one still finishes (closing everything). Non-mapping objects are ignored.
+    """
+    translator = MessagesStreamTranslator(model=model, message_id=message_id, input_tokens=input_tokens)
     out = list(translator.start())
     for chunk in chunks:
         if chunk == "[DONE]":
@@ -420,14 +478,14 @@ async def messages_stream(
     message_id: str,
     input_tokens: int = 0,
 ) -> AsyncIterator[bytes]:
-    """Async wrapper: buffer upstream OpenAI SSE bytes, emit translated Anthropic SSE bytes.
+    """Async wrapper: buffer raw upstream OpenAI SSE bytes, yield translated Anthropic SSE bytes.
 
     Accepts whatever a Starlette ``StreamingResponse.body_iterator`` yields (``str``,
-    ``bytes``, or ``memoryview``) and normalizes each piece to text before parsing.
+    ``bytes``, or ``memoryview``), normalizing each piece to text. A ``data:`` line split
+    across byte-chunk boundaries is held in ``buffer`` until its terminating ``\\n`` arrives,
+    so it parses exactly once.
     """
-    translator = MessagesStreamTranslator(
-        model=model, message_id=message_id, input_tokens=input_tokens
-    )
+    translator = MessagesStreamTranslator(model=model, message_id=message_id, input_tokens=input_tokens)
     for event in translator.start():
         yield event
     buffer = ""
@@ -445,5 +503,6 @@ async def messages_stream(
             if isinstance(obj, Mapping):
                 for event in translator.feed(obj):
                     yield event
+    # Stream ended without an explicit [DONE] — close everything out.
     for event in translator.finish():
         yield event
