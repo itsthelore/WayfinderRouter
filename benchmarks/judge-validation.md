@@ -56,55 +56,78 @@ the frontier arm) so the judge numbers sit next to the router numbers they would
 
 Run on `routerbench_0shot.pkl` (36,497 graded prompts, mistral-7b-chat vs gpt-4-1106-preview).
 The full table is in [`judge-validation-results.md`](judge-validation-results.md) (machine copy:
-[`.json`](judge-validation-results.json)). Headline:
+[`.json`](judge-validation-results.json)). The benchmark surfaced a bug, we fixed it, and re-ran —
+the whole point of building the meter first. Both readings are kept below.
+
+### Initial run — `heuristic-1` (a useful negative result)
 
 | | value |
 | --- | --- |
-| abstention | **99.3%** (36,239 / 36,497) — the judge decides only 258 prompts |
-| κ, absolute gold (decided rows) | **0.048** — far below the 0.6 "substantial" floor |
-| κ, relative gold (decided rows) | **0.038** |
-| accuracy on decided rows | 0.562 absolute / 0.760 relative |
+| abstention | **99.3%** (36,239 / 36,497) — decides only 258 prompts |
+| κ, absolute gold (decided) | **0.048** — far below the 0.6 floor |
+| κ, relative gold (decided) | **0.038** |
+| accuracy (decided) | 0.562 absolute / 0.760 relative |
 
-**Read honestly, this is a negative result, and a useful one: the standalone `HeuristicJudge`
-does not clear its own trust gate on RouterBench.** That is exactly the outcome WF-ROADMAP-0010
-Initiative 2 is designed for — automated verdicts are gated behind a human-gold κ floor and refuse
-to render a flip verdict below it. This benchmark now *empirically* justifies that gate on a public
-36k-prompt set, rather than assuming it. Three things drive the number, and each is a concrete
-design input:
+The standalone judge did not clear its own trust gate — exactly the outcome WF-ROADMAP-0010 §2
+gates against. Two mechanisms, both traced to one root cause: the judge treated *any* short
+response as a non-answer.
 
-- **The 99.3% abstention is mostly a format mismatch, not wise caution.** RouterBench is dominated
-  by multiple-choice families (MMLU, HellaSwag, WinoGrande, ARC — well over half the rows), whose
-  graded "response" is a single token: gpt-4 answers `['C']`, mistral answers `['\nA']`. The
-  judge's stub filter (`min_answer_chars = 16`) reads *both* terse answers as non-answers and
-  abstains — this accounts for 27,369 of the abstentions (both responses under 16 chars). The
-  judge was built for free-text sufficiency (`judge.py`: "strongest on verifiable/structured
-  prompts and silent on open-ended prose"), and multiple-choice letters are neither the free text
-  it judges nor the traffic the evidence engine will actually see (production is chat/code/prose).
-  So the headline abstention over-states how often the judge would punt on real traffic.
-- **Where it does decide, the `refusal` comparator misfires — and it drives the decisions.** Of
-  258 decided rows, 235 come from the refusal rule, at 0.536 accuracy (near chance), biased hard
-  toward "sufficient" (the judge says sufficient on 240 of 258). Root cause is the same format
-  mismatch inverted: when the frontier arm's answer is *terse but correct* (`['C']`), the "dear
-  arm empty → the cheap arm was enough" branch fires and wrongly rules the cheap arm sufficient.
-  This is a specific, fixable bug: a short answer with no refusal marker is not a refusal. The
-  `agreement` (4 rows, 1.00) and `similarity` (19 rows, 0.789) comparators are trustworthy but
-  rarely decisive on this data.
-- **The κ/accuracy gap is the class-imbalance signature.** Relative-gold accuracy is a respectable
-  0.760 (and 0.916 on `consensus_summary`, a free-text family), but κ stays ~0.04 because a
-  near-constant "sufficient" prediction earns little chance-corrected credit. Accuracy alone would
-  flatter the judge; κ is the honest meter, which is why it is the gate.
+- **The 99.3% abstention was mostly a format mismatch.** RouterBench is dominated by
+  multiple-choice families (MMLU, HellaSwag, WinoGrande, ARC — over half the rows) whose graded
+  "response" is a single token: gpt-4 answers `['C']`, mistral `['\nA']`. The stub filter
+  (`min_answer_chars = 16`) read *both* terse answers as non-answers and abstained — 27,369 rows
+  (both responses under 16 chars).
+- **Where it decided, the `refusal` comparator misfired** — 235 of 258 decisions, at 0.536
+  accuracy (near chance), biased to "sufficient": when the frontier answer was *terse but correct*
+  (`['C']`), the "dear arm empty → cheap was enough" branch fired and wrongly ruled cheap
+  sufficient. A short answer with no refusal marker is not a refusal.
 
-This partly refutes the shape pre-registered above the fold (I predicted *high abstention +
-high-κ-when-deciding*; reality is *high abstention + low-κ-when-deciding*, because the refusal rule
-misfires on terse frontier answers). Leaving that prediction visible is the point.
+(This refuted the shape pre-registered above the fold — I predicted *high abstention + high-κ-when-
+deciding*; reality was *low-κ-when-deciding*, because of the misfire. The prediction is left visible.)
+
+### After the fix — `heuristic-2`
+
+The fix (this branch, `wayfinder_router/judge.py`): length is no longer a non-answer signal — only
+emptiness or a refusal marker is — and fuzzy `similarity` is gated to answers ≥ `min_answer_chars`
+(on short strings a one-token difference dominates the ratio). Version bumped `heuristic-1 →
+heuristic-2` so provenance records which judge produced a label.
+
+| | heuristic-1 | heuristic-2 |
+| --- | --- | --- |
+| decided | 258 | **2,811** (11× coverage) |
+| abstention | 99.3% | 92.3% |
+| `refusal` misfires | 235 @ 0.536 | **2** (eliminated) |
+| relative-gold accuracy (decided) | 0.760 | **0.999** |
+| relative-gold κ (decided) | 0.038 | **0.333** (none → fair) |
+| absolute-gold κ (decided) | 0.048 | −0.001 |
+
+Read honestly, the fix does exactly what it should — and exposes the judge's real boundary:
+
+- **On the question that matters, it is now reliable where it decides.** The evidence engine asks
+  the *relative* question — "would routing cheap have lost anything versus the frontier arm?" On
+  that reading the fixed judge is near-perfect on decided rows (0.999 accuracy, 2,806/2,810
+  correct), because agreement between the two arms almost tautologically means routing cheap lost
+  nothing. Coverage is up 11× and the misfire is gone.
+- **On the absolute question it remains near-useless — and that is a fundamental limit, not a
+  regression.** Absolute-gold κ ≈ 0 both before and after (0.048 and −0.001 are both "no
+  agreement"; the difference is noise). A text-comparison judge detects whether two answers
+  *agree*, not whether they are *correct*: on 515 decided rows both arms agreed on the **same wrong
+  answer**, and the judge cannot see it (it has essentially no "insufficient" prediction — 1 of
+  2,811). This is the honest case for the human-gold gate and an `LLMJudge` drop-in, not something
+  a heuristic can close.
+- **κ is still below 0.6, even relative.** The near-constant "sufficient" prediction caps
+  chance-corrected agreement under heavy class imbalance; 0.999 accuracy still only earns κ 0.333.
+  κ is the honest meter, which is why it is the gate — accuracy alone would flatter the judge.
+- **92.3% abstention is now correct conservatism, not a bug.** The remaining abstentions are
+  open-ended prose families where text comparison genuinely cannot grade quality — the judge stays
+  silent rather than guessing, bounding coverage, not honesty.
 
 **What it means for the roadmap.** (1) The human-gold + κ-floor gate (WF-ROADMAP-0010 §2) is
-load-bearing and now empirically justified — do not let automated verdicts stand alone. (2) The
-judge needs a format-aware fix before shadow-mode judging of real traffic: separate "empty/refused"
-from "terse", so a short correct answer stops reading as a refusal (Initiative 6 tuning, tracked).
-(3) An `LLMJudge` drop-in via the existing `Judge` protocol is the likely path for open-ended prose,
-as `judge.py` predicted. None of this changes the decision path (WF-ADR-0001): the judge is
-calibration/evidence-time only.
+load-bearing and now empirically justified on a public 36k set. (2) The `HeuristicJudge` is a
+usable *relative-quality, verifiable-task* signal after the fix, and should be scoped to that — not
+asked to assess correctness. (3) An `LLMJudge` via the existing `Judge` protocol is the path for
+open-ended prose and for catching shared-wrongness, as `judge.py` predicted; the decision path is
+untouched either way (WF-ADR-0001, evidence/calibration-time only).
 
 *Reproduce:* the RouterBench pickle is not redistributable in-repo; fetch it once (command above)
 and re-run. Same pickle + same flags → byte-identical tables.
