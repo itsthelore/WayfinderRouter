@@ -21,8 +21,17 @@ export function ChatView({
   onOfflineToggle: (on: boolean) => void;
 }) {
   const offline = showOfflineChip(gw);
+  // One polite announcement on completion (WF-DESIGN-0012) — never a live region on the token
+  // stream. Empty while streaming/idle so only the settled result speaks.
+  const announcement =
+    turn.phase === "done" && turn.decision
+      ? `reply finished, routed ${turn.decision.isLocal ? "locally" : "to cloud"}`
+      : "";
   return (
     <div className="flex min-h-0 flex-1 flex-col">
+      <div role="status" aria-live="polite" className="sr-only">
+        {announcement}
+      </div>
       {showDegradedBanner(gw) && (
         <div
           role="alert"

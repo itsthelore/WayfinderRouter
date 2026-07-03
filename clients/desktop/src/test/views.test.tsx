@@ -112,6 +112,17 @@ describe("ChatView — adornments + decision hero + reply swap", () => {
     expect(screen.getByText("CLOUD")).toBeInTheDocument();
     expect(screen.getByText("hello there")).toBeInTheDocument();
   });
+  it("announces the settled route once, politely, in an sr-only live region", () => {
+    render(
+      <ChatView
+        gw={gwState()}
+        turn={turnStub({ decision: local, enriched: true, reply: "hi", phase: "done" })}
+        onOfflineToggle={() => {}}
+      />,
+    );
+    const live = document.querySelector('[aria-live="polite"]')!;
+    expect(live).toHaveTextContent("reply finished, routed locally");
+  });
   it("decision-only: OnboardingCard replaces the reply", () => {
     render(
       <ChatView
