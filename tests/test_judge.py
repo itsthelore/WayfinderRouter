@@ -20,9 +20,38 @@ def test_empty_cheap_is_insufficient():
     assert v.comparator == "refusal"
 
 
-def test_stub_cheap_is_insufficient():
-    v = HeuristicJudge().judge("q", "42", PARIS)  # too short to be an answer
-    assert v.sufficient is False
+def test_short_answer_is_not_a_refusal():
+    # A terse but real answer must not read as a refusal (the misfire the RouterBench
+    # judge-validation surfaced). "42" vs a long divergent answer -> the heuristic can't
+    # tell, so it abstains rather than wrongly ruling the cheap arm insufficient.
+    v = HeuristicJudge().judge("q", "42", PARIS)
+    assert v.sufficient is None
+    assert v.comparator == "divergence"
+
+
+def test_matching_short_answers_are_sufficient():
+    # Both arms give the same multiple-choice letter -> exact agreement -> the cheap arm
+    # was enough. This is trustworthy signal the old length filter threw away.
+    v = HeuristicJudge().judge("q", "C", "C")
+    assert v.sufficient is True
+    assert v.comparator == "agreement"
+
+
+def test_terse_dear_answer_is_not_a_refusal():
+    # A terse-but-real frontier answer (e.g. a letter) must not trip "dear arm empty ->
+    # cheap was sufficient". With a long cheap answer and a short dear one, the judge
+    # cannot adjudicate and abstains -- it does not falsely rule sufficient.
+    v = HeuristicJudge().judge("q", CELL, "C")
+    assert v.sufficient is None
+    assert v.comparator != "refusal"
+
+
+def test_short_similar_answers_do_not_trigger_similarity():
+    # "cat" vs "car" are lexically close but semantically different; on short answers
+    # fuzzy similarity is unreliable, so it is gated off and the judge abstains.
+    v = HeuristicJudge().judge("q", "cat", "car")
+    assert v.sufficient is None
+    assert v.comparator == "divergence"
 
 
 def test_refusal_cheap_is_insufficient():
@@ -68,7 +97,7 @@ def test_judge_is_deterministic():
 
 def test_heuristic_judge_satisfies_the_protocol():
     assert isinstance(HeuristicJudge(), Judge)
-    assert HeuristicJudge().version == "heuristic-1"
+    assert HeuristicJudge().version == "heuristic-2"
 
 
 class _FixedJudge:
