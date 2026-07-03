@@ -13,11 +13,12 @@ Exactly one routing mode is live at a time, chosen in this precedence order:
     [[routing.tiers]]               # ordered score bands (WF-ADR-0002)
     [routing] threshold = 0.6       # the binary local/cloud cut (the default)
 
-The scalar-score ``weights`` table may accompany any of the three modes::
+A ``weights`` table (the scalar-score coefficients) is optional and layers onto
+whichever mode is active, e.g.::
 
     [routing]
-    threshold = 0.6
-    weights = { word_count = 4.0, list_item_count = 2.5 }
+    threshold = 0.55
+    weights = { word_count = 3.0, code_block_count = 2.0 }
 """
 
 from __future__ import annotations
@@ -26,9 +27,9 @@ import os
 import tomllib
 from pathlib import Path
 
-from .complexity import DEFAULT_THRESHOLD as _DEFAULT_THRESHOLD
 from .complexity import (
     DEFAULT_LEXICON,
+    DEFAULT_THRESHOLD as _DEFAULT_THRESHOLD,
     DEFAULT_WEIGHTS,
     FEATURE_ORDER,
     ClassifierModel,
@@ -38,36 +39,57 @@ from .complexity import (
     binary_tiers,
 )
 
-# Upper bound on a single lexicon family so a config cannot smuggle in a
-# pathological term list (WF-ADR-0019 risk). The value is baked into the
-# corresponding error text, so it is behavioural contract, not just a guard.
+# A config must not be able to smuggle in a pathologically large term list
+# (WF-ADR-0019 risk), so each lexicon family is capped. The cap is interpolated
+# into the matching error text, which makes it behavioural contract rather than a
+# bare guard.
 _MAX_LEXICON_TERMS = 2000
 
 CONFIG_FILE = "wayfinder-router.toml"
-# Environment escape hatch for a one-off binary-router run without editing the
-# file. Honoured only on the threshold path; tiers and classifier ignore it.
+# A one-shot escape hatch for running the binary router at a different cut without
+# touching the file. It is consulted only on the threshold path; an explicit tiers
+# ladder or a classifier ignores it.
 THRESHOLD_ENV = "WAYFINDER_ROUTER_THRESHOLD"
 
 
 class WayfinderConfigError(Exception):
     """A ``wayfinder-router.toml`` was found but is malformed.
 
-    This is always a usage error surfaced to the caller; a broken config is
-    never silently ignored.
+    Always surfaced to the caller as a usage error; a broken config is never
+    silently ignored.
     """
+
+
+def _is_real_number(value: object) -> bool:
+    """True for a genuine int or float, excluding ``bool`` (an ``int`` subclass)."""
+    return isinstance(value, (int, float)) and not isinstance(value, bool)
+
+
+def _unit_number(value: object, message: str) -> float:
+    """Coerce ``value`` to a float in ``[0.0, 1.0]`` or raise ``message``."""
+    # bool is rejected explicitly (it is an int subclass) before the range test.
+    if isinstance(value, bool) or not isinstance(value, (int, float)) or not 0.0 <= value <= 1.0:
+        raise WayfinderConfigError(message)
+    return float(value)
+
+
+def _non_negative_number(value: object, message: str) -> float:
+    """Coerce ``value`` to a non-negative float or raise ``message``."""
+    if isinstance(value, bool) or not isinstance(value, (int, float)) or value < 0:
+        raise WayfinderConfigError(message)
+    return float(value)
 
 
 def find_config_file(start_dir: str) -> Path | None:
-    """Return the nearest ``wayfinder-router.toml`` at or above ``start_dir``.
+    """Locate the nearest ``wayfinder-router.toml`` at or above ``start_dir``.
 
-    The starting directory is resolved first, then the search walks ``self`` and
-    each ascending parent, returning the first directory that holds the file.
-    ``None`` when no ancestor carries one. The walk is finite: the filesystem
-    root has no parents.
+    The start directory is resolved, then ``self`` and each ascending parent are
+    probed in turn; the first directory holding the file wins, else ``None``. The
+    walk terminates on its own — the filesystem root has no parent.
     """
-    current = Path(start_dir).resolve()
-    for directory in (current, *current.parents):
-        candidate = directory / CONFIG_FILE
+    origin = Path(start_dir).resolve()
+    for folder in (origin, *origin.parents):
+        candidate = folder / CONFIG_FILE
         if candidate.is_file():
             return candidate
     return None
@@ -76,10 +98,10 @@ def find_config_file(start_dir: str) -> Path | None:
 def routing_config_from_toml(text: str, where: str = CONFIG_FILE) -> RoutingConfig:
     """Parse ``wayfinder-router.toml`` text into a :class:`RoutingConfig`.
 
-    The pure, file-free core shared by :func:`load_routing_config` and the
-    config-editing UI, so a draft posted to the UI is validated exactly as a
-    real file would be. ``where`` names the source in every error message.
-    Malformed shapes raise :class:`WayfinderConfigError`.
+    The pure, file-free core that :func:`load_routing_config` and the config editor
+    both call, so a draft typed into the UI is validated on exactly the path a
+    committed file takes. ``where`` labels the source in every diagnostic. Any
+    malformed shape raises :class:`WayfinderConfigError`.
     """
     try:
         data = tomllib.loads(text)
@@ -91,14 +113,15 @@ def routing_config_from_toml(text: str, where: str = CONFIG_FILE) -> RoutingConf
         raise WayfinderConfigError(f"{where}: '[routing]' must be a table")
     routing = section or {}
 
-    # Weights and lexicon are mode-independent; they apply to whichever routing
-    # mode wins below.
+    # Weights and the lexicon are orthogonal to the routing mode: they layer onto
+    # whichever of classifier/tiers/threshold wins below.
     weights = _parse_weights(where, routing.get("weights"))
-    lexicon = (
-        _parse_lexicon(where, routing["lexicon"]) if "lexicon" in routing else DEFAULT_LEXICON
-    )
+    if "lexicon" in routing:
+        lexicon = _parse_lexicon(where, routing["lexicon"])
+    else:
+        lexicon = DEFAULT_LEXICON
 
-    # Precedence: classifier beats tiers beats the binary threshold default.
+    # Precedence is classifier > tiers > the binary threshold default.
     if "classifier" in routing:
         classifier = _parse_classifier(where, routing["classifier"])
         return RoutingConfig(weights=weights, classifier=classifier, lexicon=lexicon)
@@ -106,23 +129,23 @@ def routing_config_from_toml(text: str, where: str = CONFIG_FILE) -> RoutingConf
         tiers = _parse_tiers(where, routing["tiers"])
         return RoutingConfig(weights=weights, tiers=tiers, lexicon=lexicon)
 
-    threshold = _parse_threshold(where, routing.get("threshold"), _DEFAULT_THRESHOLD)
-    threshold = _apply_env_threshold(threshold)
+    threshold = _apply_env_threshold(
+        _parse_threshold(where, routing.get("threshold"), _DEFAULT_THRESHOLD)
+    )
     return RoutingConfig(weights=weights, tiers=binary_tiers(threshold), lexicon=lexicon)
 
 
 def load_routing_config(start_dir: str = ".") -> RoutingConfig:
     """Load the routing config from the nearest ``wayfinder-router.toml``.
 
-    With no file present the zero-config binary router is returned, still with
-    the environment threshold override applied. On a read failure the OSError is
-    wrapped as :class:`WayfinderConfigError`; otherwise parsing is delegated to
+    With no file on the walk-up, the zero-config binary router is returned — the
+    environment threshold override still applies. A read failure is wrapped as
+    :class:`WayfinderConfigError`; a readable file is handed to
     :func:`routing_config_from_toml`.
     """
     config_path = find_config_file(start_dir)
     if config_path is None:
-        threshold = _apply_env_threshold(_DEFAULT_THRESHOLD)
-        return RoutingConfig(tiers=binary_tiers(threshold))
+        return RoutingConfig(tiers=binary_tiers(_apply_env_threshold(_DEFAULT_THRESHOLD)))
     try:
         text = config_path.read_text(encoding="utf-8")
     except OSError as exc:
@@ -133,11 +156,7 @@ def load_routing_config(start_dir: str = ".") -> RoutingConfig:
 def _parse_threshold(where: str, value: object, default: float) -> float:
     if value is None:
         return default
-    # bool is an int subclass, so it is rejected explicitly before the numeric
-    # and range checks.
-    if isinstance(value, bool) or not isinstance(value, (int, float)) or not 0.0 <= value <= 1.0:
-        raise WayfinderConfigError(f"{where}: 'routing.threshold' must be a number in 0.0-1.0")
-    return float(value)
+    return _unit_number(value, f"{where}: 'routing.threshold' must be a number in 0.0-1.0")
 
 
 def _parse_weights(where: str, value: object) -> dict[str, float]:
@@ -146,34 +165,36 @@ def _parse_weights(where: str, value: object) -> dict[str, float]:
         return weights
     if not isinstance(value, dict):
         raise WayfinderConfigError(f"{where}: 'routing.weights' must be a table")
-    for name, weight in value.items():
+    for name, given in value.items():
         if name not in FEATURE_ORDER:
             raise WayfinderConfigError(
                 f"{where}: 'routing.weights.{name}' is not a known feature "
                 f"(one of {', '.join(FEATURE_ORDER)})"
             )
-        if isinstance(weight, bool) or not isinstance(weight, (int, float)) or weight < 0:
-            raise WayfinderConfigError(
-                f"{where}: 'routing.weights.{name}' must be a non-negative number"
-            )
-        weights[name] = float(weight)
+        weights[name] = _non_negative_number(
+            given, f"{where}: 'routing.weights.{name}' must be a non-negative number"
+        )
     return weights
 
 
 def _term_list(where: str, label: str, value: object) -> frozenset[str]:
-    if not isinstance(value, list) or any(not isinstance(t, str) or not t.strip() for t in value):
+    if not isinstance(value, list) or any(
+        not isinstance(term, str) or not term.strip() for term in value
+    ):
         raise WayfinderConfigError(f"{where}: '{label}' must be a list of non-empty strings")
     if len(value) > _MAX_LEXICON_TERMS:
         raise WayfinderConfigError(f"{where}: '{label}' has more than {_MAX_LEXICON_TERMS} terms")
-    # Lower-case to match the scanner, which normalizes prompt text the same way.
-    return frozenset(t.strip().lower() for t in value)
+    # Fold to lower-case so custom terms match the scanner, which lower-cases the
+    # prompt before it counts.
+    return frozenset(term.strip().lower() for term in value)
 
 
 def _parse_lexicon(where: str, value: object) -> Lexicon:
-    """Parse ``[routing.lexicon]`` custom trigger words (WF-ADR-0019).
+    """Parse the ``[routing.lexicon]`` trigger-word overrides (WF-ADR-0019).
 
-    Either family may be omitted to keep its built-in default; an unknown key is
-    an error so a typo cannot silently disable a family.
+    Either family (``reasoning_terms``, ``constraint_terms``) may be omitted to
+    keep its built-in default; an unrecognised key is rejected so a typo cannot
+    quietly switch a family off.
     """
     if not isinstance(value, dict):
         raise WayfinderConfigError(f"{where}: '[routing.lexicon]' must be a table")
@@ -184,61 +205,65 @@ def _parse_lexicon(where: str, value: object) -> Lexicon:
             f"{where}: unknown 'routing.lexicon' keys: {', '.join(sorted(unknown))} "
             f"(known: {', '.join(sorted(known))})"
         )
-    kwargs = {
-        key: _term_list(where, f"routing.lexicon.{key}", value[key])
-        for key in known
-        if key in value
+    families = {
+        family: _term_list(where, f"routing.lexicon.{family}", value[family])
+        for family in known
+        if family in value
     }
-    # Omitted families fall back to the Lexicon dataclass defaults.
-    return Lexicon(**kwargs)
+    # Omitted families fall through to the Lexicon dataclass defaults.
+    return Lexicon(**families)
+
+
+def _parse_tier_entry(where: str, entry: object) -> Tier:
+    if not isinstance(entry, dict):
+        raise WayfinderConfigError(f"{where}: each '[[routing.tiers]]' must be a table")
+    min_score = _unit_number(
+        entry.get("min_score"), f"{where}: tier 'min_score' must be a number in 0.0-1.0"
+    )
+    model = entry.get("model")
+    if not isinstance(model, str) or not model:
+        raise WayfinderConfigError(f"{where}: tier 'model' must be a non-empty string")
+    raw_cost = entry.get("cost")
+    cost = (
+        None
+        if raw_cost is None
+        else _non_negative_number(raw_cost, f"{where}: tier 'cost' must be a non-negative number")
+    )
+    return Tier(min_score, model, cost)
 
 
 def _parse_tiers(where: str, value: object) -> tuple[Tier, ...]:
     if not isinstance(value, list) or not value:
         raise WayfinderConfigError(f"{where}: 'routing.tiers' must be a non-empty array of tables")
-    tiers: list[Tier] = []
-    for entry in value:
-        if not isinstance(entry, dict):
-            raise WayfinderConfigError(f"{where}: each '[[routing.tiers]]' must be a table")
-        min_score = entry.get("min_score")
-        model = entry.get("model")
-        if (
-            isinstance(min_score, bool)
-            or not isinstance(min_score, (int, float))
-            or not 0.0 <= min_score <= 1.0
-        ):
-            raise WayfinderConfigError(f"{where}: tier 'min_score' must be a number in 0.0-1.0")
-        if not isinstance(model, str) or not model:
-            raise WayfinderConfigError(f"{where}: tier 'model' must be a non-empty string")
-        cost = entry.get("cost")
-        if cost is not None and (
-            isinstance(cost, bool) or not isinstance(cost, (int, float)) or cost < 0
-        ):
-            raise WayfinderConfigError(f"{where}: tier 'cost' must be a non-negative number")
-        tiers.append(Tier(float(min_score), model, float(cost) if cost is not None else None))
-    # Sort first, then enforce the 0.0-first and strictly-ascending invariants;
-    # duplicate min_scores are caught by the strict (<=) ascending pass.
-    tiers.sort(key=lambda t: t.min_score)
+    tiers = [_parse_tier_entry(where, entry) for entry in value]
+    # Order by min_score, then assert the ladder invariants: it must start at 0.0
+    # and rise strictly — the strict ``<=`` pass is what rejects duplicate scores.
+    tiers.sort(key=lambda tier: tier.min_score)
     if tiers[0].min_score != 0.0:
         raise WayfinderConfigError(f"{where}: the first tier must have min_score = 0.0")
-    for earlier, later in zip(tiers, tiers[1:], strict=False):
-        if later.min_score <= earlier.min_score:
+    for lower, upper in zip(tiers, tiers[1:], strict=False):
+        if upper.min_score <= lower.min_score:
             raise WayfinderConfigError(
                 f"{where}: tier 'min_score' values must be strictly ascending"
             )
     return tuple(tiers)
 
 
+def _valid_model_names(models: list) -> bool:
+    # 2+ entries, each a non-empty string, no duplicates. The all-strings check
+    # runs before ``set(models)`` so a non-hashable entry can't raise mid-check.
+    return (
+        len(models) >= 2
+        and all(isinstance(m, str) and m for m in models)
+        and len(set(models)) == len(models)
+    )
+
+
 def _parse_classifier(where: str, value: object) -> ClassifierModel:
     if not isinstance(value, dict):
         raise WayfinderConfigError(f"{where}: '[routing.classifier]' must be a table")
     models = value.get("models")
-    if (
-        not isinstance(models, list)
-        or len(models) < 2
-        or not all(isinstance(m, str) and m for m in models)
-        or len(set(models)) != len(models)
-    ):
+    if not isinstance(models, list) or not _valid_model_names(models):
         raise WayfinderConfigError(
             f"{where}: 'routing.classifier.models' must be 2+ unique non-empty strings"
         )
@@ -249,16 +274,18 @@ def _parse_classifier(where: str, value: object) -> ClassifierModel:
     raw_weights = value.get("weights")
     if not isinstance(raw_weights, dict):
         raise WayfinderConfigError(f"{where}: '[routing.classifier.weights]' must be a table")
-    # Fill every known feature first (zero-vector when omitted), then reject any
-    # leftover unknown key — the fill-before-check order is contract.
-    weights: dict[str, tuple[float, ...]] = {}
-    for name in FEATURE_ORDER:
-        if name in raw_weights:
-            weights[name] = _number_vector(
-                where, f"routing.classifier.weights.{name}", raw_weights[name], count
-            )
-        else:
-            weights[name] = (0.0,) * count
+
+    # Give every known feature a vector — the supplied one, or a zero vector when
+    # omitted — and only then reject any leftover key. Filling before checking is
+    # contract.
+    weights: dict[str, tuple[float, ...]] = {
+        name: (
+            _number_vector(where, f"routing.classifier.weights.{name}", raw_weights[name], count)
+            if name in raw_weights
+            else (0.0,) * count
+        )
+        for name in FEATURE_ORDER
+    }
     for name in raw_weights:
         if name not in FEATURE_ORDER:
             raise WayfinderConfigError(
@@ -271,17 +298,17 @@ def _number_vector(where: str, label: str, value: object, count: int) -> tuple[f
     if (
         not isinstance(value, list)
         or len(value) != count
-        or any(isinstance(v, bool) or not isinstance(v, (int, float)) for v in value)
+        or any(not _is_real_number(v) for v in value)
     ):
         raise WayfinderConfigError(f"{where}: '{label}' must be a list of {count} numbers")
     return tuple(float(v) for v in value)
 
 
 def _fmt_num(value: float) -> str:
-    # Byte-stable float formatting for emitted TOML: round to 6 dp, then repr.
-    # The float() cast is deliberate defensive code — an int-valued field must
-    # still emit "1.0"/"0.0", not "1"/"0". This must NOT be unified with
-    # calibrate._fmt (which has no cast); the two are intentionally distinct.
+    # Byte-stable float formatting for emitted TOML: round to 6 dp, then repr. The
+    # float() cast is deliberate — an int-valued field must still emit "1.0"/"0.0",
+    # not "1"/"0" — and is intentionally NOT shared with calibrate._fmt, which has
+    # no cast; unifying the two would change this module's output bytes.
     return repr(round(float(value), 6))
 
 
@@ -296,60 +323,68 @@ def _dump_tier(tier: Tier) -> str:
     return "\n".join(lines)
 
 
+def _dump_weights(weights: dict[str, float]) -> str:
+    # Always in canonical FEATURE_ORDER, rendered as a single inline table.
+    inline = ", ".join(f"{name} = {_fmt_num(weights[name])}" for name in FEATURE_ORDER)
+    return "[routing]\nweights = { " + inline + " }"
+
+
+def _dump_lexicon(lexicon: Lexicon) -> str:
+    lines = ["[routing.lexicon]"]
+    families = (
+        ("reasoning_terms", lexicon.reasoning_terms, DEFAULT_LEXICON.reasoning_terms),
+        ("constraint_terms", lexicon.constraint_terms, DEFAULT_LEXICON.constraint_terms),
+    )
+    # One line per overridden family only; terms sorted for byte stability.
+    for key, terms, default in families:
+        if terms != default:
+            lines.append(f"{key} = [" + ", ".join(f'"{t}"' for t in sorted(terms)) + "]")
+    return "\n".join(lines)
+
+
+def _dump_classifier(clf: ClassifierModel) -> str:
+    models = ", ".join(f'"{m}"' for m in clf.models)
+    intercepts = ", ".join(_fmt_num(b) for b in clf.intercepts)
+    lines = [
+        "[routing.classifier]",
+        f"models = [{models}]",
+        f"intercepts = [{intercepts}]",
+        "",
+        "[routing.classifier.weights]",
+    ]
+    for name in FEATURE_ORDER:
+        lines.append(f"{name} = [" + ", ".join(_fmt_num(w) for w in clf.weights[name]) + "]")
+    return "\n".join(lines)
+
+
 def dump_routing_toml(config: RoutingConfig) -> str:
     """Serialize a :class:`RoutingConfig` back to a ``wayfinder-router.toml`` fragment.
 
-    The deterministic round-trip for the Configure surface: the output parses
-    back through :func:`routing_config_from_toml` to an equivalent config.
-    Non-default weights and lexicon families are emitted; the active mode
-    (classifier or tiers) is emitted in full. Blocks are joined by a blank line
-    and the fragment ends in a newline.
+    The deterministic inverse used by the Configure surface: the text parses back
+    through :func:`routing_config_from_toml` to an equivalent config. Weights and
+    lexicon families are emitted only when they diverge from the defaults; the
+    active mode (classifier or tier ladder) is emitted in full. Blocks are joined
+    by a blank line and the fragment ends in a newline.
     """
     blocks: list[str] = []
-
-    # Weights: emitted only when they differ from the defaults, always in
-    # canonical FEATURE_ORDER as an inline table.
     if dict(config.weights) != dict(DEFAULT_WEIGHTS):
-        items = ", ".join(f"{name} = {_fmt_num(config.weights[name])}" for name in FEATURE_ORDER)
-        blocks.append("[routing]\nweights = { " + items + " }")
-
-    # Lexicon: emitted only when overridden, one line per changed family, terms
-    # sorted for byte stability.
+        blocks.append(_dump_weights(config.weights))
     if config.lexicon != DEFAULT_LEXICON:
-        lines = ["[routing.lexicon]"]
-        for key, terms, default in (
-            ("reasoning_terms", config.lexicon.reasoning_terms, DEFAULT_LEXICON.reasoning_terms),
-            ("constraint_terms", config.lexicon.constraint_terms, DEFAULT_LEXICON.constraint_terms),
-        ):
-            if terms != default:
-                lines.append(f"{key} = [" + ", ".join(f'"{t}"' for t in sorted(terms)) + "]")
-        blocks.append("\n".join(lines))
-
-    # Mode block: classifier when present, otherwise the tier ladder.
+        blocks.append(_dump_lexicon(config.lexicon))
     if config.classifier is not None:
-        clf = config.classifier
-        models = ", ".join(f'"{m}"' for m in clf.models)
-        intercepts = ", ".join(_fmt_num(b) for b in clf.intercepts)
-        lines = [
-            "[routing.classifier]",
-            f"models = [{models}]",
-            f"intercepts = [{intercepts}]",
-            "",
-            "[routing.classifier.weights]",
-        ]
-        for name in FEATURE_ORDER:
-            lines.append(f"{name} = [" + ", ".join(_fmt_num(w) for w in clf.weights[name]) + "]")
-        blocks.append("\n".join(lines))
+        blocks.append(_dump_classifier(config.classifier))
     else:
         blocks.append("\n\n".join(_dump_tier(t) for t in config.tiers))
-
     return "\n\n".join(blocks) + "\n"
 
 
 def _apply_env_threshold(default: float) -> float:
-    # Only an unset var or the exact empty string short-circuits to the default;
-    # whitespace (" ", "\t") is NOT normalized away — it flows into float() and
-    # becomes an error, exposing the raw value in the message.
+    """Overlay the ``WAYFINDER_ROUTER_THRESHOLD`` override onto ``default``.
+
+    An unset variable or the exact empty string leaves ``default`` untouched.
+    Anything else — whitespace included — is fed to ``float()`` and range-checked,
+    so a stray value surfaces as an error rather than a silent fallback.
+    """
     raw = os.environ.get(THRESHOLD_ENV)
     if raw is None or raw == "":
         return default

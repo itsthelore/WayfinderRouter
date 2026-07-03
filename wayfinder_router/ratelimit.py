@@ -6,7 +6,8 @@ a runaway client can neither flood an upstream nor blow the blast radius. State 
 per process (like the circuit breaker), the clock is injectable, and a lock guards the counters.
 This unit-tests like ``reliability.py``; no FastAPI/httpx import lives here.
 
-v1 is gateway-wide; per-key / per-session limits ride on virtual keys (WF-ROADMAP-0006 #5).
+The first cut limits the whole gateway; per-key and per-session budgets land later on virtual
+keys (WF-ROADMAP-0006 #5).
 """
 
 from __future__ import annotations
@@ -17,16 +18,16 @@ import time
 from collections.abc import Callable
 from dataclasses import dataclass, field
 
-DEFAULT_WINDOW = 60.0  # seconds; RPM/TPM are per-minute by convention
+DEFAULT_WINDOW = 60.0  # one minute in seconds; RPM and TPM count over a window this wide
 
 
 @dataclass(frozen=True)
 class RateResult:
-    """The outcome of an admission check: whether to serve, and if not, why and for how long."""
+    """Verdict from an admission check: whether to serve and, when refused, the cap and the wait."""
 
     allowed: bool
-    limit: str = ""  # "" when allowed, else the limit that tripped: "rpm" | "tpm"
-    retry_after: int = 0  # seconds until the current window rolls (for the Retry-After header)
+    limit: str = ""  # empty while allowed; otherwise the tripped cap, either "rpm" or "tpm"
+    retry_after: int = 0  # whole seconds until the window resets, echoed in the Retry-After header
 
 
 @dataclass
@@ -74,7 +75,7 @@ class RateLimiter:
             return RateResult(True)
 
     def add_tokens(self, n: int, now: float | None = None) -> None:
-        """Record ``n`` upstream tokens for the current window (no-op unless a TPM cap is set)."""
+        """Accumulate ``n`` upstream tokens into this window; a no-op when no TPM cap is set."""
         if self.tpm is None:
             return
         now = self.clock() if now is None else now

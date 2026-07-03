@@ -68,15 +68,12 @@ def is_cacheable(body: Mapping) -> bool:
     """
     if body.get("stream") is True:
         return False
-    temperature = body.get("temperature")
-    if temperature is not None and temperature != 0:
-        return False
-    top_p = body.get("top_p")
-    if top_p is not None and top_p != 1:
-        return False
-    n = body.get("n")
-    if n is not None and n != 1:
-        return False
+    # Sampling knobs are cacheable only at their deterministic setting; an absent field is fine,
+    # while any off-point value forfeits reproducibility and disqualifies the request.
+    for knob, deterministic in (("temperature", 0), ("top_p", 1), ("n", 1)):
+        value = body.get(knob)
+        if value is not None and value != deterministic:
+            return False
     if body.get("seed") is not None:
         return False
     if body.get("tools") or body.get("tool_choice"):
@@ -90,7 +87,7 @@ def is_cacheable(body: Mapping) -> bool:
 
 
 def is_storable(status: int, content_type: str, response: object) -> bool:
-    """Whether an upstream response is a safe, complete success worth caching.
+    """Whether an upstream reply is a complete, genuine success that is safe to store.
 
     Guards the cardinal footgun: many OpenAI-compatible upstreams return HTTP 200 with an
     error-shaped or empty body on overload — storing that would replay a poisoned "success" to
@@ -220,7 +217,7 @@ class ResponseCache:
                 self._evict_locked()
 
     def stats(self) -> dict[str, int]:
-        """Entry count, byte size, and cumulative hits/misses (for introspection)."""
+        """Current entry count and byte total, plus lifetime hit and miss tallies, for introspection."""
         with self._lock:
             return {
                 "entries": len(self._store),

@@ -1,21 +1,21 @@
-"""Offline calibration — turn a labeled prompt set into a routing config.
+"""Offline calibration — fit a routing config from a labeled prompt set.
 
-Calibration is the empirical step that pins the structural proxy onto a real
+Calibration is the empirical step that pins the structural proxy onto a concrete
 routing decision. It runs *offline* over a labeled dataset and emits a
 ``wayfinder-router.toml`` fragment; the runtime itself stays deterministic and
-model-free (WF-ADR-0003). No model is called here — the labels come from
+model-free (WF-ADR-0003). Nothing here calls a model — the labels come from
 whatever oracle the caller already trusts.
 
-Three modes, mirroring the runtime router:
+The three modes mirror the runtime router:
 
-- ``threshold`` — binary: sweep the cut that best separates two labels and emit
-  a two-tier (e.g. local/cloud) config.
+- ``threshold`` — binary: sweep the cut that best separates two labels and emit a
+  two-tier (e.g. local/cloud) config.
 - ``tiers`` — ordinal multi-class: order the models by mean score, sweep each
   adjacent breakpoint, and emit an N-tier config.
 - ``classifier`` — fit a multinomial-logistic router over the normalized feature
   vector by deterministic pure-Python Newton/IRLS, and emit a classifier config.
 
-Calibration and the runtime scalar score share one feature transform
+Calibration and the runtime scalar score share a single feature transform
 (``normalized_features``), so calibration never invents a scale the runtime does
 not also use.
 """
@@ -28,9 +28,9 @@ from collections.abc import Callable
 from dataclasses import dataclass
 
 from .complexity import (
+    ClassifierModel,
     DEFAULT_LEXICON,
     FEATURE_ORDER,
-    ClassifierModel,
     Lexicon,
     Tier,
     extract_features,
@@ -46,10 +46,11 @@ class CalibrationError(Exception):
 
 @dataclass
 class Sample:
-    """One labeled prompt: extracted features, the target label, and its score.
+    """One labeled prompt: its extracted features, target label, and score.
 
-    The field order ``features, label, score`` is contract: callers and helpers
-    build samples positionally (e.g. re-scoring produces ``Sample(f, l, s)``).
+    The field order — ``features, label, score`` — is contract: callers and
+    helpers build samples positionally (re-scoring, for instance, emits
+    ``Sample(f, l, s)``).
     """
 
     features: dict[str, int]
@@ -59,7 +60,7 @@ class Sample:
 
 @dataclass
 class CalibrationResult:
-    """The emitted config fragment plus a deterministic summary of the fit."""
+    """The emitted config fragment paired with a deterministic summary of the fit."""
 
     toml: str
     summary: dict
@@ -71,20 +72,20 @@ def parse_dataset(
     """Parse a JSONL dataset of ``{"text": ..., "label": ...}`` rows from a string.
 
     The in-memory counterpart of :func:`load_dataset`, so the UI can calibrate
-    pasted data with no file. Blank lines are skipped; each row's prompt is
-    scored to features once, with ``lexicon`` selecting the lexical trigger words.
+    pasted data with no file. Blank lines are ignored; each surviving row's prompt
+    is scored to features once, with ``lexicon`` selecting the lexical triggers.
     """
     samples: list[Sample] = []
-    for lineno, raw in enumerate(text.splitlines(), start=1):
-        line = raw.strip()
-        if not line:
+    for lineno, source in enumerate(text.splitlines(), start=1):
+        stripped = source.strip()
+        if not stripped:
             continue
         try:
-            row = json.loads(line)
+            record = json.loads(stripped)
         except json.JSONDecodeError as exc:
             raise CalibrationError(f"{where}:{lineno}: invalid JSON: {exc}") from exc
-        prompt = row.get("text")
-        label = row.get("label")
+        prompt = record.get("text")
+        label = record.get("label")
         if not isinstance(prompt, str) or not isinstance(label, str) or not label:
             raise CalibrationError(
                 f"{where}:{lineno}: each row needs string 'text' and non-empty 'label'"
@@ -99,16 +100,16 @@ def parse_dataset(
 def load_dataset(path: str, *, lexicon: Lexicon = DEFAULT_LEXICON) -> list[Sample]:
     """Read a JSONL dataset of ``{"text": ..., "label": ...}`` rows from a file.
 
-    Delegates to :func:`parse_dataset`. Read/decode errors (OSError,
-    UnicodeDecodeError) propagate unwrapped — the CLI handles them separately —
-    so, unlike the config loader, they are *not* turned into CalibrationError.
+    A thin wrapper over :func:`parse_dataset`. Read and decode failures (OSError,
+    UnicodeDecodeError) propagate unwrapped — the CLI handles them separately — so,
+    unlike the config loader, they are never turned into a ``CalibrationError``.
     """
     with open(path, encoding="utf-8") as handle:
         return parse_dataset(handle.read(), where=path, lexicon=lexicon)
 
 
 def _default_score(features: dict[str, int]) -> float:
-    # Calibration scores with the default weights: weight-fitting is a separate
+    # Calibration scores with the default weights; fitting weights is a separate
     # concern from finding the cut, which keeps threshold/tiers interpretable.
     from .complexity import DEFAULT_WEIGHTS
 
@@ -118,8 +119,8 @@ def _default_score(features: dict[str, int]) -> float:
 def _labels_by_mean_score(samples: list[Sample]) -> list[str]:
     """Distinct labels ordered by ascending mean structural score.
 
-    Deterministic; ties on mean are broken by label name ascending, so the whole
-    pipeline's default ordering is reproducible.
+    Deterministic; a tie on the mean is broken by label name ascending, so the
+    default ordering the whole pipeline leans on is reproducible.
     """
     sums: dict[str, float] = {}
     counts: dict[str, int] = {}
@@ -131,33 +132,34 @@ def _labels_by_mean_score(samples: list[Sample]) -> list[str]:
 
 
 def _sweep_cut(scored: list[tuple[float, bool]]) -> tuple[float, float]:
-    """Best accuracy cut over ``(score, is_high)`` pairs.
+    """Most accurate cut over ``(score, is_high)`` pairs.
 
-    Predict high when ``score >= cut``. Candidate cuts are the observed scores
-    (rounded to 4 dp) plus 0.0; accuracy ties break to the median candidate — a
-    stable central choice. Returns ``(threshold, accuracy)``.
+    The rule is "predict high when ``score >= cut``". Candidate cuts are the
+    distinct observed scores (rounded to 4 dp) plus 0.0, scanned in ascending
+    order; on an accuracy tie the median candidate wins, a stable central pick.
+    Returns ``(threshold, accuracy)``.
     """
     candidates = sorted({0.0, *(round(score, 4) for score, _ in scored)})
     total = len(scored)
     best_acc = -1.0
-    best_cuts: list[float] = []
-    for cut in candidates:
-        correct = sum(1 for score, is_high in scored if (score >= cut) == is_high)
-        acc = correct / total
+    ties: list[float] = []
+    for candidate in candidates:
+        hits = sum(1 for score, is_high in scored if (score >= candidate) == is_high)
+        acc = hits / total
         if acc > best_acc:
             best_acc = acc
-            best_cuts = [cut]
+            ties = [candidate]
         elif acc == best_acc:
-            best_cuts.append(cut)
-    return best_cuts[len(best_cuts) // 2], best_acc
+            ties.append(candidate)
+    return ties[len(ties) // 2], best_acc
 
 
 def sweep_curve(samples: list[Sample]) -> list[tuple[float, float]]:
     """The full ``(threshold, accuracy)`` curve for two-label data.
 
     The chart behind threshold calibration: every candidate cut and the accuracy
-    of "route high when score >= cut". Deterministic; raises for other than two
-    labels. Uses the same scoring as :func:`calibrate_threshold`.
+    of "route high when ``score >= cut``". Deterministic, and it scores exactly as
+    :func:`calibrate_threshold` does. Raises for anything but two labels.
     """
     labels = _labels_by_mean_score(samples)
     if len(labels) != 2:
@@ -168,14 +170,15 @@ def sweep_curve(samples: list[Sample]) -> list[tuple[float, float]]:
     scored = [(s.score, s.label == high) for s in samples]
     total = len(scored)
     candidates = sorted({0.0, *(round(score, 4) for score, _ in scored)})
-    return [
-        (cut, sum(1 for score, is_high in scored if (score >= cut) == is_high) / total)
-        for cut in candidates
-    ]
+    curve: list[tuple[float, float]] = []
+    for candidate in candidates:
+        hits = sum(1 for score, is_high in scored if (score >= candidate) == is_high)
+        curve.append((candidate, hits / total))
+    return curve
 
 
-# Default relative per-call costs when the caller gives none (WF-ADR-0017): the
-# benchmark's units — the cheap/low arm at 0.2, the expensive/high arm at 1.0.
+# Default relative per-call costs used when the caller supplies none (WF-ADR-0017):
+# the benchmark's units, with the cheap/low arm at 0.2 and the pricey/high arm at 1.0.
 _DEFAULT_COST_LOW = 0.2
 _DEFAULT_COST_HIGH = 1.0
 
@@ -190,21 +193,21 @@ def calibrate_threshold(
 ) -> CalibrationResult:
     """Binary calibration: sweep the local/cloud-style cut between two labels.
 
-    ``objective="accuracy"`` (default) takes the most accurate cut.
+    ``objective="accuracy"`` (the default) takes the most accurate cut.
     ``objective="knee"`` (WF-ADR-0017) takes the cost-aware knee — the cut that
-    maximizes quality-recovered x cost-saved with no savings target to guess; on
-    skewed labels, where accuracy collapses to always-route-high, the knee still
-    balances quality against cost. ``objective="cost-quality"`` takes the most
-    accurate cut that still reaches ``target_savings`` versus always-route-high.
-    Cost objectives take per-arm ``costs`` (defaulting to the 0.2/1.0 units).
+    maximizes quality-recovered x cost-saved with no savings target to guess; where
+    accuracy collapses to always-route-high on skewed labels, the knee still trades
+    quality against cost. ``objective="cost-quality"`` takes the most accurate cut
+    that still reaches ``target_savings`` versus always-route-high. Cost objectives
+    read per-arm ``costs`` (defaulting to the 0.2/1.0 units).
 
-    ``weights`` re-scores the prompts with custom feature weights before the
-    sweep and emits them alongside the cut, so the result is a complete config
-    rather than a cut over the bare default structural score.
+    ``weights`` re-scores the prompts with custom feature weights before the sweep
+    and emits them alongside the cut, so the result is a complete config rather
+    than a cut over the bare default structural score.
     """
-    # weights re-scores *and* emits: note the guard is `is not None`, so an
-    # empty dict still re-scores (to all-zero) even though _weights_block emits
-    # nothing for it — the two guards deliberately disagree on {}.
+    # Note the guard is ``is not None``: an empty dict still re-scores (to all-zero
+    # scores) even though _weights_block emits nothing for it — the two guards
+    # deliberately disagree on ``{}``.
     if weights is not None:
         samples = [Sample(s.features, s.label, scalar_score(s.features, weights)) for s in samples]
     prefix = _weights_block(weights)
@@ -215,10 +218,10 @@ def calibrate_threshold(
             f"threshold mode needs exactly two labels, found {len(labels)}: {labels}"
         )
 
-    # Cost objectives route the expensive arm above the cut, so they order arms
-    # by cost (robust to score ties/inversions under custom weights); accuracy
-    # is symmetric and keeps the mean-score order. Each summary's key insertion
-    # order is user-visible (the CLI joins summary.items()), so it is contract.
+    # Cost objectives route the pricey arm above the cut, so they order arms by cost
+    # (robust to score ties/inversions under custom weights); accuracy is symmetric
+    # and keeps the mean-score order. Each summary's key insertion order is
+    # user-visible (the CLI joins summary.items()), so it is contract.
     if objective == "knee":
         cost_low, cost_high, low, high = _cost_ordered_arms(labels, costs)
         scored = [(s.score, s.label == high) for s in samples]
@@ -264,7 +267,7 @@ def calibrate_threshold(
     if objective != "accuracy":
         raise CalibrationError(f"unknown objective: {objective!r}")
 
-    # Accuracy path: no cost metadata, no "objective" key in the summary.
+    # Accuracy path: no cost metadata, and no "objective" key in the summary.
     low, high = labels
     scored = [(s.score, s.label == high) for s in samples]
     threshold, accuracy = _sweep_cut(scored)
@@ -286,10 +289,10 @@ def _cost_ordered_arms(
 ) -> tuple[float, float, str, str]:
     """Return ``(cost_low, cost_high, low, high)`` for a cost objective.
 
-    The cheap arm routes below the cut, the expensive arm above it. With no
-    explicit ``costs`` the mean-score order is kept (the low-score arm is assumed
-    cheap) and the default 0.2/1.0 units are used. With ``costs``, arms are
-    ordered by cost so the savings direction is robust to score ties/inversions.
+    The cheap arm routes below the cut, the pricey arm above it. Without explicit
+    ``costs`` the mean-score order is kept (the low-score arm is assumed cheap) and
+    the default 0.2/1.0 units apply. With ``costs``, arms are ordered by cost so the
+    savings direction is robust to score ties or inversions.
     """
     if costs is None:
         low, high = labels
@@ -300,7 +303,8 @@ def _cost_ordered_arms(
         raise CalibrationError(
             f"--costs must give a cost for each label; missing: {', '.join(missing)}"
         )
-    # `<=` keeps a -> low on a tie, so ordering stays deterministic.
+    # ``<=`` keeps ``a`` on the low side when the two costs tie, so ordering stays
+    # deterministic.
     low, high = (a, b) if float(costs[a]) <= float(costs[b]) else (b, a)
     cost_low, cost_high = float(costs[low]), float(costs[high])
     if cost_high <= 0:
@@ -311,7 +315,7 @@ def _cost_ordered_arms(
 def _savings_at(
     scored: list[tuple[float, bool]], cut: float, cost_low: float, cost_high: float
 ) -> float:
-    # Fraction of always-high cost saved by this cut; monotone increasing in cut.
+    # Fraction of the always-high cost this cut saves; monotone increasing in cut.
     total = len(scored)
     n_high = sum(1 for score, _ in scored if score >= cut)
     mean_cost = (n_high * cost_high + (total - n_high) * cost_low) / total
@@ -326,30 +330,30 @@ def _sweep_cut_cost_aware(
 ) -> tuple[float, float, float]:
     """Most accurate cut whose savings reach ``target_savings``.
 
-    Raising the cut routes more calls to the cheap arm (more savings — the curve
-    is monotone), so the feasible set is the cuts at or above the target. A 1e-9
-    epsilon lets a savings value that lands exactly on the target count as
-    feasible. Among feasible cuts, accuracy is maximized; ties break to the
-    median cut. Raises when even all-low cannot reach the target.
+    Raising the cut routes more calls to the cheap arm (more savings — the curve is
+    monotone), so the feasible set is the cuts at or above the target. A 1e-9
+    epsilon lets a savings value landing exactly on the target still count as
+    feasible. Among the feasible cuts accuracy is maximized, ties broken to the
+    median. Raises when even all-low cannot reach the target.
     """
     candidates = sorted({0.0, *(round(score, 4) for score, _ in scored)})
     total = len(scored)
-    feasible: list[tuple[float, float]] = []  # (accuracy, cut)
+    reachable: list[tuple[float, float]] = []  # (accuracy, cut)
     best_savings = 0.0
-    for cut in candidates:
-        savings = _savings_at(scored, cut, cost_low, cost_high)
+    for candidate in candidates:
+        savings = _savings_at(scored, candidate, cost_low, cost_high)
         best_savings = max(best_savings, savings)
         if savings + 1e-9 >= target_savings:
-            correct = sum(1 for score, is_high in scored if (score >= cut) == is_high)
-            feasible.append((correct / total, cut))
-    if not feasible:
+            hits = sum(1 for score, is_high in scored if (score >= candidate) == is_high)
+            reachable.append((hits / total, candidate))
+    if not reachable:
         raise CalibrationError(
             f"no cut reaches target savings {target_savings:.2f}; "
             f"the most achievable is {best_savings:.2f}"
         )
-    best_acc = max(acc for acc, _ in feasible)
-    best_cuts = sorted(cut for acc, cut in feasible if acc == best_acc)
-    chosen = best_cuts[len(best_cuts) // 2]
+    best_acc = max(acc for acc, _ in reachable)
+    top_cuts = sorted(cut for acc, cut in reachable if acc == best_acc)
+    chosen = top_cuts[len(top_cuts) // 2]
     return chosen, best_acc, _savings_at(scored, chosen, cost_low, cost_high)
 
 
@@ -358,27 +362,27 @@ def _sweep_cut_knee(
 ) -> tuple[float, float, float, float]:
     """The cost-aware knee: the cut maximizing quality-recovered x cost-saved.
 
-    Quality recovered is the recall of the high arm (fraction of high-belonging
-    prompts actually routed high): 1.0 routing all high, 0.0 routing all low.
-    Cost saved is the saving versus always-high: 0.0 routing all high, maximal
-    routing all low. Their product is zero at both ends and peaks at the knee, so
-    — unlike accuracy, which collapses to always-high when one model usually
-    wins — it trades quality for cost on its own (WF-ADR-0015). Ties break to the
-    median cut. Returns ``(threshold, accuracy, savings, recall)``.
+    Quality recovered is the recall of the high arm (the share of high-belonging
+    prompts actually routed high): 1.0 routing all high, 0.0 routing all low. Cost
+    saved is the saving versus always-high: 0.0 routing all high, maximal routing
+    all low. Their product is zero at both ends and peaks at the knee, so — unlike
+    accuracy, which collapses to always-high when one model usually wins — it
+    trades quality for cost on its own (WF-ADR-0015). Ties break to the median cut.
+    Returns ``(threshold, accuracy, savings, recall)``.
     """
     candidates = sorted({0.0, *(round(score, 4) for score, _ in scored)})
     total = len(scored)
     n_high = sum(1 for _, is_high in scored if is_high)
     best_obj = -1.0
-    best_cuts: list[float] = []
-    for cut in candidates:
-        recall = sum(1 for score, is_high in scored if is_high and score >= cut) / n_high
-        obj = recall * _savings_at(scored, cut, cost_low, cost_high)
+    ties: list[float] = []
+    for candidate in candidates:
+        recall = sum(1 for score, is_high in scored if is_high and score >= candidate) / n_high
+        obj = recall * _savings_at(scored, candidate, cost_low, cost_high)
         if obj > best_obj:
-            best_obj, best_cuts = obj, [cut]
+            best_obj, ties = obj, [candidate]
         elif obj == best_obj:
-            best_cuts.append(cut)
-    chosen = best_cuts[len(best_cuts) // 2]
+            ties.append(candidate)
+    chosen = ties[len(ties) // 2]
     accuracy = sum(1 for score, is_high in scored if (score >= chosen) == is_high) / total
     recall = sum(1 for score, is_high in scored if is_high and score >= chosen) / n_high
     return chosen, accuracy, _savings_at(scored, chosen, cost_low, cost_high), recall
@@ -393,7 +397,7 @@ def calibrate_tiers(
     """Ordinal multi-class calibration: order the models, sweep each breakpoint.
 
     ``weights`` re-scores the prompts with custom feature weights and emits them
-    with the breakpoints, as in :func:`calibrate_threshold`.
+    with the breakpoints, exactly as :func:`calibrate_threshold` does.
     """
     if weights is not None:
         samples = [Sample(s.features, s.label, scalar_score(s.features, weights)) for s in samples]
@@ -410,11 +414,11 @@ def calibrate_tiers(
     rank = {label: i for i, label in enumerate(order)}
     tiers = [Tier(0.0, order[0])]
     previous = 0.0
-    for b in range(len(order) - 1):
-        lo, hi = order[b], order[b + 1]
-        pair = [(s.score, rank[s.label] >= b + 1) for s in samples if s.label in (lo, hi)]
+    for i in range(len(order) - 1):
+        lo, hi = order[i], order[i + 1]
+        pair = [(s.score, rank[s.label] >= i + 1) for s in samples if s.label in (lo, hi)]
         cut, _ = _sweep_cut(pair)
-        cut = max(cut, previous)  # keep breakpoints non-decreasing
+        cut = max(cut, previous)  # breakpoints stay non-decreasing
         tiers.append(Tier(cut, hi))
         previous = cut
     tiers_tuple = tuple(tiers)
@@ -441,15 +445,15 @@ def fit_classifier(
 ) -> CalibrationResult:
     """Fit a multinomial-logistic router by L2-regularized Newton/IRLS.
 
-    Deterministic: zero initialization, exact Newton steps from a gradient and
-    Hessian accumulated in fixed data order, solved by Gaussian elimination with
-    partial pivoting, stopped on a tolerance. The L2 term keeps the Hessian
-    positive-definite (so the solve is well-posed even on perfectly separable
-    data, where unregularized logistic weights diverge) and bounds the weights.
-    The feature space is tiny (a dozen features x a few classes), so this
-    converges in a handful of iterations regardless of dataset size (WF-ADR-0003).
+    Deterministic end to end: zero initialization, exact Newton steps built from a
+    gradient and Hessian accumulated in fixed data order, solved by Gaussian
+    elimination with partial pivoting, stopped on a tolerance. The L2 term keeps
+    the Hessian positive-definite (so the solve stays well-posed even on perfectly
+    separable data, where unregularized logistic weights run away) and bounds the
+    weights. The feature space is tiny (a dozen features x a few classes), so this
+    converges in a handful of iterations whatever the dataset size (WF-ADR-0003).
     """
-    if l2 <= 0:  # the ridge is what keeps the Hessian PD; 0/negative can go singular
+    if l2 <= 0:  # the ridge is what holds the Hessian PD; 0 or negative can go singular
         raise CalibrationError(f"--l2 must be > 0 (got {l2}); it keeps the solve well-posed")
     order = models_order or _labels_by_mean_score(samples)
     present = {s.label for s in samples}
@@ -463,9 +467,9 @@ def fit_classifier(
     index = {label: i for i, label in enumerate(order)}
     feat_n = len(FEATURE_ORDER)
     class_n = len(order)
-    # Each feature row is augmented with a trailing 1.0, so the intercept is the
-    # last parameter of every class; parameter p of class c lives at c*params+p.
-    rows = [
+    # Each feature row carries a trailing constant 1.0, so the intercept is the last
+    # parameter of every class; parameter p of class c lives at c * params + p.
+    design = [
         [normalized_features(s.features)[name] for name in FEATURE_ORDER] + [1.0] for s in samples
     ]
     targets = [index[s.label] for s in samples]
@@ -478,24 +482,24 @@ def fit_classifier(
         iterations_run += 1
         gradient = [0.0] * size
         hessian = [[0.0] * size for _ in range(size)]
-        for row, target in zip(rows, targets, strict=True):
-            logits = [_dot(theta[c * params : (c + 1) * params], row) for c in range(class_n)]
-            probs = _softmax(logits)
+        for x, target in zip(design, targets, strict=True):
+            logits = [_dot(theta[c * params : (c + 1) * params], x) for c in range(class_n)]
+            prob = _softmax(logits)
             for c in range(class_n):
-                resid = probs[c] - (1.0 if c == target else 0.0)
-                base_c = c * params
+                residual = prob[c] - (1.0 if c == target else 0.0)
+                offset_c = c * params
                 for j in range(params):
-                    gradient[base_c + j] += resid * row[j]
+                    gradient[offset_c + j] += residual * x[j]
                 # Hessian block H[c, d] = p_c (delta_cd - p_d) x x^T.
                 for d in range(class_n):
-                    weight = probs[c] * ((1.0 if c == d else 0.0) - probs[d])
-                    if weight == 0.0:
+                    coeff = prob[c] * ((1.0 if c == d else 0.0) - prob[d])
+                    if coeff == 0.0:
                         continue
-                    base_d = d * params
+                    offset_d = d * params
                     for j in range(params):
-                        wj = weight * row[j]
+                        cx_j = coeff * x[j]
                         for k in range(params):
-                            hessian[base_c + j][base_d + k] += wj * row[k]
+                            hessian[offset_c + j][offset_d + k] += cx_j * x[k]
         # L2 ridge on the gradient and the Hessian diagonal keeps the system PD.
         for p in range(size):
             gradient[p] += l2 * theta[p]
@@ -506,14 +510,14 @@ def fit_classifier(
         if max(abs(s) for s in step) < tol:
             break
 
-    weights_by_class = [theta[c * params : (c + 1) * params] for c in range(class_n)]
+    class_params = [theta[c * params : (c + 1) * params] for c in range(class_n)]
     classifier = ClassifierModel(
         models=tuple(order),
         weights={
-            name: tuple(weights_by_class[c][i] for c in range(class_n))
+            name: tuple(class_params[c][i] for c in range(class_n))
             for i, name in enumerate(FEATURE_ORDER)
         },
-        intercepts=tuple(weights_by_class[c][feat_n] for c in range(class_n)),
+        intercepts=tuple(class_params[c][feat_n] for c in range(class_n)),
     )
     accuracy = _accuracy(samples, classifier.predict)
     return CalibrationResult(
@@ -535,35 +539,35 @@ def _dot(weights: list[float], x: list[float]) -> float:
 def _solve(matrix: list[list[float]], vector: list[float]) -> list[float]:
     """Solve ``matrix @ x = vector`` by Gaussian elimination with partial pivoting.
 
-    Deterministic: fixed pivot scan with a first-index tie-break (Python ``max``
-    returns the first maximizer). The matrix is the regularized Hessian, so it is
-    positive-definite and a nonzero pivot is always found.
+    Deterministic: a fixed pivot scan with a first-index tie-break (Python ``max``
+    returns the first maximizer). The matrix is the regularized Hessian, hence
+    positive-definite, so a nonzero pivot is always available.
     """
     n = len(vector)
-    # Augment a copy so the caller's matrix and vector are untouched.
-    aug = [row[:] + [vector[i]] for i, row in enumerate(matrix)]
-    for col in range(n):
-        pivot = max(range(col, n), key=lambda r: abs(aug[r][col]))
-        if pivot != col:
-            aug[col], aug[pivot] = aug[pivot], aug[col]
-        pivot_val = aug[col][col]
-        for r in range(col + 1, n):
-            factor = aug[r][col] / pivot_val
+    # Augment a copy so the caller's matrix and vector are left untouched.
+    work = [row[:] + [vector[i]] for i, row in enumerate(matrix)]
+    for k in range(n):
+        pivot = max(range(k, n), key=lambda r: abs(work[r][k]))
+        if pivot != k:
+            work[k], work[pivot] = work[pivot], work[k]
+        pivot_value = work[k][k]
+        for i in range(k + 1, n):
+            factor = work[i][k] / pivot_value
             if factor == 0.0:
                 continue
-            for c in range(col, n + 1):
-                aug[r][c] -= factor * aug[col][c]
+            for j in range(k, n + 1):
+                work[i][j] -= factor * work[k][j]
     solution = [0.0] * n
-    for row in range(n - 1, -1, -1):
-        acc = aug[row][n] - sum(aug[row][c] * solution[c] for c in range(row + 1, n))
-        solution[row] = acc / aug[row][row]
+    for i in range(n - 1, -1, -1):
+        residual = work[i][n] - sum(work[i][j] * solution[j] for j in range(i + 1, n))
+        solution[i] = residual / work[i][i]
     return solution
 
 
 def _softmax(logits: list[float]) -> list[float]:
-    # Subtract the max before exp for overflow safety, then normalize.
-    top = max(logits)
-    exps = [math.exp(z - top) for z in logits]
+    # Shift by the max before exp for overflow safety, then normalize.
+    ceiling = max(logits)
+    exps = [math.exp(z - ceiling) for z in logits]
     total = sum(exps)
     return [e / total for e in exps]
 
@@ -575,8 +579,8 @@ def _accuracy(samples: list[Sample], predict: Callable[[dict[str, int]], str]) -
 
 def _fmt(value: float) -> str:
     # Byte-stable float formatting for emitted TOML (6 dp round, then repr).
-    # Intentionally NOT the same as config._fmt_num, which adds a float() cast;
-    # keep them separate so unifying does not change int-valued output bytes.
+    # Intentionally NOT config._fmt_num, which adds a float() cast; keeping them
+    # apart means unifying cannot change either module's int-valued output bytes.
     return repr(round(value, 6))
 
 
@@ -591,7 +595,11 @@ def _weights_block(weights: dict[str, float] | None) -> str:
         return ""
     from .complexity import DEFAULT_WEIGHTS
 
-    diff = {name: w for name, w in weights.items() if DEFAULT_WEIGHTS.get(name) != w}
+    diff = {
+        name: value
+        for name, value in weights.items()
+        if DEFAULT_WEIGHTS.get(name) != value
+    }
     if not diff:
         return ""
     inner = ", ".join(f"{name} = {_fmt(diff[name])}" for name in sorted(diff))
@@ -601,32 +609,33 @@ def _weights_block(weights: dict[str, float] | None) -> str:
 def _tiers_toml(tiers: tuple[Tier, ...]) -> str:
     blocks = []
     for tier in tiers:
-        block = (
-            "[[routing.tiers]]\n"
-            f"min_score = {_fmt(tier.min_score)}\n"
-            f'model = "{tier.model}"\n'
-        )
+        rows = [
+            "[[routing.tiers]]",
+            f"min_score = {_fmt(tier.min_score)}",
+            f'model = "{tier.model}"',
+        ]
         if tier.cost is not None:
-            block += f"cost = {_fmt(tier.cost)}\n"
-        blocks.append(block)
-    # Each block ends in a newline, so joining with "\n" yields a blank line
-    # between tiers.
+            rows.append(f"cost = {_fmt(tier.cost)}")
+        # A trailing newline per block means the "\n" join leaves a blank line
+        # between successive tiers.
+        blocks.append("\n".join(rows) + "\n")
     return "\n".join(blocks)
 
 
 def _classifier_toml(clf: ClassifierModel) -> str:
     models = ", ".join(f'"{m}"' for m in clf.models)
     intercepts = ", ".join(_fmt(b) for b in clf.intercepts)
+    weight_lines = (
+        f"{name} = [{', '.join(_fmt(w) for w in clf.weights[name])}]" for name in FEATURE_ORDER
+    )
     lines = [
         "[routing.classifier]",
         f"models = [{models}]",
         f"intercepts = [{intercepts}]",
         "",
         "[routing.classifier.weights]",
+        *weight_lines,
     ]
-    for name in FEATURE_ORDER:
-        vector = ", ".join(_fmt(w) for w in clf.weights[name])
-        lines.append(f"{name} = [{vector}]")
     return "\n".join(lines) + "\n"
 
 
@@ -645,10 +654,10 @@ def calibrate(
     """Dispatch to the requested calibration mode.
 
     ``mode`` is positional-or-keyword; the rest are keyword-only. The cost-aware
-    objectives (WF-ADR-0017) are scoped to ``threshold`` mode, where a savings
-    target is well defined. ``weights`` (custom feature weights, e.g. the lexical
-    opt-in) applies to the score-based modes (threshold, tiers); the classifier
-    fits its own weights and ignores it.
+    objectives (WF-ADR-0017) are scoped to ``threshold`` mode, the one place a
+    savings target is well defined. ``weights`` (custom feature weights, e.g. the
+    lexical opt-in) applies to the score-based modes (threshold, tiers); the
+    classifier fits its own weights and ignores it.
     """
     if objective != "accuracy" and mode != "threshold":
         raise CalibrationError(
