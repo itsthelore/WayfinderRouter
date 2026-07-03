@@ -364,6 +364,50 @@ and closes the loop with a guide that turns the whole roadmap into a repeatable 
   governs *operator* access only.
 - **No in-process TLS.** Terminate at the ingress; the Helm chart documents the boundary.
 
+## Alternatives Considered
+
+### The enterprise control plane as the headline
+
+SSO/RBAC, shared state, OTel, audit, and a Helm chart as the roadmap's whole story. Everything in
+that list is genuinely missing — but it's table stakes, not differentiation: LiteLLM, Kong's AI
+gateway, and Portkey ship or are shipping all of it, and clearing procurement checkboxes never
+answers *why route through Wayfinder at all*. Demoted rather than rejected: it is Track B here,
+because the evidence engine can't run fleet-wide without it.
+
+### Semantic / ML routing quality
+
+Fix the below-random stock scorer with embeddings or a learned semantic classifier, competing
+head-on with the vLLM Semantic Router. Rejected on identity: WF-ADR-0001 is the invariant every
+shipped feature has been fenced to preserve, an opt-in `ClassifierModel` mode already exists for
+those who want a fitted model, and `blind-eval.md` shows calibration-on-your-own-traffic recovers
+the value deterministically. This path builds a worse Semantic Router instead of a better
+Wayfinder.
+
+### The ecosystem / distribution play
+
+LiteLLM and LangChain plugins, an Envoy filter, Kubernetes Gateway API integration. Real adoption
+leverage, but it multiplies *reach*, not *value* — it puts an unproven router in more places.
+Sequences naturally after trust is solved, not before.
+
+### Privacy / PII-aware routing as the flagship
+
+Already proposed as WF-ROADMAP-0008, and worth doing — but it is an incremental deterministic gate
+on the existing scorer, a checkbox rather than a 10x capability. Complementary, not competing; it
+proceeds on its own track.
+
+### A hosted control plane / SaaS
+
+The highest theoretical leverage and the clearest contradiction: Wayfinder's posture is
+self-hosted, bring-your-own-key, offline-first (WF-ADR-0039), and "open-source gold standard"
+argues for doubling down on that, not hedging it.
+
+**The tiebreaker.** The evidence engine is the only candidate that attacks the actual adoption
+blocker — trust — rather than a checkbox; it is assembled mostly from machinery already in-tree
+(`judge.py`, `sufficiency.py`, the savings ledger, the `dry_run` seam); it converts the published
+negative benchmark into the product's central loop; and it is the "backed by empirical benchmarks
+and guidance" goal turned into a feature. No competing router offers "prove it on your own traffic
+before routing a single request."
+
 ## Success Measures
 
 - **Time-to-evidence:** a fresh install reaches a defensible evidence report in ≤ 7 days at
