@@ -109,57 +109,72 @@ and the result is a useful correction.
 Same detectors, same meter, run over
 [AI4Privacy pii-masking-200k](https://huggingface.co/datasets/ai4privacy/pii-masking-200k)
 — 43,501 English records with independently-labeled PII spans
-([`ai4privacy-validation-results.md`](ai4privacy-validation-results.md)):
+([`ai4privacy-validation-results.md`](ai4privacy-validation-results.md)). The first external
+run exposed two real problems, which we then fixed (see *Acting on the findings* below);
+current numbers:
 
-| detector | precision | recall | hand-built was |
-| --- | --- | --- | --- |
-| email | **0.997** | **1.000** | 0.875 / 0.875 |
-| us_ssn | 1.000 | **0.255** | 0.600 / 0.600 |
-| credit_card | **0.142** | 0.129 | 0.833 / 0.833 |
+| detector | precision | recall | first external run | hand-built |
+| --- | --- | --- | --- | --- |
+| email | **0.997** | **1.000** | 0.997 / 1.000 | 0.875 / 0.875 |
+| us_ssn | 1.000 | 0.255 | 1.000 / 0.255 | 0.600 / 0.600 |
+| credit_card | **0.474** | 0.025 | 0.142 / 0.129 | 0.833 / 0.833 |
 
-- **email is externally confirmed excellent** — 4,043 emails, 12 false positives, 0
-  misses across 43k records. This one is genuinely `block`-eligible.
-- **us_ssn is perfectly precise but US-format-only.** Recall falls to 0.255 because just
-  ~29% of AI4Privacy's SSN values are `ddd-dd-dddd` (many are undashed or not even valid
-  9-digit US SSNs). Honest reading: it is a *US-format* SSN detector, reliable where it
-  fires, and must not be sold as international coverage.
-- **credit_card fails here, and the two halves need separating.** The precision collapse to
-  0.142 is **real**: `(?:\d[ -]?){13,19}` + Luhn fires on account numbers and IBANs that
-  are 13–19 digits and pass Luhn by chance. The recall of 0.129 is partly an **artifact** —
-  only 11% of AI4Privacy's synthetic "card" values are Luhn-valid at all (real cards always
-  are), so the Luhn gate correctly rejects the other 89%; recall on genuine cards would be
-  higher. Either way, the precision failure alone disqualifies `credit_card` from any
-  auto-`block` until it is tightened.
+- **email is externally confirmed excellent** — 4,043 emails, 12 false positives, 0 misses
+  across 43k records. Genuinely `block`-eligible.
+- **us_ssn is perfectly precise but US-format-only** — by design. Recall is 0.255 because
+  only ~29% of AI4Privacy's SSN values are `ddd-dd-dddd` (many are undashed or not even
+  valid 9-digit US SSNs). It is a *US-format* detector, reliable where it fires; we keep it
+  US-specific rather than dilute its precision, and simply don't claim international coverage.
+- **credit_card's precision problem was real and is now much reduced.** The first run's
+  0.142 came from `(?:\d[ -]?){13,19}` + Luhn firing on account numbers and IBANs that pass
+  Luhn by chance; adding an issuer-prefix (IIN) check lifted precision to **0.474** (false
+  positives 1,990 → 72). Its AI4Privacy *recall* (0.129 → 0.025) is not a fair measure — only
+  11% of the dataset's synthetic "cards" are even Luhn-valid and fewer carry a real issuer
+  prefix, so both gates correctly reject them; real cards (always Luhn- and IIN-valid) are
+  not what this recall reflects.
 
-The headline: **external data cut the hand-built us_ssn recall (0.60 → 0.26) and
-credit_card precision (0.83 → 0.14) hard.** The self-authored corpus was optimistic exactly
-where it mattered — which is the case for demanding external validation in the first place.
+Micro precision across the PII detectors rose **0.71 → 0.98** after the fix.
 
 ### Secret detectors vs gitleaks (`gitleaks_crosscheck.py`)
 
 Secrets aren't PII, so the secret detectors are grounded against the community-standard
-[gitleaks](https://github.com/gitleaks/gitleaks) ruleset — a per-pattern comparison
+[gitleaks](https://github.com/gitleaks/gitleaks) ruleset
 ([`gitleaks-crosscheck-results.md`](gitleaks-crosscheck-results.md)):
 
 - **github_pat matches the community standard exactly** — same regex, full agreement.
-- **aws_access_key is narrower than gitleaks** (`AKIA` only vs `AKIA|ASIA|ABIA|ACCA|A3T`),
-  so it misses AWS temporary/STS keys — a recall gap to close in Initiative 1.
-- **private_key is broader than gitleaks** — it fires on a bare PEM *header* while gitleaks
-  requires the key body, so it over-fires (a header in prose isn't a leaked key).
-- **slack_token is a loose approximation** — it does not match gitleaks' structured
-  `slack-bot-token` shape, so it will both miss and over-fire relative to the standard.
-- `high_entropy_hex` has no direct gitleaks counterpart (gitleaks uses entropy-based
-  generic detection) — consistent with its 0.500 precision above.
+- **aws_access_key now matches gitleaks** — broadened from `AKIA`-only to
+  `AKIA|ASIA|ABIA|ACCA|A3T` with the base32 charset, so it catches AWS temporary/STS keys.
+  Cross-check agreement went 2/3 → **3/3**.
+- **slack_token was tightened** from a loose `xox?-<anything>` to the digit-led structure
+  real tokens have (`xox?-<digits>-<body>`), dropping the loose false-fire; it still diverges
+  from gitleaks' many per-type Slack rules and stays a `warn`-tier signal.
+- **private_key stays header-based on purpose** — a DLP gate should catch a *pasted* key
+  even when truncated, so it favors recall. That makes it `warn`/`redact`-tier (a header
+  quoted in prose is a rare, tolerable false positive), not auto-`block`.
+- `high_entropy_hex` has no gitleaks counterpart (gitleaks detects generic secrets by
+  entropy) and cannot separate a secret from a git SHA / md5 — so it is a `log`-tier
+  advisory signal only.
+
+### Acting on the findings
+
+The external runs drove four concrete changes to `benchmarks/detectors.py`, each re-measured
+above: **credit_card** gained an IIN issuer-prefix check (precision 0.14 → 0.47);
+**aws_access_key** was broadened to the gitleaks prefix set (agreement 2/3 → 3/3);
+**slack_token** was tightened to a digit-led structure. And three detectors got explicit
+*scoping* decisions rather than code changes, because their "fix" is a real precision/recall
+trade, not a bug: **us_ssn** stays US-format-only (precise, not international),
+**private_key** stays header-based (recall-favoring, `warn`-tier), **high_entropy_hex**
+stays a `log`-tier advisory (a hash is indistinguishable from a secret by shape alone).
 
 ### Net guidance for Initiative 1
 
-`email` is `block`-eligible (externally validated). `github_pat` is solid. `aws_access_key`
-needs the broader prefix set, `private_key` a body check, `slack_token` the structured
-pattern — concrete, community-grounded fixes. `us_ssn` is precise-but-US-only (`redact`/
-`warn`, no international claim); `credit_card` is **not usable as-is** and must be tightened
-before any verb. And the standing caveat holds even against external data: AI4Privacy is
-synthetic and templated, not real traffic — the honest endpoint is still on-your-own-traffic
-measurement, not any single public number.
+`email` and `github_pat` are `block`-eligible (externally validated / community-matched).
+`aws_access_key` now matches the standard and can `block`. `credit_card` improved to 0.47
+precision — `redact`/`warn`, not yet a clean `block`. `us_ssn` is precise-but-US-only
+(`redact`/`warn`). `private_key` is `warn`/`redact`-tier (header-based by choice);
+`high_entropy_hex` is `log`-only. The standing caveat holds even against external data:
+AI4Privacy is synthetic and templated, not real traffic — the honest endpoint is still
+on-your-own-traffic measurement, not any single public number.
 
 *Reproduce:* `python -m benchmarks.ai4privacy_validation` (needs `pip install datasets`;
 downloads the dataset, nothing committed) and `python -m benchmarks.gitleaks_crosscheck`

@@ -145,7 +145,7 @@ def test_gitleaks_compare_is_pure_and_correct():
     result = {c.detector: c for c in compare(rules)}
     gh = result["github_pat"]
     assert gh.agree == gh.total  # our github pattern matches the community standard
-    # our AWS detector is AKIA-only; the ASIA probe fires the (absent here) gitleaks rule
-    # for nobody, so with an empty rule our detector still fires only on AKIA.
+    # our AWS detector now covers AKIA + ASIA (broadened to the gitleaks prefix set), so it
+    # fires on both positive probes; with no aws rule supplied, gitleaks stays silent.
     aws = result["aws_access_key"]
-    assert aws.mine_fires == 1 and aws.theirs_fires == 0  # no aws rule supplied -> theirs silent
+    assert aws.mine_fires == 2 and aws.theirs_fires == 0
