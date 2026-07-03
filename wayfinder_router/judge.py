@@ -18,8 +18,10 @@ sufficient (route the cheap arm), insufficient (route the dear arm), or *abstain
 (``sufficient is None`` — the judge has no grounds, so the prompt is skipped and **no
 label is recorded**, never a third label, which would break threshold calibration's
 two-label contract). :class:`HeuristicJudge` is a pure, deterministic ensemble of text
-comparators — free and replayable, golden-testable like ``cache.py``. An LLM-backed
-judge is a planned drop-in via the same protocol; nothing here imports FastAPI/httpx.
+comparators — free and replayable, golden-testable like ``cache.py``. The protocol
+*could* host an LLM-backed judge, but that is deliberately deferred; if one is ever
+added it must be a **local, in-container model** (no external key, no egress), to keep
+the offline / air-gapped guarantees intact. Nothing here imports FastAPI/httpx.
 
 A heuristic over free text is a deliberately weak proxy for "good enough" — it abstains
 whenever it cannot tell, and its labels are only trusted after the
@@ -52,7 +54,11 @@ DEFAULT_REFUSAL_MARKERS: tuple[str, ...] = (
     "i can't provide",
 )
 
-# A response shorter than this (stripped) is treated as a stub, not an answer.
+# Minimum length (normalized) for the fuzzy-similarity comparator to apply. A short
+# answer is judged only by exact agreement or refusal markers, never fuzzy similarity:
+# on short strings a one-token difference ("A" vs "C") dominates the difflib ratio and
+# would falsely read as agreement. Length is NOT itself a non-answer signal — a terse
+# but real answer (a multiple-choice letter, "42") is an answer, not a stub.
 DEFAULT_MIN_ANSWER_CHARS = 16
 # difflib ratio at/above which the two answers are "the same answer" -> cheap sufficient.
 DEFAULT_SIMILARITY_SUFFICIENT = 0.8
@@ -79,8 +85,9 @@ class Judge(Protocol):
     """The pluggable judge seam: map a (prompt, cheap, expensive) triple to a verdict.
 
     ``version`` is stamped into provenance so a config records which judge produced its
-    labels. :class:`HeuristicJudge` implements this today; an ``LLMJudge`` is a planned
-    drop-in — both offline, neither on the decision path.
+    labels. :class:`HeuristicJudge` implements this today; an ``LLMJudge`` is a *deferred,
+    opt-in, local-only* possibility via the same seam — both offline, neither on the
+    decision path.
     """
 
     @property
@@ -102,13 +109,18 @@ class HeuristicJudge:
     deterministic function of the two responses (re-runnable from a saved comparison log
     with no network, unlike an LLM judge). The rules, in order:
 
-    1. **refusal / error / stub** — an empty, too-short, or refusal-shaped answer. If the
-       cheap arm is a non-answer but the dear arm answered → *insufficient*; if the dear
-       arm is the non-answer but the cheap arm answered → *sufficient*; if **both** are
-       non-answers → *abstain* (the prompt, not the routing, is the problem).
+    1. **refusal** — an empty or refusal-shaped answer. If the cheap arm is a non-answer
+       but the dear arm answered → *insufficient*; if the dear arm is the non-answer but
+       the cheap arm answered → *sufficient*; if **both** are non-answers → *abstain*
+       (the prompt, not the routing, is the problem). Length alone is *not* a non-answer:
+       a terse but real answer (a multiple-choice letter, "42") is an answer, not a stub —
+       treating it as a refusal misfires this rule (see ``benchmarks/judge-validation.md``).
     2. **agreement** — identical after normalization → *sufficient* (the cheap arm
        produced the same answer, so the dear arm added nothing).
-    3. **similarity** — difflib ratio ≥ ``similarity_sufficient`` → *sufficient*.
+    3. **similarity** — difflib ratio ≥ ``similarity_sufficient``, **but only when both
+       answers are at least ``min_answer_chars`` long** → *sufficient*. On short answers a
+       one-token difference dominates the ratio, so fuzzy matching is unreliable there;
+       such answers are resolved by exact agreement (rule 2) or fall through to abstain.
     4. otherwise → *abstain* (the answers genuinely diverge and a heuristic cannot
        adjudicate which is better; that is the honest "can't tell").
 
@@ -120,10 +132,13 @@ class HeuristicJudge:
     similarity_sufficient: float = DEFAULT_SIMILARITY_SUFFICIENT
     min_answer_chars: int = DEFAULT_MIN_ANSWER_CHARS
     refusal_markers: tuple[str, ...] = DEFAULT_REFUSAL_MARKERS
-    version: str = "heuristic-1"
+    version: str = "heuristic-2"
 
     def _is_non_answer(self, normalized: str) -> bool:
-        if not normalized or len(normalized) < self.min_answer_chars:
+        # Empty or refusal-shaped only. Length is deliberately NOT a signal here: a short
+        # but real answer must not read as a refusal (that misfired rule 1 on terse
+        # frontier answers — see benchmarks/judge-validation.md).
+        if not normalized:
             return True
         return any(marker in normalized for marker in self.refusal_markers)
 
@@ -145,11 +160,15 @@ class HeuristicJudge:
         if c_norm == e_norm:
             return Verdict(True, "answers identical after normalization", "agreement")
 
-        # 3. similarity.
+        # 3. similarity — only when both answers are long enough that a high lexical
+        # ratio reflects real agreement, not a one-token difference on short strings.
         ratio = SequenceMatcher(None, c_norm, e_norm).ratio()
-        if ratio >= self.similarity_sufficient:
+        long_enough = len(c_norm) >= self.min_answer_chars and len(e_norm) >= self.min_answer_chars
+        if long_enough and ratio >= self.similarity_sufficient:
             return Verdict(
-                True, f"answers {ratio:.2f} similar (>= {self.similarity_sufficient:.2f})", "similarity"
+                True,
+                f"answers {ratio:.2f} similar (>= {self.similarity_sufficient:.2f})",
+                "similarity",
             )
 
         # 4. can't tell — abstain rather than guess.
