@@ -126,3 +126,16 @@ def test_comparator_accuracy_table():
     assert overall.comparator_hits["agreement"] == [6, 7]
     assert overall.comparator_hits["refusal"] == [2, 3]
     assert "divergence" not in overall.comparator_hits
+
+
+def test_baseline_judges():
+    from benchmarks.judge_validation import AlwaysSufficientJudge, ExactMatchJudge
+
+    always = AlwaysSufficientJudge()
+    assert always.judge("q", "anything", "else").sufficient is True
+    assert always.version == "always-sufficient"
+
+    exact = ExactMatchJudge()
+    assert exact.judge("q", "Same Text", "same   text").sufficient is True   # normalized-equal
+    assert exact.judge("q", "one thing", "another").sufficient is None       # differ -> abstain
+    assert exact.version == "exact-match"

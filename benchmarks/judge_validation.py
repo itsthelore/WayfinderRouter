@@ -43,7 +43,7 @@ import json
 import sys
 from dataclasses import dataclass, field
 
-from wayfinder_router.judge import HeuristicJudge, Judge
+from wayfinder_router.judge import HeuristicJudge, Judge, Verdict
 from wayfinder_router.sufficiency import DEFAULT_KAPPA_FLOOR, cohens_kappa, confusion_matrix
 
 from benchmarks.routerbench_adapter import _find_columns, _is_number, _prompt_text
@@ -51,6 +51,32 @@ from benchmarks.routerbench_adapter import _find_columns, _is_number, _prompt_te
 SUFFICIENT = "sufficient"
 INSUFFICIENT = "insufficient"
 GOLD_DEFINITIONS = ("absolute", "relative")
+
+ROUTERARENA_RAW = "https://raw.githubusercontent.com/RouteWorks/RouterArena/main/cached_results/"
+
+
+@dataclass(frozen=True)
+class AlwaysSufficientJudge:
+    """Baseline: always rules the cheap arm sufficient. Under class imbalance this scores
+    high *accuracy* but κ ≈ 0 — the floor a real judge must beat to earn any trust."""
+
+    version: str = "always-sufficient"
+
+    def judge(self, prompt: str, cheap: str, expensive: str) -> Verdict:
+        return Verdict(True, "baseline: always sufficient", "baseline")
+
+
+@dataclass(frozen=True)
+class ExactMatchJudge:
+    """Baseline: sufficient only when the two answers are identical after normalization,
+    else abstain — the `HeuristicJudge` agreement rule alone, with nothing else."""
+
+    version: str = "exact-match"
+
+    def judge(self, prompt: str, cheap: str, expensive: str) -> Verdict:
+        if " ".join(cheap.lower().split()) == " ".join(expensive.lower().split()):
+            return Verdict(True, "answers identical after normalization", "agreement")
+        return Verdict(None, "no exact match; abstain", "divergence")
 
 
 @dataclass(frozen=True)
@@ -241,6 +267,51 @@ def report_json(reports: dict[str, BucketReport]) -> dict:
             },
         }
     return out
+
+
+def load_routerarena_rows(local: str, cloud: str, *, limit: int | None = None) -> list[JudgeRow]:
+    """Join two RouterArena ``cached_results/<model>.jsonl`` files into JudgeRows.
+
+    RouterArena is a *second, independent* external source (RouteWorks, over GitHub, no
+    HuggingFace): each record carries a real ``generated_answer`` and a graded ``score``,
+    exactly the (text, grade) pair the judge needs. Same shape as the RouterBench loader,
+    different provenance — so agreement across both is genuine cross-dataset validation.
+    """
+    import urllib.request
+
+    def fetch(model: str) -> dict[str, dict]:
+        raw = urllib.request.urlopen(ROUTERARENA_RAW + model + ".jsonl", timeout=90).read()
+        text = raw.decode("utf-8")
+        dec = json.JSONDecoder()
+        out: dict[str, dict] = {}
+        i, n = 0, len(text)
+        while i < n:
+            while i < n and text[i] in " \r\n\t":
+                i += 1
+            if i >= n:
+                break
+            obj, end = dec.raw_decode(text, i)
+            out[obj["global_index"]] = obj
+            i = end
+        return out
+
+    left, right = fetch(local), fetch(cloud)
+    rows: list[JudgeRow] = []
+    for g in sorted(set(left) & set(right)):
+        lr, cr = left[g], right[g]
+        rows.append(
+            JudgeRow(
+                prompt=str(lr.get("question", "")),
+                cheap_text=str(lr.get("generated_answer", "")),
+                expensive_text=str(cr.get("generated_answer", "")),
+                local_score=float(lr["evaluation_result"]["score"]),
+                cloud_score=float(cr["evaluation_result"]["score"]),
+                bucket=g.rsplit("_", 1)[0],
+            )
+        )
+        if limit and len(rows) >= limit:
+            break
+    return rows
 
 
 # ---------------------------------------------------------------------------------- CLI

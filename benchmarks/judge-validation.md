@@ -134,3 +134,46 @@ throughout (WF-ADR-0001, evidence/calibration-time only).
 
 *Reproduce:* the RouterBench pickle is not redistributable in-repo; fetch it once (command above)
 and re-run. Same pickle + same flags → byte-identical tables.
+
+## External validation — across pairs, a second dataset, and baselines
+
+One pair on one dataset can flatter. `benchmarks/judge_external.py` widens the check to three
+RouterBench model pairs (wide → narrow capability gap), a **second independent dataset**
+(RouterArena, different authors, fetched over GitHub), and two **baseline judges** — so the κ has
+something to be measured against ([`judge-external-results.md`](judge-external-results.md)):
+
+| dataset | pair | judge | decided | abstain % | κ abs | κ rel |
+| --- | --- | --- | --- | --- | --- | --- |
+| RouterBench | mistral-7b vs gpt-4 | heuristic-2 | 2811 | 92.3% | −0.001 | **0.333** |
+| RouterBench | mistral-7b vs gpt-4 | exact-match | 2790 | 92.4% | 0.000 | 1.000 |
+| RouterBench | mistral-7b vs gpt-4 | always-sufficient | 36497 | 0.0% | 0.000 | 0.000 |
+| RouterBench | llama-2-70b vs gpt-4 | heuristic-2 | 3565 | 90.2% | 0.004 | **0.400** |
+| RouterBench | gpt-3.5-turbo vs gpt-4 | heuristic-2 | 12187 | 66.6% | 0.004 | **0.315** |
+| RouterArena | claude-3-haiku vs gemini-2.0 | heuristic-2 | 16 | 98.0% | 0.000 | 0.000 |
+
+Three findings, each of which tempers the single-pair result above:
+
+- **Robust across RouterBench pairs, but only there.** Relative κ stays in the 0.31–0.40 "fair"
+  band across all three pairs (and abstention falls as the gap narrows — two strong models agree
+  more, so more rows are decidable). Absolute κ is ≈ 0 on every pair: the "can't judge correctness"
+  limit is not a one-pair artifact.
+- **It barely beats the trivial baseline.** `heuristic-2` decides 2811 rows where `exact-match`
+  (the agreement rule *alone*) decides 2790 — nearly identical. Most of the judge's relative signal
+  **is** exact agreement; the similarity/refusal comparators add little on this graded data.
+  (`exact-match`'s κ_rel of 1.000 is a *degenerate* score — identical answers trivially satisfy
+  "local ≥ cloud" — which is itself a caution that the relative gold rewards agreement-detection
+  tautologically. `always-sufficient` sits at κ 0, the do-nothing floor `heuristic-2` clears.)
+- **It does not transfer to RouterArena.** On an independent dataset of free-text answers, the
+  heuristic decides just **16 of 809** rows (98% abstention) at κ 0 — essentially non-functional.
+  Its whole mechanism (exact/near agreement) needs terse, comparable answers; RouterArena's prose
+  gives it nothing to grab.
+
+**Net, honestly:** the `HeuristicJudge` is a *narrow, dataset-sensitive* signal whose working part
+is agreement on short answers. That is the strongest argument yet for WF-ROADMAP-0010 §2's design —
+the automated judge is a coverage-extender behind a **human-labelled gold gate**, never a
+standalone quality oracle — and for expecting near-total abstention on free-text production traffic
+(honest, not harmful). It does not change the earlier per-pair reading; it bounds how far to trust
+it.
+
+*Reproduce:* `python -m benchmarks.judge_external --dataset data/routerbench_0shot.pkl` (RouterBench
+pickle fetched once as above; RouterArena fetched from GitHub at run time).
