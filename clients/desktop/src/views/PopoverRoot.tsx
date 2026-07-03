@@ -1,7 +1,7 @@
 // The popover root (WF-DESIGN-0012): owns the two state machines + the hooks, and switches the
 // six gateway modes onto their view. It never scores or decides — it wires the gateway's health
 // and the streamed turn into the frosted header + the mode's view (WF-ADR-0001).
-import { useEffect, useMemo, useReducer, useState } from "react";
+import { useCallback, useEffect, useMemo, useReducer, useState } from "react";
 import {
   gatewayReducer,
   gatewayView,
@@ -13,6 +13,8 @@ import { useCheapestModel } from "@/hooks/useCheapestModel";
 import { useSavings } from "@/hooks/useSavings";
 import { useTurn } from "@/hooks/useTurn";
 import { GATEWAY_BASE } from "@/lib/gateway";
+import { serviceControl, setTrayState, type TrayState } from "@/lib/ipc";
+import { formatSaved } from "@/components/SavingsGlance";
 import type { DotStatus } from "@/components/StatusDot";
 import { FrostedHeader } from "@/components/FrostedHeader";
 import { Separator } from "@/components/ui/separator";
@@ -46,6 +48,26 @@ export function PopoverRoot({ baseUrl = GATEWAY_BASE }: { baseUrl?: string } = {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [turn.phase]);
 
+  // Tray sync: the W shape follows health, the tray title shows only the savings $ (never a
+  // route) — WF-DESIGN-0012. Driven by this single poll, so there is one source of tray truth.
+  const traySaved =
+    savings && savings.priced && savings.saved > 0 ? formatSaved(savings.saved) : null;
+  useEffect(() => {
+    const state: TrayState =
+      gw.health === "ok" ? "running" : gw.health === "degraded" ? "degraded" : "stopped";
+    void setTrayState(state, traySaved);
+  }, [gw.health, traySaved]);
+
+  // Service-first CTAs (WF-ADR-0042 §4): the app never spawns the gateway — it asks the service
+  // to. Errors (e.g. the gateway isn't installed) propagate to the view for display; the next
+  // healthz poll flips the mode once the service is up.
+  const onStartGateway = useCallback(async () => {
+    await serviceControl("start");
+  }, []);
+  const onInstallService = useCallback(async () => {
+    await serviceControl("install");
+  }, []);
+
   const view = gatewayView(gw);
   const status = useMemo(() => dotStatus(gw), [gw]);
 
@@ -60,8 +82,8 @@ export function PopoverRoot({ baseUrl = GATEWAY_BASE }: { baseUrl?: string } = {
           onOfflineToggle={(on) => dispatch({ type: "OFFLINE_TOGGLED", on })}
         />
       )}
-      {view === "unreachable" && <UnreachableView />}
-      {view === "first-run" && <FirstRunView />}
+      {view === "unreachable" && <UnreachableView onStartGateway={onStartGateway} />}
+      {view === "first-run" && <FirstRunView onInstallService={onInstallService} />}
     </div>
   );
 }

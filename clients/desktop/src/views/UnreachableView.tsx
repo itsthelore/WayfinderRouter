@@ -1,11 +1,28 @@
 // The gateway-unreachable surface (WF-DESIGN-0012): a machine that has seen a gateway before
 // but can't reach it now. Unmissably a preview — the local mirror carries the routing, and the
-// primary affordance is starting the service back up (wired to the tray/service control in
-// Phase 3). No dead screen: you can still preview decisions.
+// primary affordance is starting the service back up (the app never spawns it — WF-ADR-0042 §4).
+// No dead screen: you can still preview decisions.
+import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { LocalMirror } from "@/components/LocalMirror";
 
-export function UnreachableView({ onStartGateway }: { onStartGateway?: () => void }) {
+export function UnreachableView({ onStartGateway }: { onStartGateway?: () => Promise<void> }) {
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  async function start() {
+    if (!onStartGateway) return;
+    setBusy(true);
+    setError(null);
+    try {
+      await onStartGateway();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setBusy(false);
+    }
+  }
+
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-3 p-3.5">
       <div className="flex flex-col gap-1">
@@ -15,13 +32,13 @@ export function UnreachableView({ onStartGateway }: { onStartGateway?: () => voi
           it to route for real — meanwhile here’s the on-device preview.
         </p>
       </div>
-      <div>
-        <Button size="sm" onClick={onStartGateway} disabled={!onStartGateway}>
-          Start Wayfinder
+      <div className="flex flex-col gap-1">
+        <Button size="sm" onClick={start} disabled={!onStartGateway || busy}>
+          {busy ? "Starting…" : "Start Wayfinder"}
         </Button>
-        {!onStartGateway && (
-          <span className="ml-2 text-[11px] text-muted-foreground">
-            (service control arrives with the tray menu)
+        {error && (
+          <span className="text-[11px]" style={{ color: "var(--destructive)" }}>
+            {error}
           </span>
         )}
       </div>

@@ -52,8 +52,16 @@ Send a turn on a healthy gateway and watch the hero:
       13px CSS corners coincide with the material corners (no square bleed)
 - [ ] **Light + dark**: flip System Settings → Appearance with the popover open — the palette flips
       (teal LOCAL, amber CLOUD) with **no zinc/grey anywhere**; no flash of the wrong theme
-- [ ] **Tray**: no Dock icon; the tray title shows the savings `$` only; left-click toggles,
-      right-click opens the menu (service items land in Phase 3)
+- [ ] **Tray**: no Dock icon; the tray title shows the savings `$` only; left-click toggles the
+      popover, right-click opens the service menu (Start / Stop / Install · Open
+      dashboard/config/logs · Quit)
+- [ ] **Tray state (the W)**: the monochrome W changes shape with health — solid (running),
+      notched (degraded), thin outline (stopped/unreachable); it tints with the menu-bar
+      appearance and never shows colour
+- [ ] **Service control**: with the gateway stopped, first-run **Install the Wayfinder service** /
+      unreachable **Start Wayfinder** (and the tray menu items) shell out to `wayfinder-router
+      service …` / `launchctl`; the next healthz poll flips the mode. If `wayfinder-router` isn't
+      on the resolver's paths, the CTA shows "install the gateway first" rather than failing silently
 - [ ] **Reduced motion**: System Settings → Accessibility → Reduce Motion on — the score dip-swap,
       rail fill, and why-bar stagger are stilled (durations zeroed centrally)
 - [ ] **Scroll**: a long reply scrolls inside the content region with the overlay scrollbar; the
@@ -64,9 +72,22 @@ Send a turn on a healthy gateway and watch the hero:
 - [ ] **Keyboard**: composer autofocus on open; Enter sends, Shift+Enter newlines; a 2px teal focus
       ring, offset
 
+## Two launch agents (by design)
+
+Two independent LaunchAgents, two jobs — don't conflate them:
+
+- **The app** starts at login via `tauri-plugin-autostart` (a LaunchAgent for *Wayfinder.app*).
+- **The gateway** starts at login via the WF-ADR-0038 agent (`com.wayfinder-router.gateway`),
+  installed by `wayfinder-router service install`.
+
+The app never spawns or supervises the gateway (WF-ADR-0042 §4) — it detects `/healthz` and
+attaches, and the tray/CTAs ask the *service* to start/stop. So the app can be quit with the
+gateway still serving every other client on `:8088`, and vice-versa.
+
 ## Known-open (land with later phases)
 
-- Esc closes the why-disclosure then hides the window, and re-focus-on-show — both need the
-  window-lifecycle IPC from **Phase 3** (tray/lifecycle); today autofocus covers first open.
-- The service CTAs (Start / Install) are disabled placeholders until **Phase 3** (tray service
-  control) and **Phase 4** (onboarding) wire the shell-outs.
+- Esc closes the why-disclosure then hides the window, and re-focus-the-composer-on-show — both
+  need a small window→webview event; folded into the Phase 4 settings/keyboard pass. Today
+  autofocus covers first open.
+- The **Install** CTA runs `service install` today; the guided first-run onboarding around it
+  (provider key → Keychain, config scaffold) is **Phase 4**.

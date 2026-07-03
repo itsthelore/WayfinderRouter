@@ -1,15 +1,17 @@
 //! Wayfinder Desktop — the Tauri v2 macOS menu-bar shell (WF-ADR-0042).
 //!
-//! A no-Dock accessory app: the template tray icon and the ⌥W hotkey both summon one
-//! borderless, vibrant popover at the bottom-center of the active display, launcher-style
+//! A no-Dock accessory app: the three-state W template tray icon and the ⌥W hotkey both summon
+//! one borderless, vibrant popover at the bottom-center of the active display, launcher-style
 //! (hide-on-blur, state preserved). The webview talks to the gateway directly over loopback
-//! HTTP (not Rust IPC); this shell owns the window/tray/lifecycle. The service-first gateway
-//! attach and the tray health states land in Phase 3 (WF-ROADMAP-0009).
+//! HTTP (not Rust IPC); Rust only drives the window, the tray, and the service-first lifecycle
+//! (WF-ROADMAP-0009 Phase 3). The gateway process is owned by the WF-ADR-0038 launchd agent —
+//! this app never spawns it, only detects/attaches and offers service control.
+
+mod commands;
+mod service;
+mod tray;
 
 use tauri::{
-    image::Image,
-    menu::{MenuBuilder, MenuItemBuilder, PredefinedMenuItem},
-    tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
     ActivationPolicy, App, AppHandle, Manager, PhysicalPosition, WebviewWindow, WindowEvent,
 };
 use tauri_plugin_global_shortcut::{Code, GlobalShortcutExt, Modifiers, Shortcut, ShortcutState};
@@ -20,7 +22,7 @@ const POPOVER: &str = "popover";
 pub fn run() {
     tauri::Builder::default()
         // single-instance must be registered FIRST so a second launch just resurfaces us
-        // instead of spinning up a second tray + gateway.
+        // instead of spinning up a second tray.
         .plugin(tauri_plugin_single_instance::init(|app, _argv, _cwd| {
             show_popover(app);
         }))
@@ -32,6 +34,11 @@ pub fn run() {
             None,
         ))
         .plugin(tauri_plugin_log::Builder::new().build())
+        .invoke_handler(tauri::generate_handler![
+            commands::set_tray_state,
+            commands::service_control,
+            commands::open_target,
+        ])
         .setup(|app| {
             setup(app)?;
             Ok(())
@@ -70,48 +77,12 @@ fn setup(app: &mut App) -> Result<(), Box<dyn std::error::Error>> {
         );
     }
 
-    build_tray(app)?;
+    tray::build(app)?;
     // Best-effort: a missing Accessibility grant must not stop the tray/popover from working;
     // the hotkey simply stays inactive until the user grants it.
     if let Err(e) = register_toggle_shortcut(app) {
         log::warn!("⌥W global shortcut unavailable (grant Accessibility to enable): {e}");
     }
-    Ok(())
-}
-
-fn build_tray(app: &App) -> tauri::Result<()> {
-    // A disabled header line mirrors menubar_core.status_from_health; Start/Stop + service
-    // control land with the supervisor (next step). For now: status header + Quit.
-    let status = MenuItemBuilder::with_id("status", "Wayfinder")
-        .enabled(false)
-        .build(app)?;
-    let quit = PredefinedMenuItem::quit(app, Some("Quit Wayfinder"))?;
-    let menu = MenuBuilder::new(app)
-        .item(&status)
-        .separator()
-        .item(&quit)
-        .build()?;
-
-    // Placeholder tray glyph (the app icon). The monochrome waypoint template with three
-    // health states (running/degraded/stopped) replaces this once the supervisor drives it.
-    let icon = Image::from_bytes(include_bytes!("../icons/32x32.png"))?;
-
-    TrayIconBuilder::with_id("wayfinder")
-        .icon(icon)
-        .icon_as_template(false)
-        .menu(&menu)
-        .show_menu_on_left_click(false) // left-click toggles the popover; right-click opens the menu
-        .on_tray_icon_event(|tray, event| {
-            if let TrayIconEvent::Click {
-                button: MouseButton::Left,
-                button_state: MouseButtonState::Up,
-                ..
-            } = event
-            {
-                toggle_popover(tray.app_handle());
-            }
-        })
-        .build(app)?;
     Ok(())
 }
 
@@ -128,7 +99,7 @@ fn register_toggle_shortcut(app: &App) -> Result<(), Box<dyn std::error::Error>>
     Ok(())
 }
 
-fn toggle_popover(app: &AppHandle) {
+pub(crate) fn toggle_popover(app: &AppHandle) {
     if let Some(win) = app.get_webview_window(POPOVER) {
         if win.is_visible().unwrap_or(false) {
             let _ = win.hide();

@@ -137,10 +137,18 @@ describe("ChatView — adornments + decision hero + reply swap", () => {
 });
 
 describe("UnreachableView — never a dead screen", () => {
-  it("shows the start CTA (disabled pre-Phase-3) and the preview surface", () => {
+  it("no handler: the CTA is disabled; the preview surface still renders", () => {
     render(<UnreachableView />);
     expect(screen.getByRole("button", { name: "Start Wayfinder" })).toBeDisabled();
     expect(screen.getByText(/decisions unavailable/)).toBeInTheDocument(); // parity unstubbed
+  });
+  it("wired: clicking Start runs the handler and surfaces its error", async () => {
+    const user = userEvent.setup();
+    const onStartGateway = vi.fn().mockRejectedValue(new Error("install the gateway first"));
+    render(<UnreachableView onStartGateway={onStartGateway} />);
+    await user.click(screen.getByRole("button", { name: "Start Wayfinder" }));
+    expect(onStartGateway).toHaveBeenCalled();
+    expect(await screen.findByText("install the gateway first")).toBeInTheDocument();
   });
 });
 
