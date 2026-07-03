@@ -45,6 +45,8 @@ declare module "@wayfinder/shared/gateway" {
     /** Fires twice: headers (early, no contributions) then the trailing wayfinder event. */
     onDecision?: (decision: Decision) => void;
     onToken?: (delta: string, reply: string) => void;
+    /** Extra per-turn wayfinder headers (e.g. X-Wayfinder-Offline from the toggle). */
+    headers?: Record<string, string>;
   }
 
   export function decisionFromDebug(wayfinder: Record<string, unknown>): Decision;
