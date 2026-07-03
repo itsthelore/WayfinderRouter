@@ -356,7 +356,7 @@ and closes the loop with a guide that turns the whole roadmap into a repeatable 
   adopted it stays an explicitly labelled opt-in, off the decision path, and — to preserve the
   offline / air-gapped and "prompts never leave the building" guarantees (WF-ADR-0039) — it must
   run as a **local model co-located in the Wayfinder deployment, never a call to an external
-  provider**.
+  provider** — the standing constraint, WF-ADR-0043.
 - **No change to WF-ADR-0001.** Shadow sampling, judging, evidence statistics, and tripwires all
   run off the request path; the per-request decision stays offline, deterministic, and keyless.
 - **No quality *guarantee*.** The evidence report measures judge agreement on sampled traffic with
@@ -460,6 +460,8 @@ before routing a single request."
   everything Initiative 4 makes shareable and Initiative 5 governs)
 - WF-ADR-0037 (automated sufficiency judge — the reused heart of the evidence engine)
 - WF-ADR-0039 (offline-first delivery)
+- WF-ADR-0043 (Wayfinder's own model use is local and in-container — the standing constraint behind
+  the "no LLM-as-judge, local-only if ever" non-goal)
 - WF-ROADMAP-0011 (the deterministic AI governance plane) extends this roadmap: it promotes
   Track B from table stakes to load-bearing prerequisite and repeals the org-hierarchy/SCIM
   non-goal above.

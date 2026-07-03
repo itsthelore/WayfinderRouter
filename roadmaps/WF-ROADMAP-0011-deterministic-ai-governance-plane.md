@@ -318,7 +318,9 @@ central compliance claim.
   auditable, reversible configuration only; what can't be redirected is reported as ungoverned.
 - **No ML classifiers on the request path.** Detectors are deterministic patterns with published
   precision/recall. An async, off-path advisory scanner behind the `Judge`-style seam may come
-  later, opt-in and explicitly labelled — never in the blocking path.
+  later, opt-in and explicitly labelled — never in the blocking path, and if it is ever model-backed
+  it runs as a **local, in-container model with no egress** (WF-ADR-0043), never a call to an
+  external provider — the same constraint the governance pitch depends on.
 - **No telemetry to any vendor, ever.** The enrollment agent reports to the organization's own
   gateway and nowhere else. "No telemetry" (WF-ROADMAP-0009) survives with its meaning intact.
 - **No general DLP/CASB/SSE ambitions.** LLM traffic only — no file scanning, no email, no SaaS
@@ -373,6 +375,8 @@ central compliance claim.
 - WF-ADR-0038 / WF-ADR-0042 (service surface + desktop client — the fleet agent's chassis;
   0042's keyless/loopback constraint is repealed for enrollment mode only)
 - WF-ADR-0039 (offline-first delivery)
+- WF-ADR-0043 (Wayfinder's own model use is local and in-container — the constraint the off-path
+  advisory scanner and any future model-backed component inherit)
 - Roadmaps: WF-ROADMAP-0008 (its PII gate becomes the first detector set — absorbed with
   credit), WF-ROADMAP-0009 (macOS-only and no-fleet non-goals repealed for enrollment mode),
   WF-ROADMAP-0010 (extended; Track B promoted to prerequisite; its org-hierarchy/SCIM non-goal
