@@ -1,0 +1,42 @@
+{"text": "Please contact jane.doe@example.com for the onboarding docs.", "labels": ["email"]}
+{"text": "Escalations go to billing@acme-corp.co.uk during business hours.", "labels": ["email"]}
+{"text": "Add user+tag@example.org to the distribution list.", "labels": ["email"]}
+{"text": "You can reach me — jane [at] example [dot] com — after Tuesday.", "labels": ["email"]}
+{"text": "The retina asset is stored as logo@2x.png in the bundle.", "labels": []}
+{"text": "Ping @jane in the channel or DM the on-call.", "labels": []}
+{"text": "SSN on file: 123-45-6789 (verify against the W-2).", "labels": ["us_ssn"]}
+{"text": "Taxpayer identifier 987-65-4320 recorded for 1099 processing.", "labels": ["us_ssn"]}
+{"text": "Legacy record lists the SSN as 123456789 with no separators.", "labels": ["us_ssn"]}
+{"text": "Invoice 123-45-6789 was paid on the 3rd.", "labels": []}
+{"text": "Replacement part no. 555-12-3456 is backordered.", "labels": []}
+{"text": "Call the support desk at 555-123-4567 for a callback.", "labels": []}
+{"text": "The AKIA prefix identifies a long-term AWS access key.", "labels": []}
+{"text": "A github PAT now starts with the ghp_ prefix.", "labels": []}
+{"text": "-----BEGIN RSA PRIVATE KEY-----", "labels": ["private_key"]}
+{"text": "The file opens with -----BEGIN OPENSSH PRIVATE KEY----- as expected.", "labels": ["private_key"]}
+{"text": "This begins a private discussion, not a key exchange.", "labels": []}
+{"text": "Charge the test card 4111 1111 1111 1111 in the sandbox.", "labels": ["credit_card"]}
+{"text": "Stripe's test Visa is 4242424242424242 for QA runs.", "labels": ["credit_card"]}
+{"text": "Mastercard sandbox number 5555 5555 5555 4444 clears instantly.", "labels": ["credit_card"]}
+{"text": "The card on the receipt reads 4111.1111.1111.1111 with dots.", "labels": ["credit_card"]}
+{"text": "Shipment tracking id 4111111111111111 updated overnight.", "labels": []}
+{"text": "Reference code 4111 1111 1111 1112 failed validation.", "labels": []}
+{"text": "api_secret=deadbeefcafebabe0123456789abcdef in the vault export.", "labels": ["high_entropy_hex"]}
+{"text": "The signing key is 0123456789abcdef0123456789abcdeffedcba98 in prod.", "labels": ["high_entropy_hex"]}
+{"text": "Deployed at commit a94a8fe5ccb19ba61c4c0873d391e987982fbbd3 last night.", "labels": []}
+{"text": "The file md5 is 5d41402abc4b2a76b9719d911017c592 per the manifest.", "labels": []}
+{"text": "Reset access for jane@example.com, ssn 123-45-6789, card 4111 1111 1111 1111.", "labels": ["email", "us_ssn", "credit_card"]}
+{"text": "Summarize the attached quarterly report in three concise bullet points.", "labels": []}
+{"text": "The quick brown fox jumps over the lazy dog near the riverbank.", "labels": []}
+{"text": "def add(a, b):\n    return a + b  # trivial helper", "labels": []}
+{"text": "Meeting rescheduled to 2026-07-10 at 14:30 UTC; agenda to follow.", "labels": []}
+{"text": "Translate the following paragraph from English into French, please.", "labels": []}
+{"text": "Order 8675309 shipped via ground; ETA is next Thursday.", "labels": []}
+{"text": "Our office is at 100 Main St, Suite 4-5-6, downtown.", "labels": []}
+{"text": "Employee jane.doe@example.com filed SSN 123456789 without dashes.", "labels": ["email", "us_ssn"]}
+{"text": "The UUID 550e8400-e29b-41d4-a716-446655440000 keys this record.", "labels": []}
+{"text": "Set the webhook secret to whsec_short (rotate quarterly).", "labels": []}
+{"text": "Bearer token stored server-side; do not paste it into chat.", "labels": []}
+{"text": "Send the signed form to hr@example.com and cc payroll@example.com.", "labels": ["email"]}
+{"text": "The account number ends 4444 — full PAN 5555 5555 5555 4444 on file.", "labels": ["credit_card"]}
+{"text": "Config path is /etc/app/keys/prod.pem on the bastion host.", "labels": []}

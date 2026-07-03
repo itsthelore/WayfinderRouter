@@ -70,6 +70,16 @@ per line:
 `difficulty` is free-form (used only for the per-bucket breakdown); `label` is the
 ground-truth correctness of each model.
 
+## Validating the secret/PII detectors
+
+A separate benchmark scores the deterministic detectors the governance-plane policy
+engine will gate on (WF-ROADMAP-0011): a reference detector set is measured for
+precision/recall/F1 on a labeled, adversarial corpus, so each detector's numbers decide
+which policy verb it can safely drive (a distinctive-token detector can `block`; a
+low-precision one must not). Method and how to run:
+[`detector-validation.md`](detector-validation.md)
+(`python -m benchmarks.detector_validation`).
+
 ## Adding a router (including the ones we can't run here)
 
 A router is one function; add it to `routers.py` and to the table in `run.py`. The

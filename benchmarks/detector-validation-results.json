@@ -1,0 +1,84 @@
+{
+  "detectors": {
+    "aws_access_key": {
+      "f1": 1.0,
+      "fn": 0,
+      "fp": 0,
+      "precision": 1.0,
+      "recall": 1.0,
+      "tn": 47,
+      "tp": 2
+    },
+    "credit_card": {
+      "f1": 0.8333333333333334,
+      "fn": 1,
+      "fp": 1,
+      "precision": 0.8333333333333334,
+      "recall": 0.8333333333333334,
+      "tn": 42,
+      "tp": 5
+    },
+    "email": {
+      "f1": 0.875,
+      "fn": 1,
+      "fp": 1,
+      "precision": 0.875,
+      "recall": 0.875,
+      "tn": 40,
+      "tp": 7
+    },
+    "github_pat": {
+      "f1": 1.0,
+      "fn": 0,
+      "fp": 0,
+      "precision": 1.0,
+      "recall": 1.0,
+      "tn": 47,
+      "tp": 2
+    },
+    "high_entropy_hex": {
+      "f1": 0.6666666666666666,
+      "fn": 0,
+      "fp": 2,
+      "precision": 0.5,
+      "recall": 1.0,
+      "tn": 45,
+      "tp": 2
+    },
+    "private_key": {
+      "f1": 1.0,
+      "fn": 0,
+      "fp": 0,
+      "precision": 1.0,
+      "recall": 1.0,
+      "tn": 47,
+      "tp": 2
+    },
+    "slack_token": {
+      "f1": 1.0,
+      "fn": 0,
+      "fp": 0,
+      "precision": 1.0,
+      "recall": 1.0,
+      "tn": 46,
+      "tp": 3
+    },
+    "us_ssn": {
+      "f1": 0.6,
+      "fn": 2,
+      "fp": 2,
+      "precision": 0.6,
+      "recall": 0.6,
+      "tn": 42,
+      "tp": 3
+    }
+  },
+  "rollup": {
+    "macro_f1": 0.871875,
+    "macro_precision": 0.8510416666666666,
+    "macro_recall": 0.9135416666666666,
+    "micro_f1": 0.8387096774193549,
+    "micro_precision": 0.8125,
+    "micro_recall": 0.8666666666666667
+  }
+}
