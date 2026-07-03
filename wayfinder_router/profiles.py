@@ -1,18 +1,19 @@
-"""Stock lexicon profiles (WF-ADR-0024): starting vocabularies for the opt-in
+"""Stock lexicon profiles (WF-ADR-0024): starter vocabularies for the opt-in
 lexical signals (WF-ADR-0016 / WF-ADR-0019).
 
-Pick a profile to seed ``[routing.lexicon]``, raise the lexical weight, then
-*calibrate on your own labels* — these are starting points, not validated routers.
-Two provenances, both honestly labelled:
+Each profile seeds ``[routing.lexicon]`` with a domain word list. It is a
+head-start, not a validated router: pick one, raise the lexical weight, then
+*calibrate on your own labels*. Two provenances, both labelled honestly:
 
-- ``curated``: hand-authored, defensible domain vocabulary. Unvalidated (no benchmark
-  behind it) — a sensible head-start, nothing more.
-- ``mined``: term lists mined from RouterBench labelled traffic (smoothed log-odds on
-  a held-out split). Real provenance, but mixed quality — some domains surface task
-  vocabulary rather than difficulty; each carries a ``note`` saying so.
+- ``curated``: hand-authored, defensible domain vocabulary. Unvalidated (no
+  benchmark stands behind it).
+- ``mined``: term lists drawn from RouterBench labelled traffic (smoothed
+  log-odds on a held-out split). Real provenance but mixed quality — some domains
+  surface task vocabulary rather than difficulty, and each such profile says so
+  in its ``note``.
 
-Terms are single lowercase word tokens: the scorer tokenizes on words, so phrases
-won't match here, and math symbols are a separate feature (not lexicon terms).
+Terms are single lowercase word tokens, because the scorer tokenizes on words:
+phrases will not match, and math symbols are a separate built-in feature.
 """
 
 from __future__ import annotations
@@ -22,7 +23,7 @@ from dataclasses import dataclass
 
 @dataclass(frozen=True)
 class LexiconProfile:
-    """A named starter lexicon for the lexical signals."""
+    """A named starter lexicon for the reasoning/constraint lexical signals."""
 
     id: str
     name: str
@@ -42,7 +43,7 @@ class LexiconProfile:
         }
 
 
-# --- curated, hand-authored (defensible, unvalidated) -----------------------
+# --- curated: hand-authored, defensible, unvalidated -------------------------
 
 CURATED: tuple[LexiconProfile, ...] = (
     LexiconProfile(
@@ -99,10 +100,12 @@ CURATED: tuple[LexiconProfile, ...] = (
 )
 
 
-# --- mined from RouterBench (real provenance, mixed quality) -----------------
+# --- mined from RouterBench: real provenance, mixed quality ------------------
 # Embedded from benchmarks/seed/domain-lexicons.toml so the library carries no
 # benchmark dependency. Reproduce with: python -m benchmarks.mine_lexicon ...
-
+#
+# The two shared note strings distinguish honest subject vocabulary from
+# task-surface vocabulary that tracks the task, not its difficulty.
 _REAL = "Mined from RouterBench: real subject-matter vocabulary; still calibrate on your traffic."
 _WEAK = "Mined from RouterBench word-problem tasks: task-surface vocabulary, NOT difficulty — a cautionary example, not a recommendation."
 
@@ -153,5 +156,7 @@ MINED: tuple[LexiconProfile, ...] = (
     ),
 )
 
+# Curated profiles come first so a caller browsing PROFILES sees the defensible
+# lists before the mined, mixed-quality ones.
 PROFILES: tuple[LexiconProfile, ...] = CURATED + MINED
 PROFILES_BY_ID: dict[str, LexiconProfile] = {p.id: p for p in PROFILES}
