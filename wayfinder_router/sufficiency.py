@@ -1,28 +1,30 @@
-"""Trust gates for judge-generated labels (WF-ADR-0037).
+"""Trust gates for judge-generated calibration labels (WF-ADR-0037).
 
-An automated judge (:mod:`wayfinder_router.judge`) lets the calibration label faucet run
-without a human — but a mislabeled corpus does not produce a bad *eval number*, it
-produces a routing config that silently sends real traffic to the wrong tier. So a config
-minted from judge labels is **untrusted until it clears these gates**, which measure label
-quality directly and are *judge-agnostic* (they work the same for a heuristic or an LLM
-judge). This is the same honesty bar calibration already holds itself to (WF-DESIGN-0004:
-cross-validated lift over honest baselines), specialized to a judge-sourced label set.
+An automated judge (:mod:`wayfinder_router.judge`) lets the calibration label
+faucet run without a human — but a mislabeled corpus does not yield a bad *eval
+number*, it yields a routing config that silently sends real traffic to the
+wrong tier. So a config minted from judge labels is **untrusted until it clears
+these gates**, which measure label quality directly and are judge-agnostic (they
+behave the same for a heuristic or an LLM judge). This holds the config to the
+same honesty bar calibration already meets (WF-DESIGN-0004: cross-validated lift
+over honest baselines), specialized to a judge-sourced label set.
 
 Three gates:
 
-1. **Agreement vs a human gold set** — Cohen's κ between the judge's labels and a small
-   hand-labeled set on the same prompts. Below the floor (default 0.6, "substantial") the
-   judge disagrees with humans too often to trust; the caller refuses to emit a config and
-   prints the confusion matrix.
-2. **Out-of-fold lift** — k-fold cross-validated accuracy of the *resulting* config must
-   beat the majority-class baseline. If the labels carry no routable signal that
-   generalizes, the cut is fitting noise.
-3. **Degenerate-collapse** — both arms must be meaningfully represented (not ~all one
-   label), or the sweep is trivial and threshold calibration's two-label contract is moot.
+1. **Agreement versus a human gold set** — Cohen's kappa between the judge's
+   labels and a small hand-labeled set on the same prompts. Below the floor
+   (default 0.6, "substantial") the judge disagrees with humans too often to
+   trust, and the caller refuses to emit a config.
+2. **Out-of-fold lift** — k-fold cross-validated accuracy of the *resulting*
+   config must beat the majority-class baseline; otherwise the cut is fitting
+   noise that will not generalize.
+3. **Degenerate collapse** — both arms must be meaningfully represented (not
+   ~all one label), or the sweep is trivial and the two-label contract is moot.
 
-Pure and offline: no model call lives here (it consumes labels the judge already produced),
-so it unit-tests like ``calibrate.py``. It reuses ``calibrate_threshold`` / ``recommend_tier``
-for the CV fit rather than reimplementing the sweep.
+Pure and offline: no model call lives here (it consumes labels the judge already
+produced), so it unit-tests like ``calibrate.py``. It reuses
+``calibrate_threshold`` and ``recommend_tier`` for the CV fit rather than
+reimplementing the sweep.
 """
 
 from __future__ import annotations
@@ -35,16 +37,17 @@ from .complexity import Tier, recommend_tier
 DEFAULT_KAPPA_FLOOR = 0.6  # "substantial" agreement (Landis & Koch); below it, refuse.
 DEFAULT_CV_FOLDS = 5
 DEFAULT_MIN_LIFT = 0.0  # the resulting config must strictly beat the majority baseline.
-DEFAULT_DEGENERATE_FRACTION = 0.95  # one label dominating beyond this is a degenerate set.
+DEFAULT_DEGENERATE_FRACTION = 0.95  # one label dominating beyond this is degenerate.
 
 
 def cohens_kappa(pairs: list[tuple[str, str]]) -> float:
-    """Cohen's κ for a list of ``(judge_label, gold_label)`` pairs.
+    """Cohen's kappa for ``(judge_label, gold_label)`` pairs.
 
-    κ = (p_o − p_e) / (1 − p_e): observed agreement corrected for chance. ``1.0`` is
-    perfect, ``0.0`` is chance-level, negative is worse than chance. When one label
-    saturates both sides (p_e = 1) κ is undefined; we return ``1.0`` iff agreement is also
-    perfect, else ``0.0`` (no information beyond the constant prediction).
+    kappa = (p_o - p_e) / (1 - p_e): observed agreement corrected for chance.
+    ``1.0`` is perfect, ``0.0`` is chance-level, negative is worse than chance.
+    When one label saturates both sides (p_e = 1) kappa is undefined; we return
+    ``1.0`` iff agreement is also perfect, else ``0.0`` — no information beyond a
+    constant prediction. Never a divide-by-zero or NaN.
     """
     n = len(pairs)
     if n == 0:
@@ -62,7 +65,11 @@ def cohens_kappa(pairs: list[tuple[str, str]]) -> float:
 
 
 def confusion_matrix(pairs: list[tuple[str, str]]) -> dict[str, dict[str, int]]:
-    """``matrix[judge_label][gold_label] -> count`` over the ``(judge, gold)`` pairs."""
+    """``matrix[judge_label][gold_label] -> count`` over the ``(judge, gold)`` pairs.
+
+    Rows and columns span the sorted union of every observed label, so every
+    cell is initialized to 0 (including combinations that never co-occur).
+    """
     labels = sorted({label for pair in pairs for label in pair})
     matrix = {row: {col: 0 for col in labels} for row in labels}
     for judge_label, gold_label in pairs:
@@ -71,7 +78,7 @@ def confusion_matrix(pairs: list[tuple[str, str]]) -> dict[str, dict[str, int]]:
 
 
 def majority_baseline(samples: list[Sample]) -> float:
-    """Accuracy of always predicting the most common label (the floor a fit must beat)."""
+    """Accuracy of always predicting the most common label — the floor a fit must beat."""
     if not samples:
         return 0.0
     counts: dict[str, int] = {}
@@ -81,16 +88,16 @@ def majority_baseline(samples: list[Sample]) -> float:
 
 
 def cross_validated_accuracy(samples: list[Sample], *, k: int = DEFAULT_CV_FOLDS) -> float:
-    """Mean out-of-fold accuracy of a threshold fit, by deterministic k-fold CV.
+    """Mean out-of-fold accuracy of a threshold fit by deterministic k-fold CV.
 
-    Each fold is held out, a cut is fit on the rest with ``calibrate_threshold`` (accuracy
-    objective), and the held-out fold is scored with ``recommend_tier`` — so the number
-    reflects how the labels *generalize*, not how well a cut memorizes them. Folds whose
-    training split lacks both labels are skipped (a cut needs two). Returns ``0.0`` when no
-    fold is usable.
+    Each fold is held out, a cut is fit on the rest with ``calibrate_threshold``
+    (accuracy objective), and the held-out fold is scored with ``recommend_tier``
+    — so the number reflects how the labels *generalize*, not how well a cut
+    memorizes them. Folds whose training split lacks both labels are skipped (a
+    cut needs two). Returns ``0.0`` when no fold is usable.
 
-    Raises ``ValueError`` for ``k < 2``: cross-validation needs at least two folds, and a bad
-    ``k`` should surface as an error, not a silent ``0.0`` that reads as a genuine "no lift".
+    Raises ``ValueError`` (not ``CalibrationError``) for ``k < 2``: a bad ``k``
+    should surface as an error, not a silent ``0.0`` that reads as "no lift".
     """
     if k < 2:
         raise ValueError(f"cross_validated_accuracy needs at least 2 folds (got k={k})")
@@ -98,7 +105,7 @@ def cross_validated_accuracy(samples: list[Sample], *, k: int = DEFAULT_CV_FOLDS
     if n < 2:
         return 0.0
     k = min(k, n)
-    folds = [samples[i::k] for i in range(k)]  # stride partition — deterministic, no RNG.
+    folds = [samples[i::k] for i in range(k)]  # stride partition — deterministic, no RNG
     accuracies: list[float] = []
     for i in range(k):
         test = folds[i]
@@ -108,7 +115,8 @@ def cross_validated_accuracy(samples: list[Sample], *, k: int = DEFAULT_CV_FOLDS
         try:
             result = calibrate_threshold(train, objective="accuracy")
         except CalibrationError:
-            continue  # the training split had only one label — not a usable fold.
+            continue  # single-label training split — not a usable fold
+        # Couples to the threshold-accuracy summary schema (threshold + models).
         threshold = result.summary["threshold"]
         low, high = result.summary["models"]
         tiers = (Tier(0.0, low), Tier(threshold, high))
@@ -137,7 +145,7 @@ class GateReport:
     failures: tuple[str, ...]
 
     def render(self) -> str:
-        """A human-readable summary of every gate (stderr / refusal message)."""
+        """A human-readable summary of every gate (for the stderr / refusal message)."""
         lines = [
             f"judge-vs-gold kappa: {self.kappa:.2f} (floor {self.kappa_floor:.2f}, "
             f"n={self.n_gold}, abstained={self.gold_abstained})",
@@ -171,9 +179,10 @@ def evaluate(
 ) -> GateReport:
     """Run all three gates and return a :class:`GateReport` (``passed`` is the verdict).
 
-    ``gold_pairs`` are ``(judge_label, gold_label)`` for prompts the judge did *not* abstain
-    on (abstentions are excluded from κ but counted in ``gold_abstained``). ``samples`` are
-    the labeled rows the resulting config would be fit on.
+    ``gold_pairs`` are ``(judge_label, gold_label)`` for the prompts the judge
+    did *not* abstain on (abstentions are excluded from kappa but counted in
+    ``gold_abstained``). ``samples`` are the labeled rows the resulting config
+    would be fit on.
     """
     kappa = cohens_kappa(gold_pairs)
     confusion = confusion_matrix(gold_pairs)
@@ -185,6 +194,9 @@ def evaluate(
     lift = cv_accuracy - majority
     degenerate = len(label_counts) < 2 or majority > degenerate_fraction
 
+    # Two independent if/elif groups. First: the gold/kappa gate. Second: the
+    # data-shape gate, where degenerate SUPPRESSES the lift message (elif), so a
+    # run yields 0, 1, or 2 failures.
     failures: list[str] = []
     if not gold_pairs:
         failures.append("no gold agreement measured — pass a human-labeled --gold set")
