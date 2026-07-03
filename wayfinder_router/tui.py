@@ -1,24 +1,23 @@
 """Wayfinder terminal chat — a full-screen Textual app (WF-DESIGN-0001).
 
-A decision-first terminal chat: it scores each prompt with the deterministic core
-(``score_complexity`` / ``explain_score``) and renders the routing decision inline —
-``● LOCAL`` (green) vs ``◆ CLOUD`` (amber) and the score — in the Wayfinder palette
-pulled from ``demo.html``. The "why" breakdown is collapsed by default and expanded
-on demand (``/why``) so the transcript stays readable.
+Decision-first chat for the terminal. Every prompt is scored by the deterministic
+core (``score_complexity`` / ``explain_score``) and the routing verdict is drawn
+inline — ``● LOCAL`` (green) or ``◆ CLOUD`` (amber), plus the score — in the brand
+palette lifted from ``demo.html``. The score "why" is collapsed by default and
+expanded on request (``/why``) to keep the scrollback legible.
 
 The chrome is a fixed full-screen layout: a scrolling transcript, a one-line status
-bar, a pinned input box (bordered in the brand accent), and a footer — the wordmark
-heads the transcript and scrolls away as the conversation grows. When
-``[gateway.models]`` are configured it calls the chosen model **in-process** (reusing
-the gateway's relay, ``stream_messages`` / ``invoke_messages``) to return a real reply,
-streamed token-by-token; with no models (or ``--dry-run``) it stays decision-only.
-Scoring stays in the pure, offline core (WF-ADR-0001); this module is presentation +
-relay glue and never enters the scored path.
+bar, a bordered composer (brand accent), and a footer. The wordmark heads the
+transcript and scrolls off as the chat grows. With ``[gateway.models]`` present it
+relays to the chosen model **in-process** (reusing the gateway's ``stream_messages``
+/ ``invoke_messages``), streaming tokens; with no models (or ``--dry-run``) it stays
+decision-only. Scoring lives entirely in the pure offline core (WF-ADR-0001) — this
+module is presentation and relay glue and never enters the scored path.
 
-rich + textual ship in the default install (WF-ADR-0029), but both are imported
-**lazily** so ``import wayfinder_router`` (the scorer/library) still loads nothing extra
-— embedding stays light, mirroring the gateway's fastapi pattern. The Textual ``App``
-is built behind a factory so importing this module never requires textual.
+rich + textual ship by default (WF-ADR-0029) but are imported **lazily inside
+functions**, so ``import wayfinder_router`` (the scorer/library) pulls in neither;
+httpx and the gateway/bootstrap/threads siblings are lazy for the same reason. The
+Textual ``App`` lives behind a factory so importing this module never needs textual.
 """
 
 from __future__ import annotations
@@ -28,6 +27,7 @@ import threading
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
+from . import pricing
 from .complexity import (
     DEFAULT_TIERS,
     FeatureContribution,
@@ -37,25 +37,30 @@ from .complexity import (
     score_complexity,
 )
 from .config import WayfinderConfigError, load_routing_config
-from . import pricing
 
-if TYPE_CHECKING:  # type-only; the runtime imports rich/textual/gateway lazily
+if TYPE_CHECKING:  # type-only: rich / textual / gateway are imported lazily at runtime
     from rich.console import RenderableType
 
     from .gateway import GatewayModel
 
-_INSTALL_HINT = "the terminal chat needs rich + textual (shipped by default) — reinstall wayfinder-router"
+_INSTALL_HINT = (
+    "the terminal chat needs rich + textual (shipped by default) — reinstall wayfinder-router"
+)
+
+# The `/scope` allow-list (WF-ADR-0021): which turns a decision folds into its score.
 _SCOPES = ("turn", "last_user", "user", "all")
 
-# Slash commands offered as inline autocomplete in the composer (typing `/` suggests).
+# Autocomplete entries offered in the composer as the user types `/`. Order is
+# load-bearing: SuggestFromList returns the first prefix match, so `/init` must lead
+# the `/i*` group and `/models` the `/m*` group (see the autocomplete test).
 _SLASH_COMMANDS = [
     "/init", "/models", "/keys", "/cost", "/new", "/threads", "/open", "/route", "/auto", "/local",
     "/cloud", "/btw", "/threshold", "/scope", "/sticky", "/why", "/stream", "/theme",
     "/settings", "/help", "/quit",
 ]
 
-# The wordmark that heads the transcript (pyfiglet "ansi_shadow", baked so figlet
-# is never a runtime dependency). It spells WAYFINDER in box-drawing blocks.
+# WAYFINDER in pyfiglet "ansi_shadow", baked into box-drawing blocks so figlet is
+# never a runtime dependency. Heads the transcript; scrolls away as the chat grows.
 _WORDMARK = (
     "██╗    ██╗ █████╗ ██╗   ██╗███████╗██╗███╗   ██╗██████╗ ███████╗██████╗ \n"
     "██║    ██║██╔══██╗╚██╗ ██╔╝██╔════╝██║████╗  ██║██╔══██╗██╔════╝██╔══██╗\n"
@@ -65,9 +70,9 @@ _WORDMARK = (
     " ╚══╝╚══╝ ╚═╝  ╚═╝   ╚═╝   ╚═╝     ╚═╝╚═╝  ╚═══╝╚═════╝ ╚══════╝╚═╝  ╚═╝"
 )
 
-# --- brand palette (from wayfinder_router/demo.html) -------------------------
-# accent = local (green), cloud = hosted (amber); warn matches the demo's .warn.
-# bg is the full-screen fill (the app takes over the terminal, so it owns one).
+# Brand palette (from wayfinder_router/demo.html). accent = the local/green arm,
+# cloud = the hosted/amber arm; the app owns the whole screen so it carries a bg.
+# The hex values are user-visible contract (and #19c8a4 is echoed in the app CSS).
 THEMES: dict[str, dict[str, str]] = {
     "dark": {
         "accent": "#19c8a4",
@@ -91,20 +96,22 @@ THEMES: dict[str, dict[str, str]] = {
 
 
 def palette_for(theme: str = "auto") -> dict[str, str]:
-    """Resolve a palette. ``auto`` honours ``WAYFINDER_THEME`` then defaults to dark."""
+    """Return a palette dict. ``auto`` reads ``WAYFINDER_THEME`` then falls back to dark;
+    any unknown name also falls back to the dark palette."""
     if theme == "auto":
         theme = os.environ.get("WAYFINDER_THEME", "dark").strip().lower()
     return THEMES.get(theme, THEMES["dark"])
 
 
 def _resolve_theme(theme: str) -> str:
-    """Map a CLI theme name (incl. ``auto``) to a concrete palette key."""
+    """Collapse a CLI theme name (including ``auto``) to a concrete palette key."""
     if theme == "auto":
         theme = os.environ.get("WAYFINDER_THEME", "dark").strip().lower()
     return theme if theme in THEMES else "dark"
 
 
 def _version() -> str:
+    """The package version for the header subtitle; empty string if unavailable."""
     try:
         from . import __version__
 
@@ -113,28 +120,28 @@ def _version() -> str:
         return ""
 
 
-# --- session state -----------------------------------------------------------
+# --- live session state ------------------------------------------------------
 @dataclass
 class TuiState:
-    """The live settings the chat manages — surfaced by ``/settings``, set by commands."""
+    """Mutable chat settings — shown by ``/settings`` and changed by slash commands."""
 
     threshold: float | None = None
     scope: str = "turn"
     sticky: bool = False
     cooldown: int = 0
-    show_why: bool = False  # auto-expand the breakdown on every turn
-    stream: bool = True  # stream replies token-by-token (in-process backend)
+    show_why: bool = False  # auto-expand the score breakdown on every turn
+    stream: bool = True  # stream in-process replies token-by-token
     theme: str = "dark"
-    # A standing route override: a configured model name, or the sentinels
+    # A standing route override: a configured model name, the sentinels
     # "prefer-local" / "prefer-hosted" (cheapest / most-capable tier), or None for
-    # normal routing. One-shot forces (/local <msg>, /cloud <msg>, /btw) bypass this.
+    # normal routing. The one-shot forces (/local <msg>, /cloud <msg>, /btw) bypass it.
     pinned: str | None = None
 
 
-# --- the routing decision (reuses the deterministic core) --------------------
+# --- the scored routing decision ---------------------------------------------
 @dataclass
 class Decision:
-    """A scored turn: the recommendation plus the "why", for inline rendering."""
+    """A scored turn: the recommendation plus its "why", ready for inline rendering."""
 
     text: str
     model: str
@@ -143,16 +150,16 @@ class Decision:
     is_local: bool
     contributions: list[FeatureContribution] = field(default_factory=list)
     threshold: float | None = None
-    # The configured model names in tier order (cheapest → most capable); used to
-    # resolve forced routes (prefer-local / prefer-hosted) against the same tiers.
+    # Configured model names in tier order (cheapest → most capable); lets a forced
+    # route (prefer-local / prefer-hosted) resolve against the same ladder.
     targets: list[str] = field(default_factory=list)
 
 
 def _tier_index(model: str, tiers: tuple) -> int:
-    """The ladder position (0 = cheapest) of ``model`` among ``tiers``; 0 if not found."""
-    for i, tier in enumerate(tiers):
+    """Ladder position (0 = cheapest) of ``model`` in ``tiers``, or 0 if absent."""
+    for position, tier in enumerate(tiers):
         if tier.model == model:
-            return i
+            return position
     return 0
 
 
@@ -166,25 +173,27 @@ def decide(
     cooldown: int = 0,
     messages: list[dict] | None = None,
 ) -> Decision:
-    """Score the turn and classify the route — the same path as ``wayfinder-router route``.
+    """Score a turn and classify its route — the same path ``wayfinder-router route`` takes.
 
-    ``is_local`` is true when the *chosen* model falls in the lowest tier (the cheap, local
-    arm); any escalation reads as cloud. When ``messages`` is given, ``scope`` (WF-ADR-0021)
-    selects which of them to score — ``turn`` / ``last_user`` / ``user`` / ``all`` — and
-    ``sticky`` (WF-ADR-0022) latches the route up to the highest tier any turn in the
-    conversation needed, decaying after ``cooldown`` calm turns. Both reuse the gateway's own
-    pure helpers so the in-process backend matches the remote one exactly. With ``messages``
-    omitted it scores ``text`` as before. Pure and offline (WF-ADR-0001).
+    ``is_local`` holds when the chosen model sits in the lowest (cheap/local) tier; any
+    escalation reads as cloud. Given ``messages``, ``scope`` (WF-ADR-0021) selects which
+    of them to score, and ``sticky`` (WF-ADR-0022) latches the route up to the hardest
+    tier any turn in the conversation needed, relaxing after ``cooldown`` calm turns.
+    Both defer to the gateway's own pure helpers so the in-process backend matches the
+    remote one exactly. Omitting ``messages`` simply scores ``text``. Offline (WF-ADR-0001).
     """
     config = load_routing_config(start_dir)
     if threshold is not None:
+        # A user override swaps in a binary ladder at ``threshold`` and — deliberately —
+        # drops the classifier (RoutingConfig defaults it to None), which is what re-arms
+        # the sticky latch below for a threshold-driven session.
         config = RoutingConfig(
             weights=config.weights, tiers=binary_tiers(threshold), lexicon=config.lexicon
         )
     scored_text = text
     if messages:
-        # Reuse the gateway's route-on scoping; its fastapi/httpx stay lazy, so this pulls no
-        # server deps and the decision stays offline.
+        # Reuse the gateway's route-on scoping; its fastapi/httpx stay lazy so this drags
+        # in no server deps and the decision remains offline.
         from .gateway import extract_prompt
 
         scored_text = extract_prompt(messages, route_on=scope)
@@ -195,8 +204,8 @@ def decide(
         if score.score >= tier.min_score:
             idx = i
     model, mode = score.recommendation, score.mode
-    # Conversation latch (WF-ADR-0022): escalate to the highest tier any single turn needed —
-    # the same rule the gateway applies, via the same function.
+    # Conversation latch (WF-ADR-0022): pin to the hardest tier any single turn needed,
+    # computed by the gateway's own high-water helper for parity with the server.
     if sticky and messages and config.classifier is None and len(tiers) >= 2:
         from .gateway import conversation_high_water
 
@@ -216,11 +225,13 @@ def decide(
 
 
 def resolve_target(pin: str | None, decision: Decision) -> tuple[str, bool]:
-    """Resolve a forced route to ``(model_name, is_local)`` against the decision's tiers.
+    """Resolve a forced route against the decision's tiers → ``(model_name, is_local)``.
 
     ``pin`` is a model name, the sentinel ``prefer-local`` / ``prefer-hosted`` (cheapest /
     most-capable tier), or ``None`` for the natural route. Mirrors the gateway's
-    ``resolve_pin`` so in-process and ``--base-url`` agree on what a force means.
+    ``resolve_pin`` so the in-process and ``--base-url`` backends agree on a force. Note
+    ``is_local`` is defined purely as "equals the cheapest target", which is why an empty
+    ladder makes ``prefer-hosted`` fall back to the decision's own model, read as local.
     """
     if pin is None:
         return decision.model, decision.is_local
@@ -235,14 +246,14 @@ def resolve_target(pin: str | None, decision: Decision) -> tuple[str, bool]:
 
 
 def _pin_label(pin: str | None) -> str:
-    """A short human label for a pin (sentinels read as local/cloud)."""
+    """A short human label for a pin; the sentinels read as ``local`` / ``cloud``."""
     return {"prefer-local": "local", "prefer-hosted": "cloud", None: "auto"}.get(pin, pin or "auto")
 
 
 # --- session cost accounting -------------------------------------------------
 @dataclass
 class SessionCost:
-    """A running tally of model calls and their estimated cost vs always-cloud."""
+    """Running tally of model calls and estimated spend vs an always-cloud baseline."""
 
     calls: int = 0
     local: int = 0
@@ -252,7 +263,7 @@ class SessionCost:
 
 
 def estimate_tokens(text: str) -> int:
-    """A rough token count (~4 chars/token); everything derived from it is labelled ``~``."""
+    """A rough ~4-chars/token estimate (min 1); anything derived from it is marked ``~``."""
     return max(1, len(text) // 4)
 
 
@@ -260,7 +271,7 @@ def account_turn(
     tally: SessionCost, *, is_local: bool, tokens: int,
     chosen_cost: float | None, cloud_cost: float | None,
 ) -> None:
-    """Fold one model call into ``tally`` — spend, and savings vs routing it all to cloud."""
+    """Fold one model call into ``tally`` — its spend and its savings vs going all-cloud."""
     tally.calls += 1
     if is_local:
         tally.local += 1
@@ -272,7 +283,7 @@ def account_turn(
 
 
 def cost_summary(tally: SessionCost) -> str:
-    """The footer tally line, or ``""`` before any model call this session."""
+    """The footer tally line — empty until the first model call this session."""
     if tally.calls == 0:
         return ""
     summary = f"{tally.local}/{tally.calls} local"
@@ -282,30 +293,31 @@ def cost_summary(tally: SessionCost) -> str:
 
 
 def _savings_path(data_dir: object) -> str:
-    """Where the chat's savings ledger persists — alongside saved threads (WF-DESIGN-0007)."""
+    """Where the savings ledger persists — beside saved threads (WF-DESIGN-0007)."""
     from pathlib import Path
 
     return str(Path(str(data_dir)) / "savings.json")
 
 
 def _load_ledger(data_dir: object) -> pricing.SavingsLedger:
-    """Load the persisted savings ledger, or start a fresh (unpriced) one."""
+    """Load the persisted savings ledger, or begin a fresh (unpriced) one on any miss."""
     try:
         return pricing.SavingsLedger.load(_savings_path(data_dir))
     except (OSError, ValueError):
         return pricing.SavingsLedger(priced=False)
 
 
+# Period columns for the `/cost` cross-session view (label, look-back days; None = all).
 _COST_PERIODS = (("today", 1), ("7 days", 7), ("30 days", 30), ("all time", None))
 
 
 def render_cost(
     tally: SessionCost, palette: dict[str, str], ledger: pricing.SavingsLedger | None = None
 ) -> RenderableType:
-    """A panel breaking down the session's routing mix and estimated savings.
+    """A panel of the session's routing mix and estimated savings.
 
-    When a persisted ``ledger`` is supplied it also shows a per-period view
-    (today / 7d / 30d / all-time), so savings accrue across sessions (WF-DESIGN-0007).
+    With a persisted ``ledger`` it also draws a per-period view (today / 7d / 30d /
+    all-time) so savings accrue across sessions (WF-DESIGN-0007).
     """
     from rich.console import Group
     from rich.panel import Panel
@@ -314,8 +326,10 @@ def render_cost(
 
     accent, muted, text_c = palette["accent"], palette["muted"], palette["text"]
     if tally.calls == 0:
-        return Panel(Text("no model calls yet this session", style=muted), title="cost",
-                     title_align="left", border_style=accent, padding=(1, 2), expand=False)
+        empty = Text("no model calls yet this session", style=muted)
+        return Panel(empty, title="cost", title_align="left", border_style=accent,
+                     padding=(1, 2), expand=False)
+
     pct = round(100 * tally.local / tally.calls)
     rows = [("model calls", str(tally.calls)), ("kept local", f"{tally.local}  ({pct}%)")]
     if tally.priced:
@@ -323,27 +337,27 @@ def render_cost(
             ("est. spent", f"~${tally.spent:.4f}"),
             ("est. saved", f"~${tally.saved:.4f}  vs always-cloud"),
         ]
-    grid = Table.grid(padding=(0, 3))
-    grid.add_column(style=muted, justify="right")
-    grid.add_column(style=text_c)
-    for key, val in rows:
-        grid.add_row(key, val)
+    session = Table.grid(padding=(0, 3))
+    session.add_column(style=muted, justify="right")
+    session.add_column(style=text_c)
+    for label, value in rows:
+        session.add_row(label, value)
 
-    blocks: list[RenderableType] = [Text("this session", style=muted), grid]
-    if ledger is not None and ledger.days:  # accrued across sessions
+    blocks: list[RenderableType] = [Text("this session", style=muted), session]
+    if ledger is not None and ledger.days:  # a cross-session ledger exists → show periods
         periods = Table.grid(padding=(0, 3))
         periods.add_column(style=muted, justify="right")
         periods.add_column(style=text_c, justify="right")  # calls
         if ledger.priced:
             periods.add_column(style=accent, justify="right")  # saved
         header = ["period", "calls"] + (["saved"] if ledger.priced else [])
-        periods.add_row(*[f"[dim]{h}[/dim]" for h in header])
+        periods.add_row(*[f"[dim]{col}[/dim]" for col in header])
         for label, days in _COST_PERIODS:
-            rep = ledger.period(days=days)
-            cols = [label, str(rep["requests"])]
+            report = ledger.period(days=days)
+            cells = [label, str(report["requests"])]
             if ledger.priced:
-                cols.append(f"~${rep['saved']:.4f}")
-            periods.add_row(*cols)
+                cells.append(f"~${report['saved']:.4f}")
+            periods.add_row(*cells)
         blocks += [Text("\nby period", style=muted), periods]
 
     tail = "estimated from ~4 chars/token"
@@ -354,9 +368,13 @@ def render_cost(
                  border_style=accent, padding=(1, 2), expand=False)
 
 
-# --- slash commands ----------------------------------------------------------
+# --- slash-command parsing ---------------------------------------------------
 def parse_command(line: str) -> tuple[str | None, str]:
-    """Split a composer line. ``/cmd arg`` → ``("cmd", "arg")``; plain text → ``(None, text)``."""
+    """Split a composer line: ``/cmd arg`` → ``("cmd", "arg")``; plain text → ``(None, text)``.
+
+    The plain-text branch is returned verbatim (no strip); only the command branch strips.
+    A bare ``/`` yields ``("", "")``.
+    """
     if not line.startswith("/"):
         return None, line
     parts = line[1:].strip().split(None, 1)
@@ -390,23 +408,25 @@ _HELP = (
 )
 
 
-# --- rich rendering (lazy import) --------------------------------------------
+# --- availability ------------------------------------------------------------
 class TUIUnavailable(RuntimeError):
     """The terminal-UI extra (rich + textual) is not installed."""
 
 
 def _require_tui() -> None:
+    """Raise :class:`TUIUnavailable` unless both rich and textual import."""
     try:
         import rich  # noqa: F401
         import textual  # noqa: F401
-    except ImportError as exc:  # pragma: no cover - exercised only without the extra
+    except ImportError as exc:  # pragma: no cover - only hit without the extra
         raise TUIUnavailable(_INSTALL_HINT) from exc
 
 
+# --- rich renderers (rich is imported lazily inside each one) ----------------
 def render_welcome(
     palette: dict[str, str], *, subtitle: str, compact: bool = False
 ) -> RenderableType:
-    """The transcript header: the wordmark, brand subtitle, and a functional hint.
+    """The transcript header: wordmark, brand subtitle, a usage hint, and a status caption.
 
     ``compact`` swaps the block wordmark for a plain "Wayfinder" line on narrow terminals.
     """
@@ -417,18 +437,19 @@ def render_welcome(
     accent, muted, text_c, cloud = (
         palette["accent"], palette["muted"], palette["text"], palette["cloud"]
     )
+    word: RenderableType
     if compact:
-        word: RenderableType = Text("Wayfinder", style=f"bold {accent}", justify="center")
+        word = Text("Wayfinder", style=f"bold {accent}", justify="center")
     else:
         word = Text(_WORDMARK, style=f"bold {accent}")
 
-    cap = Text(justify="center")
-    cap.append("local ", style=muted)
-    cap.append("✓   ", style=accent)
-    cap.append("cloud ", style=muted)
-    cap.append("✓   ", style=cloud)
-    cap.append("offline routing ", style=muted)
-    cap.append("✓", style=accent)
+    caption = Text(justify="center")
+    caption.append("local ", style=muted)
+    caption.append("✓   ", style=accent)
+    caption.append("cloud ", style=muted)
+    caption.append("✓   ", style=cloud)
+    caption.append("offline routing ", style=muted)
+    caption.append("✓", style=accent)
 
     return Group(
         Text(),
@@ -439,12 +460,13 @@ def render_welcome(
             Text("type a prompt — Wayfinder routes it and shows the score + why", style=text_c)
         ),
         Text(),
-        Align.center(cap),
+        Align.center(caption),
         Text(),
     )
 
 
 def _glyph_role(is_local: bool) -> tuple[str, str]:
+    """The glyph + role label for a route arm."""
     return ("●", "LOCAL") if is_local else ("◆", "CLOUD")
 
 
@@ -455,26 +477,29 @@ def render_decision(
     expanded: bool = False,
     forced_to: tuple[str, bool] | None = None,
 ) -> RenderableType:
-    """The decision line; collapsed shows a ``/why`` affordance, expanded adds the table.
+    """The inline decision line; collapsed shows a ``/why`` affordance, expanded adds a table.
 
-    ``forced_to`` is ``(model_name, is_local)`` when the route was overridden — the
-    forced target is shown as the primary, flagged ``· forced``, with the natural route
-    the scorer would have picked shown alongside (decision-first transparency).
+    ``forced_to`` is ``(model_name, is_local)`` when the route was overridden — the forced
+    target leads, flagged ``· forced``, and the natural route the scorer would have chosen
+    is shown alongside (decision-first transparency).
     """
     from rich.console import Group
     from rich.table import Table
     from rich.text import Text
 
     muted, text_c = palette["muted"], palette["text"]
+    head = Text()
     if forced_to is not None:
-        f_name, f_local = forced_to
-        f_glyph, f_role = _glyph_role(f_local)
-        head = Text()
-        head.append(f"{f_glyph} {f_role}", style=f"bold {palette['accent'] if f_local else palette['cloud']}")
-        head.append(f"  {f_name}", style=text_c)
+        forced_name, forced_local = forced_to
+        f_glyph, f_role = _glyph_role(forced_local)
+        head.append(
+            f"{f_glyph} {f_role}",
+            style=f"bold {palette['accent'] if forced_local else palette['cloud']}",
+        )
+        head.append(f"  {forced_name}", style=text_c)
         head.append("  · forced", style=palette["warn"])
         head.append(f"   score {decision.score:.2f}", style=muted)
-        if f_name != decision.model:
+        if forced_name != decision.model:  # surface the route the scorer would have taken
             n_glyph, n_role = _glyph_role(decision.is_local)
             head.append(f"   would route {n_glyph} {n_role}", style=muted)
         if decision.contributions:
@@ -482,7 +507,6 @@ def render_decision(
     else:
         glyph, role = _glyph_role(decision.is_local)
         role_color = palette["accent"] if decision.is_local else palette["cloud"]
-        head = Text()
         head.append(f"{glyph} {role}", style=f"bold {role_color}")
         head.append(f"  {decision.model}", style=text_c)
         head.append(f"   score {decision.score:.2f}", style=muted)
@@ -527,28 +551,22 @@ def render_settings(state: TuiState, palette: dict[str, str]) -> RenderableType:
     grid = Table.grid(padding=(0, 3))
     grid.add_column(style=muted, justify="right")
     grid.add_column(style=text_c)
-    for key, val in rows:
-        grid.add_row(key, val)
+    for label, value in rows:
+        grid.add_row(label, value)
 
     hint = Text(
         "\nchange:  /route  /local  /cloud  /threshold  /scope  /sticky  /why  /stream  /theme   ·   /help",
         style=muted,
     )
-    return Panel(
-        Group(grid, hint),
-        title="settings",
-        title_align="left",
-        border_style=accent,
-        padding=(1, 2),
-        expand=False,
-    )
+    return Panel(Group(grid, hint), title="settings", title_align="left",
+                 border_style=accent, padding=(1, 2), expand=False)
 
 
 def render_models(models: dict, palette: dict[str, str]) -> RenderableType:
-    """A panel of the configured models and whether each one's key resolves.
+    """A panel of configured models and whether each one's key resolves.
 
-    The in-chat equivalent of ``wayfinder-router doctor`` — keys are read from the
-    environment, never stored (WF-ADR-0004); this only reports ``set`` / ``not set``.
+    The in-chat ``wayfinder-router doctor``: keys are read from the environment, never
+    stored (WF-ADR-0004); this only reports ``set`` / ``not set``.
     """
     from rich.console import Group
     from rich.panel import Panel
@@ -576,7 +594,7 @@ def render_models(models: dict, palette: dict[str, str]) -> RenderableType:
         if status.env_var is None:
             key = Text("keyless ✓", style=accent)
         elif status.ok:
-            # After resolve_keys() a command-filled key reads as set; note its source.
+            # After resolve_keys() a command-filled key reads as set; note the source.
             label = f"{status.env_var} ✓ set" + (" (via command)" if status.cmd else "")
             key = Text(label, style=accent)
         else:
@@ -592,12 +610,12 @@ def render_models(models: dict, palette: dict[str, str]) -> RenderableType:
 def render_keys(
     models: dict, palette: dict[str, str], *, errors: dict[str, str] | None = None
 ) -> RenderableType:
-    """A focused, actionable view of each model's key — the in-chat ``doctor``.
+    """A focused, actionable per-model key view — the in-chat ``doctor``.
 
-    Re-resolution happens in the caller (``/keys`` re-runs any ``api_key_cmd``); this
-    renders the outcome: what is set, what a command failed to fetch, and the exact
-    line to fix a miss. Keys are read from the environment or a secret store at request
-    time, never written to disk (WF-ADR-0004, WF-DESIGN-0006).
+    Re-resolution happens in the caller (``/keys`` re-runs any ``api_key_cmd``); this only
+    draws the outcome: what is set, what a command failed to fetch, and the exact line to
+    fix a miss. Keys are read at request time, never written to disk (WF-ADR-0004,
+    WF-DESIGN-0006).
     """
     from rich.console import Group
     from rich.panel import Panel
@@ -621,19 +639,20 @@ def render_keys(
     grid.add_column(style=text_c)  # model name
     grid.add_column()  # key status
     missing: list[str] = []
-    for s in key_status(models):
-        if s.env_var is None:
-            status, glyph = Text("keyless — no key needed", style=muted), accent
-        elif s.ok:
-            via = "resolved via command" if s.cmd else "set in environment"
-            status, glyph = Text(f"{s.env_var}  ✓ {via}", style=accent), accent
-        elif s.name in errors:
-            status, glyph = Text(f"{s.env_var}  ✗ command failed — {errors[s.name]}", style=warn), cloud
-            missing.append(s.env_var)
+    for status in key_status(models):
+        if status.env_var is None:
+            line, glyph = Text("keyless — no key needed", style=muted), accent
+        elif status.ok:
+            via = "resolved via command" if status.cmd else "set in environment"
+            line, glyph = Text(f"{status.env_var}  ✓ {via}", style=accent), accent
+        elif status.name in errors:
+            line = Text(f"{status.env_var}  ✗ command failed — {errors[status.name]}", style=warn)
+            glyph = cloud
+            missing.append(status.env_var)
         else:
-            status, glyph = Text(f"{s.env_var}  ✗ not set", style=warn), cloud
-            missing.append(s.env_var)
-        grid.add_row(Text(s.name, style=text_c), Text("● ", style=glyph) + status)
+            line, glyph = Text(f"{status.env_var}  ✗ not set", style=warn), cloud
+            missing.append(status.env_var)
+        grid.add_row(Text(status.name, style=text_c), Text("● ", style=glyph) + line)
 
     items: list[RenderableType] = [grid]
     unset = list(dict.fromkeys(missing))  # dedupe a var shared across tiers, keep first-seen order
@@ -648,13 +667,15 @@ def render_keys(
                 items.append(
                     Text("  · or store it in your secret manager and add an api_key_cmd", style=muted)
                 )
-    items.append(Text("\n/keys re-checks · keys live in your environment or your secret store", style=muted))
+    items.append(
+        Text("\n/keys re-checks · keys live in your environment or your secret store", style=muted)
+    )
     return Panel(Group(*items), title="keys", title_align="left", border_style=accent,
                  padding=(1, 2), expand=False)
 
 
 def render_empty_state(palette: dict[str, str]) -> RenderableType:
-    """The onboarding panel shown when no models are configured (in-process, no --dry-run)."""
+    """The onboarding panel when no models are configured (in-process, not ``--dry-run``)."""
     from rich.panel import Panel
     from rich.text import Text
 
@@ -680,7 +701,7 @@ def render_empty_state(palette: dict[str, str]) -> RenderableType:
 
 
 def render_threads(entries: list, palette: dict[str, str]) -> RenderableType:
-    """A numbered list of saved conversations (newest first); `/open <n>` reopens one."""
+    """A numbered list of saved conversations (newest first); ``/open <n>`` reopens one."""
     from rich.console import Group
     from rich.panel import Panel
     from rich.table import Table
@@ -698,9 +719,9 @@ def render_threads(entries: list, palette: dict[str, str]) -> RenderableType:
     grid.add_column(style=accent, justify="right")  # index
     grid.add_column(style=text_c)  # title
     grid.add_column(style=muted)  # updated
-    for i, thread in enumerate(entries, start=1):
+    for number, thread in enumerate(entries, start=1):
         when = (thread.updated or thread.created or "").replace("T", " ").rstrip("Z")
-        grid.add_row(str(i), thread.title or "(untitled)", when)
+        grid.add_row(str(number), thread.title or "(untitled)", when)
     hint = Text("\n/open <n> to reopen · /new to start fresh", style=muted)
     return Panel(Group(grid, hint), title="threads", title_align="left", border_style=accent,
                  padding=(1, 2), expand=False)
@@ -709,7 +730,7 @@ def render_threads(entries: list, palette: dict[str, str]) -> RenderableType:
 def _status_bar(
     state: TuiState, palette: dict[str, str], *, note: str | None = None
 ) -> RenderableType:
-    """The one-line status bar: routing mode + thresholds (or a transient note)."""
+    """The one-line status bar: routing mode + thresholds, or a transient note."""
     from rich.table import Table
     from rich.text import Text
 
@@ -736,8 +757,10 @@ def _status_bar(
     return grid
 
 
-def _footer_bar(palette: dict[str, str], *, right: str = "no model call to decide") -> RenderableType:
-    """The footer hint line."""
+def _footer_bar(
+    palette: dict[str, str], *, right: str = "no model call to decide"
+) -> RenderableType:
+    """The footer hint line (left = shortcuts, right = the caller-supplied tally)."""
     from rich.table import Table
     from rich.text import Text
 
@@ -752,14 +775,23 @@ def _footer_bar(palette: dict[str, str], *, right: str = "no model call to decid
     return grid
 
 
+def render_reply(text: str) -> RenderableType:
+    """Render a model reply as Markdown (code blocks and lists render nicely)."""
+    from rich.markdown import Markdown
+
+    return Markdown(text)
+
+
+# --- relay to the chosen model ----------------------------------------------
 def model_reply(
     models: dict, decision: Decision, messages: list[dict], *, timeout: float = 60.0
 ) -> str | None:
-    """Call the upstream the decision points at; return its reply, or None if no model maps.
+    """Call the model the decision points at; return its reply, or None if unmapped.
 
-    In-process reuse of the gateway's relay (``invoke_messages``) — the same forward path
-    the server uses, without spawning one (WF-DESIGN-0001). The streaming loop uses
-    ``stream_messages`` directly; this is the non-streaming convenience.
+    In-process reuse of the gateway's relay — the same forward path the server takes,
+    without spawning one (WF-DESIGN-0001). The streaming loop uses ``stream_messages``
+    directly; this is the non-streaming convenience. ``invoke_messages`` is looked up on
+    the gateway module at call time so the test's monkeypatch seam intercepts it.
     """
     from .gateway import invoke_messages
 
@@ -769,24 +801,16 @@ def model_reply(
     return invoke_messages(model, messages, timeout=timeout)
 
 
-def render_reply(text: str) -> RenderableType:
-    """Render a model reply as Markdown (code blocks and lists render nicely)."""
-    from rich.markdown import Markdown
-
-    return Markdown(text)
-
-
 def decision_from_debug(payload: dict, *, text: str = "") -> Decision:
     """Build a :class:`Decision` from a gateway ``X-Wayfinder-Debug`` ``wayfinder`` payload.
 
-    Lets the ``--base-url`` thin client render the same decision-first line and "why"
-    breakdown the in-process backend shows, from the remote gateway's response.
+    Lets the ``--base-url`` thin client draw the same decision-first line and "why" the
+    in-process backend shows. The model is the *natural* route for the score, derived from
+    ``score`` + ``tiers`` — the gateway's ``payload["model"]`` (which may be a forced pin)
+    is deliberately ignored so the client stays decision-first.
     """
     tiers = sorted(payload.get("tiers") or [], key=lambda t: float(t.get("min_score", 0.0)))
     score = float(payload.get("score", 0.0))
-    # The natural route the scorer would pick (highest tier whose cut the score clears).
-    # When the gateway pinned the call, payload["model"] is the forced target, not this —
-    # so derive the decision-first view from score + tiers, the same as the local path.
     nat_idx = 0
     for i, tier in enumerate(tiers):
         if score >= float(tier.get("min_score", 0.0)):
@@ -820,20 +844,20 @@ def remote_reply(
 ) -> tuple[Decision | None, str | None]:
     """POST to a running gateway's ``/v1/chat/completions``; return ``(decision, reply)``.
 
-    The thin-client backend (WF-DESIGN-0001): the *remote* gateway makes the routing
-    decision (surfaced via ``X-Wayfinder-Debug``) and the reply. Non-streaming. ``model``
-    is the OpenAI ``model`` field — ``"auto"`` routes, a concrete name or
-    ``prefer-local`` / ``prefer-hosted`` forces the call server-side (``resolve_pin``).
-    ``scope`` / ``sticky`` / ``cooldown`` ride along as the ``X-Wayfinder-Route-On`` /
-    ``X-Wayfinder-Sticky`` / ``X-Wayfinder-Sticky-Cooldown`` headers, so the gateway routes
-    with the same scope + latch the status bar shows (the client's state is authoritative,
-    overriding any gateway default).
+    The thin-client backend (WF-DESIGN-0001): the *remote* gateway makes the routing call
+    (surfaced via ``X-Wayfinder-Debug``) and the reply. Non-streaming. ``model`` is the
+    OpenAI ``model`` field — ``"auto"`` routes, a name or ``prefer-local`` / ``prefer-hosted``
+    forces server-side. ``scope`` / ``sticky`` / ``cooldown`` ride along as
+    ``X-Wayfinder-Route-On`` / ``X-Wayfinder-Sticky`` / ``X-Wayfinder-Sticky-Cooldown`` so
+    the gateway routes with the scope + latch the status bar shows (the cooldown header is
+    sent only when sticky is on). ``httpx.post`` is called via the module so the test's
+    monkeypatch seam intercepts it.
     """
     from .gateway import GatewayUnavailable
 
     try:
         import httpx
-    except ImportError as exc:  # pragma: no cover - exercised only without the extra
+    except ImportError as exc:  # pragma: no cover - only hit without the extra
         raise GatewayUnavailable(
             "the --base-url client needs httpx: pip install 'wayfinder-router[gateway]'"
         ) from exc
@@ -844,7 +868,7 @@ def remote_reply(
     }
     if threshold is not None:
         headers["X-Wayfinder-Threshold"] = f"{threshold}"
-    if sticky:
+    if sticky:  # the cooldown only means anything while the latch is armed
         headers["X-Wayfinder-Sticky-Cooldown"] = str(cooldown)
     body = {"model": model, "messages": list(messages)}
     url = base_url.rstrip("/") + "/v1/chat/completions"
@@ -858,7 +882,7 @@ def remote_reply(
         raise RuntimeError(f"gateway returned non-JSON ({response.status_code})") from exc
     wf = data.get("wayfinder") if isinstance(data, dict) else None
     decision = decision_from_debug(wf) if isinstance(wf, dict) else None
-    reply: str | None = None
+    reply: str | None
     try:
         reply = str(data["choices"][0]["message"]["content"])
     except (KeyError, IndexError, TypeError):
@@ -867,10 +891,10 @@ def remote_reply(
 
 
 def _friendly_error(message: str, base_url: str) -> str:
-    """Turn a raw relay error into a hint when the endpoint looks simply unreachable."""
+    """Turn a raw relay error into a hint when the endpoint just looks unreachable."""
     low = message.lower()
     unreachable = any(
-        s in low for s in ("connect", "refused", "timed out", "timeout", "name or service")
+        needle in low for needle in ("connect", "refused", "timed out", "timeout", "name or service")
     )
     if unreachable:
         if "11434" in base_url:
@@ -880,6 +904,7 @@ def _friendly_error(message: str, base_url: str) -> str:
 
 
 def _reply_timeout() -> float:
+    """Reply timeout in seconds — ``WAYFINDER_ROUTER_TIMEOUT`` or 60.0."""
     raw = os.environ.get("WAYFINDER_ROUTER_TIMEOUT")
     if raw:
         try:
@@ -893,23 +918,23 @@ def _reply_timeout() -> float:
 # Built behind a factory so importing this module never requires textual; the class
 # closes over the lazily-imported textual/rich names.
 def _build_chat_app() -> type:
+    from rich.text import Text
     from textual import events, work
     from textual.app import App, ComposeResult
     from textual.binding import Binding
     from textual.containers import Horizontal, VerticalScroll
     from textual.suggester import SuggestFromList
     from textual.widgets import Input, Static
-    from rich.text import Text
 
     from . import threads
 
     class Composer(Input):
-        """The single-line composer, but a multi-line paste is staged, not truncated."""
+        """A single-line composer that stages a multi-line paste instead of truncating it."""
 
         def _on_paste(self, event: events.Paste) -> None:
-            if "\n" in event.text:  # a code block / multi-line paste: stage it
+            if "\n" in event.text:  # a code block / multi-line paste → stage, don't insert
                 event.stop()
-                event.prevent_default()  # don't let the single-line Input insert line 1
+                event.prevent_default()  # keep the single-line Input from inserting line 1
                 self.app._stage_paste(event.text)  # type: ignore[attr-defined]
             else:
                 super()._on_paste(event)
@@ -919,6 +944,8 @@ def _build_chat_app() -> type:
 
         TITLE = "wayfinder"
 
+        # #composer's border is the dark accent (#19c8a4) verbatim; _apply_palette
+        # recolours it per theme at mount.
         CSS = """
         Screen { layers: base; }
         #transcript { height: 1fr; padding: 1 2; scrollbar-size-vertical: 1; }
@@ -973,14 +1000,16 @@ def _build_chat_app() -> type:
             self._thread_list: list = []  # last `/threads` listing, indexed by `/open`
             self._cost = SessionCost()  # session routing mix + estimated savings
             self._ledger = _load_ledger(self._data_dir)  # savings accrued across sessions
-            self._draft_lines: list[str] = []  # staged lines for a multi-line message
+            self._draft_lines: list[str] = []  # staged lines of a multi-line message
+            # In-process backend only: load and key-resolve the local models up front so
+            # the launch nudge can flag a configured-but-unset key.
             if base_url is None and not dry_run:
                 try:
                     from . import bootstrap
                     from .gateway import load_gateway_config
 
                     self.models = dict(load_gateway_config(start_dir).models)
-                    bootstrap.resolve_keys(self.models)  # fill keys from a secret store (WF-DESIGN-0006)
+                    bootstrap.resolve_keys(self.models)  # fill from a secret store (WF-DESIGN-0006)
                 except WayfinderConfigError as exc:
                     self._config_warning = str(exc)
 
@@ -1003,6 +1032,9 @@ def _build_chat_app() -> type:
             compact = self.size.width < 78
             subtitle = f"v{_version()}  ·  deterministic LLM routing — local vs cloud"
             self._append(render_welcome(self.palette, subtitle=subtitle, compact=compact))
+            # Branch order matters: config warning, then remote / in-process-with-models /
+            # dry-run / empty-state — only the last case onboards, and only the models
+            # branch fires the missing-key nudge.
             if self._config_warning:
                 self._warn(self._config_warning)
             if self.base_url is not None:
@@ -1040,19 +1072,19 @@ def _build_chat_app() -> type:
             self._refresh_bars()
 
         def _refresh_bars(self, *, note: str | None = None) -> None:
-            self.query_one("#status", Static).update(_status_bar(self.state, self.palette, note=note))
-            if note:
-                right = "routing…"
-            else:
-                right = cost_summary(self._cost) or "no model call to decide"
+            self.query_one("#status", Static).update(
+                _status_bar(self.state, self.palette, note=note)
+            )
+            right = "routing…" if note else (cost_summary(self._cost) or "no model call to decide")
             self.query_one("#footer", Static).update(_footer_bar(self.palette, right=right))
 
         def _account(self, is_local: bool, tokens: int,
                      chosen_cost: float | None, cloud_cost: float | None,
                      route: str = "local", baseline: str = "cloud") -> None:
+            # Mutates the status/footer widgets via _refresh_bars, so it MUST run on the
+            # app thread — workers reach it through call_from_thread, never call it direct.
             account_turn(self._cost, is_local=is_local, tokens=tokens,
                          chosen_cost=chosen_cost, cloud_cost=cloud_cost)
-            # Also fold the turn into the persisted ledger so /cost can show periods.
             priced = chosen_cost is not None and cloud_cost is not None
             costs = {route: chosen_cost or 0.0, baseline: cloud_cost or 0.0}
             tc = pricing.turn_cost(route, tokens, 0, costs, estimated=True, baseline=baseline)
@@ -1068,7 +1100,7 @@ def _build_chat_app() -> type:
             except OSError:
                 pass  # best-effort; the period view is a convenience, never critical
 
-        # --- transcript helpers (main thread) ---
+        # --- transcript mutation (app thread only) ---
         def _append(self, renderable: RenderableType) -> Static:
             widget = Static(renderable)
             self._body.mount(widget)
@@ -1076,6 +1108,7 @@ def _build_chat_app() -> type:
             return widget
 
         def _note(self, message: str) -> Static:
+            # rich Text (not a bare str) so _transcript_text can read .plain in tests.
             return self._append(Text(message, style=self.palette["muted"]))
 
         def _warn(self, message: str) -> Static:
@@ -1083,7 +1116,7 @@ def _build_chat_app() -> type:
 
         def _user_line(self, line: str, *, aside: bool = False) -> RenderableType:
             text = Text()
-            if aside:  # a /btw sidebar: dimmed, clearly not part of the thread
+            if aside:  # a /btw sidebar: dimmed, clearly outside the thread
                 text.append("↪ btw  ", style=self.palette["muted"])
                 text.append(line, style=self.palette["muted"])
             else:
@@ -1102,20 +1135,8 @@ def _build_chat_app() -> type:
             self._body.scroll_end(animate=False)
 
         def _finalize_error(self, widget: Static, message: str) -> None:
-            widget.update(Text(message, style=self.palette["warn"]))  # caller supplies the full text
+            widget.update(Text(message, style=self.palette["warn"]))  # caller supplies full text
             self._body.scroll_end(animate=False)
-
-        def _set_note(self, note: str | None) -> None:
-            self._refresh_bars(note=note)
-
-        def _set_busy(self, busy: bool) -> None:
-            self._busy = busy
-            if busy:
-                self._cancel.clear()
-            entry = self.query_one("#entry", Input)
-            entry.disabled = busy
-            if not busy:
-                entry.focus()
 
         def _finalize_cancelled(self, widget: Static, full: str) -> None:
             text = Text()
@@ -1125,9 +1146,21 @@ def _build_chat_app() -> type:
             widget.update(text)
             self._body.scroll_end(animate=False)
 
+        def _set_note(self, note: str | None) -> None:
+            self._refresh_bars(note=note)
+
+        def _set_busy(self, busy: bool) -> None:
+            self._busy = busy
+            if busy:
+                self._cancel.clear()  # arm a fresh cancel token for this turn
+            entry = self.query_one("#entry", Input)
+            entry.disabled = busy
+            if not busy:
+                entry.focus()
+
         # --- key actions ---
         def action_interrupt(self) -> None:
-            """Ctrl+C: cancel an in-flight reply if one is running, else quit."""
+            """Ctrl+C: cancel an in-flight reply if busy (staying busy), else quit."""
             if self._busy:
                 self._cancel.set()
                 self._set_note("cancelling…")
@@ -1135,7 +1168,7 @@ def _build_chat_app() -> type:
             self.exit()
 
         def action_cancel(self) -> None:
-            """Esc: cancel an in-flight reply (never quits)."""
+            """Esc: cancel an in-flight reply; never quits."""
             if self._busy:
                 self._cancel.set()
                 self._set_note("cancelling…")
@@ -1154,6 +1187,7 @@ def _build_chat_app() -> type:
             self._recall(+1)
 
         def _recall(self, direction: int) -> None:
+            # Walk _input_history (submitted lines), newest-first; None index = live line.
             entry = self.query_one("#entry", Input)
             if entry.disabled or not self._input_history:
                 return
@@ -1170,11 +1204,11 @@ def _build_chat_app() -> type:
             entry.value = self._input_history[self._hist_index]
             entry.cursor_position = len(entry.value)
 
-        # --- input ---
+        # --- input handling ---
         def on_input_submitted(self, event: Input.Submitted) -> None:
             raw = event.value
-            event.input.value = ""
-            if raw.rstrip().endswith("\\"):  # trailing backslash continues onto a new line
+            event.input.value = ""  # clear the composer up front, on every path
+            if raw.rstrip().endswith("\\"):  # trailing backslash → continue onto a new line
                 self._draft_lines.append(raw.rstrip()[:-1])
                 self._update_draft_indicator()
                 return
@@ -1187,7 +1221,7 @@ def _build_chat_app() -> type:
             if not full.strip():
                 return
             if not self._input_history or self._input_history[-1] != full:
-                self._input_history.append(full)  # ↑/↓ recall (no consecutive dups)
+                self._input_history.append(full)  # ↑/↓ recall, no consecutive dups
             self._hist_index = None
             cmd, arg = parse_command(full)
             if cmd is not None:
@@ -1203,7 +1237,10 @@ def _build_chat_app() -> type:
             self._update_draft_indicator()
 
         def _stage_paste(self, text: str) -> None:
-            """Stage a multi-line paste: all but the last line, with the tail left to edit."""
+            """Stage a multi-line paste: all but the last line, tail left editable.
+
+            The first pasted line is concatenated onto whatever is already in the composer.
+            """
             lines = text.split("\n")
             entry = self.query_one("#entry", Input)
             self._draft_lines.extend([entry.value + lines[0], *lines[1:-1]])
@@ -1221,11 +1258,11 @@ def _build_chat_app() -> type:
                 self._set_note(None)
 
         def _route_message(self, text: str, *, pin: str | None, ephemeral: bool = False) -> None:
-            """Route one turn: render the decision, then call the (possibly forced) model.
+            """Route one turn: draw the decision, then relay to the (possibly forced) model.
 
             ``pin`` forces the route for this turn (``None`` = the natural decision).
-            ``ephemeral`` (``/btw``) sends the turn standalone — no history attached, and
-            neither the question nor the reply is added to the thread.
+            ``ephemeral`` (``/btw``) sends the turn standalone — no history, and neither the
+            question nor the reply joins the thread.
             """
             self._append(self._user_line(text, aside=ephemeral))
             if ephemeral:
@@ -1234,14 +1271,14 @@ def _build_chat_app() -> type:
                 self.messages.append({"role": "user", "content": text})
                 convo = self.messages
 
-            if self.base_url is not None:  # the remote gateway decides and replies
+            if self.base_url is not None:  # remote gateway decides and replies
                 if not ephemeral:
                     self._persist()
                 self._set_busy(True)
                 self._remote_worker(convo, pin, ephemeral)
                 return
 
-            try:  # in-process: score locally, then call the chosen (or forced) model
+            try:  # in-process: score locally, then relay to the chosen (or forced) model
                 decision = decide(
                     text, start_dir=self.start_dir, threshold=self.state.threshold,
                     scope=self.state.scope, sticky=self.state.sticky,
@@ -1250,7 +1287,7 @@ def _build_chat_app() -> type:
             except WayfinderConfigError as exc:
                 self._warn(str(exc))
                 if not ephemeral:
-                    self.messages.pop()
+                    self.messages.pop()  # roll back the user line we just appended
                 return
             self.history.append(decision)
             forced_to = resolve_target(pin, decision) if pin is not None else None
@@ -1262,9 +1299,9 @@ def _build_chat_app() -> type:
             if ephemeral:
                 self._note("aside · not added to the thread")
             else:
-                self._persist()  # capture the user turn (and decision-only conversations)
+                self._persist()  # capture the user turn (decision-only chats persist too)
             if not self.models:
-                return
+                return  # preview / dry-run stops at the decision
             if forced_to is not None:
                 target, target_is_local = forced_to
             else:
@@ -1276,14 +1313,16 @@ def _build_chat_app() -> type:
             cloud_name = decision.targets[-1] if decision.targets else target
             cloud_model = self.models.get(cloud_name)
             cloud_cost = cloud_model.cost_per_1k if cloud_model is not None else None
-            self._set_busy(True)
+            self._set_busy(True)  # on the app thread, before the worker spawns
             self._stream_worker(
                 model, convo, not ephemeral, target_is_local, model.cost_per_1k, cloud_cost,
                 target, cloud_name,
             )
 
-        # --- slash commands (main thread) ---
+        # --- slash commands (app thread) ---
         def _handle_command(self, cmd: str, arg: str) -> None:
+            # Panel/handler commands each return early; the tail (route/pin/setting
+            # verbs) falls through to the shared _refresh_bars() at the bottom.
             if cmd in {"quit", "q", "exit"}:
                 self.exit()
                 return
@@ -1299,7 +1338,7 @@ def _build_chat_app() -> type:
             if cmd == "keys":
                 self._handle_keys()
                 return
-            if cmd == "cost":
+            if cmd == "cost":  # renders the session tally + the persisted period view
                 self._append(render_cost(self._cost, self.palette, self._ledger))
                 return
             if cmd == "init":
@@ -1308,13 +1347,14 @@ def _build_chat_app() -> type:
             if cmd == "new":
                 self._handle_new()
                 return
-            if cmd == "threads":
+            if cmd == "threads":  # cache the listing so /open can index into it
                 self._thread_list = threads.list_threads(self._data_dir)
                 self._append(render_threads(self._thread_list, self.palette))
                 return
             if cmd in {"open", "thread"}:
                 self._handle_open(arg)
                 return
+            # -- route / pin / setting verbs: mutate state, then refresh the bars once --
             if cmd == "route":
                 self._handle_route(arg)
             elif cmd == "auto":
@@ -1336,7 +1376,7 @@ def _build_chat_app() -> type:
                 self._route_message(question, pin="prefer-local", ephemeral=True)
                 return
             elif cmd == "threshold":
-                try:
+                try:  # clamp into [0, 1]; a non-number is a usage error
                     self.state.threshold = max(0.0, min(1.0, float(arg)))
                     self._note(f"threshold {self.state.threshold:.2f}")
                 except ValueError:
@@ -1348,7 +1388,7 @@ def _build_chat_app() -> type:
                 else:
                     self._warn("scope must be turn|last_user|user|all")
             elif cmd == "sticky":
-                parts = arg.split()
+                parts = arg.split()  # "on|off [N]" — the optional N sets the cooldown
                 if parts and parts[0] in {"on", "off"}:
                     self.state.sticky = parts[0] == "on"
                     if len(parts) > 1 and parts[1].isdigit():
@@ -1380,7 +1420,7 @@ def _build_chat_app() -> type:
 
         def _handle_route(self, arg: str) -> None:
             target = arg.strip()
-            if not target:  # show current pin + the available targets
+            if not target:  # show the current pin and the available targets
                 names = ", ".join(sorted(self.models)) if self.models else "(set by the gateway)"
                 self._note(f"routing: {_pin_label(self.state.pinned)} · models: {names}")
                 return
@@ -1400,7 +1440,7 @@ def _build_chat_app() -> type:
 
         # --- conversation persistence (WF-ADR-0030) ---
         def _persist(self) -> None:
-            """Save the active thread to disk. UI-free, so it is safe from a worker thread."""
+            """Save the active thread. UI-free and empty-safe, so a worker may call it direct."""
             if not self.messages:
                 return
             self._thread.messages = list(self.messages)
@@ -1410,7 +1450,7 @@ def _build_chat_app() -> type:
                 pass  # never let a failed save crash the chat
 
         def _handle_new(self) -> None:
-            self._persist()  # the current thread is already saved; make sure
+            self._persist()  # the current thread should already be saved; ensure it
             self.messages = []
             self.history = []
             self._thread = threads.new_thread()
@@ -1441,7 +1481,7 @@ def _build_chat_app() -> type:
                 content = str(message.get("content", ""))
                 if message.get("role") == "user":
                     self._append(self._user_line(content))
-                    if self.base_url is None and content:
+                    if self.base_url is None and content:  # re-score each user turn in-process
                         try:
                             decision = decide(
                                 content, start_dir=self.start_dir, threshold=self.state.threshold
@@ -1462,10 +1502,10 @@ def _build_chat_app() -> type:
             self._append(render_models(self.models, self.palette))
 
         def _handle_keys(self) -> None:
-            """The in-chat `doctor`: re-resolve keys from their secret stores and report.
+            """The in-chat ``doctor``: re-resolve keys from their secret stores and report.
 
-            Re-running the api_key_cmd's means you can store a key (in 1Password, the
-            keychain, Vault, …) and pick it up live with `/keys`, no restart needed.
+            Re-running the api_key_cmd's lets you stash a key (1Password, keychain, Vault, …)
+            and pick it up live with ``/keys`` — no restart.
             """
             if self.base_url is not None:
                 self._note(f"keys are managed by the remote gateway at {self.base_url}")
@@ -1476,7 +1516,7 @@ def _build_chat_app() -> type:
             self._append(render_keys(self.models, self.palette, errors=errors))
 
         def _handle_init(self, arg: str) -> None:
-            """Scaffold a wayfinder-router.toml from a preset and load its models in-place."""
+            """Scaffold a wayfinder-router.toml from a preset and load its models in place."""
             from pathlib import Path
 
             from . import bootstrap
@@ -1490,7 +1530,7 @@ def _build_chat_app() -> type:
                 self._warn(f"unknown preset '{name}' — try: {', '.join(sorted(bootstrap.PRESETS))}")
                 return
             config_path = Path(self.start_dir) / "wayfinder-router.toml"
-            if config_path.exists():
+            if config_path.exists():  # never clobber an existing config
                 self._warn(
                     f"{config_path} already exists — edit it, or run "
                     "`wayfinder-router init --force` in a shell"
@@ -1512,7 +1552,7 @@ def _build_chat_app() -> type:
                 from .gateway import load_gateway_config
 
                 self.models = dict(load_gateway_config(self.start_dir).models)
-                bootstrap.resolve_keys(self.models)  # fill keys from a secret store (WF-DESIGN-0006)
+                bootstrap.resolve_keys(self.models)  # fill from a secret store (WF-DESIGN-0006)
             except WayfinderConfigError as exc:
                 self._warn(str(exc))
                 return
@@ -1534,7 +1574,9 @@ def _build_chat_app() -> type:
                 self.state.show_why = False
                 self._note("why: collapsed")
             elif value.isdigit() and 1 <= int(value) <= len(self.history):
-                self._append(render_decision(self.history[int(value) - 1], self.palette, expanded=True))
+                self._append(
+                    render_decision(self.history[int(value) - 1], self.palette, expanded=True)
+                )
             elif not value and self.history:
                 self._append(render_decision(self.history[-1], self.palette, expanded=True))
             elif not value:
@@ -1542,7 +1584,14 @@ def _build_chat_app() -> type:
             else:
                 self._warn("why [on|off|N]")
 
-        # --- streaming workers (threads: the relay is blocking sync I/O) ---
+        # --- reply workers (background threads: the relay is blocking sync I/O) ---
+        # Marshalling rule: every op that touches a widget is issued through
+        # call_from_thread; only widget-free work (messages.append, _persist) runs
+        # directly on the worker. In particular _account is marshalled because it drives
+        # _refresh_bars() (widget mutation) — and call_from_thread BLOCKS the worker until
+        # it returns, so _cost.calls reaches ≥1 before the finally submits _set_busy(False).
+        # That ordering is what keeps test_chat_app_accounts_cost's poll deterministic;
+        # every exit path (success / cancel / error) must clear _busy or the poll wedges.
         @work(thread=True, exclusive=True, group="reply")
         def _stream_worker(
             self, model: GatewayModel, messages: list[dict], remember: bool,
@@ -1574,10 +1623,13 @@ def _build_chat_app() -> type:
                     self.call_from_thread(self._finalize_cancelled, live, full)
                 else:
                     self.call_from_thread(self._finalize_reply, live, full)
-                    if full and remember:  # ephemeral /btw turns are not kept in the thread
+                    if full and remember:  # ephemeral /btw turns are never kept in the thread
                         sent = sum(estimate_tokens(str(m.get("content", ""))) for m in messages)
+                        # widget-free, so run directly here on the worker thread:
                         self.messages.append({"role": "assistant", "content": full})
                         self._persist()
+                        # widget-touching (via _refresh_bars) → marshalled, and lands before
+                        # the finally clears _busy:
                         self.call_from_thread(
                             self._account, is_local, sent + estimate_tokens(full),
                             chosen_cost, cloud_cost, route, baseline,
@@ -1647,8 +1699,8 @@ def run_tui(
     threshold: float | None = None, dry_run: bool = False, stream: bool = True,
     base_url: str | None = None,
 ) -> None:
-    """Launch the full-screen chat: route each line, render the decision, and — when a
-    backend is available — the model's reply (streamed). Ctrl-C / /quit to exit.
+    """Launch the full-screen chat: route each line, draw the decision, and — when a backend
+    is available — stream the model's reply. Ctrl-C / ``/quit`` to exit.
 
     Backends: in-process via the local ``[gateway.models]`` (default), or a remote gateway
     over HTTP with ``base_url`` (the thin-client form). ``dry_run`` forces decision-only.
