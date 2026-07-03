@@ -70,6 +70,12 @@ per line:
 `difficulty` is free-form (used only for the per-bucket breakdown); `label` is the
 ground-truth correctness of each model.
 
+The same graded table also validates the **sufficiency judge** (WF-ADR-0037): because
+RouterBench stores each model's *response text* next to its grade, `HeuristicJudge` can
+be replayed over real answer pairs and scored against grades it never saw — κ, accuracy,
+abstention rate, per-comparator and per-family. Method and how to run:
+[`judge-validation.md`](judge-validation.md) (`python -m benchmarks.judge_validation`).
+
 ## Validating the secret/PII detectors
 
 A separate benchmark scores the deterministic detectors the governance-plane policy
