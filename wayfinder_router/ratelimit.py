@@ -1,10 +1,10 @@
 """Deterministic request/token rate limiting for the gateway (WF-ADR-0034, WF-ROADMAP-0006 #7).
 
-Pure, offline counters — no model call, no network (WF-ADR-0001). A fixed-window limiter caps
-requests per minute (RPM) and/or upstream tokens per minute (TPM); on breach the gateway returns
-HTTP 429 so a runaway client can't flood an upstream or blow the blast radius. State is in-memory
-and per process (like the circuit breaker), the clock is injectable, and a lock guards the
-counters. This unit-tests like ``reliability.py``; no FastAPI/httpx import here.
+Pure, offline counters — no model call, no network (WF-ADR-0001). The limiter caps requests per
+minute (RPM) and/or upstream tokens per minute (TPM); on a breach the gateway returns HTTP 429 so
+a runaway client can neither flood an upstream nor blow the blast radius. State is in-memory and
+per process (like the circuit breaker), the clock is injectable, and a lock guards the counters.
+This unit-tests like ``reliability.py``; no FastAPI/httpx import lives here.
 
 v1 is gateway-wide; per-key / per-session limits ride on virtual keys (WF-ROADMAP-0006 #5).
 """
@@ -31,13 +31,14 @@ class RateResult:
 
 @dataclass
 class RateLimiter:
-    """Fixed-window RPM/TPM limiter; lock-guarded, clock injectable.
+    """RPM/TPM limiter over a FIXED window; lock-guarded, clock injectable.
 
-    A window is ``window`` seconds keyed by ``floor(now / window)`` (so windows roll
-    deterministically and survive clock jumps via a monotonic clock). ``admit`` reserves a
-    request slot — it increments the request count when it returns allowed — and ``add_tokens``
-    records a served turn's upstream tokens against the current window. Either limit may be
-    ``None`` (off); when both are ``None`` the limiter is inert and ``admit`` always allows.
+    Despite the "per-minute rate" framing, this is a fixed window, not a sliding one: the window is
+    ``window`` seconds keyed by ``floor(now / window)``, so a window rolls deterministically (and
+    survives clock jumps under a monotonic clock) rather than tracking a rolling trailing minute.
+    ``admit`` reserves a request slot (it increments only when it returns allowed); ``add_tokens``
+    records a served turn's upstream tokens into the current window. Either cap may be ``None`` (off);
+    when both are ``None`` the limiter is inert and ``admit`` always allows without reading the clock.
     """
 
     rpm: int | None = None
@@ -50,14 +51,15 @@ class RateLimiter:
     _lock: threading.Lock = field(default_factory=threading.Lock, repr=False, compare=False)
 
     def active(self) -> bool:
-        """Whether any limit is configured (else the limiter is a no-op)."""
+        """Whether any limit is configured (otherwise the limiter is a no-op)."""
         return self.rpm is not None or self.tpm is not None
 
     def admit(self, now: float | None = None) -> RateResult:
         """Check the limits and, if within them, count this request as admitted.
 
-        Returns ``allowed=False`` with the tripped limit and a ``retry_after`` (no increment) when
-        a limit is already reached; otherwise increments the request count and allows.
+        Returns ``allowed=False`` with the tripped limit and a ``retry_after`` (and NO increment)
+        when a cap is already reached; otherwise increments the request count and allows. RPM is
+        checked before TPM, but a TPM already at its cap still trips even when RPM has headroom.
         """
         if not self.active():
             return RateResult(True)
@@ -81,23 +83,28 @@ class RateLimiter:
             self._tokens += max(0, int(n))
 
     def reconfigure(self, *, rpm: int | None, tpm: int | None, window: float) -> None:
-        """Apply hot-reloaded limits to the long-lived instance (counts carry into the window)."""
+        """Apply hot-reloaded limits to the long-lived instance.
+
+        In-window counts carry over; the window is NOT reset — so raising a cap can immediately
+        re-admit a client that was exhausted a moment ago.
+        """
         with self._lock:
             self.rpm = rpm
             self.tpm = tpm
             self.window = window
 
     def stats(self) -> dict[str, int]:
-        """Current window's request and token counts (for introspection/tests)."""
+        """The current window's request and token counts (for introspection/tests)."""
         with self._lock:
             return {"requests": self._requests, "tokens": self._tokens}
 
     def snapshot(self, now: float | None = None) -> tuple[int, int, int] | None:
         """The request-rate dimension as ``(limit, remaining, reset_seconds)``, or ``None``.
 
-        ``None`` when no RPM cap is set. ``remaining`` is the headroom left in the current window
-        (after requests already admitted); ``reset_seconds`` is the time until the window rolls.
-        Used for informational ``X-RateLimit-*`` response headers (WF-ADR-0034).
+        ``None`` when no RPM cap is set (a TPM-only or uncapped limiter has no request dimension to
+        report). ``remaining`` is the headroom left after requests already admitted; ``reset_seconds``
+        is the time until the window rolls. The tuple order feeds the informational ``X-RateLimit-*``
+        response headers (WF-ADR-0034), so ``(limit, remaining, reset)`` is a fixed contract.
         """
         if self.rpm is None:
             return None
@@ -107,6 +114,7 @@ class RateLimiter:
             return self.rpm, max(0, self.rpm - self._requests), self._retry_after_locked(now)
 
     def _roll_locked(self, now: float) -> None:
+        # Fixed-window bucket keyed by floor(now/window); a new bucket zeroes both counters.
         wid = int(now // self.window)
         if wid != self._window_id:
             self._window_id = wid
@@ -114,5 +122,6 @@ class RateLimiter:
             self._tokens = 0
 
     def _retry_after_locked(self, now: float) -> int:
+        # Time until this window's ceiling; ceil'd and floored at 1 so Retry-After is never 0.
         remaining = (self._window_id + 1) * self.window - now
         return max(1, math.ceil(remaining))

@@ -1,17 +1,17 @@
-"""Deterministic cost & savings accounting for the gateway (WF-DESIGN-0007).
+"""Deterministic cost and savings accounting for the gateway (WF-DESIGN-0007).
 
-Pure, offline arithmetic over token counts and a configured price table — no model
-call, no key, no network (WF-ADR-0001). Turns the routing decisions the gateway already
-makes into a persisted, per-period **savings** report: what each request cost on the
-chosen tier versus what it would have cost always routing to the dearest ("frontier")
-tier.
+This is pure, offline arithmetic layered on top of the routing decisions the gateway
+already makes: it turns token counts plus a configured price table into a persisted,
+per-period *savings* report — what each request actually cost on its chosen tier versus
+what it would have cost had every request gone to the dearest ("frontier") tier. No model
+is called, no key is used, nothing touches the network (WF-ADR-0001); the scored core never
+imports this module.
 
-This lives in the invocation/observability layer; the scored core never imports it.
-Token counts come from the upstream ``usage`` when present, else a ~4-chars/token
-estimate (then the turn is flagged ``estimated``). When no real ``cost_per_1k`` metadata
-is configured the table falls back to relative units (cheapest 0.2 .. dearest 1.0,
-mirroring the demo), and the report is flagged ``priced = false`` so the figures are
-never mistaken for dollars.
+Token counts come from the upstream ``usage`` block when present, otherwise from a rough
+~4-chars/token estimate (and the turn is then flagged ``estimated``). When no real
+``cost_per_1k`` metadata is configured, the table falls back to relative units (cheapest
+0.2 .. dearest 1.0) and the report is flagged ``priced = False`` so the numbers are never
+mistaken for dollars.
 """
 
 from __future__ import annotations
@@ -23,22 +23,32 @@ from collections.abc import Iterable, Mapping
 from dataclasses import dataclass, field
 from datetime import date, datetime, timezone
 
-CHARS_PER_TOKEN = 4  # the rough estimate the TUI uses too; anything derived is labelled ~
+# Rough character-to-token ratio used when an upstream omits ``usage``. The TUI shares this
+# constant for its own estimate; anything derived from it is labelled approximate.
+CHARS_PER_TOKEN = 4
 
 
 def estimate_tokens(text: str) -> int:
-    """A rough token count (~4 chars/token) for when an upstream omits ``usage``."""
+    """Approximate a token count from character length (~4 chars/token).
+
+    Constraint: an empty string is the only input that yields 0. Any non-empty text yields
+    at least 1 (via ``max``), and longer text uses integer division — a floor, never a round
+    or ceil. This differs deliberately from the TUI's own estimator, which returns 1 for "".
+    """
     return max(1, len(text) // CHARS_PER_TOKEN) if text else 0
 
 
 def price_table(
     model_costs: Mapping[str, float | None], tier_ladder: Iterable[str]
 ) -> tuple[dict[str, float], bool]:
-    """``({model: cost_per_1k}, priced)`` from configured costs, or a relative fallback.
+    """Build ``({model: cost_per_1k}, priced)`` from configured costs, or a relative fallback.
 
-    ``priced`` is ``False`` when no real cost metadata is configured: then costs are
-    relative units laid across the tier ladder (cheapest ``0.2`` .. dearest ``1.0``), the
-    same fallback the demo's cost block uses so the saved-vs-frontier story still renders.
+    When any real cost is configured, only the non-``None`` costs make the table (``None``-cost
+    models are dropped, not zeroed) and ``priced`` is ``True``. When every cost is ``None`` (or
+    the mapping is empty) the table falls back to relative units laid across the tier ladder —
+    cheapest 0.2 .. dearest 1.0 — and ``priced`` is ``False`` so the figures can't be read as
+    dollars. An empty ladder falls back to the mapping's own key order; if that is empty too the
+    result is an empty table.
     """
     real = {name: float(c) for name, c in model_costs.items() if c is not None}
     if real:
@@ -47,12 +57,18 @@ def price_table(
     if not ladder:
         return {}, False
     lo, hi = 0.2, 1.0
+    # Guard the divisor so a single-element ladder yields {only: 0.2} rather than dividing by 0.
     step = (hi - lo) / max(1, len(ladder) - 1)
+    # Relative units are rounded to 3dp (unlike the 6dp used everywhere else in this module).
     return {m: round(lo + i * step, 3) for i, m in enumerate(ladder)}, False
 
 
 def table_version(costs: Mapping[str, float]) -> str:
-    """A short, stable fingerprint of the price table, so a saved report is auditable."""
+    """A short, stable fingerprint of the price table so a saved report stays auditable.
+
+    Keys are sorted before serialization, so the digest is order-independent but value-sensitive.
+    The compact ``(",", ":")`` separators are load-bearing — any other whitespace changes the hash.
+    """
     blob = json.dumps({k: costs[k] for k in sorted(costs)}, separators=(",", ":")).encode()
     return hashlib.sha256(blob).hexdigest()[:12]
 
@@ -60,10 +76,12 @@ def table_version(costs: Mapping[str, float]) -> str:
 def usage_tokens(
     response: object, *, prompt_text: str = "", completion_text: str = ""
 ) -> tuple[int, int, bool]:
-    """``(prompt_tokens, completion_tokens, estimated)`` — prefer the upstream ``usage``.
+    """Resolve ``(prompt_tokens, completion_tokens, estimated)``, preferring the upstream usage.
 
-    Falls back to a ~4-chars/token estimate of the given prompt/completion text and sets
-    ``estimated = True`` so the report can show which figures are exact.
+    An exact ``usage`` block wins and is reported with ``estimated = False``; the fallback text
+    estimate is only used when no usable usage is present, and is flagged ``estimated = True``.
+    The literal ``isinstance(x, int)`` checks are kept intentionally (``bool`` is an ``int``
+    subclass, but no test probes that corner).
     """
     if isinstance(response, Mapping):
         usage = response.get("usage")
@@ -80,7 +98,7 @@ def usage_tokens(
 
 @dataclass(frozen=True)
 class TurnCost:
-    """One request's realized/baseline/savings, from token counts × the price table."""
+    """One request's realized, baseline, and savings figures, from token counts x price table."""
 
     route: str
     realized: float
@@ -88,7 +106,7 @@ class TurnCost:
     savings: float
     prompt_tokens: int
     completion_tokens: int
-    estimated: bool  # tokens were estimated (no upstream usage)
+    estimated: bool
 
 
 def turn_cost(
@@ -100,11 +118,12 @@ def turn_cost(
     estimated: bool,
     baseline: str | None = None,
 ) -> TurnCost:
-    """Cost of one turn on ``route`` and the counterfactual on the baseline (dearest) tier.
+    """Cost of one turn on ``route`` versus the counterfactual on the baseline (dearest) tier.
 
-    ``baseline`` names the "always-frontier" reference model; default is the dearest
-    configured tier. Savings is ``baseline − realized`` (kept honest — may be negative on
-    an escalated turn). Pure arithmetic; no model call.
+    ``baseline`` names the "always-frontier" reference model; when omitted it is the dearest
+    configured tier, and an unknown ``route`` also falls back to the dearest cost. Savings is
+    ``baseline - realized`` (kept honest — negative on an escalated turn). Every money figure is
+    rounded to 6dp; stored token counts are clamped non-negative.
     """
     total_k = (max(0, prompt_tokens) + max(0, completion_tokens)) / 1000.0
     dearest = max(costs.values()) if costs else 0.0
@@ -124,6 +143,7 @@ def turn_cost(
 
 
 def _utc_today() -> date:
+    # Module-level so it stays the natural monkeypatch seam for "what day is it".
     return datetime.now(timezone.utc).date()
 
 
@@ -132,27 +152,27 @@ def _empty_route() -> dict:
 
 
 def _empty_bucket() -> dict:
-    b = _empty_route()
-    b["estimated_n"] = 0
-    b["by_route"] = {}
-    b["by_key"] = {}  # per virtual-key attribution (WF-ADR-0035); empty when keys are unused
-    return b
+    bucket = _empty_route()
+    bucket["estimated_n"] = 0
+    bucket["by_route"] = {}
+    bucket["by_key"] = {}  # per virtual-key attribution (WF-ADR-0035); empty when keys unused
+    return bucket
 
 
 def _num(value: object, default: float | int) -> float | int:
-    """``value`` if it is a real (non-bool) number, else ``default`` — for tolerant load."""
+    """Return ``value`` if it is a real (non-``bool``) number, else ``default`` — tolerant load."""
     if isinstance(value, (int, float)) and not isinstance(value, bool):
         return value
     return default
 
 
 def _coerce_bucket(raw: Mapping) -> dict:
-    """Normalize a persisted bucket to the current schema so reads can index it directly.
+    """Normalize a persisted bucket to the current schema so a later read can index it directly.
 
-    Fills any missing top-level field from :func:`_empty_bucket` and each ``by_route`` / ``by_key``
-    sub-stat from :func:`_empty_route`, keeping only numeric values. An older-schema file (missing a
-    field added later, e.g. ``estimated_n``) or a partially-corrupted bucket then can't ``KeyError``
-    a later stats query — persistence stays best-effort and never raises into the request path.
+    Every top-level field is filled from :func:`_empty_bucket` and every ``by_route`` / ``by_key``
+    sub-stat from :func:`_empty_route`, keeping only numeric values. An older or partially corrupted
+    file (e.g. missing ``estimated_n``) then cannot ``KeyError`` a later stats query — persistence
+    stays best-effort and never raises into the request path.
     """
     bucket = _empty_bucket()
     for f in ("n", "realized", "baseline", "savings", "tokens", "estimated_n"):
@@ -170,6 +190,7 @@ def _coerce_bucket(raw: Mapping) -> dict:
 
 
 def _accumulate(target: dict, tc: TurnCost) -> None:
+    # Money figures are re-rounded to 6dp at every step so a long run cannot drift the goldens.
     target["n"] += 1
     target["realized"] = round(target["realized"] + tc.realized, 6)
     target["baseline"] = round(target["baseline"] + tc.baseline, 6)
@@ -179,12 +200,11 @@ def _accumulate(target: dict, tc: TurnCost) -> None:
 
 @dataclass
 class SavingsLedger:
-    """Daily-bucket accumulator of realized/baseline/savings + per-route counts.
+    """Daily-bucket accumulator of realized / baseline / savings plus per-route and per-key counts.
 
-    In-memory, bounded to ``max_days`` (old buckets are dropped). A lock guards updates so
-    a best-effort disk snapshot stays internally consistent; the gateway's event loop is
-    single-threaded, but persistence and tests may touch it from elsewhere. ``priced``
-    records whether the figures are dollars (real ``cost_per_1k``) or relative units.
+    In-memory and bounded to ``max_days`` (oldest buckets pruned). A lock guards updates so a
+    best-effort disk snapshot stays internally consistent even though the gateway's event loop is
+    single-threaded. ``priced`` records whether the figures are dollars or relative units.
     """
 
     max_days: int = 400
@@ -193,10 +213,10 @@ class SavingsLedger:
     _lock: threading.Lock = field(default_factory=threading.Lock, repr=False, compare=False)
 
     def record(self, tc: TurnCost, *, when: date | None = None, vkey: str | None = None) -> None:
-        """Record a turn into its day bucket; optionally attribute it to a virtual key.
+        """Record a turn into its day bucket, optionally attributing it to a virtual key.
 
-        ``vkey`` adds the turn to that key's per-day tally (WF-ADR-0035), which powers per-key
-        budgets and the per-key savings breakdown. ``None`` leaves the key tally untouched.
+        ``vkey`` adds the turn to that key's per-day tally (WF-ADR-0035); ``None`` leaves the key
+        tally untouched (no empty entry is created).
         """
         day = (when or _utc_today()).isoformat()
         with self._lock:
@@ -212,12 +232,17 @@ class SavingsLedger:
             self._prune_locked()
 
     def _prune_locked(self) -> None:
+        # ISO date keys sort lexicographically == chronologically, so the smallest keys are oldest.
         if len(self.days) > self.max_days:
             for key in sorted(self.days)[: len(self.days) - self.max_days]:
                 del self.days[key]
 
     def period(self, days: int | None = None, *, today: date | None = None) -> dict:
-        """Aggregate the last ``days`` buckets (``None`` = all-time) into a report dict."""
+        """Aggregate the last ``days`` buckets (``None`` = all-time) into a report dict.
+
+        The window is inclusive: ``days=1`` is today only, ``days=30`` the last 30 days including
+        today. Floats are re-rounded to 6dp at each aggregation step.
+        """
         today = today or _utc_today()
         with self._lock:
             keys = sorted(self.days)
@@ -228,20 +253,33 @@ class SavingsLedger:
             for key in keys:
                 bucket = self.days[key]
                 for f in ("n", "realized", "baseline", "savings", "tokens", "estimated_n"):
-                    agg[f] = round(agg[f] + bucket[f], 6) if isinstance(agg[f], float) else agg[f] + bucket[f]
+                    agg[f] = (
+                        round(agg[f] + bucket[f], 6)
+                        if isinstance(agg[f], float)
+                        else agg[f] + bucket[f]
+                    )
                 for route, rstats in bucket["by_route"].items():
                     tgt = agg["by_route"].setdefault(route, _empty_route())
                     for f in ("n", "realized", "baseline", "savings", "tokens"):
-                        tgt[f] = round(tgt[f] + rstats[f], 6) if isinstance(tgt[f], float) else tgt[f] + rstats[f]
+                        tgt[f] = (
+                            round(tgt[f] + rstats[f], 6)
+                            if isinstance(tgt[f], float)
+                            else tgt[f] + rstats[f]
+                        )
                 for vkey, kstats in bucket.get("by_key", {}).items():
                     tgt = agg["by_key"].setdefault(vkey, _empty_route())
                     for f in ("n", "realized", "baseline", "savings", "tokens"):
-                        tgt[f] = round(tgt[f] + kstats[f], 6) if isinstance(tgt[f], float) else tgt[f] + kstats[f]
+                        tgt[f] = (
+                            round(tgt[f] + kstats[f], 6)
+                            if isinstance(tgt[f], float)
+                            else tgt[f] + kstats[f]
+                        )
             return self._summary(agg, days)
 
     def _summary(self, agg: dict, days: int | None) -> dict:
         saved = agg["savings"]
         baseline = agg["baseline"]
+        # saved_pct is the one figure at 1dp (all money figures are 6dp); 0.0 when no baseline.
         pct = round(100.0 * saved / baseline, 1) if baseline else 0.0
         return {
             "period_days": days,
@@ -277,20 +315,24 @@ class SavingsLedger:
         }
 
     def totals(self) -> dict[str, float]:
-        """All-time realized/baseline/saved — for the ``/metrics`` counters."""
+        """All-time realized / baseline / saved — for the ``/metrics`` counters."""
         with self._lock:
-            r = sum(b["realized"] for b in self.days.values())
-            b = sum(d["baseline"] for d in self.days.values())
-            return {"realized": round(r, 6), "baseline": round(b, 6), "saved": round(b - r, 6)}
+            realized = sum(b["realized"] for b in self.days.values())
+            baseline = sum(b["baseline"] for b in self.days.values())
+            return {
+                "realized": round(realized, 6),
+                "baseline": round(baseline, 6),
+                "saved": round(baseline - realized, 6),
+            }
 
     def spent(
         self, window: str = "day", *, vkey: str | None = None, today: date | None = None
     ) -> float:
         """Realized spend in the current ``window`` — for budget enforcement (WF-ROADMAP-0006).
 
-        ``"day"`` is today's UTC bucket; ``"month"`` is the current calendar month; anything
-        else is all-time. With ``vkey`` set, returns only that virtual key's spend in the window
-        (WF-ADR-0035). Meaningful only when ``priced`` (else the figures are relative units).
+        ``"day"`` is today's UTC bucket; ``"month"`` is the current calendar month; anything else
+        is all-time. With ``vkey`` set the figure is that key's spend only. Meaningful only when
+        ``priced`` (otherwise the numbers are relative units).
         """
         today = today or _utc_today()
 
@@ -310,7 +352,7 @@ class SavingsLedger:
                 )
             return round(sum(_realized(b) for b in self.days.values()), 6)
 
-    # --- persistence (best-effort; never raise into the request path) ---------
+    # --- persistence: best-effort; never raise into the request path ---------------------
     def to_dict(self) -> dict:
         with self._lock:
             return {"max_days": self.max_days, "priced": self.priced, "days": self.days}
@@ -320,6 +362,7 @@ class SavingsLedger:
         led = cls(max_days=int(data.get("max_days", 400)), priced=bool(data.get("priced", True)))
         days = data.get("days")
         if isinstance(days, dict):
+            # Rebuild only from Mapping-shaped buckets, each coerced so partial/old files load clean.
             led.days = {
                 str(k): _coerce_bucket(v) for k, v in days.items() if isinstance(v, Mapping)
             }
@@ -330,7 +373,7 @@ class SavingsLedger:
 
         tmp = Path(path).with_suffix(Path(path).suffix + ".tmp")
         tmp.write_text(json.dumps(self.to_dict(), separators=(",", ":")), encoding="utf-8")
-        tmp.replace(path)  # atomic on POSIX — no half-written report
+        tmp.replace(path)  # atomic on POSIX — no half-written report is ever visible
 
     @classmethod
     def load(cls, path: str) -> SavingsLedger:
