@@ -349,9 +349,14 @@ and closes the loop with a guide that turns the whole roadmap into a repeatable 
 
 ## Non-goals (explicit, for this roadmap)
 
-- **No LLM-as-judge in the default loop.** The `Judge` protocol (`judge.py:78`) keeps the seam
-  open; an LLM judge remains an explicitly labelled opt-in, off the decision path — restating the
-  WF-ROADMAP-0006 guardrail.
+- **No LLM-as-judge — deliberately deferred, and local-only if ever.** The `Judge` protocol
+  (`judge.py:78`) keeps the seam open, but an LLM judge is *not* a near-term path. The standing
+  signal is the deterministic heuristic judge plus a human-labelled gold sample; where the
+  heuristic cannot tell, coverage is reported honestly, not guessed. If an LLM judge is ever
+  adopted it stays an explicitly labelled opt-in, off the decision path, and — to preserve the
+  offline / air-gapped and "prompts never leave the building" guarantees (WF-ADR-0039) — it must
+  run as a **local model co-located in the Wayfinder deployment, never a call to an external
+  provider**.
 - **No change to WF-ADR-0001.** Shadow sampling, judging, evidence statistics, and tripwires all
   run off the request path; the per-request decision stays offline, deterministic, and keyless.
 - **No quality *guarantee*.** The evidence report measures judge agreement on sampled traffic with
