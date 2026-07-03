@@ -361,7 +361,8 @@ and closes the loop with a guide that turns the whole roadmap into a repeatable 
 - **No general RDBMS persistence layer.** Redis first, behind the `StateBackend` protocol;
   Postgres is a possible later backend, not this roadmap.
 - **No multi-tenant org hierarchy or SCIM.** Virtual keys + tags remain the attribution unit; OIDC
-  governs *operator* access only.
+  governs *operator* access only. *(Repealed by WF-ROADMAP-0011, which makes org identity the
+  point; the non-goal stands for this roadmap's own scope.)*
 - **No in-process TLS.** Terminate at the ingress; the Helm chart documents the boundary.
 
 ## Alternatives Considered
@@ -454,6 +455,9 @@ before routing a single request."
   everything Initiative 4 makes shareable and Initiative 5 governs)
 - WF-ADR-0037 (automated sufficiency judge — the reused heart of the evidence engine)
 - WF-ADR-0039 (offline-first delivery)
+- WF-ROADMAP-0011 (the deterministic AI governance plane) extends this roadmap: it promotes
+  Track B from table stakes to load-bearing prerequisite and repeals the org-hierarchy/SCIM
+  non-goal above.
 - Future designs, written when the work is scheduled: WF-DESIGN-0013 (shadow capture & comparison
   sampling), WF-DESIGN-0014 (evidence statistics & artifact format), WF-DESIGN-0015 (shared state
   backend).
