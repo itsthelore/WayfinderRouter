@@ -118,3 +118,34 @@ def test_no_literal_provider_token_in_committed_corpus():
     raw = CORPUS.read_text(encoding="utf-8")
     for needle in ("xoxb-", "ghp_a", "AKIAI"):
         assert needle not in raw, f"committed corpus contains a live-looking token: {needle}"
+
+
+def test_ai4privacy_label_mapping():
+    # items_from_records maps AI4Privacy PII labels to our detector names and drops the
+    # rest — proven offline with planted records (no network).
+    from benchmarks.ai4privacy_validation import items_from_records
+
+    records = [
+        {"source_text": "mail x@y.com", "privacy_mask": [{"label": "EMAIL"}]},
+        {"source_text": "id 123-45-6789", "privacy_mask": [{"label": "SSN"}, {"label": "FIRSTNAME"}]},
+        {"source_text": "nothing here", "privacy_mask": [{"label": "JOBAREA"}]},
+    ]
+    items = items_from_records(records)
+    assert items[0].labels == frozenset({"email"})
+    assert items[1].labels == frozenset({"us_ssn"})   # FIRSTNAME is unmapped, dropped
+    assert items[2].labels == frozenset()             # no PII detector applies
+
+
+def test_gitleaks_compare_is_pure_and_correct():
+    # compare() takes a rules dict, so it runs offline. A planted mini-ruleset with a
+    # github rule identical to ours must agree on both probes.
+    from benchmarks.gitleaks_crosscheck import compare
+
+    rules = {"github-pat": r"ghp_[0-9a-zA-Z]{36}"}
+    result = {c.detector: c for c in compare(rules)}
+    gh = result["github_pat"]
+    assert gh.agree == gh.total  # our github pattern matches the community standard
+    # our AWS detector is AKIA-only; the ASIA probe fires the (absent here) gitleaks rule
+    # for nobody, so with an empty rule our detector still fires only on AKIA.
+    aws = result["aws_access_key"]
+    assert aws.mine_fires == 1 and aws.theirs_fires == 0  # no aws rule supplied -> theirs silent

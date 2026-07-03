@@ -93,8 +93,74 @@ and local (WF-ADR-0001/0043); the honest answer to the hard classes is verb choi
 on-traffic tuning, not an ML classifier in the request path.
 
 *Caveat, stated plainly:* this is a small, hand-built corpus (49 items) — the numbers are
-**illustrative floors that exercise the failure modes, not population estimates**. A real
-deployment should re-measure on its own traffic shape (the same JSONL schema accepts a
-larger public PII corpus), exactly as the router itself is calibrated on real traffic
-rather than trusted blind. The detectors here are a reference set under `benchmarks/`, the
-empirical starting point for Initiative 1 — not yet a product component.
+**illustrative floors that exercise the failure modes, not population estimates**, and the
+external validation below revises two of them sharply. The detectors here are a reference
+set under `benchmarks/`, the empirical starting point for Initiative 1 — not yet a product
+component.
+
+## External validation
+
+The corpus above is ours — we wrote both the lookalikes and the detectors — so the numbers
+can flatter. These two checks re-measure against data and rulesets **we did not author**,
+and the result is a useful correction.
+
+### PII detectors vs AI4Privacy (`ai4privacy_validation.py`)
+
+Same detectors, same meter, run over
+[AI4Privacy pii-masking-200k](https://huggingface.co/datasets/ai4privacy/pii-masking-200k)
+— 43,501 English records with independently-labeled PII spans
+([`ai4privacy-validation-results.md`](ai4privacy-validation-results.md)):
+
+| detector | precision | recall | hand-built was |
+| --- | --- | --- | --- |
+| email | **0.997** | **1.000** | 0.875 / 0.875 |
+| us_ssn | 1.000 | **0.255** | 0.600 / 0.600 |
+| credit_card | **0.142** | 0.129 | 0.833 / 0.833 |
+
+- **email is externally confirmed excellent** — 4,043 emails, 12 false positives, 0
+  misses across 43k records. This one is genuinely `block`-eligible.
+- **us_ssn is perfectly precise but US-format-only.** Recall falls to 0.255 because just
+  ~29% of AI4Privacy's SSN values are `ddd-dd-dddd` (many are undashed or not even valid
+  9-digit US SSNs). Honest reading: it is a *US-format* SSN detector, reliable where it
+  fires, and must not be sold as international coverage.
+- **credit_card fails here, and the two halves need separating.** The precision collapse to
+  0.142 is **real**: `(?:\d[ -]?){13,19}` + Luhn fires on account numbers and IBANs that
+  are 13–19 digits and pass Luhn by chance. The recall of 0.129 is partly an **artifact** —
+  only 11% of AI4Privacy's synthetic "card" values are Luhn-valid at all (real cards always
+  are), so the Luhn gate correctly rejects the other 89%; recall on genuine cards would be
+  higher. Either way, the precision failure alone disqualifies `credit_card` from any
+  auto-`block` until it is tightened.
+
+The headline: **external data cut the hand-built us_ssn recall (0.60 → 0.26) and
+credit_card precision (0.83 → 0.14) hard.** The self-authored corpus was optimistic exactly
+where it mattered — which is the case for demanding external validation in the first place.
+
+### Secret detectors vs gitleaks (`gitleaks_crosscheck.py`)
+
+Secrets aren't PII, so the secret detectors are grounded against the community-standard
+[gitleaks](https://github.com/gitleaks/gitleaks) ruleset — a per-pattern comparison
+([`gitleaks-crosscheck-results.md`](gitleaks-crosscheck-results.md)):
+
+- **github_pat matches the community standard exactly** — same regex, full agreement.
+- **aws_access_key is narrower than gitleaks** (`AKIA` only vs `AKIA|ASIA|ABIA|ACCA|A3T`),
+  so it misses AWS temporary/STS keys — a recall gap to close in Initiative 1.
+- **private_key is broader than gitleaks** — it fires on a bare PEM *header* while gitleaks
+  requires the key body, so it over-fires (a header in prose isn't a leaked key).
+- **slack_token is a loose approximation** — it does not match gitleaks' structured
+  `slack-bot-token` shape, so it will both miss and over-fire relative to the standard.
+- `high_entropy_hex` has no direct gitleaks counterpart (gitleaks uses entropy-based
+  generic detection) — consistent with its 0.500 precision above.
+
+### Net guidance for Initiative 1
+
+`email` is `block`-eligible (externally validated). `github_pat` is solid. `aws_access_key`
+needs the broader prefix set, `private_key` a body check, `slack_token` the structured
+pattern — concrete, community-grounded fixes. `us_ssn` is precise-but-US-only (`redact`/
+`warn`, no international claim); `credit_card` is **not usable as-is** and must be tightened
+before any verb. And the standing caveat holds even against external data: AI4Privacy is
+synthetic and templated, not real traffic — the honest endpoint is still on-your-own-traffic
+measurement, not any single public number.
+
+*Reproduce:* `python -m benchmarks.ai4privacy_validation` (needs `pip install datasets`;
+downloads the dataset, nothing committed) and `python -m benchmarks.gitleaks_crosscheck`
+(fetches `config/gitleaks.toml`). Same dataset revision / ruleset → same numbers.
