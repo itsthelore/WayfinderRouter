@@ -18,8 +18,10 @@ sufficient (route the cheap arm), insufficient (route the dear arm), or *abstain
 (``sufficient is None`` — the judge has no grounds, so the prompt is skipped and **no
 label is recorded**, never a third label, which would break threshold calibration's
 two-label contract). :class:`HeuristicJudge` is a pure, deterministic ensemble of text
-comparators — free and replayable, golden-testable like ``cache.py``. An LLM-backed
-judge is a planned drop-in via the same protocol; nothing here imports FastAPI/httpx.
+comparators — free and replayable, golden-testable like ``cache.py``. The protocol
+*could* host an LLM-backed judge, but that is deliberately deferred; if one is ever
+added it must be a **local, in-container model** (no external key, no egress), to keep
+the offline / air-gapped guarantees intact. Nothing here imports FastAPI/httpx.
 
 A heuristic over free text is a deliberately weak proxy for "good enough" — it abstains
 whenever it cannot tell, and its labels are only trusted after the
@@ -83,8 +85,9 @@ class Judge(Protocol):
     """The pluggable judge seam: map a (prompt, cheap, expensive) triple to a verdict.
 
     ``version`` is stamped into provenance so a config records which judge produced its
-    labels. :class:`HeuristicJudge` implements this today; an ``LLMJudge`` is a planned
-    drop-in — both offline, neither on the decision path.
+    labels. :class:`HeuristicJudge` implements this today; an ``LLMJudge`` is a *deferred,
+    opt-in, local-only* possibility via the same seam — both offline, neither on the
+    decision path.
     """
 
     @property

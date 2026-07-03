@@ -125,9 +125,12 @@ Read honestly, the fix does exactly what it should — and exposes the judge's r
 **What it means for the roadmap.** (1) The human-gold + κ-floor gate (WF-ROADMAP-0010 §2) is
 load-bearing and now empirically justified on a public 36k set. (2) The `HeuristicJudge` is a
 usable *relative-quality, verifiable-task* signal after the fix, and should be scoped to that — not
-asked to assess correctness. (3) An `LLMJudge` via the existing `Judge` protocol is the path for
-open-ended prose and for catching shared-wrongness, as `judge.py` predicted; the decision path is
-untouched either way (WF-ADR-0001, evidence/calibration-time only).
+asked to assess correctness. (3) Open-ended prose and shared-wrongness are covered by the
+**human-labelled gold sample**, not by reaching for an LLM: an LLM judge is deliberately deferred,
+and if it is ever adopted it would run as a **local model inside the Wayfinder deployment** (no
+external key, no egress) so the offline / "prompts never leave the building" guarantees hold. Where
+the heuristic cannot tell, coverage is reported, not guessed. The decision path is untouched
+throughout (WF-ADR-0001, evidence/calibration-time only).
 
 *Reproduce:* the RouterBench pickle is not redistributable in-repo; fetch it once (command above)
 and re-run. Same pickle + same flags → byte-identical tables.
