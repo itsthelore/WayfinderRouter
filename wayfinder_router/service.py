@@ -1,13 +1,9 @@
-"""Run Wayfinder as an always-on local service (WF-ADR-0038).
+"""Render OS service-manager units so the gateway runs as an always-on local service (WF-ADR-0038).
 
-Pure generators for the OS service-manager units that keep the gateway running on a stable
-localhost endpoint, so every OpenAI-compatible app on the machine can share one ``base_url``
-— the near-term, localhost slice of "LLM routing as infrastructure" (WF-ROADMAP-0007). No I/O
-lives here: the CLI writes the files and drives ``launchctl`` / ``systemctl``; these functions
-just render text and resolve paths, so they golden-test like ``reliability.py`` / ``cache.py``.
-
-macOS (**launchd**) is the primary target; the systemd user unit ships for Linux. This is
-packaging in the invocation layer — the deterministic decision core is untouched (WF-ADR-0001).
+These are pure text/path generators: the CLI is what writes the files and drives
+``launchctl`` / ``systemctl``. Keeping them side-effect free lets them golden-test like the
+rest of the deterministic core (WF-ADR-0001). macOS launchd is the primary target; a systemd
+user unit ships for Linux.
 """
 
 from __future__ import annotations
@@ -17,22 +13,26 @@ import shlex
 import sys
 from pathlib import Path
 
-# The launchd label / systemd unit name double as the on-disk identity for uninstall + status.
+# Label / unit name double as the on-disk identity used for uninstall and status.
 LAUNCHD_LABEL = "com.wayfinder-router.gateway"
 SYSTEMD_UNIT_NAME = "wayfinder-router.service"
 
 
 def detect_platform(platform: str | None = None) -> str:
-    """Map a ``sys.platform`` string to ``"macos"`` / ``"linux"`` / ``"other"`` (host by default)."""
+    """Map a ``sys.platform`` string to ``"macos"`` / ``"linux"`` / ``"other"`` (host by default).
+
+    Kept a module-level function so the CLI tests can monkeypatch it to force a branch.
+    """
     plat = platform if platform is not None else sys.platform
     if plat == "darwin":
         return "macos"
-    if plat.startswith("linux"):
+    if plat.startswith("linux"):  # "linux", "linux2", ... all collapse to "linux"
         return "linux"
     return "other"
 
 
 def _xml_escape(value: str) -> str:
+    # Ampersand MUST be escaped first, or the subsequent replacements double-escape it.
     return value.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
 
 
@@ -44,12 +44,13 @@ def launchd_plist(
 ) -> str:
     """A launchd LaunchAgent plist that runs ``program_args`` at login and keeps it alive.
 
-    ``RunAtLoad`` starts it immediately and on every login; ``KeepAlive`` restarts it if it
-    exits — the always-on behavior that makes the gateway feel like infrastructure.
+    ``RunAtLoad`` starts it on every login and ``KeepAlive`` restarts it on exit — the
+    always-on behavior that makes the gateway feel like infrastructure.
     """
+    # Each argument becomes its own six-space-indented <string>, XML-escaped.
     args_xml = "\n".join(f"      <string>{_xml_escape(arg)}</string>" for arg in program_args)
-    # launchd does not expand ``~`` in StandardOut/ErrPath — an unresolved tilde makes the agent
-    # fail to spawn (EX_CONFIG). Resolve it here so every caller (not just the CLI) is safe.
+    # launchd will not expand ``~`` in the log paths (an unresolved tilde makes the agent
+    # fail to spawn with EX_CONFIG), so resolve it here — even for the default log_dir.
     logs = os.path.expanduser(log_dir).rstrip("/")
     return (
         '<?xml version="1.0" encoding="UTF-8"?>\n'
@@ -80,6 +81,7 @@ def systemd_unit(
     program_args: list[str], *, description: str = "Wayfinder router gateway"
 ) -> str:
     """A systemd **user** unit (Linux follow-on) that runs ``program_args`` and restarts on failure."""
+    # Shell-quote each argument so a spaced path survives the ExecStart line intact.
     exec_start = " ".join(shlex.quote(arg) for arg in program_args)
     return (
         "[Unit]\n"
