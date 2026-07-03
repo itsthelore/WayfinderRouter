@@ -4,7 +4,7 @@
 
 import { describe, expect, it } from "vitest";
 import { readFileSync } from "node:fs";
-import { fileURLToPath } from "node:url";
+import { join } from "node:path";
 import { decisionFromDebug } from "@wayfinder/shared/gateway";
 import {
   gatewayMode,
@@ -22,7 +22,7 @@ import {
 } from "@/lib/appState";
 
 function fixture<T = Record<string, unknown>>(name: string): T {
-  const path = fileURLToPath(new URL(`./fixtures/${name}`, import.meta.url));
+  const path = join(process.cwd(), "src", "test", "fixtures", name);
   return JSON.parse(readFileSync(path, "utf8")) as T;
 }
 

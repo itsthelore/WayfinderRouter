@@ -10,9 +10,9 @@
 import { describe, expect, it } from "vitest";
 import { readFileSync, readdirSync, existsSync } from "node:fs";
 import { join } from "node:path";
-import { fileURLToPath } from "node:url";
 
-const UI_DIR = fileURLToPath(new URL("../components/ui", import.meta.url));
+// vitest runs with cwd = clients/desktop; jsdom rewrites import.meta.url to http, so cwd it is.
+const UI_DIR = join(process.cwd(), "src", "components", "ui");
 
 // Raw palette utilities like bg-zinc-100, text-neutral-500, border-slate-200/50…
 const RAW_PALETTE = /\b(?:[a-z-]+[:-])*(?:bg|text|border|ring|fill|stroke|outline|divide|shadow|from|via|to)-(?:zinc|neutral|slate|gray|stone)-\d{2,3}(?:\/\d{1,3})?\b/;
