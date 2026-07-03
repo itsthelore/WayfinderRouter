@@ -1,24 +1,23 @@
-"""Optional local calibration/explain/configure UI (WF-ADR-0005).
+"""Local calibrate / explain / configure web UI (WF-ADR-0005).
 
-A thin consumer of the pure core: it scores prompts, calibrates from pasted data,
-and edits the config file — it never invokes a model and never reimplements
-scoring, calibration, or config parsing. It binds localhost and ships behind the
-``wayfinder-router[ui]`` extra; ``fastapi``/``uvicorn`` are imported lazily so the core
-stays dependency-free.
+This module is a *thin* browser front-end over the pure core. It never invokes a
+model on the scoring path and never re-implements scoring, calibration, or config
+parsing — each helper adapts exactly one core function into a JSON-shaped dict. The
+web stack ships behind the ``wayfinder-router[ui]`` extra, so ``fastapi``/``uvicorn``
+are imported *lazily* inside :func:`build_ui_app` / :func:`run_ui`; importing this
+module (or the package) must stay dependency-light.
 
-Four screens, all backed by core functions:
+Screens, each backed by a core function:
 
-- **Explain / Playground** — paste a prompt; see score, recommendation, tier
-  ladder, and per-feature contributions; drag a threshold slider live.
-- **Calibrate** — paste a labeled JSONL dataset; run a mode; see accuracy, the
-  threshold-sweep curve, and the resulting config fragment.
-- **Configure** — edit ``wayfinder-router.toml`` with live validation (the real loaders)
-  and save. Secrets never appear: a gateway model carries ``api_key_env`` (the
-  variable *name*), and the key is read from the environment elsewhere.
-- **Onboard** — A/B a local vs hosted model on sample prompts in the browser,
-  judge each, and record labels (WF-ADR-0006). The A/B run uses the gateway
-  invoker (BYO key); recording and calibrating reuse the pure feedback/calibrate
-  functions.
+- **Explain** — score a pasted prompt; show recommendation, tier ladder, and the
+  per-feature contribution breakdown; a live threshold slider re-scores in place.
+- **Calibrate** — fit a config fragment from a pasted labeled JSONL dataset and show
+  the accuracy summary plus (for ``threshold`` mode) the sweep curve.
+- **Configure** — edit ``wayfinder-router.toml`` with live validation through the real
+  loaders. Secrets never surface: a gateway model names an ``api_key_env`` only.
+- **Onboard** — A/B a local vs hosted arm in the browser, record judgments, then
+  recalibrate from the shared feedback log (WF-ADR-0006). Only this screen invokes a
+  model, and it does so through the gateway (bring-your-own key).
 """
 
 from __future__ import annotations
@@ -46,27 +45,35 @@ from .gateway import (
 )
 from .recalibrate import recalibrate
 
-if TYPE_CHECKING:  # type-only; the runtime imports these lazily inside build_ui_app
+if TYPE_CHECKING:  # type-only; runtime pulls fastapi lazily inside build_ui_app
     from fastapi import FastAPI
 
+# The [ui] extra's install line, surfaced when fastapi/uvicorn are absent.
 _INSTALL_HINT = "the UI needs its extra: pip install 'wayfinder-router[ui]'"
+# The calibration modes the endpoints accept; anything else coerces to "threshold".
 _MODES = ("threshold", "tiers", "classifier")
 
 
 class UIUnavailable(Exception):
-    """The UI extra (fastapi / uvicorn) is not installed."""
+    """Raised when the UI extra (fastapi / uvicorn) is not installed."""
 
 
-# --- pure helpers (testable without the extra) ------------------------------
+# --- pure helpers (importable and testable without the [ui] extra) ----------
 
 
 def score_payload(prompt: str, start_dir: str = ".", threshold: float | None = None) -> dict:
-    """Score ``prompt`` and return an explain-ready payload (pure; no model call)."""
+    """Return an explain-ready score payload for ``prompt`` (no model call).
+
+    The config is discovered by walking up from ``start_dir``. A ``threshold`` override
+    replaces the tier ladder with a binary one and *drops the classifier* — only the
+    weights carry over — so the reported mode/tiers reflect the override.
+    """
     config = load_routing_config(start_dir)
     if threshold is not None:
         config = RoutingConfig(weights=config.weights, tiers=binary_tiers(threshold))
     result = score_complexity(prompt, config=config)
     payload = result.to_dict()
+    # Contributions in FEATURE_ORDER; their rounded sum equals the reported score.
     payload["contributions"] = [
         fc.to_dict() for fc in explain_score(result.features, config.weights)
     ]
@@ -76,7 +83,11 @@ def score_payload(prompt: str, start_dir: str = ".", threshold: float | None = N
 def calibrate_payload(
     dataset_text: str, mode: str = "threshold", models: list[str] | None = None
 ) -> dict:
-    """Calibrate from pasted JSONL and return the fragment, summary, and curve."""
+    """Fit a config fragment from pasted JSONL; return toml, summary, and (threshold) curve.
+
+    ``CalibrationError`` propagates out to the caller (the endpoint maps it to 400). The
+    ``curve`` key exists only for ``threshold`` mode.
+    """
     samples = parse_dataset(dataset_text)
     result = calibrate(samples, mode, models_order=models)
     payload: dict = {"toml": result.toml, "summary": result.summary}
@@ -86,7 +97,7 @@ def calibrate_payload(
 
 
 def current_config_text(start_dir: str = ".") -> str:
-    """The current ``wayfinder-router.toml`` text, or a dumped default when none exists."""
+    """The resolved ``wayfinder-router.toml`` text, or a dumped default when none exists."""
     path = find_config_file(start_dir)
     if path is not None:
         return path.read_text(encoding="utf-8")
@@ -94,7 +105,7 @@ def current_config_text(start_dir: str = ".") -> str:
 
 
 def validate_config_text(text: str) -> str | None:
-    """Validate config text through the real loaders; return an error or None."""
+    """Validate ``text`` through both real loaders; return an error string or None if valid."""
     try:
         routing_config_from_toml(text)
         gateway_config_from_toml(text)
@@ -104,12 +115,12 @@ def validate_config_text(text: str) -> str | None:
 
 
 def save_config_text(text: str, start_dir: str = ".") -> str | None:
-    """Validate then write ``wayfinder-router.toml``; return an error string or None.
+    """Validate then persist ``text``; return an error string on invalid, else None.
 
-    Writes back to the *same* file the read resolved via ``find_config_file`` (which walks up to
-    a parent), so editing from a subdirectory updates the config every other code path actually
-    loads — never a second, ignored file beside the cwd. Only when no config exists yet does it
-    create one in ``start_dir``.
+    Writes back to the file the loaders actually resolve — ``find_config_file`` walks up
+    to a parent — so editing from a subdirectory updates the shared parent config rather
+    than creating a second, ignored file. Only with no config anywhere up-tree is a fresh
+    one created directly under ``start_dir``. Invalid text is refused before any write.
     """
     error = validate_config_text(text)
     if error is not None:
@@ -120,38 +131,52 @@ def save_config_text(text: str, start_dir: str = ".") -> str | None:
 
 
 def _log_path(start_dir: str) -> str:
+    """The feedback log path under ``start_dir`` (not walked up — onboarding is local)."""
     return str(Path(start_dir) / DEFAULT_LOG)
 
 
 def onboard_arms(start_dir: str = ".") -> list[str]:
-    """The first two configured gateway models — the local/hosted arms to A/B."""
+    """The first two configured gateway models, in insertion order — the A/B arms."""
     return list(load_gateway_config(start_dir).models)[:2]
 
 
 def onboard_run(start_dir: str, prompt: str, arms: list[str] | None = None) -> dict[str, str]:
-    """Run ``prompt`` through each arm and return its output (invokes models, BYO key)."""
+    """Invoke each chosen arm on ``prompt`` and return arm->output (BYO key).
+
+    Reaches the network through ``invoke_model`` -> the gateway module's ``forward_request``
+    global, so tests patching ``gateway.forward_request`` take effect. An arm name absent
+    from the gateway config is a clean ``GatewayUnavailable`` (mapped to 400), never a 500.
+    """
     gateway = load_gateway_config(start_dir)
     chosen = arms or list(gateway.models)[:2]
     unknown = [arm for arm in chosen if arm not in gateway.models]
-    if unknown:  # a stale client or a hand-rolled request — a clean 400, not an opaque 500
+    if unknown:
         raise GatewayUnavailable(f"unknown model arm(s): {', '.join(unknown)}")
     return {arm: invoke_model(gateway.models[arm], prompt) for arm in chosen}
 
 
 def record_onboard_label(start_dir: str, prompt: str, label: str) -> int:
-    """Append a judgment to the feedback log; return the running label count."""
+    """Append a judgment to the feedback log; return the freshly re-read label count."""
     record_label(_log_path(start_dir), prompt, label)
     return len(read_labels(_log_path(start_dir)))
 
 
 def onboard_dataset_text(start_dir: str) -> str:
-    """The feedback log as JSONL dataset text, for the Calibrate flow."""
+    """The feedback log rendered as JSONL for the Calibrate flow.
+
+    Default ``json.dumps`` separators (the space after each colon is pinned by a test) and
+    ``ensure_ascii=False`` so the text round-trips through ``parse_dataset``.
+    """
     rows = read_labels(_log_path(start_dir))
-    return "\n".join(json.dumps(r, ensure_ascii=False) for r in rows)
+    return "\n".join(json.dumps(row, ensure_ascii=False) for row in rows)
 
 
 def recalibrate_payload(start_dir: str = ".", mode: str = "threshold") -> dict:
-    """Re-fit and write ``wayfinder-router.toml`` from the feedback log; return the outcome."""
+    """Re-fit and write the config from the feedback log; return the outcome record.
+
+    Writes to ``start_dir``'s ``wayfinder-router.toml`` directly (no walk-up — intentionally
+    asymmetric with :func:`save_config_text`).
+    """
     result = recalibrate(
         _log_path(start_dir), str(Path(start_dir) / "wayfinder-router.toml"), mode=mode
     )
@@ -164,22 +189,23 @@ def recalibrate_payload(start_dir: str = ".", mode: str = "threshold") -> dict:
 
 
 def _models_list(value: object) -> list[str] | None:
+    """Coerce a request field to a model-order list: a list or comma string, else None."""
     if isinstance(value, list):
-        return [str(m).strip() for m in value if str(m).strip()] or None
+        return [str(item).strip() for item in value if str(item).strip()] or None
     if isinstance(value, str) and value.strip():
-        return [m.strip() for m in value.split(",") if m.strip()] or None
+        return [item.strip() for item in value.split(",") if item.strip()] or None
     return None
 
 
-# --- web app ----------------------------------------------------------------
+# --- web app (fastapi imported lazily; never on the package import path) -----
 
 
 def build_ui_app(start_dir: str = ".") -> FastAPI:
-    """Build the FastAPI UI app."""
+    """Construct the FastAPI app; ``start_dir`` is closed over by every route."""
     try:
         from fastapi import Body, FastAPI
         from fastapi.responses import HTMLResponse, JSONResponse
-    except ImportError as exc:  # pragma: no cover - exercised only without the extra
+    except ImportError as exc:  # pragma: no cover - only without the extra
         raise UIUnavailable(_INSTALL_HINT) from exc
 
     app = FastAPI(title="wayfinder-router-ui")
@@ -193,6 +219,7 @@ def build_ui_app(start_dir: str = ".") -> FastAPI:
         raw_prompt = body.get("prompt")
         prompt = raw_prompt if isinstance(raw_prompt, str) else ""
         raw_threshold = body.get("threshold")
+        # bool is a subclass of int and is accepted here (matches legacy behavior).
         threshold = float(raw_threshold) if isinstance(raw_threshold, (int, float)) else None
         return score_payload(prompt, start_dir=start_dir, threshold=threshold)
 
@@ -201,6 +228,7 @@ def build_ui_app(start_dir: str = ".") -> FastAPI:
         raw_dataset = body.get("dataset")
         dataset = raw_dataset if isinstance(raw_dataset, str) else ""
         raw_mode = body.get("mode")
+        # Unknown/non-str modes silently become "threshold" (not a 400).
         mode = raw_mode if isinstance(raw_mode, str) and raw_mode in _MODES else "threshold"
         try:
             return calibrate_payload(dataset, mode, _models_list(body.get("models")))
@@ -215,6 +243,7 @@ def build_ui_app(start_dir: str = ".") -> FastAPI:
     def api_validate(body: dict = Body(...)) -> dict:  # noqa: B008 - FastAPI default
         raw_toml = body.get("toml")
         error = validate_config_text(raw_toml if isinstance(raw_toml, str) else "")
+        # Always 200; invalid config is reported as ok:false, not an HTTP error.
         return {"ok": error is None, "error": error}
 
     @app.post("/api/config/save")
@@ -227,7 +256,10 @@ def build_ui_app(start_dir: str = ".") -> FastAPI:
 
     @app.get("/api/onboard")
     def api_onboard_state() -> dict:
-        return {"arms": onboard_arms(start_dir), "count": len(read_labels(_log_path(start_dir)))}
+        return {
+            "arms": onboard_arms(start_dir),
+            "count": len(read_labels(_log_path(start_dir))),
+        }
 
     @app.post("/api/onboard/run")
     def api_onboard_run(body: dict = Body(...)) -> object:  # noqa: B008 - FastAPI default
@@ -237,13 +269,14 @@ def build_ui_app(start_dir: str = ".") -> FastAPI:
             return JSONResponse(status_code=400, content={"error": "missing 'prompt'"})
         try:
             return {"outputs": onboard_run(start_dir, prompt, _models_list(body.get("arms")))}
-        except GatewayUnavailable as exc:
+        except GatewayUnavailable as exc:  # unknown arm / bad gateway config
             return JSONResponse(status_code=400, content={"error": str(exc)})
         except RuntimeError as exc:  # an upstream model error
             return JSONResponse(status_code=502, content={"error": str(exc)})
 
     @app.post("/api/onboard/record")
     def api_onboard_record(body: dict = Body(...)) -> object:  # noqa: B008 - FastAPI default
+        # Both fields are required; either missing is a distinct 400 message.
         raw_prompt, raw_label = body.get("prompt"), body.get("label")
         if not isinstance(raw_prompt, str) or not raw_prompt:
             return JSONResponse(status_code=400, content={"error": "missing 'prompt'"})
@@ -261,7 +294,7 @@ def build_ui_app(start_dir: str = ".") -> FastAPI:
         mode = raw_mode if isinstance(raw_mode, str) and raw_mode in _MODES else "threshold"
         try:
             return recalibrate_payload(start_dir, mode)
-        except (CalibrationError, WayfinderConfigError) as exc:
+        except (CalibrationError, WayfinderConfigError) as exc:  # both map to 400 here
             return JSONResponse(status_code=400, content={"error": str(exc)})
 
     return app
@@ -270,7 +303,7 @@ def build_ui_app(start_dir: str = ".") -> FastAPI:
 def run_ui(  # pragma: no cover
     start_dir: str = ".", host: str = "127.0.0.1", port: int = 8099
 ) -> None:
-    """Serve the UI with uvicorn (the `wayfinder-router ui` command)."""
+    """Serve the UI with uvicorn (backs the ``wayfinder-router ui`` command)."""
     try:
         import uvicorn
     except ImportError as exc:
