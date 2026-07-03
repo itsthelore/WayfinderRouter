@@ -1,0 +1,2357 @@
+{
+  "Chinese_character_riddles": {
+    "abstained": 98,
+    "abstention_rate": 0.98,
+    "by_comparator": {
+      "divergence": 98,
+      "refusal": 2
+    },
+    "decided": 2,
+    "gold": {
+      "absolute": {
+        "accuracy": 0.5,
+        "confusion": {
+          "insufficient": {
+            "insufficient": 1,
+            "sufficient": 0
+          },
+          "sufficient": {
+            "insufficient": 1,
+            "sufficient": 0
+          }
+        },
+        "kappa": 0.0,
+        "n": 2
+      },
+      "relative": {
+        "accuracy": 0.5,
+        "confusion": {
+          "insufficient": {
+            "insufficient": 0,
+            "sufficient": 1
+          },
+          "sufficient": {
+            "insufficient": 0,
+            "sufficient": 1
+          }
+        },
+        "kappa": 0.0,
+        "n": 2
+      }
+    },
+    "n": 100
+  },
+  "abstract2title": {
+    "abstained": 246,
+    "abstention_rate": 0.968503937007874,
+    "by_comparator": {
+      "agreement": 1,
+      "divergence": 246,
+      "similarity": 7
+    },
+    "decided": 8,
+    "gold": {
+      "absolute": {
+        "accuracy": 1.0,
+        "confusion": {
+          "sufficient": {
+            "sufficient": 8
+          }
+        },
+        "kappa": 1.0,
+        "n": 8
+      },
+      "relative": {
+        "accuracy": 1.0,
+        "confusion": {
+          "sufficient": {
+            "sufficient": 8
+          }
+        },
+        "kappa": 1.0,
+        "n": 8
+      }
+    },
+    "n": 254
+  },
+  "accounting_audit": {
+    "abstained": 1,
+    "abstention_rate": 0.03333333333333333,
+    "by_comparator": {
+      "refusal": 30
+    },
+    "decided": 29,
+    "gold": {
+      "absolute": {
+        "accuracy": 0.20689655172413793,
+        "confusion": {
+          "insufficient": {
+            "insufficient": 0,
+            "sufficient": 0
+          },
+          "sufficient": {
+            "insufficient": 23,
+            "sufficient": 6
+          }
+        },
+        "kappa": 0.0,
+        "n": 29
+      },
+      "relative": {
+        "accuracy": 0.3448275862068966,
+        "confusion": {
+          "insufficient": {
+            "insufficient": 0,
+            "sufficient": 0
+          },
+          "sufficient": {
+            "insufficient": 19,
+            "sufficient": 10
+          }
+        },
+        "kappa": 0.0,
+        "n": 29
+      }
+    },
+    "n": 30
+  },
+  "arc-challenge": {
+    "abstained": 1470,
+    "abstention_rate": 1.0,
+    "by_comparator": {
+      "refusal": 1470
+    },
+    "decided": 0,
+    "gold": {
+      "absolute": {
+        "accuracy": 0.0,
+        "confusion": {},
+        "kappa": 0.0,
+        "n": 0
+      },
+      "relative": {
+        "accuracy": 0.0,
+        "confusion": {},
+        "kappa": 0.0,
+        "n": 0
+      }
+    },
+    "n": 1470
+  },
+  "bias_detection": {
+    "abstained": 282,
+    "abstention_rate": 0.9894736842105263,
+    "by_comparator": {
+      "divergence": 282,
+      "refusal": 3
+    },
+    "decided": 3,
+    "gold": {
+      "absolute": {
+        "accuracy": 0.6666666666666666,
+        "confusion": {
+          "insufficient": {
+            "insufficient": 2,
+            "sufficient": 1
+          },
+          "sufficient": {
+            "insufficient": 0,
+            "sufficient": 0
+          }
+        },
+        "kappa": 0.0,
+        "n": 3
+      },
+      "relative": {
+        "accuracy": 0.6666666666666666,
+        "confusion": {
+          "insufficient": {
+            "insufficient": 2,
+            "sufficient": 1
+          },
+          "sufficient": {
+            "insufficient": 0,
+            "sufficient": 0
+          }
+        },
+        "kappa": 0.0,
+        "n": 3
+      }
+    },
+    "n": 285
+  },
+  "chinese-lantern-riddles": {
+    "abstained": 20,
+    "abstention_rate": 1.0,
+    "by_comparator": {
+      "divergence": 20
+    },
+    "decided": 0,
+    "gold": {
+      "absolute": {
+        "accuracy": 0.0,
+        "confusion": {},
+        "kappa": 0.0,
+        "n": 0
+      },
+      "relative": {
+        "accuracy": 0.0,
+        "confusion": {},
+        "kappa": 0.0,
+        "n": 0
+      }
+    },
+    "n": 20
+  },
+  "chinese-remainder-theorem": {
+    "abstained": 15,
+    "abstention_rate": 1.0,
+    "by_comparator": {
+      "divergence": 15
+    },
+    "decided": 0,
+    "gold": {
+      "absolute": {
+        "accuracy": 0.0,
+        "confusion": {},
+        "kappa": 0.0,
+        "n": 0
+      },
+      "relative": {
+        "accuracy": 0.0,
+        "confusion": {},
+        "kappa": 0.0,
+        "n": 0
+      }
+    },
+    "n": 15
+  },
+  "chinese_ancient_masterpieces_dynasty": {
+    "abstained": 12,
+    "abstention_rate": 0.75,
+    "by_comparator": {
+      "refusal": 16
+    },
+    "decided": 4,
+    "gold": {
+      "absolute": {
+        "accuracy": 0.0,
+        "confusion": {
+          "insufficient": {
+            "insufficient": 0,
+            "sufficient": 0
+          },
+          "sufficient": {
+            "insufficient": 4,
+            "sufficient": 0
+          }
+        },
+        "kappa": 0.0,
+        "n": 4
+      },
+      "relative": {
+        "accuracy": 0.75,
+        "confusion": {
+          "insufficient": {
+            "insufficient": 0,
+            "sufficient": 0
+          },
+          "sufficient": {
+            "insufficient": 1,
+            "sufficient": 3
+          }
+        },
+        "kappa": 0.0,
+        "n": 4
+      }
+    },
+    "n": 16
+  },
+  "chinese_ancient_poetry": {
+    "abstained": 4,
+    "abstention_rate": 0.16,
+    "by_comparator": {
+      "divergence": 4,
+      "refusal": 21
+    },
+    "decided": 21,
+    "gold": {
+      "absolute": {
+        "accuracy": 0.0,
+        "confusion": {
+          "insufficient": {
+            "insufficient": 0,
+            "sufficient": 0
+          },
+          "sufficient": {
+            "insufficient": 21,
+            "sufficient": 0
+          }
+        },
+        "kappa": 0.0,
+        "n": 21
+      },
+      "relative": {
+        "accuracy": 0.9047619047619048,
+        "confusion": {
+          "insufficient": {
+            "insufficient": 0,
+            "sufficient": 0
+          },
+          "sufficient": {
+            "insufficient": 2,
+            "sufficient": 19
+          }
+        },
+        "kappa": 0.0,
+        "n": 21
+      }
+    },
+    "n": 25
+  },
+  "chinese_chu_ci": {
+    "abstained": 15,
+    "abstention_rate": 1.0,
+    "by_comparator": {
+      "refusal": 15
+    },
+    "decided": 0,
+    "gold": {
+      "absolute": {
+        "accuracy": 0.0,
+        "confusion": {},
+        "kappa": 0.0,
+        "n": 0
+      },
+      "relative": {
+        "accuracy": 0.0,
+        "confusion": {},
+        "kappa": 0.0,
+        "n": 0
+      }
+    },
+    "n": 15
+  },
+  "chinese_famous_novel": {
+    "abstained": 15,
+    "abstention_rate": 0.75,
+    "by_comparator": {
+      "divergence": 1,
+      "refusal": 19
+    },
+    "decided": 5,
+    "gold": {
+      "absolute": {
+        "accuracy": 0.6,
+        "confusion": {
+          "insufficient": {
+            "insufficient": 3,
+            "sufficient": 0
+          },
+          "sufficient": {
+            "insufficient": 2,
+            "sufficient": 0
+          }
+        },
+        "kappa": 0.0,
+        "n": 5
+      },
+      "relative": {
+        "accuracy": 0.0,
+        "confusion": {
+          "insufficient": {
+            "insufficient": 0,
+            "sufficient": 3
+          },
+          "sufficient": {
+            "insufficient": 2,
+            "sufficient": 0
+          }
+        },
+        "kappa": -0.923076923076923,
+        "n": 5
+      }
+    },
+    "n": 20
+  },
+  "chinese_hard_translations": {
+    "abstained": 19,
+    "abstention_rate": 0.9047619047619048,
+    "by_comparator": {
+      "divergence": 19,
+      "similarity": 2
+    },
+    "decided": 2,
+    "gold": {
+      "absolute": {
+        "accuracy": 0.0,
+        "confusion": {
+          "insufficient": {
+            "insufficient": 0,
+            "sufficient": 0
+          },
+          "sufficient": {
+            "insufficient": 2,
+            "sufficient": 0
+          }
+        },
+        "kappa": 0.0,
+        "n": 2
+      },
+      "relative": {
+        "accuracy": 1.0,
+        "confusion": {
+          "sufficient": {
+            "sufficient": 2
+          }
+        },
+        "kappa": 1.0,
+        "n": 2
+      }
+    },
+    "n": 21
+  },
+  "chinese_homonym": {
+    "abstained": 21,
+    "abstention_rate": 1.0,
+    "by_comparator": {
+      "refusal": 21
+    },
+    "decided": 0,
+    "gold": {
+      "absolute": {
+        "accuracy": 0.0,
+        "confusion": {},
+        "kappa": 0.0,
+        "n": 0
+      },
+      "relative": {
+        "accuracy": 0.0,
+        "confusion": {},
+        "kappa": 0.0,
+        "n": 0
+      }
+    },
+    "n": 21
+  },
+  "chinese_idioms": {
+    "abstained": 15,
+    "abstention_rate": 1.0,
+    "by_comparator": {
+      "divergence": 15
+    },
+    "decided": 0,
+    "gold": {
+      "absolute": {
+        "accuracy": 0.0,
+        "confusion": {},
+        "kappa": 0.0,
+        "n": 0
+      },
+      "relative": {
+        "accuracy": 0.0,
+        "confusion": {},
+        "kappa": 0.0,
+        "n": 0
+      }
+    },
+    "n": 15
+  },
+  "chinese_modern_poem_identification": {
+    "abstained": 6,
+    "abstention_rate": 0.2857142857142857,
+    "by_comparator": {
+      "divergence": 6,
+      "refusal": 15
+    },
+    "decided": 15,
+    "gold": {
+      "absolute": {
+        "accuracy": 0.0,
+        "confusion": {
+          "insufficient": {
+            "insufficient": 0,
+            "sufficient": 0
+          },
+          "sufficient": {
+            "insufficient": 15,
+            "sufficient": 0
+          }
+        },
+        "kappa": 0.0,
+        "n": 15
+      },
+      "relative": {
+        "accuracy": 0.4666666666666667,
+        "confusion": {
+          "insufficient": {
+            "insufficient": 0,
+            "sufficient": 0
+          },
+          "sufficient": {
+            "insufficient": 8,
+            "sufficient": 7
+          }
+        },
+        "kappa": 0.0,
+        "n": 15
+      }
+    },
+    "n": 21
+  },
+  "chinese_poem": {
+    "abstained": 15,
+    "abstention_rate": 1.0,
+    "by_comparator": {
+      "refusal": 15
+    },
+    "decided": 0,
+    "gold": {
+      "absolute": {
+        "accuracy": 0.0,
+        "confusion": {},
+        "kappa": 0.0,
+        "n": 0
+      },
+      "relative": {
+        "accuracy": 0.0,
+        "confusion": {},
+        "kappa": 0.0,
+        "n": 0
+      }
+    },
+    "n": 15
+  },
+  "chinese_shi_jing": {
+    "abstained": 34,
+    "abstention_rate": 1.0,
+    "by_comparator": {
+      "refusal": 34
+    },
+    "decided": 0,
+    "gold": {
+      "absolute": {
+        "accuracy": 0.0,
+        "confusion": {},
+        "kappa": 0.0,
+        "n": 0
+      },
+      "relative": {
+        "accuracy": 0.0,
+        "confusion": {},
+        "kappa": 0.0,
+        "n": 0
+      }
+    },
+    "n": 34
+  },
+  "chinese_song_ci": {
+    "abstained": 16,
+    "abstention_rate": 1.0,
+    "by_comparator": {
+      "refusal": 16
+    },
+    "decided": 0,
+    "gold": {
+      "absolute": {
+        "accuracy": 0.0,
+        "confusion": {},
+        "kappa": 0.0,
+        "n": 0
+      },
+      "relative": {
+        "accuracy": 0.0,
+        "confusion": {},
+        "kappa": 0.0,
+        "n": 0
+      }
+    },
+    "n": 16
+  },
+  "chinese_tang_poetries": {
+    "abstained": 33,
+    "abstention_rate": 0.8918918918918919,
+    "by_comparator": {
+      "refusal": 37
+    },
+    "decided": 4,
+    "gold": {
+      "absolute": {
+        "accuracy": 0.0,
+        "confusion": {
+          "insufficient": {
+            "insufficient": 0,
+            "sufficient": 0
+          },
+          "sufficient": {
+            "insufficient": 4,
+            "sufficient": 0
+          }
+        },
+        "kappa": 0.0,
+        "n": 4
+      },
+      "relative": {
+        "accuracy": 0.75,
+        "confusion": {
+          "insufficient": {
+            "insufficient": 0,
+            "sufficient": 0
+          },
+          "sufficient": {
+            "insufficient": 1,
+            "sufficient": 3
+          }
+        },
+        "kappa": 0.0,
+        "n": 4
+      }
+    },
+    "n": 37
+  },
+  "chinese_zodiac": {
+    "abstained": 394,
+    "abstention_rate": 1.0,
+    "by_comparator": {
+      "refusal": 394
+    },
+    "decided": 0,
+    "gold": {
+      "absolute": {
+        "accuracy": 0.0,
+        "confusion": {},
+        "kappa": 0.0,
+        "n": 0
+      },
+      "relative": {
+        "accuracy": 0.0,
+        "confusion": {},
+        "kappa": 0.0,
+        "n": 0
+      }
+    },
+    "n": 394
+  },
+  "consensus_summary": {
+    "abstained": 219,
+    "abstention_rate": 0.6049723756906077,
+    "by_comparator": {
+      "agreement": 2,
+      "divergence": 218,
+      "refusal": 140,
+      "similarity": 2
+    },
+    "decided": 143,
+    "gold": {
+      "absolute": {
+        "accuracy": 0.7832167832167832,
+        "confusion": {
+          "insufficient": {
+            "insufficient": 1,
+            "sufficient": 0
+          },
+          "sufficient": {
+            "insufficient": 31,
+            "sufficient": 111
+          }
+        },
+        "kappa": 0.04769065520945178,
+        "n": 143
+      },
+      "relative": {
+        "accuracy": 0.916083916083916,
+        "confusion": {
+          "insufficient": {
+            "insufficient": 1,
+            "sufficient": 0
+          },
+          "sufficient": {
+            "insufficient": 12,
+            "sufficient": 130
+          }
+        },
+        "kappa": 0.13157894736841985,
+        "n": 143
+      }
+    },
+    "n": 362
+  },
+  "grade-school-math": {
+    "abstained": 7442,
+    "abstention_rate": 0.9989261744966443,
+    "by_comparator": {
+      "divergence": 7442,
+      "refusal": 1,
+      "similarity": 7
+    },
+    "decided": 8,
+    "gold": {
+      "absolute": {
+        "accuracy": 0.625,
+        "confusion": {
+          "insufficient": {
+            "insufficient": 0,
+            "sufficient": 1
+          },
+          "sufficient": {
+            "insufficient": 2,
+            "sufficient": 5
+          }
+        },
+        "kappa": -0.2,
+        "n": 8
+      },
+      "relative": {
+        "accuracy": 0.75,
+        "confusion": {
+          "insufficient": {
+            "insufficient": 1,
+            "sufficient": 0
+          },
+          "sufficient": {
+            "insufficient": 2,
+            "sufficient": 5
+          }
+        },
+        "kappa": 0.38461538461538464,
+        "n": 8
+      }
+    },
+    "n": 7450
+  },
+  "hellaswag": {
+    "abstained": 10038,
+    "abstention_rate": 0.9996016729735112,
+    "by_comparator": {
+      "refusal": 10042
+    },
+    "decided": 4,
+    "gold": {
+      "absolute": {
+        "accuracy": 0.25,
+        "confusion": {
+          "insufficient": {
+            "insufficient": 1,
+            "sufficient": 3
+          },
+          "sufficient": {
+            "insufficient": 0,
+            "sufficient": 0
+          }
+        },
+        "kappa": 0.0,
+        "n": 4
+      },
+      "relative": {
+        "accuracy": 0.0,
+        "confusion": {
+          "insufficient": {
+            "insufficient": 0,
+            "sufficient": 4
+          },
+          "sufficient": {
+            "insufficient": 0,
+            "sufficient": 0
+          }
+        },
+        "kappa": 0.0,
+        "n": 4
+      }
+    },
+    "n": 10042
+  },
+  "mbpp": {
+    "abstained": 427,
+    "abstention_rate": 1.0,
+    "by_comparator": {
+      "divergence": 427
+    },
+    "decided": 0,
+    "gold": {
+      "absolute": {
+        "accuracy": 0.0,
+        "confusion": {},
+        "kappa": 0.0,
+        "n": 0
+      },
+      "relative": {
+        "accuracy": 0.0,
+        "confusion": {},
+        "kappa": 0.0,
+        "n": 0
+      }
+    },
+    "n": 427
+  },
+  "mmlu-abstract-algebra": {
+    "abstained": 100,
+    "abstention_rate": 1.0,
+    "by_comparator": {
+      "refusal": 100
+    },
+    "decided": 0,
+    "gold": {
+      "absolute": {
+        "accuracy": 0.0,
+        "confusion": {},
+        "kappa": 0.0,
+        "n": 0
+      },
+      "relative": {
+        "accuracy": 0.0,
+        "confusion": {},
+        "kappa": 0.0,
+        "n": 0
+      }
+    },
+    "n": 100
+  },
+  "mmlu-anatomy": {
+    "abstained": 135,
+    "abstention_rate": 1.0,
+    "by_comparator": {
+      "refusal": 135
+    },
+    "decided": 0,
+    "gold": {
+      "absolute": {
+        "accuracy": 0.0,
+        "confusion": {},
+        "kappa": 0.0,
+        "n": 0
+      },
+      "relative": {
+        "accuracy": 0.0,
+        "confusion": {},
+        "kappa": 0.0,
+        "n": 0
+      }
+    },
+    "n": 135
+  },
+  "mmlu-astronomy": {
+    "abstained": 152,
+    "abstention_rate": 1.0,
+    "by_comparator": {
+      "refusal": 152
+    },
+    "decided": 0,
+    "gold": {
+      "absolute": {
+        "accuracy": 0.0,
+        "confusion": {},
+        "kappa": 0.0,
+        "n": 0
+      },
+      "relative": {
+        "accuracy": 0.0,
+        "confusion": {},
+        "kappa": 0.0,
+        "n": 0
+      }
+    },
+    "n": 152
+  },
+  "mmlu-business-ethics": {
+    "abstained": 100,
+    "abstention_rate": 1.0,
+    "by_comparator": {
+      "refusal": 100
+    },
+    "decided": 0,
+    "gold": {
+      "absolute": {
+        "accuracy": 0.0,
+        "confusion": {},
+        "kappa": 0.0,
+        "n": 0
+      },
+      "relative": {
+        "accuracy": 0.0,
+        "confusion": {},
+        "kappa": 0.0,
+        "n": 0
+      }
+    },
+    "n": 100
+  },
+  "mmlu-clinical-knowledge": {
+    "abstained": 265,
+    "abstention_rate": 1.0,
+    "by_comparator": {
+      "refusal": 265
+    },
+    "decided": 0,
+    "gold": {
+      "absolute": {
+        "accuracy": 0.0,
+        "confusion": {},
+        "kappa": 0.0,
+        "n": 0
+      },
+      "relative": {
+        "accuracy": 0.0,
+        "confusion": {},
+        "kappa": 0.0,
+        "n": 0
+      }
+    },
+    "n": 265
+  },
+  "mmlu-college-biology": {
+    "abstained": 144,
+    "abstention_rate": 1.0,
+    "by_comparator": {
+      "refusal": 144
+    },
+    "decided": 0,
+    "gold": {
+      "absolute": {
+        "accuracy": 0.0,
+        "confusion": {},
+        "kappa": 0.0,
+        "n": 0
+      },
+      "relative": {
+        "accuracy": 0.0,
+        "confusion": {},
+        "kappa": 0.0,
+        "n": 0
+      }
+    },
+    "n": 144
+  },
+  "mmlu-college-chemistry": {
+    "abstained": 100,
+    "abstention_rate": 1.0,
+    "by_comparator": {
+      "refusal": 100
+    },
+    "decided": 0,
+    "gold": {
+      "absolute": {
+        "accuracy": 0.0,
+        "confusion": {},
+        "kappa": 0.0,
+        "n": 0
+      },
+      "relative": {
+        "accuracy": 0.0,
+        "confusion": {},
+        "kappa": 0.0,
+        "n": 0
+      }
+    },
+    "n": 100
+  },
+  "mmlu-college-computer-science": {
+    "abstained": 100,
+    "abstention_rate": 1.0,
+    "by_comparator": {
+      "refusal": 100
+    },
+    "decided": 0,
+    "gold": {
+      "absolute": {
+        "accuracy": 0.0,
+        "confusion": {},
+        "kappa": 0.0,
+        "n": 0
+      },
+      "relative": {
+        "accuracy": 0.0,
+        "confusion": {},
+        "kappa": 0.0,
+        "n": 0
+      }
+    },
+    "n": 100
+  },
+  "mmlu-college-mathematics": {
+    "abstained": 100,
+    "abstention_rate": 1.0,
+    "by_comparator": {
+      "refusal": 100
+    },
+    "decided": 0,
+    "gold": {
+      "absolute": {
+        "accuracy": 0.0,
+        "confusion": {},
+        "kappa": 0.0,
+        "n": 0
+      },
+      "relative": {
+        "accuracy": 0.0,
+        "confusion": {},
+        "kappa": 0.0,
+        "n": 0
+      }
+    },
+    "n": 100
+  },
+  "mmlu-college-medicine": {
+    "abstained": 173,
+    "abstention_rate": 1.0,
+    "by_comparator": {
+      "refusal": 173
+    },
+    "decided": 0,
+    "gold": {
+      "absolute": {
+        "accuracy": 0.0,
+        "confusion": {},
+        "kappa": 0.0,
+        "n": 0
+      },
+      "relative": {
+        "accuracy": 0.0,
+        "confusion": {},
+        "kappa": 0.0,
+        "n": 0
+      }
+    },
+    "n": 173
+  },
+  "mmlu-college-physics": {
+    "abstained": 102,
+    "abstention_rate": 1.0,
+    "by_comparator": {
+      "refusal": 102
+    },
+    "decided": 0,
+    "gold": {
+      "absolute": {
+        "accuracy": 0.0,
+        "confusion": {},
+        "kappa": 0.0,
+        "n": 0
+      },
+      "relative": {
+        "accuracy": 0.0,
+        "confusion": {},
+        "kappa": 0.0,
+        "n": 0
+      }
+    },
+    "n": 102
+  },
+  "mmlu-computer-security": {
+    "abstained": 100,
+    "abstention_rate": 1.0,
+    "by_comparator": {
+      "refusal": 100
+    },
+    "decided": 0,
+    "gold": {
+      "absolute": {
+        "accuracy": 0.0,
+        "confusion": {},
+        "kappa": 0.0,
+        "n": 0
+      },
+      "relative": {
+        "accuracy": 0.0,
+        "confusion": {},
+        "kappa": 0.0,
+        "n": 0
+      }
+    },
+    "n": 100
+  },
+  "mmlu-conceptual-physics": {
+    "abstained": 235,
+    "abstention_rate": 1.0,
+    "by_comparator": {
+      "refusal": 235
+    },
+    "decided": 0,
+    "gold": {
+      "absolute": {
+        "accuracy": 0.0,
+        "confusion": {},
+        "kappa": 0.0,
+        "n": 0
+      },
+      "relative": {
+        "accuracy": 0.0,
+        "confusion": {},
+        "kappa": 0.0,
+        "n": 0
+      }
+    },
+    "n": 235
+  },
+  "mmlu-econometrics": {
+    "abstained": 114,
+    "abstention_rate": 1.0,
+    "by_comparator": {
+      "refusal": 114
+    },
+    "decided": 0,
+    "gold": {
+      "absolute": {
+        "accuracy": 0.0,
+        "confusion": {},
+        "kappa": 0.0,
+        "n": 0
+      },
+      "relative": {
+        "accuracy": 0.0,
+        "confusion": {},
+        "kappa": 0.0,
+        "n": 0
+      }
+    },
+    "n": 114
+  },
+  "mmlu-electrical-engineering": {
+    "abstained": 145,
+    "abstention_rate": 1.0,
+    "by_comparator": {
+      "refusal": 145
+    },
+    "decided": 0,
+    "gold": {
+      "absolute": {
+        "accuracy": 0.0,
+        "confusion": {},
+        "kappa": 0.0,
+        "n": 0
+      },
+      "relative": {
+        "accuracy": 0.0,
+        "confusion": {},
+        "kappa": 0.0,
+        "n": 0
+      }
+    },
+    "n": 145
+  },
+  "mmlu-elementary-mathematics": {
+    "abstained": 378,
+    "abstention_rate": 1.0,
+    "by_comparator": {
+      "refusal": 378
+    },
+    "decided": 0,
+    "gold": {
+      "absolute": {
+        "accuracy": 0.0,
+        "confusion": {},
+        "kappa": 0.0,
+        "n": 0
+      },
+      "relative": {
+        "accuracy": 0.0,
+        "confusion": {},
+        "kappa": 0.0,
+        "n": 0
+      }
+    },
+    "n": 378
+  },
+  "mmlu-formal-logic": {
+    "abstained": 126,
+    "abstention_rate": 1.0,
+    "by_comparator": {
+      "refusal": 126
+    },
+    "decided": 0,
+    "gold": {
+      "absolute": {
+        "accuracy": 0.0,
+        "confusion": {},
+        "kappa": 0.0,
+        "n": 0
+      },
+      "relative": {
+        "accuracy": 0.0,
+        "confusion": {},
+        "kappa": 0.0,
+        "n": 0
+      }
+    },
+    "n": 126
+  },
+  "mmlu-global-facts": {
+    "abstained": 100,
+    "abstention_rate": 1.0,
+    "by_comparator": {
+      "refusal": 100
+    },
+    "decided": 0,
+    "gold": {
+      "absolute": {
+        "accuracy": 0.0,
+        "confusion": {},
+        "kappa": 0.0,
+        "n": 0
+      },
+      "relative": {
+        "accuracy": 0.0,
+        "confusion": {},
+        "kappa": 0.0,
+        "n": 0
+      }
+    },
+    "n": 100
+  },
+  "mmlu-high-school-biology": {
+    "abstained": 310,
+    "abstention_rate": 1.0,
+    "by_comparator": {
+      "refusal": 310
+    },
+    "decided": 0,
+    "gold": {
+      "absolute": {
+        "accuracy": 0.0,
+        "confusion": {},
+        "kappa": 0.0,
+        "n": 0
+      },
+      "relative": {
+        "accuracy": 0.0,
+        "confusion": {},
+        "kappa": 0.0,
+        "n": 0
+      }
+    },
+    "n": 310
+  },
+  "mmlu-high-school-chemistry": {
+    "abstained": 203,
+    "abstention_rate": 1.0,
+    "by_comparator": {
+      "refusal": 203
+    },
+    "decided": 0,
+    "gold": {
+      "absolute": {
+        "accuracy": 0.0,
+        "confusion": {},
+        "kappa": 0.0,
+        "n": 0
+      },
+      "relative": {
+        "accuracy": 0.0,
+        "confusion": {},
+        "kappa": 0.0,
+        "n": 0
+      }
+    },
+    "n": 203
+  },
+  "mmlu-high-school-computer-science": {
+    "abstained": 100,
+    "abstention_rate": 1.0,
+    "by_comparator": {
+      "refusal": 100
+    },
+    "decided": 0,
+    "gold": {
+      "absolute": {
+        "accuracy": 0.0,
+        "confusion": {},
+        "kappa": 0.0,
+        "n": 0
+      },
+      "relative": {
+        "accuracy": 0.0,
+        "confusion": {},
+        "kappa": 0.0,
+        "n": 0
+      }
+    },
+    "n": 100
+  },
+  "mmlu-high-school-european-history": {
+    "abstained": 165,
+    "abstention_rate": 1.0,
+    "by_comparator": {
+      "refusal": 165
+    },
+    "decided": 0,
+    "gold": {
+      "absolute": {
+        "accuracy": 0.0,
+        "confusion": {},
+        "kappa": 0.0,
+        "n": 0
+      },
+      "relative": {
+        "accuracy": 0.0,
+        "confusion": {},
+        "kappa": 0.0,
+        "n": 0
+      }
+    },
+    "n": 165
+  },
+  "mmlu-high-school-geography": {
+    "abstained": 198,
+    "abstention_rate": 1.0,
+    "by_comparator": {
+      "refusal": 198
+    },
+    "decided": 0,
+    "gold": {
+      "absolute": {
+        "accuracy": 0.0,
+        "confusion": {},
+        "kappa": 0.0,
+        "n": 0
+      },
+      "relative": {
+        "accuracy": 0.0,
+        "confusion": {},
+        "kappa": 0.0,
+        "n": 0
+      }
+    },
+    "n": 198
+  },
+  "mmlu-high-school-government-and-politics": {
+    "abstained": 193,
+    "abstention_rate": 1.0,
+    "by_comparator": {
+      "refusal": 193
+    },
+    "decided": 0,
+    "gold": {
+      "absolute": {
+        "accuracy": 0.0,
+        "confusion": {},
+        "kappa": 0.0,
+        "n": 0
+      },
+      "relative": {
+        "accuracy": 0.0,
+        "confusion": {},
+        "kappa": 0.0,
+        "n": 0
+      }
+    },
+    "n": 193
+  },
+  "mmlu-high-school-macroeconomics": {
+    "abstained": 390,
+    "abstention_rate": 1.0,
+    "by_comparator": {
+      "refusal": 390
+    },
+    "decided": 0,
+    "gold": {
+      "absolute": {
+        "accuracy": 0.0,
+        "confusion": {},
+        "kappa": 0.0,
+        "n": 0
+      },
+      "relative": {
+        "accuracy": 0.0,
+        "confusion": {},
+        "kappa": 0.0,
+        "n": 0
+      }
+    },
+    "n": 390
+  },
+  "mmlu-high-school-mathematics": {
+    "abstained": 270,
+    "abstention_rate": 1.0,
+    "by_comparator": {
+      "refusal": 270
+    },
+    "decided": 0,
+    "gold": {
+      "absolute": {
+        "accuracy": 0.0,
+        "confusion": {},
+        "kappa": 0.0,
+        "n": 0
+      },
+      "relative": {
+        "accuracy": 0.0,
+        "confusion": {},
+        "kappa": 0.0,
+        "n": 0
+      }
+    },
+    "n": 270
+  },
+  "mmlu-high-school-microeconomics": {
+    "abstained": 238,
+    "abstention_rate": 1.0,
+    "by_comparator": {
+      "refusal": 238
+    },
+    "decided": 0,
+    "gold": {
+      "absolute": {
+        "accuracy": 0.0,
+        "confusion": {},
+        "kappa": 0.0,
+        "n": 0
+      },
+      "relative": {
+        "accuracy": 0.0,
+        "confusion": {},
+        "kappa": 0.0,
+        "n": 0
+      }
+    },
+    "n": 238
+  },
+  "mmlu-high-school-physics": {
+    "abstained": 151,
+    "abstention_rate": 1.0,
+    "by_comparator": {
+      "refusal": 151
+    },
+    "decided": 0,
+    "gold": {
+      "absolute": {
+        "accuracy": 0.0,
+        "confusion": {},
+        "kappa": 0.0,
+        "n": 0
+      },
+      "relative": {
+        "accuracy": 0.0,
+        "confusion": {},
+        "kappa": 0.0,
+        "n": 0
+      }
+    },
+    "n": 151
+  },
+  "mmlu-high-school-psychology": {
+    "abstained": 545,
+    "abstention_rate": 1.0,
+    "by_comparator": {
+      "refusal": 545
+    },
+    "decided": 0,
+    "gold": {
+      "absolute": {
+        "accuracy": 0.0,
+        "confusion": {},
+        "kappa": 0.0,
+        "n": 0
+      },
+      "relative": {
+        "accuracy": 0.0,
+        "confusion": {},
+        "kappa": 0.0,
+        "n": 0
+      }
+    },
+    "n": 545
+  },
+  "mmlu-high-school-statistics": {
+    "abstained": 216,
+    "abstention_rate": 1.0,
+    "by_comparator": {
+      "refusal": 216
+    },
+    "decided": 0,
+    "gold": {
+      "absolute": {
+        "accuracy": 0.0,
+        "confusion": {},
+        "kappa": 0.0,
+        "n": 0
+      },
+      "relative": {
+        "accuracy": 0.0,
+        "confusion": {},
+        "kappa": 0.0,
+        "n": 0
+      }
+    },
+    "n": 216
+  },
+  "mmlu-high-school-us-history": {
+    "abstained": 203,
+    "abstention_rate": 0.9950980392156863,
+    "by_comparator": {
+      "refusal": 204
+    },
+    "decided": 1,
+    "gold": {
+      "absolute": {
+        "accuracy": 0.0,
+        "confusion": {
+          "insufficient": {
+            "insufficient": 0,
+            "sufficient": 1
+          },
+          "sufficient": {
+            "insufficient": 0,
+            "sufficient": 0
+          }
+        },
+        "kappa": 0.0,
+        "n": 1
+      },
+      "relative": {
+        "accuracy": 0.0,
+        "confusion": {
+          "insufficient": {
+            "insufficient": 0,
+            "sufficient": 1
+          },
+          "sufficient": {
+            "insufficient": 0,
+            "sufficient": 0
+          }
+        },
+        "kappa": 0.0,
+        "n": 1
+      }
+    },
+    "n": 204
+  },
+  "mmlu-high-school-world-history": {
+    "abstained": 237,
+    "abstention_rate": 1.0,
+    "by_comparator": {
+      "refusal": 237
+    },
+    "decided": 0,
+    "gold": {
+      "absolute": {
+        "accuracy": 0.0,
+        "confusion": {},
+        "kappa": 0.0,
+        "n": 0
+      },
+      "relative": {
+        "accuracy": 0.0,
+        "confusion": {},
+        "kappa": 0.0,
+        "n": 0
+      }
+    },
+    "n": 237
+  },
+  "mmlu-human-aging": {
+    "abstained": 222,
+    "abstention_rate": 0.9955156950672646,
+    "by_comparator": {
+      "refusal": 223
+    },
+    "decided": 1,
+    "gold": {
+      "absolute": {
+        "accuracy": 0.0,
+        "confusion": {
+          "insufficient": {
+            "insufficient": 0,
+            "sufficient": 0
+          },
+          "sufficient": {
+            "insufficient": 1,
+            "sufficient": 0
+          }
+        },
+        "kappa": 0.0,
+        "n": 1
+      },
+      "relative": {
+        "accuracy": 0.0,
+        "confusion": {
+          "insufficient": {
+            "insufficient": 0,
+            "sufficient": 0
+          },
+          "sufficient": {
+            "insufficient": 1,
+            "sufficient": 0
+          }
+        },
+        "kappa": 0.0,
+        "n": 1
+      }
+    },
+    "n": 223
+  },
+  "mmlu-human-sexuality": {
+    "abstained": 131,
+    "abstention_rate": 1.0,
+    "by_comparator": {
+      "refusal": 131
+    },
+    "decided": 0,
+    "gold": {
+      "absolute": {
+        "accuracy": 0.0,
+        "confusion": {},
+        "kappa": 0.0,
+        "n": 0
+      },
+      "relative": {
+        "accuracy": 0.0,
+        "confusion": {},
+        "kappa": 0.0,
+        "n": 0
+      }
+    },
+    "n": 131
+  },
+  "mmlu-international-law": {
+    "abstained": 121,
+    "abstention_rate": 1.0,
+    "by_comparator": {
+      "refusal": 121
+    },
+    "decided": 0,
+    "gold": {
+      "absolute": {
+        "accuracy": 0.0,
+        "confusion": {},
+        "kappa": 0.0,
+        "n": 0
+      },
+      "relative": {
+        "accuracy": 0.0,
+        "confusion": {},
+        "kappa": 0.0,
+        "n": 0
+      }
+    },
+    "n": 121
+  },
+  "mmlu-jurisprudence": {
+    "abstained": 108,
+    "abstention_rate": 1.0,
+    "by_comparator": {
+      "refusal": 108
+    },
+    "decided": 0,
+    "gold": {
+      "absolute": {
+        "accuracy": 0.0,
+        "confusion": {},
+        "kappa": 0.0,
+        "n": 0
+      },
+      "relative": {
+        "accuracy": 0.0,
+        "confusion": {},
+        "kappa": 0.0,
+        "n": 0
+      }
+    },
+    "n": 108
+  },
+  "mmlu-logical-fallacies": {
+    "abstained": 163,
+    "abstention_rate": 1.0,
+    "by_comparator": {
+      "refusal": 163
+    },
+    "decided": 0,
+    "gold": {
+      "absolute": {
+        "accuracy": 0.0,
+        "confusion": {},
+        "kappa": 0.0,
+        "n": 0
+      },
+      "relative": {
+        "accuracy": 0.0,
+        "confusion": {},
+        "kappa": 0.0,
+        "n": 0
+      }
+    },
+    "n": 163
+  },
+  "mmlu-machine-learning": {
+    "abstained": 112,
+    "abstention_rate": 1.0,
+    "by_comparator": {
+      "refusal": 112
+    },
+    "decided": 0,
+    "gold": {
+      "absolute": {
+        "accuracy": 0.0,
+        "confusion": {},
+        "kappa": 0.0,
+        "n": 0
+      },
+      "relative": {
+        "accuracy": 0.0,
+        "confusion": {},
+        "kappa": 0.0,
+        "n": 0
+      }
+    },
+    "n": 112
+  },
+  "mmlu-management": {
+    "abstained": 103,
+    "abstention_rate": 1.0,
+    "by_comparator": {
+      "refusal": 103
+    },
+    "decided": 0,
+    "gold": {
+      "absolute": {
+        "accuracy": 0.0,
+        "confusion": {},
+        "kappa": 0.0,
+        "n": 0
+      },
+      "relative": {
+        "accuracy": 0.0,
+        "confusion": {},
+        "kappa": 0.0,
+        "n": 0
+      }
+    },
+    "n": 103
+  },
+  "mmlu-marketing": {
+    "abstained": 234,
+    "abstention_rate": 1.0,
+    "by_comparator": {
+      "refusal": 234
+    },
+    "decided": 0,
+    "gold": {
+      "absolute": {
+        "accuracy": 0.0,
+        "confusion": {},
+        "kappa": 0.0,
+        "n": 0
+      },
+      "relative": {
+        "accuracy": 0.0,
+        "confusion": {},
+        "kappa": 0.0,
+        "n": 0
+      }
+    },
+    "n": 234
+  },
+  "mmlu-medical-genetics": {
+    "abstained": 100,
+    "abstention_rate": 1.0,
+    "by_comparator": {
+      "refusal": 100
+    },
+    "decided": 0,
+    "gold": {
+      "absolute": {
+        "accuracy": 0.0,
+        "confusion": {},
+        "kappa": 0.0,
+        "n": 0
+      },
+      "relative": {
+        "accuracy": 0.0,
+        "confusion": {},
+        "kappa": 0.0,
+        "n": 0
+      }
+    },
+    "n": 100
+  },
+  "mmlu-miscellaneous": {
+    "abstained": 783,
+    "abstention_rate": 1.0,
+    "by_comparator": {
+      "refusal": 783
+    },
+    "decided": 0,
+    "gold": {
+      "absolute": {
+        "accuracy": 0.0,
+        "confusion": {},
+        "kappa": 0.0,
+        "n": 0
+      },
+      "relative": {
+        "accuracy": 0.0,
+        "confusion": {},
+        "kappa": 0.0,
+        "n": 0
+      }
+    },
+    "n": 783
+  },
+  "mmlu-moral-disputes": {
+    "abstained": 346,
+    "abstention_rate": 1.0,
+    "by_comparator": {
+      "refusal": 346
+    },
+    "decided": 0,
+    "gold": {
+      "absolute": {
+        "accuracy": 0.0,
+        "confusion": {},
+        "kappa": 0.0,
+        "n": 0
+      },
+      "relative": {
+        "accuracy": 0.0,
+        "confusion": {},
+        "kappa": 0.0,
+        "n": 0
+      }
+    },
+    "n": 346
+  },
+  "mmlu-moral-scenarios": {
+    "abstained": 895,
+    "abstention_rate": 1.0,
+    "by_comparator": {
+      "refusal": 895
+    },
+    "decided": 0,
+    "gold": {
+      "absolute": {
+        "accuracy": 0.0,
+        "confusion": {},
+        "kappa": 0.0,
+        "n": 0
+      },
+      "relative": {
+        "accuracy": 0.0,
+        "confusion": {},
+        "kappa": 0.0,
+        "n": 0
+      }
+    },
+    "n": 895
+  },
+  "mmlu-nutrition": {
+    "abstained": 306,
+    "abstention_rate": 1.0,
+    "by_comparator": {
+      "refusal": 306
+    },
+    "decided": 0,
+    "gold": {
+      "absolute": {
+        "accuracy": 0.0,
+        "confusion": {},
+        "kappa": 0.0,
+        "n": 0
+      },
+      "relative": {
+        "accuracy": 0.0,
+        "confusion": {},
+        "kappa": 0.0,
+        "n": 0
+      }
+    },
+    "n": 306
+  },
+  "mmlu-philosophy": {
+    "abstained": 311,
+    "abstention_rate": 1.0,
+    "by_comparator": {
+      "refusal": 311
+    },
+    "decided": 0,
+    "gold": {
+      "absolute": {
+        "accuracy": 0.0,
+        "confusion": {},
+        "kappa": 0.0,
+        "n": 0
+      },
+      "relative": {
+        "accuracy": 0.0,
+        "confusion": {},
+        "kappa": 0.0,
+        "n": 0
+      }
+    },
+    "n": 311
+  },
+  "mmlu-prehistory": {
+    "abstained": 324,
+    "abstention_rate": 1.0,
+    "by_comparator": {
+      "refusal": 324
+    },
+    "decided": 0,
+    "gold": {
+      "absolute": {
+        "accuracy": 0.0,
+        "confusion": {},
+        "kappa": 0.0,
+        "n": 0
+      },
+      "relative": {
+        "accuracy": 0.0,
+        "confusion": {},
+        "kappa": 0.0,
+        "n": 0
+      }
+    },
+    "n": 324
+  },
+  "mmlu-professional-accounting": {
+    "abstained": 282,
+    "abstention_rate": 1.0,
+    "by_comparator": {
+      "refusal": 282
+    },
+    "decided": 0,
+    "gold": {
+      "absolute": {
+        "accuracy": 0.0,
+        "confusion": {},
+        "kappa": 0.0,
+        "n": 0
+      },
+      "relative": {
+        "accuracy": 0.0,
+        "confusion": {},
+        "kappa": 0.0,
+        "n": 0
+      }
+    },
+    "n": 282
+  },
+  "mmlu-professional-law": {
+    "abstained": 1533,
+    "abstention_rate": 0.999348109517601,
+    "by_comparator": {
+      "refusal": 1534
+    },
+    "decided": 1,
+    "gold": {
+      "absolute": {
+        "accuracy": 1.0,
+        "confusion": {
+          "insufficient": {
+            "insufficient": 1
+          }
+        },
+        "kappa": 1.0,
+        "n": 1
+      },
+      "relative": {
+        "accuracy": 0.0,
+        "confusion": {
+          "insufficient": {
+            "insufficient": 0,
+            "sufficient": 1
+          },
+          "sufficient": {
+            "insufficient": 0,
+            "sufficient": 0
+          }
+        },
+        "kappa": 0.0,
+        "n": 1
+      }
+    },
+    "n": 1534
+  },
+  "mmlu-professional-medicine": {
+    "abstained": 272,
+    "abstention_rate": 1.0,
+    "by_comparator": {
+      "refusal": 272
+    },
+    "decided": 0,
+    "gold": {
+      "absolute": {
+        "accuracy": 0.0,
+        "confusion": {},
+        "kappa": 0.0,
+        "n": 0
+      },
+      "relative": {
+        "accuracy": 0.0,
+        "confusion": {},
+        "kappa": 0.0,
+        "n": 0
+      }
+    },
+    "n": 272
+  },
+  "mmlu-professional-psychology": {
+    "abstained": 611,
+    "abstention_rate": 0.9983660130718954,
+    "by_comparator": {
+      "refusal": 612
+    },
+    "decided": 1,
+    "gold": {
+      "absolute": {
+        "accuracy": 1.0,
+        "confusion": {
+          "insufficient": {
+            "insufficient": 1
+          }
+        },
+        "kappa": 1.0,
+        "n": 1
+      },
+      "relative": {
+        "accuracy": 0.0,
+        "confusion": {
+          "insufficient": {
+            "insufficient": 0,
+            "sufficient": 1
+          },
+          "sufficient": {
+            "insufficient": 0,
+            "sufficient": 0
+          }
+        },
+        "kappa": 0.0,
+        "n": 1
+      }
+    },
+    "n": 612
+  },
+  "mmlu-public-relations": {
+    "abstained": 110,
+    "abstention_rate": 1.0,
+    "by_comparator": {
+      "refusal": 110
+    },
+    "decided": 0,
+    "gold": {
+      "absolute": {
+        "accuracy": 0.0,
+        "confusion": {},
+        "kappa": 0.0,
+        "n": 0
+      },
+      "relative": {
+        "accuracy": 0.0,
+        "confusion": {},
+        "kappa": 0.0,
+        "n": 0
+      }
+    },
+    "n": 110
+  },
+  "mmlu-security-studies": {
+    "abstained": 245,
+    "abstention_rate": 1.0,
+    "by_comparator": {
+      "refusal": 245
+    },
+    "decided": 0,
+    "gold": {
+      "absolute": {
+        "accuracy": 0.0,
+        "confusion": {},
+        "kappa": 0.0,
+        "n": 0
+      },
+      "relative": {
+        "accuracy": 0.0,
+        "confusion": {},
+        "kappa": 0.0,
+        "n": 0
+      }
+    },
+    "n": 245
+  },
+  "mmlu-sociology": {
+    "abstained": 201,
+    "abstention_rate": 1.0,
+    "by_comparator": {
+      "refusal": 201
+    },
+    "decided": 0,
+    "gold": {
+      "absolute": {
+        "accuracy": 0.0,
+        "confusion": {},
+        "kappa": 0.0,
+        "n": 0
+      },
+      "relative": {
+        "accuracy": 0.0,
+        "confusion": {},
+        "kappa": 0.0,
+        "n": 0
+      }
+    },
+    "n": 201
+  },
+  "mmlu-us-foreign-policy": {
+    "abstained": 100,
+    "abstention_rate": 1.0,
+    "by_comparator": {
+      "refusal": 100
+    },
+    "decided": 0,
+    "gold": {
+      "absolute": {
+        "accuracy": 0.0,
+        "confusion": {},
+        "kappa": 0.0,
+        "n": 0
+      },
+      "relative": {
+        "accuracy": 0.0,
+        "confusion": {},
+        "kappa": 0.0,
+        "n": 0
+      }
+    },
+    "n": 100
+  },
+  "mmlu-virology": {
+    "abstained": 166,
+    "abstention_rate": 1.0,
+    "by_comparator": {
+      "refusal": 166
+    },
+    "decided": 0,
+    "gold": {
+      "absolute": {
+        "accuracy": 0.0,
+        "confusion": {},
+        "kappa": 0.0,
+        "n": 0
+      },
+      "relative": {
+        "accuracy": 0.0,
+        "confusion": {},
+        "kappa": 0.0,
+        "n": 0
+      }
+    },
+    "n": 166
+  },
+  "mmlu-world-religions": {
+    "abstained": 171,
+    "abstention_rate": 1.0,
+    "by_comparator": {
+      "refusal": 171
+    },
+    "decided": 0,
+    "gold": {
+      "absolute": {
+        "accuracy": 0.0,
+        "confusion": {},
+        "kappa": 0.0,
+        "n": 0
+      },
+      "relative": {
+        "accuracy": 0.0,
+        "confusion": {},
+        "kappa": 0.0,
+        "n": 0
+      }
+    },
+    "n": 171
+  },
+  "mtbench": {
+    "abstained": 38,
+    "abstention_rate": 0.926829268292683,
+    "by_comparator": {
+      "divergence": 38,
+      "refusal": 2,
+      "similarity": 1
+    },
+    "decided": 3,
+    "gold": {
+      "absolute": {
+        "accuracy": 0.6666666666666666,
+        "confusion": {
+          "insufficient": {
+            "insufficient": 0,
+            "sufficient": 1
+          },
+          "sufficient": {
+            "insufficient": 0,
+            "sufficient": 2
+          }
+        },
+        "kappa": 0.0,
+        "n": 3
+      },
+      "relative": {
+        "accuracy": 0.6666666666666666,
+        "confusion": {
+          "insufficient": {
+            "insufficient": 1,
+            "sufficient": 0
+          },
+          "sufficient": {
+            "insufficient": 1,
+            "sufficient": 1
+          }
+        },
+        "kappa": 0.39999999999999997,
+        "n": 3
+      }
+    },
+    "n": 41
+  },
+  "mtbench-math": {
+    "abstained": 20,
+    "abstention_rate": 1.0,
+    "by_comparator": {
+      "divergence": 20
+    },
+    "decided": 0,
+    "gold": {
+      "absolute": {
+        "accuracy": 0.0,
+        "confusion": {},
+        "kappa": 0.0,
+        "n": 0
+      },
+      "relative": {
+        "accuracy": 0.0,
+        "confusion": {},
+        "kappa": 0.0,
+        "n": 0
+      }
+    },
+    "n": 20
+  },
+  "mtbench-reference": {
+    "abstained": 19,
+    "abstention_rate": 1.0,
+    "by_comparator": {
+      "divergence": 19
+    },
+    "decided": 0,
+    "gold": {
+      "absolute": {
+        "accuracy": 0.0,
+        "confusion": {},
+        "kappa": 0.0,
+        "n": 0
+      },
+      "relative": {
+        "accuracy": 0.0,
+        "confusion": {},
+        "kappa": 0.0,
+        "n": 0
+      }
+    },
+    "n": 19
+  },
+  "overall": {
+    "abstained": 36239,
+    "abstention_rate": 0.9929309258295203,
+    "by_comparator": {
+      "agreement": 4,
+      "divergence": 8870,
+      "refusal": 27604,
+      "similarity": 19
+    },
+    "decided": 258,
+    "gold": {
+      "absolute": {
+        "accuracy": 0.562015503875969,
+        "confusion": {
+          "insufficient": {
+            "insufficient": 11,
+            "sufficient": 7
+          },
+          "sufficient": {
+            "insufficient": 106,
+            "sufficient": 134
+          }
+        },
+        "kappa": 0.04781501077797364,
+        "n": 258
+      },
+      "relative": {
+        "accuracy": 0.7596899224806202,
+        "confusion": {
+          "insufficient": {
+            "insufficient": 5,
+            "sufficient": 13
+          },
+          "sufficient": {
+            "insufficient": 49,
+            "sufficient": 191
+          }
+        },
+        "kappa": 0.03823953823953829,
+        "n": 258
+      }
+    },
+    "n": 36497
+  },
+  "test-match": {
+    "abstained": 0,
+    "abstention_rate": 0.0,
+    "by_comparator": {
+      "agreement": 1,
+      "refusal": 2
+    },
+    "decided": 3,
+    "gold": {
+      "absolute": {
+        "accuracy": 1.0,
+        "confusion": {
+          "insufficient": {
+            "insufficient": 1,
+            "sufficient": 0
+          },
+          "sufficient": {
+            "insufficient": 0,
+            "sufficient": 2
+          }
+        },
+        "kappa": 1.0,
+        "n": 3
+      },
+      "relative": {
+        "accuracy": 0.6666666666666666,
+        "confusion": {
+          "insufficient": {
+            "insufficient": 0,
+            "sufficient": 1
+          },
+          "sufficient": {
+            "insufficient": 0,
+            "sufficient": 2
+          }
+        },
+        "kappa": 0.0,
+        "n": 3
+      }
+    },
+    "n": 3
+  },
+  "winogrande": {
+    "abstained": 1267,
+    "abstention_rate": 1.0,
+    "by_comparator": {
+      "refusal": 1267
+    },
+    "decided": 0,
+    "gold": {
+      "absolute": {
+        "accuracy": 0.0,
+        "confusion": {},
+        "kappa": 0.0,
+        "n": 0
+      },
+      "relative": {
+        "accuracy": 0.0,
+        "confusion": {},
+        "kappa": 0.0,
+        "n": 0
+      }
+    },
+    "n": 1267
+  }
+}
