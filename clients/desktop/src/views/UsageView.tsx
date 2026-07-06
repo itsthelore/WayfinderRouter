@@ -18,9 +18,10 @@ import { formatSaved, type SavingsReport } from "@/lib/format";
 import { ActionRow } from "@/components/menu/ActionRow";
 import { MetricRow } from "@/components/menu/MetricRow";
 import { SplitBar } from "@/components/menu/SplitBar";
+import { Button } from "@/components/ui/button";
+import { ButtonGroup } from "@/components/ui/button-group";
 import { Separator } from "@/components/ui/separator";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
-import { cn } from "@/lib/utils";
 
 function savedLine(prefix: string, report: SavingsReport): string {
   const pct = report.saved_pct || 0;
@@ -36,24 +37,20 @@ const PERIODS: Array<{ value: Period; label: string }> = [
 
 function PeriodToggle({ value, onChange }: { value: Period; onChange: (p: Period) => void }) {
   return (
-    <div role="group" aria-label="routing period" className="flex items-center gap-0.5 rounded-full bg-muted p-0.5">
+    <ButtonGroup aria-label="routing period">
       {PERIODS.map((p) => (
-        <button
+        <Button
           key={p.value}
           type="button"
+          size="xs"
+          variant={value === p.value ? "default" : "outline"}
           aria-pressed={value === p.value}
           onClick={() => onChange(p.value)}
-          className={cn(
-            "rounded-full px-2 py-0.5 text-[11px] font-medium transition-colors duration-[var(--dur-fast)]",
-            value === p.value
-              ? "bg-card text-foreground shadow-sm"
-              : "text-muted-foreground hover:text-foreground",
-          )}
         >
           {p.label}
-        </button>
+        </Button>
       ))}
-    </div>
+    </ButtonGroup>
   );
 }
 
