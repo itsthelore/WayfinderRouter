@@ -9,6 +9,7 @@ import userEvent from "@testing-library/user-event";
 import { decisionFromDebug } from "@wayfinder/shared/gateway";
 import { ExternalLink } from "lucide-react";
 import { Bar } from "@/components/menu/Bar";
+import { SplitBar } from "@/components/menu/SplitBar";
 import { MetricRow } from "@/components/menu/MetricRow";
 import { ActionRow } from "@/components/menu/ActionRow";
 import { FooterMenuItem } from "@/components/menu/FooterMenuItem";
@@ -28,7 +29,7 @@ const local = decisionFromDebug(fixture<DecisionFixture>("decision-local.json").
 const cloud = decisionFromDebug(fixture<DecisionFixture>("decision-cloud.json").wayfinder);
 const savings = fixture<SavingsReport>("savings.json");
 
-describe("Bar — a meter with a fill and a knob at the fill edge", () => {
+describe("Bar — a plain fill meter for true 0..1 scalars (no knob — see WF-DESIGN-0014's deviation note)", () => {
   it("clamps 0..1 and exposes the percent to a11y", () => {
     render(<Bar fraction={0.62} label="local share" />);
     const meter = screen.getByRole("meter", { name: "local share" });
@@ -40,25 +41,69 @@ describe("Bar — a meter with a fill and a knob at the fill edge", () => {
   });
 });
 
-describe("MetricRow — bold label, bar, left/right values, optional insight (mirrors clawrouter-usage.png)", () => {
-  it("renders the label, values, and insight line", () => {
+describe("SplitBar — the route split as a composition, not a quota fill", () => {
+  it("renders proportional segments with an a11y summary", () => {
+    const { container } = render(
+      <SplitBar
+        segments={[
+          { label: "local", count: 1, color: "teal" },
+          { label: "cloud", count: 3, color: "orange" },
+        ]}
+      />,
+    );
+    const bar = screen.getByRole("img", { name: "route split — local: 1 (25%), cloud: 3 (75%)" });
+    expect(bar).toBeInTheDocument();
+    const segments = container.querySelectorAll('[role="img"] > div');
+    expect(segments.length).toBe(2);
+    expect((segments[0] as HTMLElement).style.width).toBe("25%");
+    expect((segments[1] as HTMLElement).style.width).toBe("75%");
+  });
+  it("an empty split is just the track — no segments", () => {
+    const { container } = render(
+      <SplitBar
+        segments={[
+          { label: "local", count: 0, color: "teal" },
+          { label: "cloud", count: 0, color: "orange" },
+        ]}
+      />,
+    );
+    expect(container.querySelectorAll('[role="img"] > div').length).toBe(0);
+  });
+  it("zero-count segments are dropped rather than rendered as slivers", () => {
+    const { container } = render(
+      <SplitBar
+        segments={[
+          { label: "local", count: 2, color: "teal" },
+          { label: "cloud", count: 0, color: "orange" },
+        ]}
+      />,
+    );
+    expect(container.querySelectorAll('[role="img"] > div').length).toBe(1);
+  });
+});
+
+describe("MetricRow — bold label, optional bar, left/right values, optional insight", () => {
+  it("renders the label, a supplied bar, values, and insight line", () => {
     render(
       <MetricRow
         label="Routing"
-        fraction={0.5}
+        bar={<SplitBar segments={[{ label: "local", count: 1, color: "teal" }, { label: "cloud", count: 1, color: "orange" }]} />}
         left="50% routed locally"
         right="2 turns"
         insight="Routed: local: 1 · cloud: 1"
       />,
     );
     expect(screen.getByText("Routing")).toBeInTheDocument();
+    expect(screen.getByRole("img", { name: /route split/ })).toBeInTheDocument();
     expect(screen.getByText("50% routed locally")).toBeInTheDocument();
     expect(screen.getByText("2 turns")).toBeInTheDocument();
     expect(screen.getByText("Routed: local: 1 · cloud: 1")).toBeInTheDocument();
   });
-  it("right and insight are optional", () => {
-    render(<MetricRow label="Saved" fraction={0} left="Not yet available" />);
+  it("bar, right, and insight are all optional — a bar-less section is just label + line", () => {
+    render(<MetricRow label="Saved" left="Not yet available" />);
     expect(screen.getByText("Not yet available")).toBeInTheDocument();
+    expect(screen.queryByRole("meter")).not.toBeInTheDocument();
+    expect(screen.queryByRole("img")).not.toBeInTheDocument();
   });
 });
 

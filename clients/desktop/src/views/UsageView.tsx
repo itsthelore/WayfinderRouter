@@ -11,6 +11,7 @@ import type { RecentReport } from "@/hooks/useRecent";
 import { formatSaved, type SavingsReport } from "@/lib/format";
 import { ActionRow } from "@/components/menu/ActionRow";
 import { MetricRow } from "@/components/menu/MetricRow";
+import { SplitBar } from "@/components/menu/SplitBar";
 import { Separator } from "@/components/ui/separator";
 
 export function UsageView({
@@ -42,17 +43,28 @@ export function UsageView({
     <div className="flex flex-col" data-testid="usage">
       <MetricRow
         label="Routing"
-        fraction={localShare}
+        bar={
+          <SplitBar
+            segments={[
+              { label: "local", count: localCount, color: "var(--primary)" },
+              { label: "cloud", count: cloudCount, color: "var(--route-cloud)" },
+            ]}
+          />
+        }
         left={total > 0 ? `${Math.round(localShare * 100)}% routed locally` : "No turns yet"}
         right={total > 0 ? `${total} turn${total === 1 ? "" : "s"}` : undefined}
         insight={total > 0 ? `Routed: local: ${localCount} · cloud: ${cloudCount}` : undefined}
       />
       <Separator />
+      {/* Saved is cost-like, not a quota — no bar, a plain value line, exactly the form
+          CodexBar's own (bar-less) Cost section uses. */}
       <MetricRow
         label="Saved"
-        fraction={Math.min(1, savedPct / 100)}
-        left={hasSavings ? `${formatSaved(savings!.saved)} saved today` : "Not yet available"}
-        right={hasSavings && savedPct > 0 ? `${Math.round(savedPct)}% vs always-cloud` : undefined}
+        left={
+          hasSavings
+            ? `Today: ${formatSaved(savings!.saved)}${savedPct > 0 ? ` · ${Math.round(savedPct)}% vs always-cloud` : ""}`
+            : "Not yet available"
+        }
       />
       <Separator />
 

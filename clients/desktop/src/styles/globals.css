@@ -170,3 +170,18 @@ body {
   border-radius: 13px;
   overflow: hidden;
 }
+
+/* The Settings window (WF-DESIGN-0014) is a normal decorated window, not the vibrant popover:
+ * it paints its own opaque background (a transparent body over an opaque NSWindow would render
+ * the webview's default white under dark-mode text) and drops the popover's corner radius. */
+body[data-window="settings"] {
+  background: #f2f2f4;
+}
+body[data-window="settings"] #root {
+  border-radius: 0;
+}
+@media (prefers-color-scheme: dark) {
+  body[data-window="settings"] {
+    background: #1e1e20;
+  }
+}
