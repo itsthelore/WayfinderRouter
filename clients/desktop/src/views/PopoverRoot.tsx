@@ -22,6 +22,7 @@ import { quantizeFill } from "@/lib/meter";
 import {
   serviceControl,
   scaffoldConfig,
+  setOffline,
   setShortcut,
   setTrayState,
   openSettings,
@@ -79,7 +80,9 @@ export function PopoverRoot({ baseUrl = GATEWAY_BASE }: { baseUrl?: string } = {
     intervalMs,
   });
   const { report: recent, refresh: refreshRecent } = useRecent({ baseUrl, cheapest, enabled: reachable, intervalMs });
-  const turn = useTurn({ baseUrl, cheapest, offline: gw.offlineLocal });
+  // No per-turn offline header: offline is the gateway's own global mode now — when it is
+  // on, the gateway pins delivery local for every client without being asked (WF-ADR-0039).
+  const turn = useTurn({ baseUrl, cheapest });
 
   // Event-driven: when a turn settles, tell the gateway machine whether it was decision-only
   // (drives that mode) and refresh the usage feeds the moment the numbers moved.
@@ -115,6 +118,23 @@ export function PopoverRoot({ baseUrl = GATEWAY_BASE }: { baseUrl?: string } = {
   const onScaffold = useCallback(async (preset: Preset) => {
     await scaffoldConfig(preset);
   }, []);
+
+  // The header's GLOBAL offline switch: flip through the config seam, then poll healthz so the
+  // switch reflects the gateway's own truth rather than an optimistic guess. `pending` disables
+  // the switch until the confirming poll lands (hot-reload applies on the gateway's next
+  // request, so the immediate poll is also what triggers it).
+  const [offlinePending, setOfflinePending] = useState(false);
+  const onOfflineToggle = useCallback(
+    (on: boolean) => {
+      setOfflinePending(true);
+      setOffline(on)
+        .catch((e) => console.warn("offline toggle failed", e))
+        .finally(() => {
+          void pollHealth().finally(() => setOfflinePending(false));
+        });
+    },
+    [pollHealth],
+  );
 
   const view = gatewayView(gw);
   const [screen, setScreen] = useState<"usage" | "chat">("usage");
@@ -154,6 +174,8 @@ export function PopoverRoot({ baseUrl = GATEWAY_BASE }: { baseUrl?: string } = {
             gw={gw}
             updatedText={formatUpdated(lastUpdated, Date.now())}
             onAddKey={() => void openSettings("keys")}
+            onOfflineToggle={onOfflineToggle}
+            offlinePending={offlinePending}
           />
         ))}
       {view === "chat" && <Separator className="mx-5 w-auto" />}
@@ -166,12 +188,10 @@ export function PopoverRoot({ baseUrl = GATEWAY_BASE }: { baseUrl?: string } = {
           <div hidden={screen !== "usage"} className="flex min-h-0 flex-1 flex-col">
             <div className="min-h-0 flex-1 overflow-y-auto">
               <UsageView
-                gw={gw}
                 recent={recent}
                 savings={savings}
                 savings30d={savings30d}
                 cheapest={cheapest}
-                onOfflineToggle={(on) => dispatch({ type: "OFFLINE_TOGGLED", on })}
                 onOpenChat={() => setScreen("chat")}
               />
             </div>

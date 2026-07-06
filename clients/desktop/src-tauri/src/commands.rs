@@ -190,6 +190,33 @@ pub fn set_shortcut(app: AppHandle, id: String) -> Result<(), String> {
     crate::apply_shortcut(&app, &id)
 }
 
+/// Flip GLOBAL offline-first delivery (WF-ADR-0039) for every client of the gateway — not just
+/// this app's chat — by shelling the seam's mutation verb (WF-ADR-0044):
+/// `config set gateway.offline true|false --path <shared config>`. The gateway hot-reloads the
+/// change on its next request, so the popover's next healthz poll reflects it; no restart. The
+/// CLI itself validates the edit against the real schema before writing.
+#[tauri::command]
+pub fn set_offline(on: bool) -> Result<String, String> {
+    let home = std::env::var("HOME").unwrap_or_default();
+    let path = std::env::var("PATH").unwrap_or_default();
+    let wf = service::resolve_wayfinder(&home, &path).ok_or_else(|| {
+        "couldn't find `wayfinder-router` — install the gateway first (pip install wayfinder-router)"
+            .to_string()
+    })?;
+    let config = service::desktop_config_path(&home);
+    let value = if on { "true" } else { "false" };
+    let out = Command::new(&wf)
+        .args(["config", "set", "gateway.offline", value, "--path", &config])
+        .output()
+        .map_err(|e| format!("{wf}: {e}"))?;
+    if out.status.success() {
+        Ok(format!("gateway.offline = {value}"))
+    } else {
+        let stderr = String::from_utf8_lossy(&out.stderr);
+        Err(format!("config set failed: {}", stderr.trim()))
+    }
+}
+
 /// A transition-edge notification (WF-DESIGN-0012: edge-only, off by default — the webview's
 /// edge detector decides when). Dep-free via `osascript` so v1 pulls in no notification plugin;
 /// app-attributed notifications (tauri-plugin-notification) are a follow-up pending a dependency

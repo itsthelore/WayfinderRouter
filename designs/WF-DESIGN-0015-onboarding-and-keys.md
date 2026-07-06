@@ -78,7 +78,8 @@ focused, not re-routed (accepted limitation).
 Static Form rows stating exactly what WF-ADR-0042 §8 allows, nothing more: the decision is
 computed on-device (deterministic, offline, keyless); prompts go only to the provider you route
 to, under your own keys, from the local gateway; **offline mode is the only nothing-leaves
-guarantee** (and where its one-click toggle lives); no telemetry, ever. The banned overclaim
+guarantee** (its one-click toggle is the header switch, below); no telemetry, ever. The banned
+overclaim
 ("your data never leaves your machine") is asserted absent in tests, not just avoided.
 
 ## Shortcut rebind (Settings → General)
@@ -92,6 +93,19 @@ blob is the source of truth: the popover re-applies `settings.shortcut` on mount
 cross-window `storage` change. The roadmap's side-quest is also resolved: the old lib.rs
 warning claiming the hotkey needs an Accessibility grant was false (RegisterEventHotKey needs
 none) and is reworded.
+
+## Amendment: the offline switch is global (header, not action list)
+
+The popover's per-app "Offline" action row is retired. Offline is a machine-wide mode — every
+client of the gateway routes local while it's on — so the desktop app flips the config itself
+through the seam's first mutation verb, `wayfinder-router config set gateway.offline
+true|false --path <the app's config>` (WF-ADR-0044), and hot-reload applies it gateway-wide.
+The control is a small switch in the popover header, on the status row beside the health label
+it changes: flip → shell the verb → poll `/healthz` → the `offline` field confirms and the
+label reads "Offline". The switch is disabled while that round-trip is pending, and its checked
+state always renders healthz truth, never optimistic local state — an edit made in the TOML by
+hand shows up on the next poll exactly the same way. The old per-turn
+`X-Wayfinder-Offline` header path in the client is deleted along with the row.
 
 ## Verification & known limits
 

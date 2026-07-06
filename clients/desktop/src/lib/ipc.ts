@@ -89,6 +89,14 @@ export async function setShortcut(id: string): Promise<void> {
   await invoke("set_shortcut", { id });
 }
 
+/** Flip GLOBAL offline-first delivery for every client of the gateway (WF-ADR-0039), via the
+ *  config seam's `config set gateway.offline` (WF-ADR-0044). The gateway hot-reloads it; the
+ *  next healthz poll confirms. Rejects with the CLI's reason on failure. */
+export async function setOffline(on: boolean): Promise<string> {
+  if (!inTauri()) throw new Error("offline mode needs the desktop app");
+  return invoke<string>("set_offline", { on });
+}
+
 /** The footer's "Quit Wayfinder" row (WF-DESIGN-0014) — the same exit the tray's own Quit item
  *  reaches, just callable from the webview. */
 export async function quitApp(): Promise<void> {

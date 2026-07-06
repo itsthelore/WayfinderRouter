@@ -19,10 +19,11 @@ export interface HealthzBody {
 export interface GatewayState {
   /** Last poll outcome; "unknown" until the first poll resolves. */
   health: "unknown" | "ok" | "degraded" | "unreachable";
-  /** Standing config knob from healthz (WF-ADR-0039). */
+  /** GLOBAL offline-first delivery, from healthz (WF-ADR-0039) — the config file is the one
+   *  source of truth; the header switch flips it through `config set` (WF-ADR-0044) and this
+   *  field reflects it on the next poll. The old per-app X-Wayfinder-Offline preference is
+   *  retired: a control that looks machine-wide must be machine-wide. */
   offlineConfig: boolean;
-  /** The client-side preference (OfflineToggle) — adds X-Wayfinder-Offline per turn. */
-  offlineLocal: boolean;
   /** Env-var names, verbatim from healthz, for the degraded banner / StatusDot tooltip. */
   missingKeys: string[];
   /** Ever seen a live gateway on this machine (persisted as localStorage["wf.seenGateway"]). */
@@ -34,14 +35,12 @@ export interface GatewayState {
 export type GatewayEvent =
   | { type: "HEALTHZ_OK"; body: HealthzBody }
   | { type: "HEALTHZ_FAILED" }
-  | { type: "TURN_DECISION"; decisionOnly: boolean }
-  | { type: "OFFLINE_TOGGLED"; on: boolean };
+  | { type: "TURN_DECISION"; decisionOnly: boolean };
 
 export function initialGatewayState(seenGateway: boolean): GatewayState {
   return {
     health: "unknown",
     offlineConfig: false,
-    offlineLocal: false,
     missingKeys: [],
     seenGateway,
     lastTurnDecisionOnly: false,
@@ -62,8 +61,6 @@ export function gatewayReducer(state: GatewayState, event: GatewayEvent): Gatewa
       return { ...state, health: "unreachable" };
     case "TURN_DECISION":
       return { ...state, lastTurnDecisionOnly: event.decisionOnly };
-    case "OFFLINE_TOGGLED":
-      return { ...state, offlineLocal: event.on };
   }
 }
 
@@ -80,7 +77,7 @@ export function gatewayMode(state: GatewayState): GatewayMode {
   if (state.health === "unreachable" || state.health === "unknown")
     return state.seenGateway ? "unreachable" : "first-run";
   if (state.lastTurnDecisionOnly) return "decision-only";
-  if (state.offlineConfig || state.offlineLocal) return "offline";
+  if (state.offlineConfig) return "offline";
   if (state.health === "degraded") return "degraded";
   return "healthy";
 }
@@ -97,9 +94,7 @@ export function gatewayView(state: GatewayState): "chat" | "unreachable" | "firs
 export const showDegradedBanner = (s: GatewayState) =>
   gatewayView(s) === "chat" && s.health === "degraded";
 export const showOfflineChip = (s: GatewayState) =>
-  gatewayView(s) === "chat" && (s.offlineConfig || s.offlineLocal);
-/** The OfflineToggle renders on+disabled when offline comes from config (WF-ADR-0039). */
-export const offlineLockedByConfig = (s: GatewayState) => s.offlineConfig;
+  gatewayView(s) === "chat" && s.offlineConfig;
 
 // ------------------------------------------------------------------------------- turn machine
 

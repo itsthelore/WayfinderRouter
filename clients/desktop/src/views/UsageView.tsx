@@ -6,12 +6,12 @@
 // section uses. Everything here renders gateway truth — nothing is computed beyond shares of
 // the gateway's own counts (WF-ADR-0001).
 //
-// Deliberately ONLY behavior here (maintainer review, twice): Offline mode and Chat. Every
-// open-something and fix-something action lives inside Settings — dashboard/logs/config under
-// Gateway, keys under Keys (the degraded header's missing-keys line is the deep-link) — so the
-// popover never re-grows a scattered menu next to the one "Settings…" door.
-import { MessageCircle, WifiOff } from "lucide-react";
-import type { GatewayState } from "@/lib/appState";
+// Deliberately ONLY behavior here (maintainer review, twice): Chat. Every open-something and
+// fix-something action lives inside Settings — dashboard/logs/config under Gateway, keys under
+// Keys (the degraded header's missing-keys line is the deep-link) — and the global Offline
+// switch lives in the header beside the status it changes, so the popover never re-grows a
+// scattered menu next to the one "Settings…" door.
+import { MessageCircle } from "lucide-react";
 import type { RecentReport } from "@/hooks/useRecent";
 import { formatSaved, type SavingsReport } from "@/lib/format";
 import { ActionRow } from "@/components/menu/ActionRow";
@@ -25,20 +25,16 @@ function savedLine(prefix: string, report: SavingsReport): string {
 }
 
 export function UsageView({
-  gw,
   recent,
   savings,
   savings30d,
   cheapest,
-  onOfflineToggle,
   onOpenChat,
 }: {
-  gw: GatewayState;
   recent: RecentReport | null;
   savings: SavingsReport | null;
   savings30d: SavingsReport | null;
   cheapest: string | null;
-  onOfflineToggle: (on: boolean) => void;
   onOpenChat: () => void;
 }) {
   const total = recent?.total ?? 0;
@@ -47,7 +43,6 @@ export function UsageView({
   const localShare = total > 0 ? localCount / total : 0;
   const hasSavings = !!savings && savings.priced && savings.saved > 0;
   const has30d = !!savings30d && savings30d.priced && savings30d.saved > 0;
-  const offline = gw.offlineConfig || gw.offlineLocal;
 
   // The reference's Cost form: stacked dark body lines, today then the 30-day window. Each
   // line renders only when its period is priced with real savings (never "0 relative units").
@@ -81,13 +76,9 @@ export function UsageView({
       />
       <Separator className="mx-5 w-auto" />
 
-      <ActionRow
-        icon={WifiOff}
-        label={gw.offlineConfig ? "Offline mode (by config)" : "Offline mode"}
-        checked={offline}
-        disabled={gw.offlineConfig}
-        onClick={gw.offlineConfig ? undefined : () => onOfflineToggle(!gw.offlineLocal)}
-      />
+      {/* Offline moved to the header switch (WF-DESIGN-0015 amendment): it is GLOBAL now —
+          flipped through `config set gateway.offline` (WF-ADR-0044) — and a machine-wide mode
+          belongs beside the machine-wide status, not in the action list. */}
       <ActionRow icon={MessageCircle} label="Chat" chevron onClick={onOpenChat} />
     </div>
   );
