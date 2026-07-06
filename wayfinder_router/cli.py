@@ -374,7 +374,7 @@ def _cmd_init(args: argparse.Namespace) -> int:
             return EXIT_USAGE
         preset = chosen
 
-    config_text = bootstrap.render_config(preset)
+    config_text = bootstrap.render_config(preset, keychain=args.keychain)
     if args.print:
         sys.stdout.write(config_text)
         return EXIT_OK
@@ -1207,6 +1207,12 @@ def build_parser() -> argparse.ArgumentParser:
     )
     p_init.add_argument(
         "--print", action="store_true", help="Print the config to stdout instead of writing files."
+    )
+    p_init.add_argument(
+        "--keychain", action="store_true",
+        help="macOS: add an api_key_cmd per keyed model reading the key from the Keychain "
+             "(service 'wayfinder-router', account = the env-var name) — the reference the "
+             "desktop app scaffolds through; the key itself is never written to the config.",
     )
     p_init.set_defaults(func=_cmd_init)
 
