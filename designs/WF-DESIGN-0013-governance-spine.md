@@ -227,6 +227,9 @@ class AuditRecord:
     ts_mono: float                 # time.perf_counter() at decision (intra-process ordering)
     request_id: str                # gateway's 12-hex request id
     identity_id: str               # resolved principal id (never "" — "anonymous" if none)
+    identity_kind: str             # principal kind at decision time (human|agent|service|anonymous)
+    team: str | None               # principal team at decision time
+    tags: tuple[str, ...]          # principal residual tags at decision time
     vkey_id: str | None            # virtual-key id, or None when keys are unconfigured
     route: str                     # final chosen model/endpoint (post-policy)
     route_pre_policy: str          # chosen route as the gateway computed it before the policy stage
@@ -292,8 +295,9 @@ end_ts`; `after_seq`+`limit` page. `next_after_seq` is the last returned record'
 `len(records) == limit`, else `None`. Ordering is always seq-ascending (== append/wall-clock order).
 
 **Replay API.** `replay(seq, policy=...)` loads the record and re-derives the `PolicyDecision` by
-feeding the record's **stored signals** (identity_id, vkey tags via team/kind fields folded into the
-record, route_pre_policy, score, detector_hits) into `policy.evaluate`. Because policy evaluation is
+feeding the record's **stored signals** (identity_id, identity_kind, team, tags, route_pre_policy,
+score, detector_hits — the principal's attribution is stored at decision time precisely so replay
+never consults the current identity registry, which may have changed) into `policy.evaluate`. Because policy evaluation is
 pure and deterministic (WF-ADR-0001), same record + same policy version → byte-identical decision.
 **Honest scope:** replay reconstructs the *policy decision given the recorded detector/identity/
 route signals*; it cannot re-run detectors (no prompt text is stored, by constraint), so a replay is
