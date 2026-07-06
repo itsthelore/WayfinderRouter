@@ -5,7 +5,7 @@
 // is reached through a chevron row, the same disclosure affordance CodexBar's own "Cost"
 // section uses. Everything here renders gateway truth — nothing is computed beyond shares of
 // the gateway's own counts (WF-ADR-0001).
-import { ExternalLink, FileText, MessageCircle, Settings2, WifiOff } from "lucide-react";
+import { ExternalLink, FileText, MessageCircle, WifiOff } from "lucide-react";
 import type { GatewayState } from "@/lib/appState";
 import type { RecentReport } from "@/hooks/useRecent";
 import { formatSaved, type SavingsReport } from "@/lib/format";
@@ -77,8 +77,9 @@ export function UsageView({
       />
       <ActionRow icon={MessageCircle} label="Chat" chevron onClick={onOpenChat} />
       <Separator />
+      {/* No "Open Config" here — "Config" and "Settings" read as synonyms as sibling entries
+          (maintainer review); the gateway's config file is reached via Settings → Gateway. */}
       <ActionRow icon={ExternalLink} label="Open Dashboard" onClick={() => onOpenTarget("dashboard")} />
-      <ActionRow icon={Settings2} label="Open Config" onClick={() => onOpenTarget("config")} />
       <ActionRow icon={FileText} label="Open Logs" onClick={() => onOpenTarget("logs")} />
     </div>
   );

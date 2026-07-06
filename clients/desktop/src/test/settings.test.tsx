@@ -12,6 +12,14 @@ import { cadenceToMs, DEFAULT_SETTINGS, loadSettings, saveSettings, SETTINGS_KEY
 import { useSavings } from "@/hooks/useSavings";
 import { SettingsWindow } from "@/views/SettingsWindow";
 
+// Mock the ipc boundary so the Gateway section's open-config button is assertable without a
+// Tauri runtime (outside one, openTarget silently no-ops).
+vi.mock("@/lib/ipc", async () => {
+  const actual = await vi.importActual<typeof import("@/lib/ipc")>("@/lib/ipc");
+  return { ...actual, openTarget: vi.fn(async () => {}) };
+});
+import { openTarget } from "@/lib/ipc";
+
 function fixture(name: string): string {
   return readFileSync(join(process.cwd(), "src", "test", "fixtures", name), "utf8");
 }
@@ -71,5 +79,15 @@ describe("SettingsWindow — sidebar + Mac-native Form rows (mirrors clawrouter-
     render(<SettingsWindow />);
     expect(screen.queryByRole("searchbox")).not.toBeInTheDocument();
     expect(screen.queryByText(/API key/i)).not.toBeInTheDocument();
+  });
+
+  it("Gateway section: endpoint info + the one door to the gateway's config file", async () => {
+    const user = userEvent.setup();
+    render(<SettingsWindow />);
+    await user.click(screen.getByRole("button", { name: "Gateway" }));
+    expect(screen.getByText("Endpoint")).toBeInTheDocument();
+    expect(screen.getByText("127.0.0.1:8088")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Open in Finder" }));
+    expect(openTarget).toHaveBeenCalledWith("config");
   });
 });

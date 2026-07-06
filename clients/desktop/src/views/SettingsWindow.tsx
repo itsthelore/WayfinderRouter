@@ -2,15 +2,19 @@
 // in-popover slide-over (that was WF-DESIGN-0013's `SettingsView`, retired). Layout mirrors
 // CodexBar's ClawRouter settings pane (clawrouter-settings.png): a sidebar list on the left, a
 // detail pane on the right of Mac-native Form rows (bold label + gray description on the left,
-// the control flush right). One real sidebar entry today — General — because that is all the
-// real content there is; a second (Privacy, Keys) slots in without restructuring when
-// WF-ROADMAP-0009 Phase 4 lands it. No provider search box and no API key/Base URL rows —
+// the control flush right). Two sidebar entries: General (the app's own preferences) and
+// Gateway (the router's side — endpoint, and the door to its config file, which the app opens
+// but never edits, WF-ADR-0042/0004). "Config" and "Settings" as sibling popover entries read
+// as synonyms (maintainer review), so Settings is the single entry point and the distinction
+// is made explicit here instead. No provider search box and no API key/Base URL rows —
 // ClawRouter's search its own provider list, and Wayfinder's key handling is still Phase 4;
 // both are recorded in WF-DESIGN-0014's Later section rather than faked here.
 import { useEffect, useState } from "react";
 import type { Cadence, Settings } from "@/lib/settings";
 import { loadSettings, saveSettings } from "@/lib/settings";
-import { autostartEnabled, setAutostart } from "@/lib/ipc";
+import { autostartEnabled, openTarget, setAutostart } from "@/lib/ipc";
+import { GATEWAY_BASE } from "@/lib/gateway";
+import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
 import { Separator } from "@/components/ui/separator";
 
@@ -22,7 +26,10 @@ const CADENCES: Array<{ value: Cadence; label: string }> = [
   { value: "15m", label: "Every 15 minutes" },
 ];
 
-const SECTIONS = [{ id: "general", label: "General" }] as const;
+const SECTIONS = [
+  { id: "general", label: "General" },
+  { id: "gateway", label: "Gateway" },
+] as const;
 
 function FormRow({
   label,
@@ -99,6 +106,33 @@ function GeneralSection({ settings, onChange }: { settings: Settings; onChange: 
   );
 }
 
+function GatewaySection() {
+  return (
+    <div className="flex flex-col">
+      <h2 className="pb-2 text-[15px] font-semibold">Gateway</h2>
+
+      <FormRow
+        label="Endpoint"
+        description="The local gateway this app renders from. Loopback only — the popover never talks to anything else."
+      >
+        <span className="font-mono text-[13px] text-muted-foreground">
+          {GATEWAY_BASE.replace(/^https?:\/\//, "")}
+        </span>
+      </FormRow>
+      <Separator />
+
+      <FormRow
+        label="Configuration file"
+        description="Routing tiers, models, keys, and budgets live in the gateway's own config file. The app opens it for you but never edits it — the gateway hot-reloads your changes."
+      >
+        <Button size="sm" variant="secondary" onClick={() => void openTarget("config")}>
+          Open in Finder
+        </Button>
+      </FormRow>
+    </div>
+  );
+}
+
 export function SettingsWindow() {
   const [settings, setSettingsState] = useState(loadSettings);
   const [section, setSection] = useState<(typeof SECTIONS)[number]["id"]>("general");
@@ -126,6 +160,7 @@ export function SettingsWindow() {
       </nav>
       <main className="min-w-0 flex-1 overflow-y-auto p-6">
         {section === "general" && <GeneralSection settings={settings} onChange={onChange} />}
+        {section === "gateway" && <GatewaySection />}
       </main>
     </div>
   );
