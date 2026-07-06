@@ -47,6 +47,7 @@ DEFAULT_FSYNC_BYTES: int = 4 * 1024 * 1024
 
 _MMAP_CACHE_CAP: int = 64  # bounded LRU of sealed-segment mmaps — caps open fds / address space
 _SHARD_CACHE_PAGES: int = -2000  # ~2 MiB page cache per shard (negative = KiB) — bounds RSS
+_BULK_WAL_PAGES: int = 16384  # bulk-writer auto-checkpoint cadence: ~64 MiB WAL at 4 KiB pages
 
 # The wire frame: fixed 24-byte little-endian header + payload. crc is over the payload only.
 _HEADER = struct.Struct("<IQdI")  # length, seq, ts_wall, crc32
@@ -170,16 +171,20 @@ def _iter_valid_frames(buf: Any, buflen: int) -> Iterator[_Frame]:
 
 
 # --- shard (sqlite) helpers, shared by the store and the rebuild worker ------------------------
-def _apply_pragmas(con: sqlite3.Connection) -> None:
+def _apply_pragmas(con: sqlite3.Connection, *, bulk: bool = False) -> None:
     """WAL + synchronous=NORMAL keep the INSERT off the platter; a bounded cache caps RSS.
 
-    wal_autocheckpoint=0 keeps SQLite's auto-checkpoint off the per-append commit path (it was
-    the measured append-p99 tail); checkpoints run explicitly at the durability barrier / seal /
-    close instead, so the WAL between barriers stays bounded by the fsync_bytes cadence.
+    Hot-path connections (bulk=False) set wal_autocheckpoint=0 so no append ever pays SQLite's
+    auto-checkpoint (it was the measured append-p99 tail); checkpoints run explicitly at the
+    durability barrier / seal / close, so the WAL stays bounded by the fsync_bytes cadence.
+    Bulk writers (bulk=True: rebuild workers, whole-segment reconciliation) have no hot-path
+    budget and MUST checkpoint as they go — an unchecked bulk load grows the WAL without bound
+    (observed: a 19 GB WAL / ENOSPC from parallel rebuild) — so they auto-checkpoint every
+    `_BULK_WAL_PAGES` pages (~64 MiB of WAL at the 4 KiB default page size).
     """
     con.execute("PRAGMA journal_mode=WAL")
     con.execute("PRAGMA synchronous=NORMAL")
-    con.execute("PRAGMA wal_autocheckpoint=0")
+    con.execute(f"PRAGMA wal_autocheckpoint={_BULK_WAL_PAGES if bulk else 0}")
     con.execute(f"PRAGMA cache_size={_SHARD_CACHE_PAGES}")
 
 
@@ -240,12 +245,14 @@ def _rebuild_segment(root: str, seg_id: int, index_fields: tuple[str, ...]) -> i
     disjoint segments with no shared writer; returns the number of records indexed.
     """
     dbpath = _shard_db_path(root, seg_id)
+    # Delete db AND -wal/-shm up front: rebuild regenerates the shard entirely from the log, so
+    # a giant/stale WAL from a previously crashed rebuild must never be replayed (or kept).
     _drop_shard_files(dbpath)
     with open(_segment_log_path(root, seg_id), "rb") as fh:
         data = fh.read()
     con = sqlite3.connect(dbpath, isolation_level=None)
     try:
-        _apply_pragmas(con)
+        _apply_pragmas(con, bulk=True)  # bounded-WAL bulk profile — see _apply_pragmas
         _create_shard_schema(con, index_fields)
         insert = _build_insert_sql(index_fields)
         count = 0
@@ -423,11 +430,16 @@ class RecordStore:
             _rebuild_segment(self._root, seg_id, self._index_fields)
         con = self._open_shard(dbpath, create=True)
         # Drop shard rows for now-truncated frames, then re-INSERT any log frame the shard trails.
+        # Reconciliation can bulk-load a whole segment, so it runs under the bounded-WAL bulk
+        # profile; the hot-path autocheckpoint=0 is restored (with a checkpoint) before appends.
+        con.execute(f"PRAGMA wal_autocheckpoint={_BULK_WAL_PAGES}")
         con.execute("DELETE FROM records WHERE seq > ?", (live_max,))
         shard_max = int(con.execute("SELECT COALESCE(MAX(seq),0) FROM records").fetchone()[0])
         for fr in frames:
             if fr.seq > shard_max:
                 con.execute(self._insert_sql, _row_values(seg_id, fr, self._index_fields))
+        con.execute("PRAGMA wal_checkpoint(PASSIVE)")
+        con.execute("PRAGMA wal_autocheckpoint=0")
 
         self._shards[seg_id] = con
         self._live_shard = con
@@ -735,6 +747,7 @@ class RecordStore:
     ) -> RebuildReport:
         """Rebuild every shard from the immutable logs across `workers` processes; kw-only args."""
         start = time.perf_counter()
+        os.makedirs(_index_dir(root), exist_ok=True)  # a wiped index/ dir is rebuildable too
         seg_ids = _segment_ids(root)
         if workers <= 1 or len(seg_ids) <= 1:
             counts = [_rebuild_segment(root, sid, index_fields) for sid in seg_ids]
