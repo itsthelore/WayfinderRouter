@@ -88,7 +88,7 @@ describe("SettingsWindow — sidebar + Mac-native Form rows (mirrors clawrouter-
     expect(screen.queryByRole("searchbox")).not.toBeInTheDocument();
   });
 
-  it("Gateway section: endpoint info + the one door to the gateway's config file", async () => {
+  it("Gateway section: endpoint, config file, dashboard, and logs — all the open-targets live HERE, not as popover rows", async () => {
     const user = userEvent.setup();
     render(<SettingsWindow />);
     await user.click(screen.getByRole("button", { name: "Gateway" }));
@@ -96,6 +96,10 @@ describe("SettingsWindow — sidebar + Mac-native Form rows (mirrors clawrouter-
     expect(screen.getByText("127.0.0.1:8088")).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "Open in Finder" }));
     expect(openTarget).toHaveBeenCalledWith("config");
+    await user.click(screen.getByRole("button", { name: "Open in Browser" }));
+    expect(openTarget).toHaveBeenCalledWith("dashboard");
+    await user.click(screen.getByRole("button", { name: "Show in Finder" }));
+    expect(openTarget).toHaveBeenCalledWith("logs");
   });
 
   it("shortcut select persists the choice and invokes the rebind", async () => {

@@ -1,7 +1,10 @@
 // The detail header (WF-DESIGN-0014, mirrors clawrouter-usage.png): bold name + a right-aligned
 // health label on line one, a freshness/status subtext on line two. Health renders as plain
 // neutral text — CodexBar's own tier badge ("Max") is gray, not coloured; colour lives only in
-// bar fills. When the chat sub-screen is pushed, the same header swaps to a back control.
+// bar fills. When degraded, the subtext line itself is the fix-it affordance ("Missing X — add
+// key…" → Settings → Keys): the status that names the problem carries the click, so the action
+// list never grows an extra menu row (WF-DESIGN-0015, maintainer review). When the chat
+// sub-screen is pushed, the same header swaps to a back control.
 import type { GatewayState } from "@/lib/appState";
 import { cn } from "@/lib/utils";
 
@@ -15,23 +18,35 @@ const HEALTH_LABEL: Record<GatewayState["health"], string> = {
 export function MenuHeader({
   gw,
   updatedText,
+  onAddKey,
   className,
 }: {
   gw: GatewayState;
   updatedText: string;
+  /** Opens Settings → Keys; the degraded subtext renders as a link only when provided. */
+  onAddKey?: () => void;
   className?: string;
 }) {
   const offline = gw.offlineConfig || gw.offlineLocal;
   const health = offline ? "Offline" : HEALTH_LABEL[gw.health];
-  const subtext =
-    gw.health === "degraded" && gw.missingKeys.length > 0
-      ? `Missing ${gw.missingKeys.join(", ")}`
-      : updatedText;
+  const missing = gw.health === "degraded" && gw.missingKeys.length > 0;
   return (
     <header className={cn("flex items-center justify-between gap-3 bg-background px-5 py-5", className)}>
       <div className="flex flex-col gap-1">
         <span className="text-[19px] font-bold leading-tight">Wayfinder</span>
-        <span className="truncate text-[13px] text-muted-foreground">{subtext}</span>
+        {missing && onAddKey ? (
+          <button
+            type="button"
+            onClick={onAddKey}
+            className="truncate text-left text-[13px] text-muted-foreground underline decoration-dotted underline-offset-2 hover:text-foreground"
+          >
+            Missing {gw.missingKeys.join(", ")} — add key…
+          </button>
+        ) : (
+          <span className="truncate text-[13px] text-muted-foreground">
+            {missing ? `Missing ${gw.missingKeys.join(", ")}` : updatedText}
+          </span>
+        )}
       </div>
       <span className="shrink-0 text-[13px] text-muted-foreground">{health}</span>
     </header>

@@ -178,6 +178,23 @@ function GatewaySection() {
           Open in Finder
         </Button>
       </FormRow>
+      <Separator />
+
+      <FormRow
+        label="Dashboard"
+        description="The gateway's own web dashboard — routing history, costs, and the live threshold."
+      >
+        <Button size="sm" variant="secondary" onClick={() => void openTarget("dashboard")}>
+          Open in Browser
+        </Button>
+      </FormRow>
+      <Separator />
+
+      <FormRow label="Logs" description="The gateway service's log files, for when something misbehaves.">
+        <Button size="sm" variant="secondary" onClick={() => void openTarget("logs")}>
+          Show in Finder
+        </Button>
+      </FormRow>
     </div>
   );
 }

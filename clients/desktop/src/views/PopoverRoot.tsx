@@ -24,10 +24,8 @@ import {
   scaffoldConfig,
   setShortcut,
   setTrayState,
-  openTarget,
   openSettings,
   quitApp,
-  type OpenTarget,
   type Preset,
   type TrayState,
 } from "@/lib/ipc";
@@ -112,7 +110,6 @@ export function PopoverRoot({ baseUrl = GATEWAY_BASE }: { baseUrl?: string } = {
 
   const view = gatewayView(gw);
   const [screen, setScreen] = useState<"usage" | "chat">("usage");
-  const onOpenTarget = useCallback((target: OpenTarget) => void openTarget(target), []);
 
   // The footer's real ⌘-shortcuts (WF-DESIGN-0014: never decorative) — only live while the
   // footer itself is visible, so they can't steal a keystroke out of the chat composer.
@@ -144,7 +141,11 @@ export function PopoverRoot({ baseUrl = GATEWAY_BASE }: { baseUrl?: string } = {
         (screen === "chat" ? (
           <ChatHeader onBack={() => setScreen("usage")} />
         ) : (
-          <MenuHeader gw={gw} updatedText={formatUpdated(lastUpdated, Date.now())} />
+          <MenuHeader
+            gw={gw}
+            updatedText={formatUpdated(lastUpdated, Date.now())}
+            onAddKey={() => void openSettings("keys")}
+          />
         ))}
       {view === "chat" && <Separator />}
       <div className="flex min-h-0 flex-1 flex-col">
@@ -162,7 +163,6 @@ export function PopoverRoot({ baseUrl = GATEWAY_BASE }: { baseUrl?: string } = {
                 cheapest={cheapest}
                 onOfflineToggle={(on) => dispatch({ type: "OFFLINE_TOGGLED", on })}
                 onOpenChat={() => setScreen("chat")}
-                onOpenTarget={onOpenTarget}
               />
             </div>
             <Separator />

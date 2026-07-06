@@ -13,13 +13,6 @@ import { PopoverRoot } from "@/views/PopoverRoot";
 import { initialGatewayState, type GatewayState } from "@/lib/appState";
 import type { SavingsReport } from "@/lib/format";
 
-// Mock the ipc boundary so the Add-key row's Settings deep-link is assertable without Tauri.
-vi.mock("@/lib/ipc", async () => {
-  const actual = await vi.importActual<typeof import("@/lib/ipc")>("@/lib/ipc");
-  return { ...actual, openSettings: vi.fn(async () => {}) };
-});
-import { openSettings } from "@/lib/ipc";
-
 function fixture(name: string): string {
   return readFileSync(join(process.cwd(), "src", "test", "fixtures", name), "utf8");
 }
@@ -90,7 +83,6 @@ describe("UsageView — the flat list (mirrors clawrouter-usage.png)", () => {
         cheapest="local"
         onOfflineToggle={noop}
         onOpenChat={noop}
-        onOpenTarget={noop}
       />,
     );
     expect(screen.getByText("50% routed locally")).toBeInTheDocument();
@@ -111,7 +103,6 @@ describe("UsageView — the flat list (mirrors clawrouter-usage.png)", () => {
         cheapest="local"
         onOfflineToggle={noop}
         onOpenChat={noop}
-        onOpenTarget={noop}
       />,
     );
     expect(screen.getByText("Today: <$0.01 · 29% vs always-cloud")).toBeInTheDocument();
@@ -129,7 +120,6 @@ describe("UsageView — the flat list (mirrors clawrouter-usage.png)", () => {
         cheapest="local"
         onOfflineToggle={noop}
         onOpenChat={noop}
-        onOpenTarget={noop}
       />,
     );
     expect(screen.getByText("No turns yet")).toBeInTheDocument();
@@ -147,7 +137,6 @@ describe("UsageView — the flat list (mirrors clawrouter-usage.png)", () => {
         cheapest="local"
         onOfflineToggle={onOfflineToggle}
         onOpenChat={noop}
-        onOpenTarget={noop}
       />,
     );
     await user.click(screen.getByRole("button", { name: "Offline mode" }));
@@ -161,63 +150,32 @@ describe("UsageView — the flat list (mirrors clawrouter-usage.png)", () => {
         cheapest="local"
         onOfflineToggle={onOfflineToggle}
         onOpenChat={noop}
-        onOpenTarget={noop}
       />,
     );
     expect(screen.getByRole("button", { name: "Offline mode (by config)" })).toBeDisabled();
   });
 
-  it("Add key… appears only when keys are missing, and deep-links Settings → Keys", async () => {
+  it("actions are ONLY behavior — Chat pushes; every open/fix action lives in Settings", async () => {
     const user = userEvent.setup();
-    const { rerender } = render(
-      <UsageView
-        gw={gwState()}
-        recent={RECENT_REPORT}
-        savings={SAVINGS}
-        cheapest="local"
-        onOfflineToggle={noop}
-        onOpenChat={noop}
-        onOpenTarget={noop}
-      />,
-    );
-    expect(screen.queryByRole("button", { name: "Add key…" })).not.toBeInTheDocument();
-    rerender(
+    const onOpenChat = vi.fn();
+    render(
       <UsageView
         gw={gwState({ health: "degraded", missingKeys: ["cloud"] })}
         recent={RECENT_REPORT}
         savings={SAVINGS}
         cheapest="local"
         onOfflineToggle={noop}
-        onOpenChat={noop}
-        onOpenTarget={noop}
-      />,
-    );
-    await user.click(screen.getByRole("button", { name: "Add key…" }));
-    expect(openSettings).toHaveBeenCalledWith("keys");
-  });
-
-  it("Chat row pushes the chat screen; Open rows call onOpenTarget", async () => {
-    const user = userEvent.setup();
-    const onOpenChat = vi.fn();
-    const onOpenTarget = vi.fn();
-    render(
-      <UsageView
-        gw={gwState()}
-        recent={RECENT_REPORT}
-        savings={SAVINGS}
-        cheapest="local"
-        onOfflineToggle={noop}
         onOpenChat={onOpenChat}
-        onOpenTarget={onOpenTarget}
       />,
     );
     await user.click(screen.getByRole("button", { name: "Chat" }));
     expect(onOpenChat).toHaveBeenCalled();
-    await user.click(screen.getByRole("button", { name: "Open Dashboard" }));
-    expect(onOpenTarget).toHaveBeenCalledWith("dashboard");
-    // No "Open Config" row — Config-vs-Settings read as synonyms as sibling entries; the
-    // gateway's config file is reached via Settings → Gateway instead (WF-DESIGN-0014).
-    expect(screen.queryByRole("button", { name: "Open Config" })).not.toBeInTheDocument();
+    // The popover must never re-grow a scattered menu next to the one Settings… door
+    // (maintainer review): no open-target rows and no Add-key row — even when degraded, the
+    // fix-it affordance is the header's missing-keys line, not a menu entry.
+    for (const gone of ["Open Config", "Open Dashboard", "Open Logs", "Add key…"]) {
+      expect(screen.queryByRole("button", { name: gone })).not.toBeInTheDocument();
+    }
   });
 });
 
