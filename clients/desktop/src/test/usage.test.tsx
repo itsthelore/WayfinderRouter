@@ -10,7 +10,6 @@ import { useRecent, type RecentReport } from "@/hooks/useRecent";
 import { quantizeFill } from "@/lib/meter";
 import { UsageView } from "@/views/UsageView";
 import { PopoverRoot } from "@/views/PopoverRoot";
-import { initialGatewayState, type GatewayState } from "@/lib/appState";
 import type { SavingsReport } from "@/lib/format";
 
 function fixture(name: string): string {
@@ -21,10 +20,6 @@ const SAVINGS = JSON.parse(fixture("savings.json")) as SavingsReport;
 // The 30-day window: same shape, bigger numbers (the reference's "Last 30 days" line).
 const SAVINGS_30D: SavingsReport = { ...SAVINGS, saved: 1.82, saved_pct: 31.2 };
 const RECENT_REPORT: RecentReport = { total: 2, byModel: { local: 1, cloud: 1 }, localShare: 0.5 };
-
-function gwState(over: Partial<GatewayState> = {}): GatewayState {
-  return { ...initialGatewayState(true), health: "ok", ...over };
-}
 
 const realFetch = globalThis.fetch;
 afterEach(() => {
@@ -79,12 +74,10 @@ describe("UsageView — the flat list (mirrors clawrouter-usage.png)", () => {
   it("Routing row shows the local share, count, and the literal 'Routed: local: N · cloud: N' line", () => {
     render(
       <UsageView
-        gw={gwState()}
         recent={RECENT_REPORT}
         savings={SAVINGS}
         savings30d={SAVINGS_30D}
         cheapest="local"
-        onOfflineToggle={noop}
         onOpenChat={noop}
       />,
     );
@@ -100,12 +93,10 @@ describe("UsageView — the flat list (mirrors clawrouter-usage.png)", () => {
   it("Saved row is a plain value line — cost-like, no bar (CodexBar's own Cost section form)", () => {
     render(
       <UsageView
-        gw={gwState()}
         recent={RECENT_REPORT}
         savings={SAVINGS}
         savings30d={SAVINGS_30D}
         cheapest="local"
-        onOfflineToggle={noop}
         onOpenChat={noop}
       />,
     );
@@ -119,12 +110,10 @@ describe("UsageView — the flat list (mirrors clawrouter-usage.png)", () => {
   it("empty states: no turns yet, unpriced savings", () => {
     render(
       <UsageView
-        gw={gwState()}
         recent={{ total: 0, byModel: {}, localShare: null }}
         savings={{ ...SAVINGS, priced: false }}
         savings30d={null}
         cheapest="local"
-        onOfflineToggle={noop}
         onOpenChat={noop}
       />,
     );
@@ -132,48 +121,15 @@ describe("UsageView — the flat list (mirrors clawrouter-usage.png)", () => {
     expect(screen.getByText("Not yet available")).toBeInTheDocument();
   });
 
-  it("offline row toggles the local preference, and locks when config owns it", async () => {
-    const user = userEvent.setup();
-    const onOfflineToggle = vi.fn();
-    const { rerender } = render(
-      <UsageView
-        gw={gwState()}
-        recent={RECENT_REPORT}
-        savings={SAVINGS}
-        savings30d={SAVINGS_30D}
-        cheapest="local"
-        onOfflineToggle={onOfflineToggle}
-        onOpenChat={noop}
-      />,
-    );
-    await user.click(screen.getByRole("button", { name: "Offline mode" }));
-    expect(onOfflineToggle).toHaveBeenCalledWith(true);
-
-    rerender(
-      <UsageView
-        gw={gwState({ offlineConfig: true })}
-        recent={RECENT_REPORT}
-        savings={SAVINGS}
-        savings30d={SAVINGS_30D}
-        cheapest="local"
-        onOfflineToggle={onOfflineToggle}
-        onOpenChat={noop}
-      />,
-    );
-    expect(screen.getByRole("button", { name: "Offline mode (by config)" })).toBeDisabled();
-  });
-
   it("actions are ONLY behavior — Chat pushes; every open/fix action lives in Settings", async () => {
     const user = userEvent.setup();
     const onOpenChat = vi.fn();
     render(
       <UsageView
-        gw={gwState({ health: "degraded", missingKeys: ["cloud"] })}
         recent={RECENT_REPORT}
         savings={SAVINGS}
         savings30d={SAVINGS_30D}
         cheapest="local"
-        onOfflineToggle={noop}
         onOpenChat={onOpenChat}
       />,
     );

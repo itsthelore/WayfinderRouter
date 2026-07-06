@@ -1,11 +1,14 @@
-// The detail header (WF-DESIGN-0014, mirrors clawrouter-usage.png): bold name + a right-aligned
-// health label on line one, a freshness/status subtext on line two. Health renders as plain
-// neutral text — CodexBar's own tier badge ("Max") is gray, not coloured; colour lives only in
-// bar fills. When degraded, the subtext line itself is the fix-it affordance ("Missing X — add
-// key…" → Settings → Keys): the status that names the problem carries the click, so the action
-// list never grows an extra menu row (WF-DESIGN-0015, maintainer review). When the chat
-// sub-screen is pushed, the same header swaps to a back control.
+// The detail header (WF-DESIGN-0014, mirrors the reference): bold name alone on line one;
+// line two carries the freshness/status subtext left and — where the reference parks its
+// passive tier badge — Wayfinder's one live mode control: the health label plus the GLOBAL
+// Offline switch. The switch means machine-wide (it flips `[gateway] offline` through the
+// config seam, WF-ADR-0044, affecting every client of the gateway) — which is exactly why it
+// earned header placement; the old per-app chat-only toggle it replaces did not. When
+// degraded, the subtext line itself is the fix-it affordance ("Missing X — add key…" →
+// Settings → Keys). When the chat sub-screen is pushed, the same header swaps to a back
+// control.
 import type { GatewayState } from "@/lib/appState";
+import { Switch } from "@/components/ui/switch";
 import { cn } from "@/lib/utils";
 
 const HEALTH_LABEL: Record<GatewayState["health"], string> = {
@@ -19,24 +22,26 @@ export function MenuHeader({
   gw,
   updatedText,
   onAddKey,
+  onOfflineToggle,
+  offlinePending = false,
   className,
 }: {
   gw: GatewayState;
   updatedText: string;
   /** Opens Settings → Keys; the degraded subtext renders as a link only when provided. */
   onAddKey?: () => void;
+  /** Flips GLOBAL offline delivery via `config set gateway.offline` (WF-ADR-0044). */
+  onOfflineToggle?: (on: boolean) => void;
+  /** True while a flip is in flight (until the next healthz poll confirms it). */
+  offlinePending?: boolean;
   className?: string;
 }) {
-  const offline = gw.offlineConfig || gw.offlineLocal;
-  const health = offline ? "Offline" : HEALTH_LABEL[gw.health];
+  const health = gw.offlineConfig ? "Offline" : HEALTH_LABEL[gw.health];
   const missing = gw.health === "degraded" && gw.missingKeys.length > 0;
   return (
-    // Two explicit rows (the reference's own structure): the bold name stands alone on line
-    // one; line two carries the freshness/status subtext left and the health label right on a
-    // shared baseline — exactly where CodexBar's "Updated just now … Max" pair sits.
     <header className={cn("flex flex-col gap-1 bg-background px-5 py-5", className)}>
       <span className="text-[19px] font-bold leading-tight">Wayfinder</span>
-      <div className="flex items-baseline justify-between gap-3">
+      <div className="flex items-center justify-between gap-3">
         {missing && onAddKey ? (
           <button
             type="button"
@@ -50,7 +55,18 @@ export function MenuHeader({
             {missing ? `Missing ${gw.missingKeys.join(", ")}` : updatedText}
           </span>
         )}
-        <span className="shrink-0 text-[14px] text-muted-foreground">{health}</span>
+        <span className="flex shrink-0 items-center gap-2">
+          <span className="text-[14px] text-muted-foreground">{health}</span>
+          {onOfflineToggle && (
+            <Switch
+              size="sm"
+              aria-label="offline mode — everything routes local, machine-wide"
+              checked={gw.offlineConfig}
+              disabled={offlinePending}
+              onCheckedChange={onOfflineToggle}
+            />
+          )}
+        </span>
       </div>
     </header>
   );

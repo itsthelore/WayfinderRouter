@@ -12,7 +12,6 @@ import {
   gatewayView,
   initialGatewayState,
   initialTurnState,
-  offlineLockedByConfig,
   showDegradedBanner,
   showOfflineChip,
   turnReducer,
@@ -64,13 +63,13 @@ describe("gateway machine — the six modes, from recorded healthz shapes", () =
       view: "chat",
     },
     {
-      name: "local toggle -> offline even on an ok gateway",
+      name: "offline flips back off when a later poll reports it cleared",
       seen: false,
       events: [
+        { type: "HEALTHZ_OK", body: healthzOffline },
         { type: "HEALTHZ_OK", body: healthzOk },
-        { type: "OFFLINE_TOGGLED", on: true },
       ],
-      mode: "offline",
+      mode: "healthy",
       view: "chat",
     },
     {
@@ -122,20 +121,15 @@ describe("gateway machine — the six modes, from recorded healthz shapes", () =
     expect(degraded.missingKeys).toEqual(healthzDegraded.missing_keys);
     expect(showDegradedBanner(degraded)).toBe(true);
 
-    const both = gatewayReducer(degraded, { type: "OFFLINE_TOGGLED", on: true });
-    expect(gatewayMode(both)).toBe("offline"); // mode picks the chip…
-    expect(showDegradedBanner(both)).toBe(true); // …but the banner still shows
+    // Degraded + offline together: offline (the config's truth) picks the mode/chip, but the
+    // missing-keys banner still shows — the two facts co-exist.
+    const both = gatewayReducer(degraded, {
+      type: "HEALTHZ_OK",
+      body: { ...healthzDegraded, offline: true },
+    });
+    expect(gatewayMode(both)).toBe("offline");
+    expect(showDegradedBanner(both)).toBe(true);
     expect(showOfflineChip(both)).toBe(true);
-  });
-
-  it("offline from config locks the toggle; local offline does not", () => {
-    const byConfig = run(false, [{ type: "HEALTHZ_OK", body: healthzOffline }]);
-    expect(offlineLockedByConfig(byConfig)).toBe(true);
-    const byToggle = run(false, [
-      { type: "HEALTHZ_OK", body: healthzOk },
-      { type: "OFFLINE_TOGGLED", on: true },
-    ]);
-    expect(offlineLockedByConfig(byToggle)).toBe(false);
   });
 });
 

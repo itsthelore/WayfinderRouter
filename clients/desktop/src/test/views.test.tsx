@@ -23,9 +23,14 @@ import type { UseTurn } from "@/hooks/useTurn";
 // without a Tauri runtime.
 vi.mock("@/lib/ipc", async () => {
   const actual = await vi.importActual<typeof import("@/lib/ipc")>("@/lib/ipc");
-  return { ...actual, openSettings: vi.fn(async () => {}), quitApp: vi.fn(async () => {}) };
+  return {
+    ...actual,
+    openSettings: vi.fn(async () => {}),
+    quitApp: vi.fn(async () => {}),
+    setOffline: vi.fn(async () => "gateway.offline = true"),
+  };
 });
-import { openSettings, quitApp } from "@/lib/ipc";
+import { openSettings, quitApp, setOffline } from "@/lib/ipc";
 
 function fixture(name: string): string {
   return readFileSync(join(process.cwd(), "src", "test", "fixtures", name), "utf8");
@@ -40,6 +45,7 @@ afterEach(() => {
   vi.unstubAllEnvs();
   vi.mocked(openSettings).mockClear();
   vi.mocked(quitApp).mockClear();
+  vi.mocked(setOffline).mockClear();
 });
 
 function turnStub(over: Partial<UseTurn> = {}): UseTurn {
@@ -92,9 +98,29 @@ describe("MenuHeader — bold name, neutral health text, freshness subtext (mirr
     await user.click(screen.getByRole("button", { name: /Missing cloud — add key…/ }));
     expect(onAddKey).toHaveBeenCalled();
   });
-  it("offline (local toggle) outranks the ok health label", () => {
-    render(<MenuHeader gw={gwState({ offlineLocal: true })} updatedText="Updated just now" />);
+  it("offline (global config) outranks the ok health label", () => {
+    render(<MenuHeader gw={gwState({ offlineConfig: true })} updatedText="Updated just now" />);
     expect(screen.getByText("Offline")).toBeInTheDocument();
+  });
+  it("the offline switch is GLOBAL: reflects healthz config truth and fires the toggle", async () => {
+    const user = userEvent.setup();
+    const onOfflineToggle = vi.fn();
+    const { rerender } = render(
+      <MenuHeader gw={gwState()} updatedText="now" onOfflineToggle={onOfflineToggle} />,
+    );
+    const sw = screen.getByRole("switch", { name: /offline mode/ });
+    expect(sw).not.toBeChecked();
+    await user.click(sw);
+    expect(onOfflineToggle).toHaveBeenCalledWith(true);
+    rerender(
+      <MenuHeader gw={gwState({ offlineConfig: true })} updatedText="now" onOfflineToggle={onOfflineToggle} />,
+    );
+    expect(screen.getByRole("switch", { name: /offline mode/ })).toBeChecked();
+    // pending disables the control until the confirming healthz poll lands
+    rerender(
+      <MenuHeader gw={gwState()} updatedText="now" onOfflineToggle={onOfflineToggle} offlinePending />,
+    );
+    expect(screen.getByRole("switch", { name: /offline mode/ })).toBeDisabled();
   });
 });
 
@@ -121,8 +147,8 @@ describe("ChatScreen — adornments + decision summary + reply swap", () => {
     const alert = screen.getByRole("alert");
     expect(within(alert).getByText("ANTHROPIC_API_KEY")).toBeInTheDocument();
   });
-  it("offline (local toggle): the routing chip shows", () => {
-    render(<ChatScreen gw={gwState({ offlineLocal: true })} turn={turnStub()} />);
+  it("offline (global config): the routing chip shows", () => {
+    render(<ChatScreen gw={gwState({ offlineConfig: true })} turn={turnStub()} />);
     expect(screen.getByText(/offline — routing to the cheapest tier/)).toBeInTheDocument();
   });
   it("a streamed turn shows the decision summary over the reply", () => {
