@@ -90,6 +90,17 @@ go only to your chosen provider under your keys; offline mode alone guarantees n
 
 ### Phase 5 — Distribution *(June-derived)*
 
+**Landed early, split from the rest of this phase:** `ci.yml`'s `desktop` job is a regression
+gate, not the release pipeline below — `cargo build/clippy -D warnings/test` +
+`npm test`/`npm run build` for `clients/desktop`, on a `macos-latest` runner (this is a
+macOS-only app; Tauri's crate needs the real WebKit/AppKit frameworks to build at all, so a
+Linux runner would need the webkit2gtk stand-ins and exercise the wrong backend). Unsigned,
+produces no artifact — it only catches regressions on every push/PR, closing the gap where
+`clients/desktop` had zero CI coverage while `clients/shared`'s parity job ran on every commit.
+
+The rest of this phase remains **blocked on maintainer prerequisites**: an Apple Developer ID
+certificate + notarization API key. Once those exist:
+
 `desktop-release.yml` on a macOS runner: signed **universal** app (cheap while there's no Python
 sidecar), notarized + stapled; validation = `codesign --verify --deep --strict`, `spctl --assess`,
 `xcrun stapler validate` on app **and** DMG. Updater: `tauri-plugin-updater` +
@@ -100,8 +111,7 @@ PyPI collision). Right-sized RC flow: `desktop-vX.Y.Z-rc.N` prereleases, promote
 same commit. Generate `THIRD_PARTY_NOTICES` (cargo-about + npm license checker — distribution
 creates attribution obligations). Write `docs/RELEASE-desktop.md` (mirrors RELEASE.md) and
 `docs/desktop-fidelity.md` (both appearances, reduced-motion, VoiceOver, Gatekeeper relaunch,
-update-in-place). Maintainer prerequisites, flagged: Apple Developer ID certificate + notarization
-API key.
+update-in-place).
 
 ## Budgets
 
