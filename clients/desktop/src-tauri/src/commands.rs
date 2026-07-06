@@ -287,6 +287,50 @@ pub fn add_model(
     Ok(format!("added {name} — restarted the gateway to load it"))
 }
 
+/// A local runner the "add a model" form can offer as a one-click suggestion, alongside its
+/// prefillable base URL.
+#[derive(serde::Serialize)]
+pub struct DetectedProvider {
+    pub id: String,
+    pub base_url: String,
+}
+
+/// Fixed local-runner probes only — a narrow, read-only exception to "the webview reaches the
+/// gateway directly, Rust doesn't proxy HTTP" (WF-ADR-0042 §3): this is for OTHER local dev
+/// servers (Ollama, LM Studio), not the gateway, and the webview's CSP has no route to
+/// arbitrary localhost ports — only Rust can probe them without loosening it. `reqwest` was
+/// already a dependency (unused, like `tauri-plugin-positioner` before the popover-position
+/// fix) — this is what it was sitting there for.
+const LOCAL_PROBES: &[(&str, &str, &str)] = &[
+    ("ollama", "http://127.0.0.1:11434/v1/models", "http://127.0.0.1:11434/v1"),
+    ("lmstudio", "http://127.0.0.1:1234/v1/models", "http://127.0.0.1:1234/v1"),
+];
+
+async fn probe(client: &reqwest::Client, url: &str) -> bool {
+    client.get(url).send().await.map(|r| r.status().is_success()).unwrap_or(false)
+}
+
+/// Which local runners actually answer right now — informational only, never gates the "add a
+/// model" form: an undetected runner is still addable by hand (it might be on a nonstandard
+/// port, or simply not running yet). Short timeout so a missing runner never stalls the form.
+#[tauri::command]
+pub async fn detect_local_providers() -> Vec<DetectedProvider> {
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_millis(400))
+        .build()
+        .unwrap_or_default();
+    let (ollama, lmstudio) = tokio::join!(
+        probe(&client, LOCAL_PROBES[0].1),
+        probe(&client, LOCAL_PROBES[1].1),
+    );
+    [ollama, lmstudio]
+        .into_iter()
+        .zip(LOCAL_PROBES)
+        .filter(|(found, _)| *found)
+        .map(|(_, (id, _, base_url))| DetectedProvider { id: id.to_string(), base_url: base_url.to_string() })
+        .collect()
+}
+
 /// A transition-edge notification (WF-DESIGN-0012: edge-only, off by default — the webview's
 /// edge detector decides when). Dep-free via `osascript` so v1 pulls in no notification plugin;
 /// app-attributed notifications (tauri-plugin-notification) are a follow-up pending a dependency

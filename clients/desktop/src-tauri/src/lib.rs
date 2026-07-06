@@ -48,6 +48,7 @@ pub fn run() {
             commands::set_shortcut,
             commands::set_offline,
             commands::add_model,
+            commands::detect_local_providers,
         ])
         .setup(|app| {
             setup(app)?;
