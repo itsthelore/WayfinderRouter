@@ -98,18 +98,28 @@ Linux runner would need the webkit2gtk stand-ins and exercise the wrong backend)
 produces no artifact — it only catches regressions on every push/PR, closing the gap where
 `clients/desktop` had zero CI coverage while `clients/shared`'s parity job ran on every commit.
 
-The rest of this phase remains **blocked on maintainer prerequisites**: an Apple Developer ID
-certificate + notarization API key. Once those exist:
+**Also landed: an unsigned interim release lane.** `desktop-release.yml` builds an **unsigned,
+un-notarized** universal-enough app (whatever `npx tauri build` produces on the macOS runner)
+on a `desktop-v*` tag push and attaches the `.dmg` to a GitHub Release (`softprops/action-gh-
+release`), gated by the same tag-matches-`tauri.conf.json`-version check `release.yml` uses for
+the Python package. Release notes spell out the Gatekeeper bypass (right-click -> Open, or
+`xattr -d com.apple.quarantine`) every time, so it's never a silent surprise. No signing, no
+notarization, no updater artifacts — this exists so the app is installable by someone other
+than the maintainer *today*, not as a substitute for the real pipeline below.
 
-`desktop-release.yml` on a macOS runner: signed **universal** app (cheap while there's no Python
-sidecar), notarized + stapled; validation = `codesign --verify --deep --strict`, `spctl --assess`,
-`xcrun stapler validate` on app **and** DMG. Updater: `tauri-plugin-updater` +
-`bundle.createUpdaterArtifacts: true`; keypair via `tauri signer generate` — **private-key custody
-in the password manager + CI secret from day one; loss permanently bricks auto-update**. Releases +
-`latest.json` on this repo's `desktop-v*` tags (verified: matches neither `release.yml` glob — no
-PyPI collision). Right-sized RC flow: `desktop-vX.Y.Z-rc.N` prereleases, promote re-signs from the
-same commit. Generate `THIRD_PARTY_NOTICES` (cargo-about + npm license checker — distribution
-creates attribution obligations). Write `docs/RELEASE-desktop.md` (mirrors RELEASE.md) and
+The rest of this phase remains **blocked on maintainer prerequisites**: an Apple Developer ID
+certificate + notarization API key. Once those exist, `desktop-release.yml` grows in place
+(same tag lane, same trigger) rather than being replaced:
+
+Signed **universal** app (cheap while there's no Python sidecar), notarized + stapled;
+validation = `codesign --verify --deep --strict`, `spctl --assess`, `xcrun stapler validate` on
+app **and** DMG. Updater: `tauri-plugin-updater` + `bundle.createUpdaterArtifacts: true`;
+keypair via `tauri signer generate` — **private-key custody in the password manager + CI secret
+from day one; loss permanently bricks auto-update**. `latest.json` alongside the release asset.
+Right-sized RC flow: `desktop-vX.Y.Z-rc.N` prereleases (the release workflow already marks
+these as GitHub prereleases), promote re-signs from the same commit. Generate
+`THIRD_PARTY_NOTICES` (cargo-about + npm license checker — distribution creates attribution
+obligations). Write `docs/RELEASE-desktop.md` (mirrors RELEASE.md) and
 `docs/desktop-fidelity.md` (both appearances, reduced-motion, VoiceOver, Gatekeeper relaunch,
 update-in-place).
 
