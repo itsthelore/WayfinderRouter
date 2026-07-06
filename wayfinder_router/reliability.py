@@ -10,6 +10,7 @@ without a network.
 from __future__ import annotations
 
 import random
+import sqlite3
 import time
 from collections.abc import Callable, Iterable
 from dataclasses import dataclass, field
@@ -64,15 +65,44 @@ class CircuitBreaker:
     """Per-target breaker: open after ``threshold`` consecutive failures; probe after ``cooldown``.
 
     Pure bookkeeping over success/failure outcomes — no model call. ``clock`` is injectable
-    (default ``time.monotonic``) so cooldown is testable. State is in-memory, per process;
-    a shared store for multi-process deployments is a deliberate later option (WF-ADR-0031).
+    (default ``time.monotonic``) so cooldown is testable. State is in-memory per process by
+    default; optionally (WF-DESIGN-0013 §7c, WF-ROADMAP-0012), when ``state_path`` is set each
+    target's ``(fails, opened_at)`` is best-effort persisted to a shared ``state.db`` on every
+    ``record`` and reloaded on construction, so an open breaker can survive a restart. The
+    guarantee is never-raise: any ``sqlite3.Error``/``OSError`` degrades silently to pure
+    in-memory operation. LIMITATION: a persisted ``opened_at`` is a raw ``clock()`` reading;
+    ``time.monotonic`` restarts from an arbitrary base across a real process restart, so a
+    reloaded cooldown is only meaningful relative to the *same* clock (round-trips under an
+    injected clock; undefined across a real monotonic restart). Documented, not solved.
     """
 
     threshold: int = 5
     cooldown: float = 30.0
     clock: Callable[[], float] = time.monotonic
+    state_path: str | None = field(default=None, kw_only=True)
     _fails: dict[str, int] = field(default_factory=dict, repr=False)
     _opened_at: dict[str, float] = field(default_factory=dict, repr=False)
+    _conn: sqlite3.Connection | None = field(default=None, init=False, repr=False, compare=False)
+
+    def __post_init__(self) -> None:
+        """Best-effort open + reload of persisted per-target state; degrade to in-memory."""
+        if self.state_path is None:
+            return
+        try:
+            conn = sqlite3.connect(self.state_path, isolation_level=None)
+            conn.execute(
+                "CREATE TABLE IF NOT EXISTS breaker ("
+                "target TEXT PRIMARY KEY, fails INTEGER, opened_at REAL)"
+            )
+            rows = conn.execute("SELECT target, fails, opened_at FROM breaker").fetchall()
+        except (sqlite3.Error, OSError):
+            self._conn = None
+            return
+        self._conn = conn
+        for target, fails, opened_at in rows:
+            self._fails[target] = int(fails)
+            if opened_at is not None:  # NULL opened_at means the target is closed
+                self._opened_at[target] = float(opened_at)
 
     def allow(self, target: str) -> bool:
         """True if ``target`` may be tried now — closed, or cooldown elapsed (half-open probe)."""
@@ -90,11 +120,35 @@ class CircuitBreaker:
         if ok:
             self._fails.pop(target, None)
             self._opened_at.pop(target, None)
+            self._persist_success(target)
             return
         count = self._fails.get(target, 0) + 1
         self._fails[target] = count
         if count >= self.threshold:
             self._opened_at[target] = self.clock()  # (re)open, restart the cooldown
+        self._persist_failure(target)
+
+    def _persist_failure(self, target: str) -> None:
+        """Rewrite one target's row after a failure; best-effort, never raises."""
+        if self._conn is None:
+            return
+        try:
+            self._conn.execute(
+                "INSERT INTO breaker(target, fails, opened_at) VALUES (?, ?, ?) "
+                "ON CONFLICT(target) DO UPDATE SET fails=excluded.fails, opened_at=excluded.opened_at",
+                (target, self._fails[target], self._opened_at.get(target)),
+            )
+        except (sqlite3.Error, OSError):
+            self._conn = None
+
+    def _persist_success(self, target: str) -> None:
+        """Clear one target's row after a success; best-effort, never raises."""
+        if self._conn is None:
+            return
+        try:
+            self._conn.execute("DELETE FROM breaker WHERE target = ?", (target,))
+        except (sqlite3.Error, OSError):
+            self._conn = None
 
 
 def delivery_plan(
