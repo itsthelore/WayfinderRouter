@@ -5,6 +5,7 @@
 // (no tab-strip — see WF-DESIGN-0014's Context for why that doesn't apply to a single-entity
 // popover) rather than WF-DESIGN-0013's segmented control.
 import { useCallback, useEffect, useReducer, useState } from "react";
+import { LogOut, RefreshCw, Settings as SettingsIcon } from "lucide-react";
 import {
   gatewayReducer,
   gatewayView,
@@ -79,6 +80,15 @@ export function PopoverRoot({ baseUrl = GATEWAY_BASE }: { baseUrl?: string } = {
     enabled: reachable,
     intervalMs,
   });
+  // Routing's Today/7d/30d toggle (WF-DESIGN-0014 amendment): each period's `by_route` gives a
+  // real day-windowed local-vs-cloud split, unlike /router/recent's fixed last-N-turns window.
+  // today/30d are already fetched above for Saved; 7d is routing-only, so it gets its own feed.
+  const { report: savings7d, refresh: refreshSavings7d } = useSavings({
+    baseUrl,
+    period: "7d",
+    enabled: reachable,
+    intervalMs,
+  });
   const { report: recent, refresh: refreshRecent } = useRecent({ baseUrl, cheapest, enabled: reachable, intervalMs });
   // No per-turn offline header: offline is the gateway's own global mode now — when it is
   // on, the gateway pins delivery local for every client without being asked (WF-ADR-0039).
@@ -90,6 +100,7 @@ export function PopoverRoot({ baseUrl = GATEWAY_BASE }: { baseUrl?: string } = {
     if (turn.phase === "done" || turn.phase === "error") {
       dispatch({ type: "TURN_DECISION", decisionOnly: !!turn.decision?.decisionOnly });
       void refreshSavings();
+      void refreshSavings7d();
       void refreshSavings30d();
       void refreshRecent();
     }
@@ -150,6 +161,7 @@ export function PopoverRoot({ baseUrl = GATEWAY_BASE }: { baseUrl?: string } = {
         e.preventDefault();
         void pollHealth();
         void refreshSavings();
+        void refreshSavings7d();
         void refreshSavings30d();
         void refreshRecent();
       } else if (e.key === ",") {
@@ -162,7 +174,7 @@ export function PopoverRoot({ baseUrl = GATEWAY_BASE }: { baseUrl?: string } = {
     }
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [showFooter, pollHealth, refreshSavings, refreshSavings30d, refreshRecent]);
+  }, [showFooter, pollHealth, refreshSavings, refreshSavings7d, refreshSavings30d, refreshRecent]);
 
   return (
     <div className="flex h-full flex-col">
@@ -186,10 +198,15 @@ export function PopoverRoot({ baseUrl = GATEWAY_BASE }: { baseUrl?: string } = {
             two tabs). */}
         {view === "chat" && (
           <div hidden={screen !== "usage"} className="flex min-h-0 flex-1 flex-col">
-            <div className="min-h-0 flex-1 overflow-y-auto">
+            {/* No flex-1/stretch here: the content hugs its own height so the footer follows
+                directly after it instead of a gap opening up between Chat and Refresh — any
+                leftover space in the fixed 400x640 window (WF-ADR-0042) collects below Quit
+                instead, which reads as "the menu just ends here" rather than a mid-content hole. */}
+            <div className="min-h-0 overflow-y-auto">
               <UsageView
                 recent={recent}
                 savings={savings}
+                savings7d={savings7d}
                 savings30d={savings30d}
                 cheapest={cheapest}
                 onOpenChat={() => setScreen("chat")}
@@ -198,17 +215,24 @@ export function PopoverRoot({ baseUrl = GATEWAY_BASE }: { baseUrl?: string } = {
             <Separator className="mx-5 w-auto" />
             <div className="py-1">
               <FooterMenuItem
+                icon={RefreshCw}
                 label="Refresh"
                 shortcut="⌘R"
                 onClick={() => {
                   void pollHealth();
                   void refreshSavings();
+                  void refreshSavings7d();
                   void refreshSavings30d();
                   void refreshRecent();
                 }}
               />
-              <FooterMenuItem label="Settings…" shortcut="⌘," onClick={() => void openSettings()} />
-              <FooterMenuItem label="Quit Wayfinder" shortcut="⌘Q" onClick={() => void quitApp()} />
+              <FooterMenuItem
+                icon={SettingsIcon}
+                label="Settings…"
+                shortcut="⌘,"
+                onClick={() => void openSettings()}
+              />
+              <FooterMenuItem icon={LogOut} label="Quit Wayfinder" shortcut="⌘Q" onClick={() => void quitApp()} />
             </div>
           </div>
         )}

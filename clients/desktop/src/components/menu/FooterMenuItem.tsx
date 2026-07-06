@@ -3,11 +3,13 @@
 import { cn } from "@/lib/utils";
 
 export function FooterMenuItem({
+  icon: Icon,
   label,
   shortcut,
   onClick,
   className,
 }: {
+  icon?: React.ComponentType<{ className?: string }>;
   label: string;
   shortcut?: string;
   onClick: () => void;
@@ -23,6 +25,11 @@ export function FooterMenuItem({
         className,
       )}
     >
+      {Icon && (
+        <span aria-hidden className="flex w-5 shrink-0 items-center justify-center text-muted-foreground">
+          <Icon className="size-[18px]" />
+        </span>
+      )}
       <span className="flex-1 truncate">{label}</span>
       {shortcut && <span className="font-mono text-[13px] text-muted-foreground">{shortcut}</span>}
     </button>

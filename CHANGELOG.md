@@ -8,6 +8,14 @@ details, release history over commit history.
 
 ### Added
 
+- **Desktop: Routing period toggle (Today / 7d / 30d)** (WF-DESIGN-0014). The popover's Routing
+  row is now just the bar — the local/cloud breakdown that used to sit as permanent text lives
+  in a hover tooltip instead — with a toggle to pick which day-window it describes, reusing the
+  gateway's existing `/v1/savings?period=` `by_route` breakdown (a real calendar-day split,
+  unlike `/router/recent`'s fixed last-N-turns window). Icons were also added next to every
+  section title and footer action (gear for Settings, etc.), and the Usage screen's footer no
+  longer leaves a gap after a short list — it now follows the content directly.
+
 - **Decision-only replies when no model is configured** (WF-ADR-0042). A running gateway with no
   `[gateway.models]` now answers `/v1/chat/completions` with the routing **decision** (HTTP 200,
   `{"wayfinder": {…}}` and an `x-wayfinder-router-decision-only: true` header) instead of a `500` — so
