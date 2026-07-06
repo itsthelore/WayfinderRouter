@@ -29,6 +29,16 @@ import { GATEWAY_BASE } from "@/lib/gateway";
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
 import { Separator } from "@/components/ui/separator";
+import {
+  Item,
+  ItemActions,
+  ItemContent,
+  ItemDescription,
+  ItemGroup,
+  ItemMedia,
+  ItemTitle,
+} from "@/components/ui/item";
+import { KeyRound, Server, ShieldCheck, SlidersHorizontal } from "lucide-react";
 
 const CADENCES: Array<{ value: Cadence; label: string }> = [
   { value: "auto", label: "Automatic (15s)" },
@@ -39,10 +49,10 @@ const CADENCES: Array<{ value: Cadence; label: string }> = [
 ];
 
 const SECTIONS = [
-  { id: "general", label: "General" },
-  { id: "gateway", label: "Gateway" },
-  { id: "keys", label: "Keys" },
-  { id: "privacy", label: "Privacy" },
+  { id: "general", label: "General", icon: SlidersHorizontal },
+  { id: "gateway", label: "Gateway", icon: Server },
+  { id: "keys", label: "Keys", icon: KeyRound },
+  { id: "privacy", label: "Privacy", icon: ShieldCheck },
 ] as const;
 
 type SectionId = (typeof SECTIONS)[number]["id"];
@@ -62,13 +72,13 @@ function FormRow({
   children?: React.ReactNode;
 }) {
   return (
-    <div className="flex items-start justify-between gap-6 py-3">
-      <div className="flex max-w-[60%] flex-col gap-0.5">
-        <span className="text-[13px] font-medium">{label}</span>
-        <span className="text-[11px] leading-[1.45] text-muted-foreground">{description}</span>
-      </div>
-      <div className="pt-0.5">{children}</div>
-    </div>
+    <Item className="items-start gap-6 px-0 py-3">
+      <ItemContent className="max-w-[60%] gap-0.5">
+        <ItemTitle className="text-[13px] font-medium">{label}</ItemTitle>
+        <ItemDescription className="text-[11px] leading-[1.45]">{description}</ItemDescription>
+      </ItemContent>
+      {children && <ItemActions className="pt-0.5">{children}</ItemActions>}
+    </Item>
   );
 }
 
@@ -551,19 +561,27 @@ export function SettingsWindow() {
 
   return (
     <div className="flex h-full">
-      <nav aria-label="settings sections" className="flex w-[180px] shrink-0 flex-col gap-0.5 border-r border-border bg-muted p-2">
-        {SECTIONS.map((s) => (
-          <button
-            key={s.id}
-            type="button"
-            aria-current={section === s.id}
-            onClick={() => setSection(s.id)}
-            className="rounded-md px-2.5 py-1.5 text-left text-[13px] data-[current=true]:bg-accent"
-            data-current={section === s.id}
-          >
-            {s.label}
-          </button>
-        ))}
+      <nav aria-label="settings sections" className="w-[180px] shrink-0 border-r border-border bg-muted p-2">
+        <ItemGroup className="gap-0.5">
+          {SECTIONS.map((s) => (
+            <Item
+              key={s.id}
+              asChild
+              size="sm"
+              className="cursor-pointer data-[current=true]:bg-accent"
+              data-current={section === s.id}
+            >
+              <button type="button" aria-current={section === s.id} onClick={() => setSection(s.id)}>
+                <ItemMedia>
+                  <s.icon className="size-4" aria-hidden />
+                </ItemMedia>
+                <ItemContent>
+                  <ItemTitle className="text-[13px] font-medium">{s.label}</ItemTitle>
+                </ItemContent>
+              </button>
+            </Item>
+          ))}
+        </ItemGroup>
       </nav>
       <main className="min-w-0 flex-1 overflow-y-auto p-6">
         {section === "general" && <GeneralSection settings={settings} onChange={onChange} />}
