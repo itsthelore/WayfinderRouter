@@ -1,0 +1,74 @@
+name: Desktop Release (unsigned)
+
+# WF-ROADMAP-0009 Phase 5, the unsigned interim step: build the desktop app and attach an
+# UNSIGNED, un-notarized .dmg to a GitHub Release on a `desktop-v*` tag push. Deliberately
+# distinct from `release.yml`'s `v*` / `[0-9]*` globs (verified: "desktop-v2026.7.0" starts
+# with neither a bare digit nor "v", so it can never fire the PyPI publish).
+#
+# What this does NOT do yet (blocked on maintainer prerequisites — an Apple Developer ID
+# certificate and a notarization API key): code signing, notarization/stapling, or the
+# tauri-plugin-updater artifacts. Until those exist, every release here needs a manual
+# Gatekeeper bypass (right-click -> Open, or `xattr -d com.apple.quarantine`) on first launch —
+# spelled out in the release notes below so it's never a surprise.
+on:
+  push:
+    tags:
+      - "desktop-v*"
+
+permissions:
+  contents: write # to create the Release and upload its asset
+
+jobs:
+  build-and-release:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Verify the tag matches tauri.conf.json's version
+        run: |
+          tag="${GITHUB_REF_NAME#desktop-v}"
+          ver="$(python3 -c "import json; print(json.load(open('clients/desktop/src-tauri/tauri.conf.json'))['version'])")"
+          if [ "$tag" != "$ver" ]; then
+            echo "::error::tag $GITHUB_REF_NAME does not match tauri.conf.json version $ver"
+            exit 1
+          fi
+          echo "releasing desktop v$ver (unsigned)"
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: clients/desktop/src-tauri
+
+      - name: Install JS deps (workspace — clients/shared + clients/desktop)
+        run: npm install
+
+      - name: Build the unsigned app + DMG
+        working-directory: clients/desktop
+        run: npx tauri build
+
+      - name: Locate the DMG
+        id: dmg
+        run: |
+          path="$(find clients/desktop/src-tauri/target/release/bundle/dmg -name '*.dmg' -print -quit)"
+          if [ -z "$path" ]; then
+            echo "::error::no .dmg produced under target/release/bundle/dmg"
+            exit 1
+          fi
+          echo "path=$path" >> "$GITHUB_OUTPUT"
+
+      - name: Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: ${{ steps.dmg.outputs.path }}
+          prerelease: ${{ contains(github.ref_name, '-rc.') }}
+          generate_release_notes: true
+          body: |
+            **Unsigned build — not notarized.** macOS Gatekeeper will refuse to open this on
+            first launch ("Apple could not verify..."). To run it: right-click the app in
+            Finder -> **Open** (or, after mounting the DMG, `xattr -d com.apple.quarantine
+            /Applications/Wayfinder.app`). Signing + notarization land once the maintainer's
+            Apple Developer ID certificate and notarization API key are in place
+            (WF-ROADMAP-0009 Phase 5) — auto-update isn't available until then either.
