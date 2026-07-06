@@ -1,8 +1,8 @@
-// The one bar primitive every metric row and the chat decision score use (WF-DESIGN-0014): a
-// thin rounded `--track` rail, a fill, and a round knob at the fill's edge — CodexBar's own
-// bar shape (clawrouter-usage.png), not a rail-only WF-DESIGN-0012 leftover. Colour is the one
-// place this file spends it (WF-DESIGN-0014 "Colour is used only for bar fills and the
-// tab-strip"); everything around a Bar stays neutral text.
+// A plain fill meter (WF-DESIGN-0014, amended): a rounded `--track` rail and a fill, no knob.
+// An earlier pass copied CodexBar's slider-thumb bars verbatim, but a thumb reads as a draggable
+// control and CodexBar's bars carry quota semantics Wayfinder's data doesn't have (maintainer
+// review — see the deviation note in WF-DESIGN-0014). This form is only for true 0..1 scalars:
+// the complexity score and a contribution's share. The route split uses SplitBar (composition).
 import { cn } from "@/lib/utils";
 
 export function Bar({
@@ -25,20 +25,11 @@ export function Bar({
       aria-valuemin={0}
       aria-valuemax={100}
       aria-valuenow={Math.round(pct)}
-      className={cn("relative h-1.5 w-full rounded-full bg-track", className)}
+      className={cn("h-1.5 w-full rounded-full bg-track", className)}
     >
       <div
-        className="h-1.5 rounded-full transition-[width] duration-[var(--dur-slow)] ease-[var(--ease-standard)]"
+        className="h-full rounded-full transition-[width] duration-[var(--dur-slow)] ease-[var(--ease-standard)]"
         style={{ width: `${pct}%`, background: color }}
-      />
-      <span
-        aria-hidden
-        className="absolute top-1/2 size-2.5 -translate-y-1/2 rounded-full"
-        style={{
-          left: `calc(${pct}% - 5px)`,
-          background: color,
-          boxShadow: "0 0 0 2px var(--popover)",
-        }}
       />
     </div>
   );

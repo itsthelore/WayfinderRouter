@@ -101,10 +101,9 @@ tab-strip-free popover's total absence — there is no more segmented-control pi
 treatment.
 
 **Bars, tokens, and the popover canvas** also needed correction after the same side-by-side check:
-- `Bar` is 6px thick (was a 4px rail) with a 10px knob at the fill edge, haloed with
-  `box-shadow: 0 0 0 2px var(--popover)` so it reads as a distinct control even when its color
-  matches the fill it's sitting on — without the halo, the knob and the fill's own rounded end
-  are visually the same shape at most fill percentages.
+- Bars are 6px thick (was a 4px rail). An intermediate pass also copied CodexBar's slider-thumb
+  knob; maintainer review removed it again and recut the bar forms entirely — see the deviation
+  note below.
 - `--track` and `--border` (`globals.css`) were both too pale to read against the popover's
   vibrancy tint — bars looked broken (empty) rather than "a channel with a small fill," and
   dividers didn't separate sections. Both are darkened (light: `--track` `#ececed`→`#dcdce1`,
@@ -115,11 +114,13 @@ treatment.
   the ~6 icons actually imported end up in the bundle), not the unicode glyphs (`↗ ⚙ ▤`) the first
   pass used, and every row has one now, including the Offline mode toggle (`WifiOff`, replaced by
   a checkmark when on) — the first pass left it icon-less, breaking the rows' shared left edge.
-- **The popover grew from 360×480 to 400×640** (WF-ADR-0042 amended). CodexBar's own popover reads
+- **The popover grew from 360×480 to 400×720** (WF-ADR-0042 amended). CodexBar's own popover reads
   spacious at a canvas Wayfinder's original fixed size couldn't match without cramming; widening
   it was a deliberate call (confirmed with the maintainer, since it touches an existing ADR), not
-  a silent scope-creep. `position_bottom_center` in `lib.rs` reads the window's live size, so only
-  `tauri.conf.json`'s two numbers changed.
+  a silent scope-creep. The height is sized to the measured full menu (~712px) so no action row
+  ever renders half-clipped behind the scroll edge — a menu with a cut-off row reads as broken.
+  `position_bottom_center` in `lib.rs` reads the window's live size, so only `tauri.conf.json`'s
+  two numbers changed.
 
 ### Component inventory (replaces WF-DESIGN-0012's card-based list)
 
@@ -128,14 +129,26 @@ treatment.
   being plain gray). Line 2: "Updated {relative}" subtext, replaced by "Missing `{ENV_VAR}`"
   when degraded (same slot, higher-priority content — mirrors the header's single freshness-line
   convention rather than adding a second banner element).
-- **MetricRow** — bold label, thin `--track` bar with a round knob (a small circle, absolutely
-  positioned at the fill edge — `clawrouter-usage.png`'s budget bar), a left/right value line
-  below it (`"{n}% used"` / `"Resets in …"` when a real reset window exists — routing has none,
-  so its right value is a plain count instead of a fabricated countdown), and an optional muted
-  insight line. Two instances: **Routing** (fill = local share; insight line
+- **MetricRow** — bold label, an *optional* bar, a left/right value line (`"Resets in …"` only
+  when a real reset window exists — routing has none, so its right value is a plain count
+  instead of a fabricated countdown), and an optional muted insight line. Two instances:
+  **Routing** (a stacked local/cloud **SplitBar** — one 6px track, a teal segment and an amber
+  segment proportional to the gateway's own counts; insight line
   `"Routed: local: {n} · cloud: {n}"`, the literal Wayfinder swap of ClawRouter's "Routed
-  providers: anthropic: 2 · google-gemini: 2 · openai: 2") and **Saved** (fill = `saved_pct`;
-  values `"{formatSaved} saved today"` / `"{pct}% vs always-cloud"`).
+  providers: anthropic: 2 · google-gemini: 2 · openai: 2") and **Saved** (no bar — one plain
+  value line `"Today: {saved} · {pct}% vs always-cloud"`, the form CodexBar's own bar-less Cost
+  section uses).
+
+**Deviation from CodexBar's bar form (maintainer review).** CodexBar's fill-with-knob bars carry
+quota semantics — "N% of a limit used, resets in T" — and Wayfinder has no quotas. Rendered in
+that form the rows misread: a half-full Routing bar looked like something half-done, and a 29%
+Saved bar looked like a budget being consumed. So the bars were recut by what each stat *is*:
+the route split is a **composition**, so it renders as a stacked two-segment SplitBar (teal
+local / amber cloud — the one place row colour is spent, per the route-accent rule); savings is
+**cost-like**, so it renders as a plain text line exactly like CodexBar's own Cost section,
+which is bar-less too; and the complexity score (chat sub-screen) keeps a plain fill `Bar`
+because a 0..1 score genuinely is a meter. The slider-thumb knob is gone everywhere — a thumb
+reads as a draggable control, and none of these are.
 - **ActionRow** — icon + label, optional trailing checkmark (offline mode) or chevron (Chat, see
   below) — CodexBar's "Add Account…" / "Usage Dashboard" / "Status Page" rows. Wayfinder's set:
   Offline mode (checkmark toggle), Open Dashboard, Open Config, Open Logs, Chat (chevron —
@@ -182,6 +195,14 @@ that is all the real content there is; it is a real, data-driven list component 
 provider search box (ClawRouter's search box searches *its* provider list; Wayfinder has nothing
 to search yet) and no API key / Base URL rows (WF-ADR-0004's Keychain glue is still Phase 4, not
 this pass) — both are recorded under Later rather than faked.
+
+The Settings webview paints its own opaque background (`body[data-window="settings"]` in
+`globals.css`) and drops the popover's 13px root radius — only the popover rides the
+transparent-body-over-vibrancy treatment; a decorated window inheriting that transparent body
+would render dark-mode text over the webview's default white. Every row maps to a real,
+already-wired capability: cadence drives all three gateway polls (via a `storage`-event sync to
+the popover window), notifications arm the transition-edge notifier, launch-at-login drives the
+autostart plugin, and the shortcut row is explicitly display-only until rebinding lands.
 
 ## Later (recorded, not built)
 

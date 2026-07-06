@@ -89,9 +89,13 @@ describe("UsageView — the flat list (mirrors clawrouter-usage.png)", () => {
     expect(screen.getByText("50% routed locally")).toBeInTheDocument();
     expect(screen.getByText("2 turns")).toBeInTheDocument();
     expect(screen.getByText("Routed: local: 1 · cloud: 1")).toBeInTheDocument();
+    // The bar is a composition (local vs cloud split), not a quota fill (WF-DESIGN-0014).
+    expect(
+      screen.getByRole("img", { name: "route split — local: 1 (50%), cloud: 1 (50%)" }),
+    ).toBeInTheDocument();
   });
 
-  it("Saved row shows the priced figure + percent vs always-cloud", () => {
+  it("Saved row is a plain value line — cost-like, no bar (CodexBar's own Cost section form)", () => {
     render(
       <UsageView
         gw={gwState()}
@@ -103,8 +107,10 @@ describe("UsageView — the flat list (mirrors clawrouter-usage.png)", () => {
         onOpenTarget={noop}
       />,
     );
-    expect(screen.getByText("<$0.01 saved today")).toBeInTheDocument();
-    expect(screen.getByText(/29% vs always-cloud/)).toBeInTheDocument();
+    expect(screen.getByText("Today: <$0.01 · 29% vs always-cloud")).toBeInTheDocument();
+    // Exactly one bar on the whole screen: the routing split. Saved has none.
+    expect(screen.getAllByRole("img").length).toBe(1);
+    expect(screen.queryByRole("meter")).not.toBeInTheDocument();
   });
 
   it("empty states: no turns yet, unpriced savings", () => {

@@ -16,12 +16,14 @@ Accepted
 > is architecturally forbidden from becoming a second router. This ADR is the constitution for
 > `clients/` — everything in it renders decisions; nothing in it makes them.
 >
-> Amendment (popover size, WF-DESIGN-0014): §3's 360×480 popover is revised to **400×640**. The
+> Amendment (popover size, WF-DESIGN-0014): §3's 360×480 popover is revised to **400×720**. The
 > flat-list mirror of CodexBar's actual layout needs more canvas than the original spec allowed —
 > at 360×480 CodexBar's own spacing/type scale read as cramped and low-contrast next to the
-> reference, verified by rendering both side by side. The shell mechanics are unchanged: still one
-> borderless, vibrant, hide-on-blur popover; `position_bottom_center` in `lib.rs` already reads
-> the window's live size rather than a hardcoded constant, so only `tauri.conf.json` moves.
+> reference (verified by rendering both side by side), and the height is sized so the whole menu
+> — header, both metric sections, every action row, the footer — fits with no half-clipped row
+> (the full list measures ~712px). The shell mechanics are unchanged: still one borderless,
+> vibrant, hide-on-blur popover; `position_bottom_center` in `lib.rs` already reads the window's
+> live size rather than a hardcoded constant, so only `tauri.conf.json` moves.
 
 ## Category
 
