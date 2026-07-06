@@ -334,6 +334,43 @@ it was reprocessed (near-white pixels keyed to transparent, cropped to content, 
 UI — "Wayfinder Chat", "Wayfinder scored this turn", "Wayfinder isn't running" — stays plain
 text; those are sentences the word is part of, not the standalone brand mark.
 
+## Amendment: adopting shadcn's newer `marker`/`item`/`button-group`/`native-select`/`message-scroller`
+
+Stress-tested against a full Swift/CodexBar-fork rewrite (see the session's decision doc);
+landed instead: keep building Wayfinder on Tauri+React, swap several hand-rolled bits onto
+shadcn's own newer registry components rather than bespoke Tailwind. All vendored via
+`npx shadcn add <name>` into `components/ui/`, same as `separator`/`popover`/`tooltip`/`switch`
+already were.
+
+- **`marker`** (pure radix-ui, no new deps) replaces the transcript's per-turn routing-decision
+  line's ad-hoc spans, and fills a real gap: between a turn's submit and the headers-derived
+  decision arriving, the chat screen used to render nothing below the scrollback — it now shows
+  the prompt plus a "Routing…" marker for that (usually brief) window.
+- **`item`** (radix-ui + `separator` regdep) — `FormRow` (and everything built on it: every
+  Settings row, `KeyRow`, the Add Provider form) now composes
+  `Item`/`ItemContent`/`ItemTitle`/`ItemDescription`/`ItemActions` instead of a hand-rolled div
+  layout. Same visual result, one fewer bespoke layout primitive to maintain.
+- **`button-group`** (button/separator regdeps) replaces the Routing period toggle's hand-rolled
+  rounded-pill container with a real segmented control.
+- **`native-select`** (no deps — a styled wrapper over a real `<select>`) replaces the two plain
+  `<select>`s in Settings → General (refresh cadence, popover shortcut).
+- **`message-scroller`** (the one genuinely new dependency here, `@shadcn/react` — confirmed
+  with the maintainer before adding) replaces `ScrollArea` + a manual `scrollIntoView` effect in
+  `ChatScreen`. Autoscroll-follow now lives in the primitive via a `scrollAnchor` on the live
+  turn; it also brings a scroll-to-bottom button and a top/bottom fade
+  (`scroll-fade-b` — the registry item ships the class name but not the CSS behind it, so it's
+  defined in `globals.css` as a `mask-image` gradient).
+- **Deliberately not adopted (yet):** the full `Sidebar` primitive for Settings' nav — it pulls
+  in `Sheet` (mobile drawer), `Input`, `Skeleton`, and a `use-mobile` hook, none of which apply
+  to a fixed, always-visible, 4-item desktop nav; the nav got `item`'s icon+label row treatment
+  instead, not the full collapsible/responsive machinery.
+
+One recurring gotcha worth recording: `npx shadcn add` syncs upstream copies of *shared*
+registry deps too (`button.tsx` came along with both `item` and `message-scroller`), and the
+upstream copies use literal `dark:` Tailwind variants — dead code here, since dark mode is
+`prefers-color-scheme` only (`theme-lint.test.ts` catches this; it fired twice this pass, on
+`button.tsx` and `native-select.tsx`). Every sync needs that check before landing.
+
 ## Later (recorded, not built)
 
 About Wayfinder panel + footer row · a menu-bar-metric picker (only worth building if Wayfinder
