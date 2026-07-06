@@ -38,6 +38,7 @@ pub fn run() {
             commands::set_tray_state,
             commands::service_control,
             commands::open_target,
+            commands::notify,
         ])
         .setup(|app| {
             setup(app)?;

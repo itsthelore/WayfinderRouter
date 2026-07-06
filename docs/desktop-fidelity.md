@@ -72,6 +72,28 @@ Send a turn on a healthy gateway and watch the hero:
 - [ ] **Keyboard**: composer autofocus on open; Enter sends, Shift+Enter newlines; a 2px teal focus
       ring, offset
 
+## Tray & service control (Phase 3)
+
+The tray is a monochrome **template W** (system-tinted for the menu-bar appearance — never teal),
+driven by the webview's single `/healthz` poll through `set_tray_state`. Full reference:
+[`docs/desktop-lifecycle.md`](desktop-lifecycle.md).
+
+- **Three W states** — filled = **running** (`status:"ok"`), notched = **degraded** (`missing_keys`),
+  hollow = **stopped** (unreachable). Force by starting/stopping the service (below) and watching the
+  W flip on the next poll. The tray **title** shows the savings `$` only — never a route.
+- **Left-click** toggles the popover (summons bottom-center); **right-click** opens the native menu.
+- **Service control from the menu** — `Start gateway` / `Stop gateway` / `Install service…` shell out
+  to `launchctl` / `wayfinder-router service …` (exact argv only; no arbitrary shell). Walk:
+  1. With no service: menu → **Install service…** → grant nothing (no key needed) → the W goes
+     filled and the popover flips to a chat surface within ~15 s (next poll).
+  2. **Stop gateway** → W goes hollow, popover → *Wayfinder isn't running* (local-mirror preview).
+  3. **Start gateway** → W filled again, chat returns. Quitting the app leaves the gateway serving.
+- **Open dashboard / config / logs** open `:8088/router`, `~/Library/Application Support/Wayfinder/`,
+  and `~/Library/Logs/` respectively — three fixed targets, never a webview-supplied path.
+- **Notifications** (edge-only: up↔down, ok↔degraded) are wired but **off by default**; the Settings
+  toggle lands in Phase 4. (Dep-free via `osascript` for now, so the sender attribution is generic —
+  app-attributed notifications are a later dependency decision.)
+
 ## Two launch agents (by design)
 
 Two independent LaunchAgents, two jobs — don't conflate them:

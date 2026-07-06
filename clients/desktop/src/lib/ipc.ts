@@ -38,3 +38,14 @@ export async function openTarget(target: OpenTarget): Promise<void> {
     console.warn("open_target failed", err);
   }
 }
+
+/** A transition-edge notification (off by default; the edge detector gates it). No-ops outside
+ *  the desktop app so tests and the plain webview stay silent. */
+export async function notify(title: string, body: string): Promise<void> {
+  if (!inTauri()) return;
+  try {
+    await invoke("notify", { title, body });
+  } catch (err) {
+    console.warn("notify failed", err);
+  }
+}

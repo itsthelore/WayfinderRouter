@@ -1,7 +1,7 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
-  "description": "Capabilities for the borderless popover window. The webview talks to the gateway by direct loopback fetch, not IPC; the few Rust commands it needs (tray title, notify, keychain, sidecar restart, open path) are added as they land in Phase 4.",
+  "description": "Capabilities for the borderless popover window. The webview reaches the gateway by direct loopback fetch (never IPC); its only Rust commands are the app-defined set in commands.rs (set_tray_state, service_control, open_target, notify), which need no plugin permission. Core window show/hide/focus is all the plugin surface it uses; the Keychain glue lands in Phase 4.",
   "windows": [
     "popover"
   ],

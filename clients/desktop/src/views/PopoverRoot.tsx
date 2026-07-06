@@ -12,6 +12,7 @@ import { useGatewayHealth, readSeenGateway } from "@/hooks/useGatewayHealth";
 import { useCheapestModel } from "@/hooks/useCheapestModel";
 import { useSavings } from "@/hooks/useSavings";
 import { useTurn } from "@/hooks/useTurn";
+import { useEdgeNotifier } from "@/hooks/useEdgeNotifier";
 import { GATEWAY_BASE } from "@/lib/gateway";
 import { serviceControl, setTrayState, type TrayState } from "@/lib/ipc";
 import { formatSaved } from "@/components/SavingsGlance";
@@ -33,6 +34,8 @@ export function PopoverRoot({ baseUrl = GATEWAY_BASE }: { baseUrl?: string } = {
   const [gw, dispatch] = useReducer(gatewayReducer, seen, initialGatewayState);
 
   useGatewayHealth(dispatch, { baseUrl });
+  // Transition-edge notifications, dormant for now — the Settings toggle (Phase 4) flips `enabled`.
+  useEdgeNotifier(gw, { enabled: false });
   const reachable = gw.health === "ok" || gw.health === "degraded";
   const cheapest = useCheapestModel({ baseUrl, enabled: reachable });
   const { report: savings, refresh: refreshSavings } = useSavings({ baseUrl, enabled: reachable });

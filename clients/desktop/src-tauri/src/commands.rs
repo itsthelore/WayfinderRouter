@@ -50,6 +50,30 @@ pub fn open_target(target: String) -> Result<(), String> {
     open_internal(&target)
 }
 
+/// A transition-edge notification (WF-DESIGN-0012: edge-only, off by default — the webview's
+/// edge detector decides when). Dep-free via `osascript` so v1 pulls in no notification plugin;
+/// app-attributed notifications (tauri-plugin-notification) are a follow-up pending a dependency
+/// decision. `title`/`body` are passed as one `-e` arg (no shell), with AppleScript quotes escaped.
+#[tauri::command]
+pub fn notify(title: String, body: String) -> Result<(), String> {
+    let esc = |s: &str| s.replace('\\', "\\\\").replace('"', "\\\"");
+    let script = format!(
+        "display notification \"{}\" with title \"{}\"",
+        esc(&body),
+        esc(&title)
+    );
+    let status = Command::new("osascript")
+        .arg("-e")
+        .arg(script)
+        .status()
+        .map_err(|e| e.to_string())?;
+    if status.success() {
+        Ok(())
+    } else {
+        Err("osascript notify failed".into())
+    }
+}
+
 /// Shared by the command and the tray menu. Only the three known targets resolve to a path/URL.
 pub fn open_internal(target: &str) -> Result<(), String> {
     let arg = match target {
