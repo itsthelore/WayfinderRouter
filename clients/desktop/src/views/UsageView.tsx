@@ -55,6 +55,7 @@ export function UsageView({
     <div className="flex flex-col" data-testid="usage">
       <MetricRow
         label="Routing"
+        help="Where your recent turns went: teal ran on the local model on this Mac, amber went to a cloud provider. Wayfinder scores each prompt on-device and only routes to cloud when the prompt needs it."
         bar={
           <SplitBar
             segments={[
@@ -72,6 +73,7 @@ export function UsageView({
           CodexBar's own (bar-less) Cost section uses. */}
       <MetricRow
         label="Saved"
+        help="An estimate of the spend avoided by routing turns to the local model, against a baseline where every one of those turns had gone to your cloud provider instead."
         lines={savedLines.length > 0 ? savedLines : ["Not yet available"]}
       />
       <Separator className="mx-5 w-auto" />

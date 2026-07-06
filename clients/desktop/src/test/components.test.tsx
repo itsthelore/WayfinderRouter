@@ -112,6 +112,19 @@ describe("MetricRow — bold label, optional bar, left/right values, optional in
     expect(screen.getByText("Today: $0.04 · 15K tokens")).toBeInTheDocument();
     expect(screen.getByText("Last 30 days: $254.24")).toBeInTheDocument();
   });
+  it("help puts the semantics in a tooltip on the label — keyboard focus opens it too", async () => {
+    const user = userEvent.setup();
+    render(<MetricRow label="Routing" help="Where your recent turns went." left="50%" />);
+    // Focus opens Radix tooltips instantly (no hover delay), so this covers keyboard
+    // reachability and sidesteps delayDuration in jsdom in one move.
+    await user.tab();
+    expect(screen.getByText("Routing")).toHaveFocus();
+    expect(await screen.findByRole("tooltip")).toHaveTextContent("Where your recent turns went.");
+  });
+  it("no help -> the label is plain text, not a tooltip trigger", () => {
+    render(<MetricRow label="Saved" left="Not yet available" />);
+    expect(screen.getByText("Saved")).not.toHaveAttribute("tabindex");
+  });
 });
 
 describe("ActionRow — icon+label, checkable, or a chevron push (CodexBar's own row shapes)", () => {
