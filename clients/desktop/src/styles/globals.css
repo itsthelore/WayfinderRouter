@@ -185,3 +185,10 @@ body[data-window="settings"] #root {
     background: #1e1e20;
   }
 }
+
+/* message-scroller's viewport (WF-DESIGN-0014) expects this utility for its bottom fade —
+ * shadcn's own registry doesn't ship the CSS for it, just the class name, so it's defined here.
+ * A mask, not a background gradient: works over the popover's vibrancy same as a solid color. */
+@utility scroll-fade-b {
+  mask-image: linear-gradient(to bottom, black calc(100% - 24px), transparent 100%);
+}
