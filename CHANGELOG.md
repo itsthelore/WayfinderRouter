@@ -46,6 +46,11 @@ details, release history over commit history.
   until that's done by hand. It is what the desktop app's Keys screen shells out to when adding a
   provider that isn't in your config yet.
 
+- **Desktop: detect local model runners** (WF-ADR-0042). The Keys screen now checks loopback for a
+  running Ollama or LM Studio and offers them as one-click quick-picks — a narrow, justified Rust-side
+  probe (not the webview, so the CSP's `connect-src` stays untouched) that only reports whether the two
+  known local ports answered, nothing else.
+
 ### Fixed
 
 - **Desktop first-run: a clear message when the installed gateway predates `--keychain`**
