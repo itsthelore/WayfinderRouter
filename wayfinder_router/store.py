@@ -660,34 +660,67 @@ class RecordStore:
             if key not in self._index_fields:
                 raise StoreError(f"equals key {key!r} is not an index field {self._index_fields}")
 
-        where = ["seq > ?"]
         params: list[Any] = [after_seq]
         if start_ts is not None:
-            where.append("ts_wall >= ?")
             params.append(start_ts)
         if end_ts is not None:
-            where.append("ts_wall <= ?")
             params.append(end_ts)
-        for key, value in equals.items():
-            where.append(f"{_quote(key)} = ?")
-            params.append(value)
-        sql = (
-            "SELECT seq, ts_wall, seg, off, len FROM records WHERE "
-            + " AND ".join(where)
-            + " ORDER BY seq LIMIT ?"
-        )
+        params.extend(equals.values())
+        params.append(limit)
+
+        def build_sql(*, pk_scan: bool) -> str:
+            # `+ts_wall` deopts the ts index so SQLite walks the INTEGER PRIMARY KEY (seq) and
+            # emits rows already ORDER-BY-seq — no temp B-tree sort of the whole window.
+            prefix = "+" if pk_scan else ""
+            where = ["seq > ?"]
+            if start_ts is not None:
+                where.append(f"{prefix}ts_wall >= ?")
+            if end_ts is not None:
+                where.append(f"{prefix}ts_wall <= ?")
+            where.extend(f"{_quote(k)} = ?" for k in equals)
+            return (
+                "SELECT seq, ts_wall, seg, off, len FROM records WHERE "
+                + " AND ".join(where)
+                + " ORDER BY seq LIMIT ?"
+            )
+
+        sql_index = build_sql(pk_scan=False)
+        # Selectivity-guarded plan for time-only queries. Threshold 0.2: when the window covers
+        # >= 20% of a shard's [ts_lo, ts_hi] span, the ts-index plan must fetch and temp-sort
+        # >= ~20% of the segment's rows (~140k at the prod seal bound) just to keep `limit`,
+        # while a PK walk emits seq-ordered rows and stops at LIMIT after scanning ~limit/coverage
+        # sequential rows. Below 20% the index probe touches few rows and wins; the sqrt(limit/
+        # records) break-even is ~0.04, so 0.2 is a conservative margin that never picks a PK
+        # walk whose non-matching prefix could dominate. An equals filter keeps its field index
+        # (the equality is the selective term there).
+        use_ts_plan_choice = not equals and (start_ts is not None or end_ts is not None)
+        sql_pk = build_sql(pk_scan=True) if use_ts_plan_choice else sql_index
 
         rows: list[tuple[Any, ...]] = []
         for seg_id in sorted(self._segments):
             meta = self._segments[seg_id]
             if meta.records == 0:
                 continue
+            if meta.seq_hi <= after_seq:
+                continue  # entirely behind the pagination cursor — cannot contribute to the page
             if start_ts is not None and meta.ts_hi < start_ts:
                 continue  # prune shards whose time range cannot overlap the window (no full scan)
             if end_ts is not None and meta.ts_lo > end_ts:
                 continue
-            cur = self._shards[seg_id].execute(sql, params + [limit])
-            rows.extend(cur.fetchall())
+            sql = sql_index
+            if use_ts_plan_choice:
+                span = meta.ts_hi - meta.ts_lo
+                lo = meta.ts_lo if start_ts is None else max(meta.ts_lo, start_ts)
+                hi = meta.ts_hi if end_ts is None else min(meta.ts_hi, end_ts)
+                coverage = (hi - lo) / span if span > 0 else 1.0
+                if coverage >= 0.2:
+                    sql = sql_pk
+            rows.extend(self._shards[seg_id].execute(sql, params).fetchall())
+            # Segments partition seq into disjoint ascending ranges, so every later shard's rows
+            # have strictly higher seq than everything collected: once `limit` rows are in hand,
+            # the lowest-seq `limit` matches are complete and the fan-out can stop.
+            if len(rows) >= limit:
+                break
         rows.sort(key=lambda r: r[0])  # merge per-shard indexed results by seq
         return [
             Location(segment_id=int(r[2]), offset=int(r[3]), length=int(r[4]),
