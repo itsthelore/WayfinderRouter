@@ -71,12 +71,18 @@ approximation. A first hand-drawn cut, and a first pass at porting it, both rend
 as a formless blob — a uniformly thick stroke over the whole shape merges the two signs into
 one mass at 22px. The fix: the post and ground stay plain strokes at two widths (thick for
 running/degraded, thin for the hollow stopped state — the same trick the old W used), but the
-two signs are filled *polygons*, so they stay legible as distinct pennants at every state; the
-notch chips the upper sign's tip via a triangle cut on top of the polygon fill. `meter_image`'s
-row-splice needed the post/ground to vary too, not just the signs — it needs every row band to
-differ between the running and stopped source images, since the local-routing-share fill can
-land anywhere. Every semantic this section already covers is untouched: three health states,
-never colour (macOS tints the template), the fill-meter row-splice, no percentage picker.
+two signs are filled *polygons*, so they stay legible as distinct pennants at every state.
+`meter_image`'s row-splice needed the post/ground to vary too, not just the signs — it needs
+every row band to differ between the running and stopped source images, since the
+local-routing-share fill can land anywhere. Every semantic this section already covers is
+untouched: three health states, never colour (macOS tints the template), the fill-meter
+row-splice, no percentage picker.
+
+**Amendment: degraded is one solid sign, one hollow — not a notch.** The first cut chipped a
+small triangular wedge from a sign's tip to mark "degraded"; at 22px it read as noise, not
+damage — too subtle to register at a glance. Degraded now renders one sign fully solid and the
+other as a thin outline (post/ground stay at the running weight, since the gateway is still
+up): "half up, half down" reads instantly, where the notch didn't.
 
 ## What ports unchanged
 

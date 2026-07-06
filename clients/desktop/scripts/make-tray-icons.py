@@ -14,9 +14,12 @@ in lucide's 24x24 viewBox, each coordinate divided by 24 to land in this file's 
 
 macOS template icons are black + alpha — the system tints them for the menu-bar appearance, so
 the signpost's *shape* carries the state, never colour:
-  running  -> thick post/ground, signs filled solid
-  degraded -> same as running, with a notch chipped from the upper sign's tip
-  stopped  -> thin post/ground, signs as a thin outline (hollow)
+  running  -> thick post/ground, both signs filled solid
+  degraded -> thick post/ground, one sign solid and the other hollow (half up, half down —
+              a first cut used a small notch chipped from a sign's tip instead; at 22px it
+              read as noise, not damage, so this is a full sign standing in for "the other
+              half isn't")
+  stopped  -> thin post/ground, both signs as a thin outline (hollow)
 
 The post and ground are plain strokes at two widths (thick for running/degraded, thin for
 stopped) — the same trick the old W used — but the signs are filled *polygons*, not just a
@@ -58,8 +61,6 @@ GROUND = [_n(8, 22), _n(16, 22)]
 
 HALF_SOLID = 0.09   # post/ground stroke half-width for running / degraded
 HALF_THIN = 0.045   # post/ground stroke half-width for stopped; also the hollow sign outline
-# The degraded notch: a wedge chipped from the upper sign's pointed tip.
-NOTCH = [(0.9167, 0.2917), (0.76, 0.20), (0.76, 0.38)]
 
 SS = 4  # supersampling factor for anti-aliasing
 
@@ -77,16 +78,6 @@ def _near_polyline(px: float, py: float, poly: list[tuple[float, float]], half: 
     return any(
         _dist_to_segment(px, py, *poly[i], *poly[i + 1]) <= half for i in range(len(poly) - 1)
     )
-
-
-def _in_triangle(px: float, py: float, tri: list[tuple[float, float]]) -> bool:
-    (ax, ay), (bx, by), (cx, cy) = tri
-    d1 = (px - bx) * (ay - by) - (ax - bx) * (py - by)
-    d2 = (px - cx) * (by - cy) - (bx - cx) * (py - cy)
-    d3 = (px - ax) * (cy - ay) - (cx - ax) * (py - ay)
-    has_neg = d1 < 0 or d2 < 0 or d3 < 0
-    has_pos = d1 > 0 or d2 > 0 or d3 > 0
-    return not (has_neg and has_pos)
 
 
 def _in_polygon(px: float, py: float, poly: list[tuple[float, float]]) -> bool:
@@ -108,12 +99,11 @@ def _alpha(nx: float, ny: float, state: str) -> bool:
     if _near_polyline(nx, ny, POST, half) or _near_polyline(nx, ny, GROUND, half):
         return True
     for sign in (SIGN_RIGHT, SIGN_LEFT):
-        if state == "stopped":
+        hollow = state == "stopped" or (state == "degraded" and sign is SIGN_LEFT)
+        if hollow:
             if _near_polyline(nx, ny, sign, HALF_THIN):
                 return True
         elif _in_polygon(nx, ny, sign):
-            if state == "degraded" and sign is SIGN_RIGHT and _in_triangle(nx, ny, NOTCH):
-                continue
             return True
     return False
 
