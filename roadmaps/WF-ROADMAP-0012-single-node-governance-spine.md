@@ -9,7 +9,9 @@ tags: [governance, audit, policy, identity, scale, on-disk, single-node, determi
 
 ## Status
 
-In progress
+Done — both movements shipped and gated (WF-ADR-0045); see §Measured outcomes and §Residual
+below. Two gate bars were missed and are recorded there with causes and remediation
+projections, per §Verification's no-narrowing rule.
 
 ## Context
 
@@ -89,6 +91,57 @@ reported as an honest miss with the exact failure.
    detectors, identity attribution) inside the hot-path budget; supersession bundles with
    measured wins (human-approved per bundle).
 5. After-evidence, residual plan (human checkpoint), and the published evidence report.
+
+## Measured outcomes (2026-07-06, reference node 4 vCPU / 15 GB)
+
+Every row below is the recorded verdict of the corresponding gate harness; the published
+evidence report carries the rerun commands and raw verdict files.
+
+| Gate | Measured | Verdict |
+|---|---|---|
+| Hot-path policy eval | worst cell p99 434 µs @ 10k policies (p50 ≤ 150 µs); slope 0.070 over policies, −0.006 over identities; RSS 459 MB | **Pass** |
+| Audit query / replay | p99/p50: 88.1/0.31 ms @100k, 76.8/1.32 ms @1M, 165.1/12.6 ms @10M; fitted exponent 0.136 | **Pass at 100k/1M; miss at 10M p99** (165 vs 100 ms — cold full-page materialize floor ≈ 90 ms on this box; box I/O drifts several-fold across the day) |
+| Incremental re-eval | warm 0.081 s @1M / 0.079 s @10M (ratio 0.974, log-size-independent); cold-page first pass 0.8 s / 3.1 s; reads == changeset pinned by counting proxy | **Pass** |
+| Cold rebuild | 10M: 1044 s (bar 1200 s), 15 segments, 4 workers ⇒ 104 s per 1M; 1M: 132.4 s (bar 120 s) — a 1M log seals only 2 segments, so parallelism is segment-bounded (speedup 1.17×) | **Pass at 10M; narrow miss at 1M** |
+| Memory | peak RSS 7.6 GB (audit gate @10M); 10M store ≈ 8.7 GB on disk | **Pass** |
+| Detector quality | micro P 0.8125 / R 0.8667, per-detector no-regression, exact floats vs the frozen oracle | **Pass** |
+| Routing quality | held-out test-fold PGR 1.0 (train-selected operating point, FNV-1a fold ids recorded, n_test = 8 — small-n caveat); 154-row blind eval PGR 0.957 supporting | **Pass on protocol; magnitude carries the small-n caveat** |
+| Legacy wall | feedback read-wholesale 1.84 s/access @1M rows (linear); in-RAM ledger `period()` ≈ 630 ms @1M; in-RAM cache flat in latency but ≈ 520 MB RSS @1M entries | **Documented** |
+| External corpora | huggingface.co CONNECT 403 (policy denial, verified twice) | **Honest miss (environmental)**; frozen in-repo oracle used per §Outcomes fallback |
+
+Zero-regression covenant: 906 tests green (626 at baseline), scoring-path work-count output
+hash byte-identical before/after, goldens byte-identical, JS parity 21/21, `/metrics`
+byte-identical with governance unconfigured.
+
+## Residual
+
+Ordered by leverage; each perf item carries a falsifiable projection.
+
+1. **Audit-query 10M p99 (165 → <100 ms).** The tail is the cold materialization of a full
+   result page from ~200-byte records spread across segment pages. Projection: batching
+   payload reads by segment offset (one ordered pass instead of per-record seeks) or a
+   covering payload column in the shard index halves the cold tail; refuted if a prototype
+   shows the floor is the page fault count itself, in which case the bar needs an explicit
+   cold/warm split as the honest restatement.
+2. **Rebuild wall at exactly 1M (132 → ≤120 s).** Cause is segment granularity, not
+   throughput (10M leg proves 104 s/1M with full fan-out). Projection: sub-segment work
+   units (shard-level rebuild tasks) restore ≥3-way parallelism at 2 segments and clear the
+   bar; alternatively the bar is restated to per-1M throughput at fan-out, with the
+   granularity bound documented.
+3. **Cache-log compaction.** The disk cache's append log grows without a compaction pass;
+   bounded today by the entry/byte ceilings but wasteful long-run. Design deferred from
+   Movement A.
+4. **`gateway.build_app` complexity (cc 179 → 205).** The governance stage wiring grew the
+   builder despite the helper-extraction instruction; extract stage assembly into
+   module-level helpers. No behavior change.
+5. **Audit-log hot-reload close leak.** The reload path can leave the previous audit
+   connection to the GC instead of closing it deterministically (builder note; benign
+   single-digit fd count, but sloppy).
+6. **Larger labeled routing corpus.** The PGR gate's n_test = 8 fold is honest but thin;
+   when egress allows, rerun against RouterBench per §Outcomes and publish alongside the
+   in-repo result.
+7. **User-facing governance docs.** `docs/` was frozen for the run; the `[audit]`/policy
+   TOML surface needs operator documentation as a follow-up docs change.
 
 ## Verification
 

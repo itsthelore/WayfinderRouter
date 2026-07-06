@@ -9,7 +9,8 @@ tags: [governance, audit, policy, identity, detectors, on-disk, single-node, det
 
 ## Status
 
-Proposed
+Accepted — built, gated, and shipped (WF-ADR-0045); measured outcomes and the residual list
+live in WF-ROADMAP-0012 §Measured outcomes.
 
 > The net-new machinery WF-ROADMAP-0012 requires on one node, on disk, behind WF-ADR-0001's
 > frozen constitution: a persistent append-only audit/decision log with partitioned indexes, a

@@ -6,6 +6,33 @@ details, release history over commit history.
 
 ## Unreleased
 
+The single-node **governance spine** (WF-ADR-0045, WF-DESIGN-0013, WF-ROADMAP-0012). Everything
+below is opt-in configuration; an unconfigured gateway behaves — and reports `/metrics` —
+byte-identically to v2026.7.0. The routing decision stays deterministic, offline, and keyless
+(WF-ADR-0001).
+
+### Added
+
+- **Audit/decision log** (`[audit]` config section). Every governed request appends a
+  metadata-only record to an append-only, segmented on-disk store with partitioned SQLite
+  indexes; the log is queryable and replayable at 10M-record scale on a 4-vCPU node (measured
+  curve and two honestly-missed bars in WF-ROADMAP-0012 §Measured outcomes), rebuilds from
+  segments in parallel, and re-evaluates a ~1,000-request changeset in well under a second
+  warm regardless of log size. New `wayfinder_router_audit_appends_total` metric appears only
+  when the log is active.
+- **Policy engine.** Rules compile once at startup into a deterministic total order and
+  evaluate on the hot path — score, compiled PII/secret detectors, policy verbs, identity
+  attribution, audit append — in under half a millisecond at p99 with 10,000 policies loaded.
+- **Principal identity model.** `VirtualKey.tags` (WF-ADR-0035) gains its consumer: requests
+  resolve to a principal for policy scoping and audit attribution.
+- **Productized detectors.** The PII/secret detector set from the benchmark harnesses ships as
+  a library module, reproducing the committed validation precision/recall exactly.
+- **On-disk backends for the stateful surfaces** (opt-in, contracts unchanged; amends the
+  in-memory posture of WF-ADR-0031/0032/0033/0034/0006 — see WF-ADR-0045). The savings
+  ledger, response-cache body tier, feedback paging, and limiter/breaker state can each be
+  backed by bounded on-disk structures, taking the feedback path from whole-file reads
+  (1.8 s/access at 1M rows) to paged lookups and the ledger's period aggregation to SQL.
+
 ## v2026.7.0 — 2026-07-01
 
 The **run-it-anywhere** release. Install the gateway as an always-on **local service**, route
