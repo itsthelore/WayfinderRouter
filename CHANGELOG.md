@@ -20,6 +20,15 @@ details, release history over commit history.
   hero is now the actual brand wordmark (a transparent PNG, sized for both spots), replacing the
   bold-text placeholder.
 
+- **Desktop: adopts several of shadcn's newer components** (WF-DESIGN-0014). `marker` (the
+  chat transcript's routing-decision line, plus a new "Routing…" state filling a real gap that
+  used to render nothing between sending a message and the decision arriving), `item` (every
+  Settings row now composes it under the hood; the sidebar nav gets a per-section icon), the
+  Routing period toggle rebuilt on `button-group`, the two Settings dropdowns rebuilt on
+  `native-select`, and `message-scroller` for the chat transcript (a real new dependency,
+  `@shadcn/react` — everything else here was vendored code, no new packages), which brings a
+  scroll-to-bottom button and a top/bottom fade the old hand-rolled scroll area didn't have.
+
 - **Decision-only replies when no model is configured** (WF-ADR-0042). A running gateway with no
   `[gateway.models]` now answers `/v1/chat/completions` with the routing **decision** (HTTP 200,
   `{"wayfinder": {…}}` and an `x-wayfinder-router-decision-only: true` header) instead of a `500` — so
