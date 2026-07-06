@@ -1,7 +1,7 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
-  "description": "Capabilities for the popover and Settings windows. The popover reaches the gateway by direct loopback fetch (never IPC); its only Rust commands are the app-defined set in commands.rs (set_tray_state, service_control, open_target, open_settings, notify), which need no plugin permission. Settings additionally drives the autostart plugin (launch at login). Core window show/hide/focus/close is all the plugin surface either window uses; the Keychain glue lands in Phase 4.",
+  "description": "Capabilities for the popover and Settings windows. The popover reaches the gateway by direct loopback fetch (never IPC); its only Rust commands are the app-defined set in commands.rs (set_tray_state, service_control, open_target, open_settings, quit_app, notify, scaffold_config, store_provider_key, delete_provider_key, set_shortcut), which need no plugin permission — every one maps to a fixed, whitelisted action (WF-ADR-0044): presets, env-var names, shortcut ids, and settings sections are validated in Rust before any process spawns, and key material crosses only stdin, never argv. Settings additionally drives the autostart plugin (launch at login). Core window show/hide/focus/close is all the plugin surface either window uses.",
   "windows": [
     "popover",
     "settings"

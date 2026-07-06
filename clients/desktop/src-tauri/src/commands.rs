@@ -8,6 +8,7 @@ use std::process::Command;
 use tauri::image::Image;
 use tauri::{AppHandle, Manager, WebviewUrl, WebviewWindowBuilder};
 
+use crate::keychain;
 use crate::service::{self, ServiceAction};
 
 const TRAY_RUNNING: &[u8] = include_bytes!("../icons/tray-running-Template@2x.png");
@@ -89,15 +90,24 @@ pub fn open_target(target: String) -> Result<(), String> {
 /// Open the Settings window (WF-DESIGN-0014): a real, resizable, decorated window — never an
 /// in-popover slide-over. Built on demand rather than declared in `tauri.conf.json` so the
 /// first click creates it and a later click after the user closed it just creates it again;
-/// while it's alive we only show + focus the existing one.
+/// while it's alive we only show + focus the existing one. `section` (whitelisted) deep-links a
+/// sidebar section on CREATION only — an already-open window is focused, not re-routed
+/// (WF-DESIGN-0015, accepted limitation).
 #[tauri::command]
-pub fn open_settings(app: AppHandle) -> Result<(), String> {
+pub fn open_settings(app: AppHandle, section: Option<String>) -> Result<(), String> {
     if let Some(win) = app.get_webview_window("settings") {
         win.show().map_err(|e| e.to_string())?;
         win.set_focus().map_err(|e| e.to_string())?;
         return Ok(());
     }
-    WebviewWindowBuilder::new(&app, "settings", WebviewUrl::App("index.html?window=settings".into()))
+    let mut url = String::from("index.html?window=settings");
+    if let Some(s) = section {
+        if !matches!(s.as_str(), "general" | "gateway" | "keys" | "privacy") {
+            return Err(format!("unknown settings section: {s}"));
+        }
+        url.push_str(&format!("&section={s}"));
+    }
+    WebviewWindowBuilder::new(&app, "settings", WebviewUrl::App(url.into()))
         .title("Wayfinder Settings")
         .inner_size(900.0, 620.0)
         .min_inner_size(760.0, 480.0)
@@ -112,6 +122,72 @@ pub fn open_settings(app: AppHandle) -> Result<(), String> {
 #[tauri::command]
 pub fn quit_app(app: AppHandle) {
     app.exit(0);
+}
+
+/// First-run scaffold (WF-ADR-0044 / WF-DESIGN-0015): shell the gateway's own `init --preset
+/// <p> --keychain --path <shared config>` — the app authors zero TOML — then (re)install the
+/// service so the unit carries `--config <shared config>`. The uninstall step is load-bearing:
+/// re-installing over a loaded agent leaves launchd's OLD job spec running (bootstrap fails,
+/// legacy load no-ops, the probe passes), so new ProgramArguments only apply across an
+/// uninstall/install cycle. Best-effort on first run (nothing to uninstall).
+#[tauri::command]
+pub fn scaffold_config(preset: String) -> Result<String, String> {
+    if !matches!(preset.as_str(), "hybrid" | "openai" | "gemini") {
+        return Err(format!("unknown preset: {preset}"));
+    }
+    let home = std::env::var("HOME").unwrap_or_default();
+    let path = std::env::var("PATH").unwrap_or_default();
+    let wf = service::resolve_wayfinder(&home, &path).ok_or_else(|| {
+        "couldn't find `wayfinder-router` — install the gateway first (pip install wayfinder-router)"
+            .to_string()
+    })?;
+    let config = service::desktop_config_path(&home);
+    if let Some(dir) = std::path::Path::new(&config).parent() {
+        std::fs::create_dir_all(dir).map_err(|e| format!("cannot create {}: {e}", dir.display()))?;
+    }
+    let out = Command::new(&wf)
+        .args(["init", "--preset", &preset, "--keychain", "--path", &config])
+        .output()
+        .map_err(|e| format!("{wf}: {e}"))?;
+    // "already exists" is EXIT_USAGE — idempotent re-entry after a partial first run keeps the
+    // user's existing file (never --force from the app) and just proceeds to the install step.
+    if !out.status.success() && !std::path::Path::new(&config).is_file() {
+        let stderr = String::from_utf8_lossy(&out.stderr);
+        return Err(format!("init failed: {}", stderr.trim()));
+    }
+    let _ = service::run(service::ServiceAction::Uninstall); // best-effort, see doc comment
+    service::run(service::ServiceAction::Install)?;
+    Ok(format!("scaffolded {config} (preset: {preset}) and installed the service"))
+}
+
+/// Store a provider key in the macOS Keychain (WF-ADR-0044: stdin, never argv), then restart
+/// the gateway — `resolve_keys` runs `api_key_cmd` only at startup, so the kickstart is what
+/// makes the key take effect. The key passes through Rust transiently and never lands in a
+/// file, argv, or JS state beyond the controlled input (WF-ADR-0004).
+#[tauri::command]
+pub fn store_provider_key(env_var: String, key: String) -> Result<String, String> {
+    let line = keychain::keychain_script(keychain::KeyOp::Add, &env_var, &key)?;
+    keychain::run_security(&line)?;
+    service::run(service::ServiceAction::Start)?; // kickstart -k = restart -> keys re-resolve
+    Ok(format!("stored {env_var} in the Keychain and restarted the gateway"))
+}
+
+/// Remove a provider key from the Keychain, then restart the gateway so /healthz reflects it.
+#[tauri::command]
+pub fn delete_provider_key(env_var: String) -> Result<String, String> {
+    let line = keychain::keychain_script(keychain::KeyOp::Delete, &env_var, "")?;
+    keychain::run_security(&line)?;
+    service::run(service::ServiceAction::Start)?;
+    Ok(format!("removed {env_var} from the Keychain and restarted the gateway"))
+}
+
+/// Rebind the popover toggle (WF-DESIGN-0015): whitelist-validated id, unregister-all, then
+/// re-register with the shared toggle handler. Errors propagate so the Settings select can roll
+/// back. Rust holds no persistent shortcut state — the webview's settings are the source of
+/// truth and re-apply on every popover mount.
+#[tauri::command]
+pub fn set_shortcut(app: AppHandle, id: String) -> Result<(), String> {
+    crate::apply_shortcut(&app, &id)
 }
 
 /// A transition-edge notification (WF-DESIGN-0012: edge-only, off by default — the webview's
