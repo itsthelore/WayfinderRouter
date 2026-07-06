@@ -43,6 +43,10 @@ pub fn build(app: &App) -> tauri::Result<()> {
         .show_menu_on_left_click(false)
         .on_menu_event(|_app, event| handle_menu(event.id.as_ref()))
         .on_tray_icon_event(|tray, event| {
+            // Keeps tauri-plugin-positioner's tracked tray rect current on every event (not
+            // just clicks) — show_popover's `Position::TrayBottomCenter` reads it back to
+            // anchor the popover under the icon, the same way any macOS menu extra behaves.
+            tauri_plugin_positioner::on_tray_event(tray.app_handle(), &event);
             if let TrayIconEvent::Click {
                 button: MouseButton::Left,
                 button_state: MouseButtonState::Up,

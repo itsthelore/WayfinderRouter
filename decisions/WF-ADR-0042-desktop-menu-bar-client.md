@@ -21,9 +21,17 @@ Accepted
 > at 360×480 CodexBar's own spacing/type scale read as cramped and low-contrast next to the
 > reference (verified by rendering both side by side), and the height is sized so the whole menu
 > — header, both metric sections, every action row, the footer — fits with no half-clipped row
-> (the full list measures ~547px). The shell mechanics are unchanged: still one borderless,
-> vibrant, hide-on-blur popover; `position_bottom_center` in `lib.rs` already reads the window's
-> live size rather than a hardcoded constant, so only `tauri.conf.json` moves.
+> (the full list measures ~547px). The shell mechanics are otherwise unchanged: still one
+> borderless, vibrant, hide-on-blur popover — only `tauri.conf.json` moves.
+>
+> Amendment (popover position): a leftover `position_bottom_center` in `lib.rs` summoned the
+> popover launcher-style — bottom-center of the active display — a holdover from a pre-CodexBar
+> iteration this session never revisited, at odds with §1's own premise (a real menu-bar app, not
+> a second router *or* a Spotlight clone). `lib.rs` already depended on `tauri-plugin-positioner`
+> for exactly this and simply never called it: `tray.rs` now forwards every tray event to
+> `tauri_plugin_positioner::on_tray_event` (not just clicks, so its tracked rect never goes
+> stale), and `show_popover` anchors via `Position::TrayBottomCenter` — an ordinary macOS menu
+> extra, popover centred under the tray icon with its top edge at the icon's bottom.
 
 ## Category
 
