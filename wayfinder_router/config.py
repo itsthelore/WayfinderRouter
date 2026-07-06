@@ -75,6 +75,42 @@ def find_config_file(start_dir: str) -> Path | None:
     return None
 
 
+def set_toml_bool(text: str, table: str, key: str, value: bool) -> str:
+    """Line-preserving edit: set ``key = true|false`` in the top-level ``[table]`` section.
+
+    The write half of the `config set` seam (WF-ADR-0044): the CLI is the only config author,
+    so it must not clobber a hand-edited file. Every line except the one carrying the key
+    survives byte-for-byte — comments, blank lines, and unrelated sections included. Three
+    cases: an existing uncommented ``key =`` line inside ``[table]`` is replaced in place; a
+    ``[table]`` section without the key gains it directly under the header; a missing section
+    is appended at the end (TOML allows declaring a super-table after its sub-tables, so a
+    trailing ``[gateway]`` after ``[gateway.models.*]`` blocks is valid). Callers re-parse the
+    result with the real config parsers before writing anything to disk.
+    """
+    rendered = "true" if value else "false"
+    lines = text.splitlines(keepends=True)
+    section: str | None = None
+    header_idx: int | None = None
+    for i, line in enumerate(lines):
+        stripped = line.strip()
+        if stripped.startswith("[") and stripped.endswith("]"):
+            section = stripped[1:-1].strip()
+            if section == table:
+                header_idx = i
+            continue
+        if section == table and not stripped.startswith("#"):
+            name = stripped.split("=", 1)[0].strip()
+            if "=" in stripped and name == key:
+                indent = line[: len(line) - len(line.lstrip())]
+                lines[i] = f"{indent}{key} = {rendered}\n"
+                return "".join(lines)
+    if header_idx is not None:
+        lines.insert(header_idx + 1, f"{key} = {rendered}\n")
+        return "".join(lines)
+    tail = "" if text.endswith("\n") or not text else "\n"
+    return f"{text}{tail}\n[{table}]\n{key} = {rendered}\n"
+
+
 def routing_config_from_toml(text: str, where: str = CONFIG_FILE) -> RoutingConfig:
     """Parse a :class:`RoutingConfig` from ``wayfinder-router.toml`` text.
 

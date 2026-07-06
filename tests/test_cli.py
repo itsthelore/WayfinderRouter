@@ -438,3 +438,40 @@ def test_keys_new_escapes_toml_unsafe_id_and_tag(capsys):
     keys = data["gateway"]["keys"]
     assert 'we"ird.id' in keys  # a single quoted key, not nested by the dot
     assert keys['we"ird.id']["tags"] == ['a"b', "ok"]
+
+
+def test_config_set_flips_offline_and_preserves_the_file(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.delenv("WAYFINDER_CONFIG", raising=False)
+    assert main(["init"]) == 0
+    before = (tmp_path / "wayfinder-router.toml").read_text(encoding="utf-8")
+    assert main(["config", "set", "gateway.offline", "true"]) == 0
+    after = (tmp_path / "wayfinder-router.toml").read_text(encoding="utf-8")
+    assert after.endswith("\n[gateway]\noffline = true\n")
+    assert after.startswith(before.rstrip("\n") + "\n") or before in after  # nothing clobbered
+    # flip back off — the in-place replace path
+    assert main(["config", "set", "gateway.offline", "false"]) == 0
+    assert "offline = false" in (tmp_path / "wayfinder-router.toml").read_text(encoding="utf-8")
+
+
+def test_config_set_explicit_path(tmp_path, monkeypatch, capsys):
+    monkeypatch.delenv("WAYFINDER_CONFIG", raising=False)
+    target = tmp_path / "elsewhere" / "wayfinder-router.toml"
+    target.parent.mkdir()
+    assert main(["init", "--path", str(target)]) == 0
+    capsys.readouterr()
+    assert main(["config", "set", "gateway.offline", "true", "--path", str(target)]) == 0
+    assert "offline = true" in target.read_text(encoding="utf-8")
+    assert str(target) in capsys.readouterr().err
+
+
+def test_config_set_rejects_unknown_key_bad_value_and_missing_file(tmp_path, monkeypatch, capsys):
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.delenv("WAYFINDER_CONFIG", raising=False)
+    assert main(["config", "set", "gateway.offline", "true"]) == 2  # no config anywhere
+    assert "run `wayfinder-router init`" in capsys.readouterr().err
+    assert main(["init"]) == 0
+    assert main(["config", "set", "routing.threshold", "0.5"]) == 2  # off-whitelist
+    assert "unknown config key" in capsys.readouterr().err
+    assert main(["config", "set", "gateway.offline", "maybe"]) == 2
+    assert "'true' or 'false'" in capsys.readouterr().err
