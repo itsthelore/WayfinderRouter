@@ -147,12 +147,27 @@ describe("UnreachableView / FirstRunView — never a dead screen", () => {
     expect(onStartGateway).toHaveBeenCalled();
     expect(await screen.findByText("install the gateway first")).toBeInTheDocument();
   });
-  it("FirstRun: install CTA runs the handler", async () => {
+  it("FirstRun: the scaffold CTA carries the picked preset (hybrid by default)", async () => {
     const user = userEvent.setup();
-    const onInstallService = vi.fn().mockResolvedValue(undefined);
-    render(<FirstRunView onInstallService={onInstallService} />);
-    await user.click(screen.getByRole("button", { name: "Install the Wayfinder service" }));
-    expect(onInstallService).toHaveBeenCalled();
+    const onScaffold = vi.fn().mockResolvedValue(undefined);
+    render(<FirstRunView onScaffold={onScaffold} />);
+    await user.click(screen.getByRole("button", { name: "Set up routing" }));
+    expect(onScaffold).toHaveBeenCalledWith("hybrid");
+    await user.click(screen.getByRole("radio", { name: /OpenAI/ }));
+    await user.click(screen.getByRole("button", { name: "Set up routing" }));
+    expect(onScaffold).toHaveBeenLastCalledWith("openai");
+  });
+  it("FirstRun: a scaffold failure surfaces its error and re-enables the CTA", async () => {
+    const user = userEvent.setup();
+    const onScaffold = vi.fn().mockRejectedValue(new Error("couldn't find `wayfinder-router`"));
+    render(<FirstRunView onScaffold={onScaffold} />);
+    await user.click(screen.getByRole("button", { name: "Set up routing" }));
+    expect(await screen.findByText(/couldn't find/)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Set up routing" })).toBeEnabled();
+  });
+  it("FirstRun: no handler leaves the CTA disabled; the preview surface still renders", () => {
+    render(<FirstRunView />);
+    expect(screen.getByRole("button", { name: "Set up routing" })).toBeDisabled();
   });
 });
 
@@ -179,14 +194,15 @@ describe("PopoverRoot — the reachable/unreachable/first-run switch, driven by 
     expect(screen.getByRole("textbox", { name: "message" })).toBeInTheDocument();
   });
 
-  it("healthz rejects + never seen -> FirstRunView", async () => {
+  it("healthz rejects + never seen -> FirstRunView with the scaffold CTA", async () => {
     globalThis.fetch = routedFetch(async () => {
       throw new TypeError("Failed to fetch");
     }) as unknown as typeof fetch;
     render(<PopoverRoot />);
     await waitFor(() =>
-      expect(screen.getByRole("button", { name: "Install the Wayfinder service" })).toBeInTheDocument(),
+      expect(screen.getByRole("button", { name: "Set up routing" })).toBeInTheDocument(),
     );
+    expect(screen.getByRole("radio", { name: /Hybrid/ })).toBeInTheDocument();
   });
 
   it("healthz rejects + previously seen -> UnreachableView", async () => {

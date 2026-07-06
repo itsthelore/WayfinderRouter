@@ -45,14 +45,48 @@ export async function openTarget(target: OpenTarget): Promise<void> {
   }
 }
 
-/** Open the separate native Settings window (WF-DESIGN-0014) — never an in-popover slide-over. */
-export async function openSettings(): Promise<void> {
+export type SettingsSection = "general" | "gateway" | "keys" | "privacy";
+
+/** Open the separate native Settings window (WF-DESIGN-0014) — never an in-popover slide-over.
+ *  `section` deep-links a sidebar section on window creation (WF-DESIGN-0015); an already-open
+ *  window is focused, not re-routed. */
+export async function openSettings(section?: SettingsSection): Promise<void> {
   if (!inTauri()) return;
   try {
-    await invoke("open_settings");
+    await invoke("open_settings", { section: section ?? null });
   } catch (err) {
     console.warn("open_settings failed", err);
   }
+}
+
+export type Preset = "hybrid" | "openai" | "gemini";
+
+/** First-run scaffold (WF-ADR-0044 / WF-DESIGN-0015): the gateway's own `init --preset
+ *  --keychain` writes the config (the app authors no TOML), then the service is (re)installed
+ *  with `--config` baked in. Resolves with the Rust message or rejects with its error. */
+export async function scaffoldConfig(preset: Preset): Promise<string> {
+  if (!inTauri()) throw new Error("config scaffolding needs the desktop app");
+  return invoke<string>("scaffold_config", { preset });
+}
+
+/** Store a provider key in the macOS Keychain and restart the gateway so it takes effect
+ *  (WF-ADR-0044: the key crosses stdin, never argv, and never persists in JS state). */
+export async function storeProviderKey(envVar: string, key: string): Promise<string> {
+  if (!inTauri()) throw new Error("key storage needs the desktop app");
+  return invoke<string>("store_provider_key", { envVar, key });
+}
+
+/** Remove a provider key from the Keychain and restart the gateway. */
+export async function deleteProviderKey(envVar: string): Promise<string> {
+  if (!inTauri()) throw new Error("key removal needs the desktop app");
+  return invoke<string>("delete_provider_key", { envVar });
+}
+
+/** Rebind the popover toggle (WF-DESIGN-0015). Rejects on unknown ids or when the combo can't
+ *  register (already claimed) so the Settings select can roll back. */
+export async function setShortcut(id: string): Promise<void> {
+  if (!inTauri()) throw new Error("shortcut binding needs the desktop app");
+  await invoke("set_shortcut", { id });
 }
 
 /** The footer's "Quit Wayfinder" row (WF-DESIGN-0014) — the same exit the tray's own Quit item
