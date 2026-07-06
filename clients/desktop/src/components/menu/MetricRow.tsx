@@ -3,7 +3,7 @@
 // nothing — CodexBar's own Cost section is bar-less), then EITHER a left/right value line OR
 // stacked body `lines` (the Cost form). Hierarchy is the reference's own: the LEFT value and
 // body lines are dark foreground; only the RIGHT value and the insight line are muted.
-import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import { HelpTip } from "@/components/menu/HelpTip";
 
 export function MetricRow({
   label,
@@ -15,8 +15,8 @@ export function MetricRow({
   insight,
 }: {
   label: string;
-  /** Hover/focus explanation of what this stat means (WF-DESIGN-0014's tooltip layer). The
-      label stays terse; the semantics live here — shown on hover and on keyboard focus. */
+  /** What this stat means — one short sentence per idea, shown in a (?) panel beside the
+      label on click (WF-DESIGN-0014's help layer). The label itself stays plain. */
   help?: string;
   bar?: React.ReactNode;
   /** The dark headline value under the bar ("2% used" form). Ignored when `lines` is set. */
@@ -27,23 +27,12 @@ export function MetricRow({
   lines?: string[];
   insight?: string;
 }) {
-  const labelClass = "text-[16px] font-bold";
   return (
     <div className="flex flex-col gap-3 px-5 py-5">
-      {help ? (
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <span tabIndex={0} className={`${labelClass} cursor-help self-start rounded-sm`}>
-              {label}
-            </span>
-          </TooltipTrigger>
-          <TooltipContent side="bottom" align="start" className="max-w-[300px]">
-            {help}
-          </TooltipContent>
-        </Tooltip>
-      ) : (
-        <span className={labelClass}>{label}</span>
-      )}
+      <span className="flex items-center gap-1.5 text-[16px] font-bold">
+        {label}
+        {help && <HelpTip label={`about ${label.toLowerCase()}`}>{help}</HelpTip>}
+      </span>
       {bar}
       {lines ? (
         <div className="flex flex-col gap-1.5 text-[14px]">

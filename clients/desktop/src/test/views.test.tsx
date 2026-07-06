@@ -122,27 +122,34 @@ describe("MenuHeader — bold name, neutral health text, freshness subtext (mirr
     );
     expect(screen.getByRole("switch", { name: /offline mode/ })).toBeDisabled();
   });
-  it("the health label explains itself in a tooltip — per-state copy, offline outranking", async () => {
+  it("the header (?) opens one panel: per-state status copy plus the machine-wide switch line", async () => {
     const user = userEvent.setup();
-    const { rerender, unmount } = render(<MenuHeader gw={gwState()} updatedText="now" />);
-    await user.tab(); // the health label is the first focusable — focus opens the tooltip
-    expect(await screen.findByRole("tooltip")).toHaveTextContent(
-      "The local gateway is up and routing turns.",
+    const { unmount } = render(
+      <MenuHeader gw={gwState()} updatedText="now" onOfflineToggle={() => {}} />,
     );
-    rerender(<MenuHeader gw={gwState({ offlineConfig: true })} updatedText="now" />);
-    expect(await screen.findByRole("tooltip")).toHaveTextContent(/nothing leaves this mac/i);
+    const help = () => screen.getByRole("button", { name: "about status and offline mode" });
+    // Help only appears when asked for.
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    await user.click(help());
+    const panel = await screen.findByRole("dialog");
+    expect(panel).toHaveTextContent("Running — the gateway is routing turns.");
+    expect(panel).toHaveTextContent(/machine-wide/);
     unmount();
+
+    // Offline outranks the health copy; degraded points at Settings → Keys.
+    const offline = render(
+      <MenuHeader gw={gwState({ offlineConfig: true })} updatedText="now" onOfflineToggle={() => {}} />,
+    );
+    await user.click(help());
+    expect(await screen.findByRole("dialog")).toHaveTextContent(/every turn routes to the local model/);
+    offline.unmount();
+
     render(<MenuHeader gw={gwState({ health: "degraded", missingKeys: ["cloud"] })} updatedText="now" />);
-    await user.tab(); // past the missing-keys line isn't rendered without onAddKey — label is next
-    expect(await screen.findByRole("tooltip")).toHaveTextContent(/provider key is missing/i);
-  });
-  it("the switch explains machine-wide in a tooltip on focus", async () => {
-    const user = userEvent.setup();
-    render(<MenuHeader gw={gwState()} updatedText="now" onOfflineToggle={() => {}} />);
-    await user.tab(); // health label
-    await user.tab(); // switch
-    expect(screen.getByRole("switch", { name: /offline mode/ })).toHaveFocus();
-    expect(await screen.findByRole("tooltip")).toHaveTextContent(/machine-wide/i);
+    await user.click(help());
+    const degradedPanel = await screen.findByRole("dialog");
+    expect(degradedPanel).toHaveTextContent(/provider key is missing/);
+    // No switch rendered -> the panel doesn't describe one.
+    expect(degradedPanel).not.toHaveTextContent(/machine-wide/);
   });
 });
 

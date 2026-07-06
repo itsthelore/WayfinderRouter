@@ -179,15 +179,17 @@ reads as a draggable control, and none of these are.
   it is recorded under Later.
 - **Divider** — one hairline `<Separator>` between every section, exactly as the reference (no
   vertical rhythm relies on padding alone).
-- **Tooltips (the help layer)** — labels and statuses stay terse; what they *mean* lives on
-  hover/keyboard-focus (Radix tooltip, 500ms hover delay, instant on focus). Four carriers:
-  the health label (per-state copy — what "Degraded" is and where to fix it), the Offline
-  switch (machine-wide semantics: flips `offline` in the gateway config, every client
-  follows), and the Routing / Saved section labels via `MetricRow`'s `help` prop (what the
-  split is, what the savings baseline is). Rules: tooltip copy keeps to WF-ADR-0042 §8's
-  allowed claims ("nothing leaves this Mac" is said only of offline mode); a tooltip never
-  carries an *action* (actions stay in Settings and the header link); triggers are
-  keyboard-focusable so the copy is reachable without a pointer.
+- **HelpTip (the help layer)** — labels and statuses stay terse; what they *mean* lives
+  behind a small muted **(?)** button that opens a compact panel on click (Radix popover).
+  Help appears only when explicitly asked for — hover does nothing, labels stay plain. Three
+  triggers, four topics: one in the header status cluster (per-state status copy — what
+  "Degraded" is and where to fix it — plus, when the switch renders, the machine-wide Offline
+  line), and one beside each of the Routing and Saved labels via `MetricRow`'s `help` prop.
+  Rules: **one short sentence per idea** (a first cut shipped as multi-sentence hover
+  tooltips and was rejected as too verbose); copy keeps to WF-ADR-0042 §8's allowed claims
+  ("nothing leaves this Mac" is said only of offline mode); a panel never carries an *action*
+  (actions stay in Settings and the header link); the trigger is a real button, so the copy
+  is keyboard-reachable.
 
 `DecisionPill`, `ScoreReadout`, `WhyBars`, `DecisionCard`, `FrostedHeader`, `GlanceView` are
 retired as named components; their *data* (route/score/why/health/savings) is re-homed into
