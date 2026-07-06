@@ -8,8 +8,8 @@
 // Settings → Keys). When the chat sub-screen is pushed, the same header swaps to a back
 // control.
 import type { GatewayState } from "@/lib/appState";
+import { HelpTip } from "@/components/menu/HelpTip";
 import { Switch } from "@/components/ui/switch";
-import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 
 const HEALTH_LABEL: Record<GatewayState["health"], string> = {
@@ -19,22 +19,19 @@ const HEALTH_LABEL: Record<GatewayState["health"], string> = {
   unknown: "Checking…",
 };
 
-// The tooltip layer (WF-DESIGN-0014): the one-word status stays terse; what it *means* — and
-// what to do about it — lives on hover/focus. Copy keeps to WF-ADR-0042 §8's allowed claims.
+// The help layer (WF-DESIGN-0014): the one-word status stays terse; what it means lives in
+// the (?) panel — one sentence per idea, WF-ADR-0042 §8's allowed claims only.
 const HEALTH_HELP: Record<GatewayState["health"], string> = {
-  ok: "The local gateway is up and routing turns.",
-  degraded:
-    "The gateway is running, but a provider key is missing — turns can't route to that provider until it's added (Settings → Keys).",
-  unreachable:
-    "The app can't reach the gateway on this Mac. It may be stopped — Settings → Gateway can restart it.",
-  unknown: "Waiting for the gateway's first health report.",
+  ok: "Running — the gateway is routing turns.",
+  degraded: "Degraded — a provider key is missing (Settings → Keys).",
+  unreachable: "Unreachable — the gateway may be stopped (Settings → Gateway).",
+  unknown: "Checking — waiting for the first health report.",
 };
 
-const OFFLINE_HELP =
-  "Global offline mode is on: every turn, from every app using Wayfinder, routes to the local model. Nothing leaves this Mac.";
+const OFFLINE_HELP = "Offline — every turn routes to the local model.";
 
 const SWITCH_HELP =
-  "Offline mode — machine-wide. Routes every turn to the local model by flipping `offline` in the gateway config, so every app using Wayfinder follows. Nothing leaves this Mac while it's on.";
+  "The switch flips offline mode machine-wide — every app using Wayfinder follows. Nothing leaves this Mac while it's on.";
 
 export function MenuHeader({
   gw,
@@ -74,32 +71,20 @@ export function MenuHeader({
           </span>
         )}
         <span className="flex shrink-0 items-center gap-2">
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <span tabIndex={0} className="cursor-help rounded-sm text-[14px] text-muted-foreground">
-                {health}
-              </span>
-            </TooltipTrigger>
-            <TooltipContent side="bottom" align="end" className="max-w-[300px]">
-              {gw.offlineConfig ? OFFLINE_HELP : HEALTH_HELP[gw.health]}
-            </TooltipContent>
-          </Tooltip>
+          <span className="text-[14px] text-muted-foreground">{health}</span>
           {onOfflineToggle && (
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <Switch
-                  size="sm"
-                  aria-label="offline mode — everything routes local, machine-wide"
-                  checked={gw.offlineConfig}
-                  disabled={offlinePending}
-                  onCheckedChange={onOfflineToggle}
-                />
-              </TooltipTrigger>
-              <TooltipContent side="bottom" align="end" className="max-w-[300px]">
-                {SWITCH_HELP}
-              </TooltipContent>
-            </Tooltip>
+            <Switch
+              size="sm"
+              aria-label="offline mode — everything routes local, machine-wide"
+              checked={gw.offlineConfig}
+              disabled={offlinePending}
+              onCheckedChange={onOfflineToggle}
+            />
           )}
+          <HelpTip label="about status and offline mode" align="end">
+            <p>{gw.offlineConfig ? OFFLINE_HELP : HEALTH_HELP[gw.health]}</p>
+            {onOfflineToggle && <p className="mt-1.5">{SWITCH_HELP}</p>}
+          </HelpTip>
         </span>
       </div>
     </header>
