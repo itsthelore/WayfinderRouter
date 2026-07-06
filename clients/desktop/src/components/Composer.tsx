@@ -2,6 +2,7 @@
 // Enter sends, Shift+Enter newlines, the one teal primary action. While a turn streams the send
 // button becomes Stop, which aborts through the wire client's AbortSignal (the caller owns it).
 import { useState } from "react";
+import { ArrowUp } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
@@ -52,8 +53,14 @@ export function Composer({
           stop
         </Button>
       ) : (
-        <Button size="sm" onClick={send} disabled={disabled || !value.trim()} aria-label="send">
-          ›
+        <Button
+          size="icon-sm"
+          className="rounded-full"
+          onClick={send}
+          disabled={disabled || !value.trim()}
+          aria-label="send"
+        >
+          <ArrowUp className="size-4" aria-hidden />
         </Button>
       )}
     </div>
