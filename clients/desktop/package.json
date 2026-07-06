@@ -5,8 +5,8 @@
   "type": "module",
   "description": "Wayfinder Desktop — Tauri v2 macOS menu-bar app (WF-ADR-0042). A thin client over the local gateway's loopback HTTP API: it renders decisions, never makes them, and never owns the gateway process (service-first).",
   "scripts": {
-    "dev": "vite",
-    "build": "tsc --noEmit -p tsconfig.json && tsc --noEmit -p tsconfig.node.json && vite build",
+    "dev": "VITE_PARITY_OK=1 vite",
+    "build": "tsc --noEmit -p tsconfig.json && tsc --noEmit -p tsconfig.node.json && VITE_PARITY_OK=1 vite build",
     "preview": "vite preview",
     "test": "vitest run",
     "tauri": "tauri"
@@ -21,6 +21,7 @@
     "@wayfinder/shared": "*",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
+    "lucide-react": "^1.23.0",
     "radix-ui": "^1.6.1",
     "react": "^19.2.7",
     "react-dom": "^19.2.7",
@@ -29,10 +30,14 @@
   "devDependencies": {
     "@tailwindcss/vite": "^4.3.2",
     "@tauri-apps/cli": "^2.11.4",
+    "@testing-library/jest-dom": "^6.9.1",
+    "@testing-library/react": "^16.3.2",
+    "@testing-library/user-event": "^14.6.1",
     "@types/node": "^26.1.0",
     "@types/react": "^19.2.17",
     "@types/react-dom": "^19.2.3",
     "@vitejs/plugin-react": "^6.0.3",
+    "jsdom": "^29.1.1",
     "tailwindcss": "^4.3.2",
     "typescript": "^6.0.3",
     "vite": "^8.1.2",

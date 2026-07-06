@@ -1,0 +1,7 @@
+{
+  "x-wayfinder-router-mode": "scored",
+  "x-wayfinder-router-model": "local",
+  "x-wayfinder-router-request-id": "fx-sse",
+  "x-wayfinder-router-score": "0.00",
+  "x-wayfinder-router-served-by": "local"
+}

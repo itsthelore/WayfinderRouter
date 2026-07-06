@@ -15,8 +15,8 @@
       {
         "label": "popover",
         "title": "Wayfinder",
-        "width": 360,
-        "height": 480,
+        "width": 400,
+        "height": 640,
         "resizable": false,
         "decorations": false,
         "transparent": true,
