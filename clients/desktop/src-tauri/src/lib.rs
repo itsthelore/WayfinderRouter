@@ -47,6 +47,7 @@ pub fn run() {
             commands::delete_provider_key,
             commands::set_shortcut,
             commands::set_offline,
+            commands::add_model,
         ])
         .setup(|app| {
             setup(app)?;

@@ -238,6 +238,55 @@ pub fn set_offline(on: bool) -> Result<String, String> {
     }
 }
 
+/// Register a brand-new `[gateway.models.*]` endpoint by shelling the seam's `config add-model`
+/// verb (WF-ADR-0044) — any OpenAI-compatible provider, not a fixed list (Anthropic, OpenAI,
+/// Gemini, a HuggingFace Inference Endpoint, a local Ollama/LM Studio server, ...). Whenever a
+/// key-env is given, `--keychain` rides along unconditionally so the new entry's `api_key_cmd`
+/// points at the Keychain like every other model this app manages — the existing per-row Save
+/// button then works unchanged for it. Registers the endpoint only: it is never placed into a
+/// routing tier (that's a real ranking decision, not this verb's job), so a restart makes the
+/// gateway load it (models, unlike `gateway.offline`, are read at startup only) but it won't
+/// receive automatically-scored traffic until a tier references it.
+#[tauri::command]
+pub fn add_model(
+    name: String,
+    base_url: String,
+    model: String,
+    api_key_env: Option<String>,
+) -> Result<String, String> {
+    let home = std::env::var("HOME").unwrap_or_default();
+    let path = std::env::var("PATH").unwrap_or_default();
+    let wf = service::resolve_wayfinder(&home, &path).ok_or_else(|| {
+        "couldn't find `wayfinder-router` — install the gateway first (pip install wayfinder-router)"
+            .to_string()
+    })?;
+    let config = service::desktop_config_path(&home);
+    let mut args = vec![
+        "config".to_string(),
+        "add-model".to_string(),
+        "--name".to_string(),
+        name.clone(),
+        "--base-url".to_string(),
+        base_url,
+        "--model".to_string(),
+        model,
+    ];
+    if let Some(env) = &api_key_env {
+        args.push("--api-key-env".to_string());
+        args.push(env.clone());
+        args.push("--keychain".to_string());
+    }
+    args.push("--path".to_string());
+    args.push(config);
+    let out = Command::new(&wf).args(&args).output().map_err(|e| format!("{wf}: {e}"))?;
+    if !out.status.success() {
+        let stderr = String::from_utf8_lossy(&out.stderr);
+        return Err(format!("config add-model failed: {}", stderr.trim()));
+    }
+    service::run(service::ServiceAction::Start)?; // models load at gateway startup only
+    Ok(format!("added {name} — restarted the gateway to load it"))
+}
+
 /// A transition-edge notification (WF-DESIGN-0012: edge-only, off by default — the webview's
 /// edge detector decides when). Dep-free via `osascript` so v1 pulls in no notification plugin;
 /// app-attributed notifications (tauri-plugin-notification) are a follow-up pending a dependency
