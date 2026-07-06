@@ -75,7 +75,7 @@ describe("scorerPreview — parity-gated local mirror", () => {
 describe("MenuHeader — bold name, neutral health text, freshness subtext (mirrors clawrouter-usage.png)", () => {
   it("renders the name and a neutral health label", () => {
     render(<MenuHeader gw={gwState()} updatedText="Updated just now" />);
-    expect(screen.getByText("Wayfinder")).toBeInTheDocument();
+    expect(screen.getByRole("img", { name: "Wayfinder" })).toBeInTheDocument();
     expect(screen.getByText("Running")).toBeInTheDocument();
     expect(screen.getByText("Updated just now")).toBeInTheDocument();
   });

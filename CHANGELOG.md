@@ -16,6 +16,10 @@ details, release history over commit history.
   section title and footer action (gear for Settings, etc.), and the Usage screen's footer no
   longer leaves a gap after a short list — it now follows the content directly.
 
+- **Desktop: real wordmark**. The plain-text "Wayfinder" in the popover header and the first-run
+  hero is now the actual brand wordmark (a transparent PNG, sized for both spots), replacing the
+  bold-text placeholder.
+
 - **Decision-only replies when no model is configured** (WF-ADR-0042). A running gateway with no
   `[gateway.models]` now answers `/v1/chat/completions` with the routing **decision** (HTTP 200,
   `{"wayfinder": {…}}` and an `x-wayfinder-router-decision-only: true` header) instead of a `500` — so
