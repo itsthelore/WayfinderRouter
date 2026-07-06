@@ -1,29 +1,43 @@
-// A repeated metric section (WF-DESIGN-0014, mirrors clawrouter-usage.png's section rhythm):
-// bold label, an optional bar (a SplitBar for compositions, a Bar for true 0..1 scalars, or
-// nothing — CodexBar's own Cost section is bar-less), a left/right value line, and an optional
-// muted insight line underneath.
+// A repeated metric section (WF-DESIGN-0014, mirrors the reference's section rhythm): bold
+// label, an optional bar (a SplitBar for compositions, a Bar for true 0..1 scalars, or
+// nothing — CodexBar's own Cost section is bar-less), then EITHER a left/right value line OR
+// stacked body `lines` (the Cost form). Hierarchy is the reference's own: the LEFT value and
+// body lines are dark foreground; only the RIGHT value and the insight line are muted.
 export function MetricRow({
   label,
   bar,
   left,
   right,
+  lines,
   insight,
 }: {
   label: string;
   bar?: React.ReactNode;
-  left: string;
+  /** The dark headline value under the bar ("2% used" form). Ignored when `lines` is set. */
+  left?: string;
+  /** The muted right-aligned counterpart ("Resets in 3h 53m" form). */
   right?: string;
+  /** Cost-style stacked dark body lines ("Today: … / Last 30 days: …"). Replaces left/right. */
+  lines?: string[];
   insight?: string;
 }) {
   return (
-    <div className="flex flex-col gap-2.5 px-5 py-5">
+    <div className="flex flex-col gap-3 px-5 py-5">
       <span className="text-[16px] font-bold">{label}</span>
       {bar}
-      <div className="flex items-center justify-between gap-2 text-[13px] text-muted-foreground">
-        <span>{left}</span>
-        {right && <span>{right}</span>}
-      </div>
-      {insight && <p className="text-[12px] text-muted-foreground">{insight}</p>}
+      {lines ? (
+        <div className="flex flex-col gap-1.5 text-[14px]">
+          {lines.map((line) => (
+            <span key={line}>{line}</span>
+          ))}
+        </div>
+      ) : (
+        <div className="flex items-baseline justify-between gap-2 text-[14px]">
+          <span>{left}</span>
+          {right && <span className="text-muted-foreground">{right}</span>}
+        </div>
+      )}
+      {insight && <p className="text-[13px] text-muted-foreground">{insight}</p>}
     </div>
   );
 }

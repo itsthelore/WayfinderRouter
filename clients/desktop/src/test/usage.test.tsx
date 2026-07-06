@@ -18,6 +18,8 @@ function fixture(name: string): string {
 }
 const RECENT = fixture("recent.json");
 const SAVINGS = JSON.parse(fixture("savings.json")) as SavingsReport;
+// The 30-day window: same shape, bigger numbers (the reference's "Last 30 days" line).
+const SAVINGS_30D: SavingsReport = { ...SAVINGS, saved: 1.82, saved_pct: 31.2 };
 const RECENT_REPORT: RecentReport = { total: 2, byModel: { local: 1, cloud: 1 }, localShare: 0.5 };
 
 function gwState(over: Partial<GatewayState> = {}): GatewayState {
@@ -80,6 +82,7 @@ describe("UsageView — the flat list (mirrors clawrouter-usage.png)", () => {
         gw={gwState()}
         recent={RECENT_REPORT}
         savings={SAVINGS}
+        savings30d={SAVINGS_30D}
         cheapest="local"
         onOfflineToggle={noop}
         onOpenChat={noop}
@@ -100,12 +103,14 @@ describe("UsageView — the flat list (mirrors clawrouter-usage.png)", () => {
         gw={gwState()}
         recent={RECENT_REPORT}
         savings={SAVINGS}
+        savings30d={SAVINGS_30D}
         cheapest="local"
         onOfflineToggle={noop}
         onOpenChat={noop}
       />,
     );
     expect(screen.getByText("Today: <$0.01 · 29% vs always-cloud")).toBeInTheDocument();
+    expect(screen.getByText("Last 30 days: $1.82 · 31% vs always-cloud")).toBeInTheDocument();
     // Exactly one bar on the whole screen: the routing split. Saved has none.
     expect(screen.getAllByRole("img").length).toBe(1);
     expect(screen.queryByRole("meter")).not.toBeInTheDocument();
@@ -117,6 +122,7 @@ describe("UsageView — the flat list (mirrors clawrouter-usage.png)", () => {
         gw={gwState()}
         recent={{ total: 0, byModel: {}, localShare: null }}
         savings={{ ...SAVINGS, priced: false }}
+        savings30d={null}
         cheapest="local"
         onOfflineToggle={noop}
         onOpenChat={noop}
@@ -134,6 +140,7 @@ describe("UsageView — the flat list (mirrors clawrouter-usage.png)", () => {
         gw={gwState()}
         recent={RECENT_REPORT}
         savings={SAVINGS}
+        savings30d={SAVINGS_30D}
         cheapest="local"
         onOfflineToggle={onOfflineToggle}
         onOpenChat={noop}
@@ -147,6 +154,7 @@ describe("UsageView — the flat list (mirrors clawrouter-usage.png)", () => {
         gw={gwState({ offlineConfig: true })}
         recent={RECENT_REPORT}
         savings={SAVINGS}
+        savings30d={SAVINGS_30D}
         cheapest="local"
         onOfflineToggle={onOfflineToggle}
         onOpenChat={noop}
@@ -163,6 +171,7 @@ describe("UsageView — the flat list (mirrors clawrouter-usage.png)", () => {
         gw={gwState({ health: "degraded", missingKeys: ["cloud"] })}
         recent={RECENT_REPORT}
         savings={SAVINGS}
+        savings30d={SAVINGS_30D}
         cheapest="local"
         onOfflineToggle={noop}
         onOpenChat={onOpenChat}

@@ -29,7 +29,9 @@ export function SplitBar({ segments, className }: { segments: SplitSegment[]; cl
             <div
               key={s.label}
               className="h-full rounded-full transition-[width] duration-[var(--dur-slow)] ease-[var(--ease-standard)]"
-              style={{ width: `${(s.count / total) * 100}%`, background: s.color }}
+              // minWidth floors a nonzero share at a 12px pill (the reference's 2% bar is a
+              // small-but-visible pill, not a sliver); zero-count segments are filtered above.
+              style={{ width: `${(s.count / total) * 100}%`, minWidth: "12px", background: s.color }}
             />
           ))}
     </div>

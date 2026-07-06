@@ -19,10 +19,16 @@ import { MetricRow } from "@/components/menu/MetricRow";
 import { SplitBar } from "@/components/menu/SplitBar";
 import { Separator } from "@/components/ui/separator";
 
+function savedLine(prefix: string, report: SavingsReport): string {
+  const pct = report.saved_pct || 0;
+  return `${prefix}: ${formatSaved(report.saved)}${pct > 0 ? ` · ${Math.round(pct)}% vs always-cloud` : ""}`;
+}
+
 export function UsageView({
   gw,
   recent,
   savings,
+  savings30d,
   cheapest,
   onOfflineToggle,
   onOpenChat,
@@ -30,6 +36,7 @@ export function UsageView({
   gw: GatewayState;
   recent: RecentReport | null;
   savings: SavingsReport | null;
+  savings30d: SavingsReport | null;
   cheapest: string | null;
   onOfflineToggle: (on: boolean) => void;
   onOpenChat: () => void;
@@ -39,8 +46,15 @@ export function UsageView({
   const cloudCount = total - localCount;
   const localShare = total > 0 ? localCount / total : 0;
   const hasSavings = !!savings && savings.priced && savings.saved > 0;
-  const savedPct = hasSavings ? savings!.saved_pct || 0 : 0;
+  const has30d = !!savings30d && savings30d.priced && savings30d.saved > 0;
   const offline = gw.offlineConfig || gw.offlineLocal;
+
+  // The reference's Cost form: stacked dark body lines, today then the 30-day window. Each
+  // line renders only when its period is priced with real savings (never "0 relative units").
+  const savedLines = [
+    ...(hasSavings ? [savedLine("Today", savings!)] : []),
+    ...(has30d ? [savedLine("Last 30 days", savings30d!)] : []),
+  ];
 
   return (
     <div className="flex flex-col" data-testid="usage">
@@ -58,18 +72,14 @@ export function UsageView({
         right={total > 0 ? `${total} turn${total === 1 ? "" : "s"}` : undefined}
         insight={total > 0 ? `Routed: local: ${localCount} · cloud: ${cloudCount}` : undefined}
       />
-      <Separator />
-      {/* Saved is cost-like, not a quota — no bar, a plain value line, exactly the form
+      <Separator className="mx-5 w-auto" />
+      {/* Saved is cost-like, not a quota — no bar, dark body lines, exactly the form
           CodexBar's own (bar-less) Cost section uses. */}
       <MetricRow
         label="Saved"
-        left={
-          hasSavings
-            ? `Today: ${formatSaved(savings!.saved)}${savedPct > 0 ? ` · ${Math.round(savedPct)}% vs always-cloud` : ""}`
-            : "Not yet available"
-        }
+        lines={savedLines.length > 0 ? savedLines : ["Not yet available"]}
       />
-      <Separator />
+      <Separator className="mx-5 w-auto" />
 
       <ActionRow
         icon={WifiOff}
