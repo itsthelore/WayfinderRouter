@@ -1,0 +1,198 @@
+---
+schema_version: 1
+id: WF-DESIGN-0014
+type: design
+tags: [desktop, macos, popover, tray, settings, menu-bar, codexbar, flat-list]
+---
+
+# WF-DESIGN-0014: The Popover Is a Flat Native Menu, Not a Card Grid
+
+## Status
+
+Accepted
+
+> Supersedes the layout portions of WF-DESIGN-0012 and all of WF-DESIGN-0013: both described
+> (and WF-DESIGN-0013 built) an 18px-radius card/tile grid. That shape was never CodexBar's own
+> — it was this project's invention *inspired by* CodexBar's concepts (a data-bearing tray icon,
+> dense tiles, cadence presets) rather than a mirror of CodexBar's actual DOM. This document
+> corrects that: it mirrors [CodexBar](https://github.com/steipete/CodexBar) (MIT licensed) row
+> for row, verified against its real screenshots (cited throughout), and re-composes Wayfinder's
+> existing data (unchanged: `lib/appState.ts`, the hooks, `lib/gateway.ts`/`ipc.ts`) into that
+> shape. WF-DESIGN-0012's tokens, motion primitives, and state machines remain authoritative
+> except where this document explicitly overrides them (typography and the hero-card component
+> inventory, both below). Credit: CodexBar's layout is mirrored deliberately and disclosedly,
+> per its MIT license — no CodexBar code is vendored, only its arrangement.
+
+## Context
+
+The maintainer's brief was specific: build the UI CodexBar actually has, with Wayfinder's colors
+dropped in — not a new UI "inspired by" CodexBar's ideas. The prior pass (WF-DESIGN-0013)
+mis-read that brief: it kept the original card-grid instinct (`Card` tiles, 18px-radius hero,
+segmented `Glance | Chat` tab pills) and only borrowed CodexBar's *concepts* (a meter tray icon,
+density, cadence presets). This document was written after actually fetching and viewing
+CodexBar's screenshots (`docs/codexbar.png`, `docs/screenshots/current-merged-menu-redacted.png`,
+`docs/screenshots/clawrouter-usage.png`, `docs/screenshots/clawrouter-settings.png`,
+`docs/screenshots/cost-chart-yaxis-labels.png` in the CodexBar repo) and reading its README
+rather than guessing from the name. Two things fell out of actually looking:
+
+1. **It is a flat native menu list, not a grid.** No cards, no tiles, no rounded containers
+   floating in padding. Top to bottom: a detail header, repeated metric sections (bold label →
+   thin progress bar with a knob at the fill point → left/right value line → an optional gray
+   insight line), hairline dividers between every section, plain icon+label action rows, and a
+   footer menu in exact NSMenu style (icon, label, right-aligned ⌘-shortcut). Colour appears only
+   in bar fills and the tab-strip's active state; every label, value, and insight line is neutral
+   gray/black text on the vibrancy material.
+2. **The multi-provider tab-strip in the main screenshot does not apply to Wayfinder.** That
+   strip (icon+label pills, one per coding-tool provider: Codex/Claude/Cursor/Droid/Gemini/
+   Copilot) exists because CodexBar aggregates several independent tools. CodexBar's own
+   **ClawRouter** provider — a router that sits in front of several LLMs and tracks a budget,
+   the closest existing thing to what Wayfinder *is* — has no tab-strip in its own popover
+   (`clawrouter-usage.png`): it opens directly on a header and its metric sections, because it
+   is one entity, not an aggregator. Wayfinder is a ClawRouter, not a CodexBar shell. The popover
+   in this document follows the ClawRouter screenshot as the near-literal template, per the task
+   brief, not the multi-provider outer chrome.
+
+A second open question — whether the tray icon should show a literal numeric percentage instead
+of the row-splice fill meter WF-DESIGN-0013 built — was resolved with the maintainer before any
+tray code was touched. Reading CodexBar's own README ("the menu bar icon is a tiny usage
+meter... dynamic bar icons") confirmed the icon is itself a bar-fill meter, not digit text; the
+settings row that prompted the question ("choose which window drives the menu bar percent")
+exists because CodexBar tracks several independent quotas and needs a picker. Wayfinder has one
+natural fill metric (local-routing share) and no second one worth exposing a picker for yet, so
+the decision was: **keep the fill-meter mechanism from WF-DESIGN-0013 (`src-tauri/src/{commands,
+tray}.rs`, `lib/meter.ts`), drop nothing there, and do not add a metric picker.** That code was
+already correct in kind; only the popover DOM around it was wrong.
+
+## What ports unchanged
+
+Everything data/logic-shaped, because none of it renders anything — WF-ADR-0001 (the client never
+scores) and WF-ADR-0042 (rendered, not computed) apply regardless of DOM shape:
+
+- `hooks/*`, `lib/appState.ts` (both state machines), `lib/gateway.ts`, `lib/ipc.ts`,
+  `lib/settings.ts`, `lib/scorerPreview.ts`, `lib/meter.ts`.
+- The recorded golden fixtures and `tools/record-fixtures.mjs` — the decision-render contract.
+- `src-tauri/src/{commands,service,tray}.rs` — the tray meter, the service-first lifecycle, the
+  fixed open-target/notify commands. `lib.rs` gains one addition (below): the Settings window.
+- The nine vendored shadcn primitives and the token/motion contract in `globals.css`
+  (WF-DESIGN-0012's "Tokens → slots" and "Motion" sections stand as written).
+
+## What this document changes
+
+### Typography (amends WF-DESIGN-0012)
+
+CodexBar's list has no giant hero numeral anywhere — every number (`$1,515`, `2% used`, `100%
+left`) is plain inline text, sized like the rest of its row. The 22px mono tabular "hero score"
+and the rounded-hero (18px) card are retired. A first pass at the new scale under-shot the
+reference badly — 13px labels, a 4px rail with no knob, and a nearly-invisible track all read as
+a compact sidebar next to CodexBar's own generously-sized, high-contrast list. That was caught by
+rendering both side by side (screenshots, not just reading the fixture data) and corrected. The
+scale that shipped, all on the body/mono stacks already in `globals.css`:
+
+| Use | Size/weight |
+|---|---|
+| Header name ("Wayfinder" / "Chat") | 19px, 700 |
+| Section labels (Routing/Saved), action-row labels, footer labels, the decision route+model line | 16px, 700 (metric/decision labels) or 400 (action/footer row text) — normal case, not uppercase-tracked; CodexBar's "Session"/"Weekly"/"Routing" labels are plain sentence case |
+| Body values (bar left/right values, routing badge, header subtext/health) | 13px, 400 |
+| Muted secondary (insight lines, footer shortcuts) | 12–13px, 400, muted |
+| Numerals inside rows (scores, dollar amounts, counts) | `font-mono tabular-nums`, inherits the row's size — never its own larger size |
+
+11px uppercase-tracked labels (WF-DESIGN-0012's fourth scale rung) survive only for the
+tab-strip-free popover's total absence — there is no more segmented-control pill needing that
+treatment.
+
+**Bars, tokens, and the popover canvas** also needed correction after the same side-by-side check:
+- `Bar` is 6px thick (was a 4px rail) with a 10px knob at the fill edge, haloed with
+  `box-shadow: 0 0 0 2px var(--popover)` so it reads as a distinct control even when its color
+  matches the fill it's sitting on — without the halo, the knob and the fill's own rounded end
+  are visually the same shape at most fill percentages.
+- `--track` and `--border` (`globals.css`) were both too pale to read against the popover's
+  vibrancy tint — bars looked broken (empty) rather than "a channel with a small fill," and
+  dividers didn't separate sections. Both are darkened (light: `--track` `#ececed`→`#dcdce1`,
+  `--border` `#ececef`→`#e2e2e7`; dark: `--track` `#39393d`→`#48484e`, `--border` alpha
+  `.08`→`.12`). `--track` is now used solely by `Bar` (WhyBars/ScoreReadout, its old consumers,
+  are retired), so strengthening the token directly was safe.
+- Action-row icons are `lucide-react` line icons (a new, minimal dependency — tree-shaken, only
+  the ~6 icons actually imported end up in the bundle), not the unicode glyphs (`↗ ⚙ ▤`) the first
+  pass used, and every row has one now, including the Offline mode toggle (`WifiOff`, replaced by
+  a checkmark when on) — the first pass left it icon-less, breaking the rows' shared left edge.
+- **The popover grew from 360×480 to 400×640** (WF-ADR-0042 amended). CodexBar's own popover reads
+  spacious at a canvas Wayfinder's original fixed size couldn't match without cramming; widening
+  it was a deliberate call (confirmed with the maintainer, since it touches an existing ADR), not
+  a silent scope-creep. `position_bottom_center` in `lib.rs` reads the window's live size, so only
+  `tauri.conf.json`'s two numbers changed.
+
+### Component inventory (replaces WF-DESIGN-0012's card-based list)
+
+- **MenuHeader** — line 1: bold name (left) + health text (right, neutral: "Running" /
+  "Degraded" / "Offline" / "Unreachable" — never colour, matching CodexBar's "Max" tier badge
+  being plain gray). Line 2: "Updated {relative}" subtext, replaced by "Missing `{ENV_VAR}`"
+  when degraded (same slot, higher-priority content — mirrors the header's single freshness-line
+  convention rather than adding a second banner element).
+- **MetricRow** — bold label, thin `--track` bar with a round knob (a small circle, absolutely
+  positioned at the fill edge — `clawrouter-usage.png`'s budget bar), a left/right value line
+  below it (`"{n}% used"` / `"Resets in …"` when a real reset window exists — routing has none,
+  so its right value is a plain count instead of a fabricated countdown), and an optional muted
+  insight line. Two instances: **Routing** (fill = local share; insight line
+  `"Routed: local: {n} · cloud: {n}"`, the literal Wayfinder swap of ClawRouter's "Routed
+  providers: anthropic: 2 · google-gemini: 2 · openai: 2") and **Saved** (fill = `saved_pct`;
+  values `"{formatSaved} saved today"` / `"{pct}% vs always-cloud"`).
+- **ActionRow** — icon + label, optional trailing checkmark (offline mode) or chevron (Chat, see
+  below) — CodexBar's "Add Account…" / "Usage Dashboard" / "Status Page" rows. Wayfinder's set:
+  Offline mode (checkmark toggle), Open Dashboard, Open Config, Open Logs, Chat (chevron —
+  pushes a full-screen sub-view, see below).
+- **FooterMenuItem** — icon, label, right-aligned real `⌘`-shortcut (wired to an actual
+  `keydown` listener, not a decorative label): Refresh (`⌘R`), Settings… (`⌘,`), Quit Wayfinder
+  (`⌘Q`). CodexBar's fourth footer row, "About CodexBar", is deliberately **not** built —
+  Wayfinder has no About panel to open yet, and a dead menu row is worse than a shorter footer;
+  it is recorded under Later.
+- **Divider** — one hairline `<Separator>` between every section, exactly as the reference (no
+  vertical rhythm relies on padding alone).
+
+`DecisionPill`, `ScoreReadout`, `WhyBars`, `DecisionCard`, `FrostedHeader`, `GlanceView` are
+retired as named components; their *data* (route/score/why/health/savings) is re-homed into
+MenuHeader/MetricRow/ActionRow/the Chat sub-screen below. `StreamingMessage`, `Composer`,
+`OfflineToggle`, `OnboardingCard`, `StatusDot`, `SavingsGlance`, `LocalMirror` survive as
+components but are restyled flat (no `Card` wrapper, hairlines instead of rounded borders).
+
+### Chat has no CodexBar analogue — here is the disclosed extrapolation
+
+CodexBar's tracked tools have no chat surface, so there is nothing to mirror for Wayfinder's
+WF-ADR-0042 §1 chat requirement. Rather than resurrect a tab-strip that only makes sense for
+multi-provider aggregation (see Context), Chat is reached via an **ActionRow with a trailing `›`
+chevron** — the same disclosure affordance CodexBar's own "Cost" section uses in the main
+screenshot to push into a detail view. Tapping it replaces the flat list with the chat surface
+(composer, transcript, the decision rendered as one more MetricRow-shaped block: bold route+model
+line, the score bar, why-rows as label/bar/value rows behind a disclosure — same visual grammar,
+not a floating card); the header swaps its right side for a `‹` back control. This keeps
+decision-first hierarchy (WF-ADR-0020): the decision is still the first thing shown, above the
+reply, just typographically consistent with the rest of the popover instead of a 22px hero digit.
+Unreachable/first-run keep their WF-DESIGN-0013 invariant: full-surface takeover, no header list.
+
+### Settings is a separate native window (replaces the in-popover slide-over)
+
+WF-DESIGN-0013's `SettingsView` slide-over is retired. Settings… now opens a real, resizable,
+decorated `WebviewWindow` (`src-tauri/src/commands.rs::open_settings`, built on demand — not
+declared in `tauri.conf.json` — so a closed window is simply rebuilt on the next open rather than
+tracked as stale). Layout mirrors `clawrouter-settings.png`: a sidebar list on the left, a detail
+pane on the right using Mac-native Form rows (bold label + gray description on the left, the
+control flush right). Wayfinder's sidebar has exactly one entry today, **General** — cadence,
+notifications, launch-at-login, and the (display-only, not yet rebindable) shortcut — because
+that is all the real content there is; it is a real, data-driven list component so a second entry
+(Privacy, Keys) slots in without restructuring when WF-ROADMAP-0009 Phase 4 lands them. No
+provider search box (ClawRouter's search box searches *its* provider list; Wayfinder has nothing
+to search yet) and no API key / Base URL rows (WF-ADR-0004's Keychain glue is still Phase 4, not
+this pass) — both are recorded under Later rather than faked.
+
+## Later (recorded, not built)
+
+About Wayfinder panel + footer row · a second Settings sidebar entry (Privacy/verify-lite panel,
+key management — WF-ROADMAP-0009 Phase 4) · ⌥W rebinding UI · a menu-bar-metric picker (only
+worth building if Wayfinder grows a second fill-worthy percentage, e.g. a readable budget-used%
+once WF-ADR-0032's budget has a stable HTTP surface).
+
+## Related
+
+- WF-DESIGN-0012 (tokens/motion/state-machines this amends only in typography + component
+  inventory) · WF-DESIGN-0013 (superseded — the card-grid "glance pivot") · WF-ADR-0042
+  (architecture, unchanged) · WF-ADR-0020 (decision-first hierarchy, preserved) ·
+  WF-ROADMAP-0009 (delivery)

@@ -1,18 +1,19 @@
 //! Wayfinder Desktop — the Tauri v2 macOS menu-bar shell (WF-ADR-0042).
 //!
-//! A no-Dock accessory app: a template tray icon toggles one borderless, vibrant popover
-//! anchored under the tray. The webview talks to the gateway directly over loopback HTTP
-//! (not Rust IPC); this shell owns the window/tray/lifecycle. The detect-then-spawn gateway
-//! supervisor and the PyInstaller sidecar land in the next steps of Phase 3.
+//! A no-Dock accessory app: the three-state W template tray icon and the ⌥W hotkey both summon
+//! one borderless, vibrant popover at the bottom-center of the active display, launcher-style
+//! (hide-on-blur, state preserved). The webview talks to the gateway directly over loopback
+//! HTTP (not Rust IPC); Rust only drives the window, the tray, the service-first lifecycle
+//! (WF-ROADMAP-0009 Phase 3), and the separate Settings window (WF-DESIGN-0014). The gateway
+//! process is owned by the WF-ADR-0038 launchd agent — this app never spawns it, only
+//! detects/attaches and offers service control.
 
-use tauri::{
-    image::Image,
-    menu::{MenuBuilder, MenuItemBuilder, PredefinedMenuItem},
-    tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
-    ActivationPolicy, App, AppHandle, Manager, WindowEvent,
-};
+mod commands;
+mod service;
+mod tray;
+
+use tauri::{App, AppHandle, Manager, PhysicalPosition, WebviewWindow, WindowEvent};
 use tauri_plugin_global_shortcut::{Code, GlobalShortcutExt, Modifiers, Shortcut, ShortcutState};
-use tauri_plugin_positioner::{Position, WindowExt};
 
 const POPOVER: &str = "popover";
 
@@ -20,7 +21,7 @@ const POPOVER: &str = "popover";
 pub fn run() {
     tauri::Builder::default()
         // single-instance must be registered FIRST so a second launch just resurfaces us
-        // instead of spinning up a second tray + gateway.
+        // instead of spinning up a second tray.
         .plugin(tauri_plugin_single_instance::init(|app, _argv, _cwd| {
             show_popover(app);
         }))
@@ -32,6 +33,14 @@ pub fn run() {
             None,
         ))
         .plugin(tauri_plugin_log::Builder::new().build())
+        .invoke_handler(tauri::generate_handler![
+            commands::set_tray_state,
+            commands::service_control,
+            commands::open_target,
+            commands::open_settings,
+            commands::quit_app,
+            commands::notify,
+        ])
         .setup(|app| {
             setup(app)?;
             Ok(())
@@ -39,6 +48,7 @@ pub fn run() {
         .on_window_event(|window, event| {
             // Hide-on-blur: dismiss the popover to the tray. It is hidden, not destroyed, so
             // the React draft survives the next open (Esc in the webview also just hides it).
+            // The Settings window is a real window — it closes (and is torn down) normally.
             if window.label() == POPOVER {
                 if let WindowEvent::Focused(false) = event {
                     let _ = window.hide();
@@ -50,9 +60,10 @@ pub fn run() {
 }
 
 fn setup(app: &mut App) -> Result<(), Box<dyn std::error::Error>> {
-    // No Dock icon: a menu-bar-only accessory app.
+    // No Dock icon: a menu-bar-only accessory app. The Settings window still opens fine without
+    // one — the same posture most menu-bar utilities take for their preferences window.
     #[cfg(target_os = "macos")]
-    app.set_activation_policy(ActivationPolicy::Accessory);
+    app.set_activation_policy(tauri::ActivationPolicy::Accessory);
 
     // Vibrant popover backdrop (NSVisualEffectView). Requires macOSPrivateApi + a transparent
     // window; the webview keeps a transparent body so the material shows through. The 13px
@@ -70,58 +81,21 @@ fn setup(app: &mut App) -> Result<(), Box<dyn std::error::Error>> {
         );
     }
 
-    build_tray(app)?;
+    tray::build(app)?;
     // Best-effort: a missing Accessibility grant must not stop the tray/popover from working;
     // the hotkey simply stays inactive until the user grants it.
     if let Err(e) = register_toggle_shortcut(app) {
-        log::warn!("⌥Space global shortcut unavailable (grant Accessibility to enable): {e}");
+        log::warn!("⌥W global shortcut unavailable (grant Accessibility to enable): {e}");
     }
     Ok(())
 }
 
-fn build_tray(app: &App) -> tauri::Result<()> {
-    // A disabled header line mirrors menubar_core.status_from_health; Start/Stop + service
-    // control land with the supervisor (next step). For now: status header + Quit.
-    let status = MenuItemBuilder::with_id("status", "Wayfinder")
-        .enabled(false)
-        .build(app)?;
-    let quit = PredefinedMenuItem::quit(app, Some("Quit Wayfinder"))?;
-    let menu = MenuBuilder::new(app)
-        .item(&status)
-        .separator()
-        .item(&quit)
-        .build()?;
-
-    // Placeholder tray glyph (the app icon). The monochrome waypoint template with three
-    // health states (running/degraded/stopped) replaces this once the supervisor drives it.
-    let icon = Image::from_bytes(include_bytes!("../icons/32x32.png"))?;
-
-    TrayIconBuilder::with_id("wayfinder")
-        .icon(icon)
-        .icon_as_template(false)
-        .menu(&menu)
-        .show_menu_on_left_click(false) // left-click toggles the popover; right-click opens the menu
-        .on_tray_icon_event(|tray, event| {
-            // Let the positioner record the tray rect so TrayCenter anchoring works.
-            tauri_plugin_positioner::on_tray_event(tray.app_handle(), &event);
-            if let TrayIconEvent::Click {
-                button: MouseButton::Left,
-                button_state: MouseButtonState::Up,
-                ..
-            } = event
-            {
-                toggle_popover(tray.app_handle());
-            }
-        })
-        .build(app)?;
-    Ok(())
-}
-
 fn register_toggle_shortcut(app: &App) -> Result<(), Box<dyn std::error::Error>> {
-    // ⌥Space toggles the popover. Rebinding + collision handling come in a later step.
-    let alt_space = Shortcut::new(Some(Modifiers::ALT), Code::Space);
+    // ⌥W toggles the popover (maintainer pick — on-brand and unclaimed by macOS; rebinding
+    // lands with the Phase 4 settings row).
+    let alt_w = Shortcut::new(Some(Modifiers::ALT), Code::KeyW);
     app.global_shortcut()
-        .on_shortcut(alt_space, |app, _shortcut, event| {
+        .on_shortcut(alt_w, |app, _shortcut, event| {
             if event.state == ShortcutState::Pressed {
                 toggle_popover(app);
             }
@@ -129,7 +103,7 @@ fn register_toggle_shortcut(app: &App) -> Result<(), Box<dyn std::error::Error>>
     Ok(())
 }
 
-fn toggle_popover(app: &AppHandle) {
+pub(crate) fn toggle_popover(app: &AppHandle) {
     if let Some(win) = app.get_webview_window(POPOVER) {
         if win.is_visible().unwrap_or(false) {
             let _ = win.hide();
@@ -141,9 +115,31 @@ fn toggle_popover(app: &AppHandle) {
 
 fn show_popover(app: &AppHandle) {
     if let Some(win) = app.get_webview_window(POPOVER) {
-        // Anchor centered under the menu-bar tray icon, then reveal + focus.
-        let _ = win.move_window(Position::TrayCenter);
+        position_bottom_center(app, &win);
         let _ = win.show();
         let _ = win.set_focus();
     }
+}
+
+/// Summon launcher-style (amends WF-ADR-0042 §3): bottom-center of the display the cursor is
+/// on — falling back to the window's current display, then the primary — lifted clear of the
+/// Dock. Best-effort: if no monitor is resolvable the window shows wherever it last was.
+fn position_bottom_center(app: &AppHandle, win: &WebviewWindow) {
+    let monitor = app
+        .cursor_position()
+        .ok()
+        .and_then(|p| app.monitor_from_point(p.x, p.y).ok().flatten())
+        .or_else(|| win.current_monitor().ok().flatten())
+        .or_else(|| win.primary_monitor().ok().flatten());
+    let (Some(monitor), Ok(size)) = (monitor, win.outer_size()) else {
+        return;
+    };
+    // 96 logical px above the bottom edge clears the default Dock and reads deliberately
+    // "floating" when the Dock is hidden.
+    let lift = (96.0 * monitor.scale_factor()) as i32;
+    let mpos = monitor.position();
+    let msize = monitor.size();
+    let x = mpos.x + (msize.width as i32 - size.width as i32) / 2;
+    let y = mpos.y + msize.height as i32 - size.height as i32 - lift;
+    let _ = win.set_position(PhysicalPosition::new(x, y));
 }

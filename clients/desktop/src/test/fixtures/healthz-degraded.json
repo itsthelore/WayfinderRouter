@@ -1,0 +1,11 @@
+{
+  "status": "degraded",
+  "models": [
+    "cloud",
+    "local"
+  ],
+  "offline": false,
+  "missing_keys": [
+    "cloud"
+  ]
+}

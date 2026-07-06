@@ -1,0 +1,194 @@
+// Component tests against the RECORDED gateway fixtures (WF-DESIGN-0012 "Testing the contract").
+// jsdom cannot see vibrancy/motion — those live in docs/desktop-fidelity.md's manual list.
+
+import { describe, expect, it, vi } from "vitest";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
+import { render, screen } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
+import { decisionFromDebug } from "@wayfinder/shared/gateway";
+import { ExternalLink } from "lucide-react";
+import { Bar } from "@/components/menu/Bar";
+import { MetricRow } from "@/components/menu/MetricRow";
+import { ActionRow } from "@/components/menu/ActionRow";
+import { FooterMenuItem } from "@/components/menu/FooterMenuItem";
+import { DecisionSummary } from "@/components/DecisionSummary";
+import { StreamingMessage } from "@/components/StreamingMessage";
+import { formatSaved, type SavingsReport } from "@/lib/format";
+import { OnboardingCard } from "@/components/OnboardingCard";
+import { Composer } from "@/components/Composer";
+
+function fixture<T = Record<string, unknown>>(name: string): T {
+  const path = join(process.cwd(), "src", "test", "fixtures", name);
+  return JSON.parse(readFileSync(path, "utf8")) as T;
+}
+
+type DecisionFixture = { headers: Record<string, string>; wayfinder: Record<string, unknown> };
+const local = decisionFromDebug(fixture<DecisionFixture>("decision-local.json").wayfinder);
+const cloud = decisionFromDebug(fixture<DecisionFixture>("decision-cloud.json").wayfinder);
+const savings = fixture<SavingsReport>("savings.json");
+
+describe("Bar — a meter with a fill and a knob at the fill edge", () => {
+  it("clamps 0..1 and exposes the percent to a11y", () => {
+    render(<Bar fraction={0.62} label="local share" />);
+    const meter = screen.getByRole("meter", { name: "local share" });
+    expect(meter).toHaveAttribute("aria-valuenow", "62");
+  });
+  it("out-of-range fractions clamp instead of overflowing", () => {
+    render(<Bar fraction={1.7} label="over" />);
+    expect(screen.getByRole("meter", { name: "over" })).toHaveAttribute("aria-valuenow", "100");
+  });
+});
+
+describe("MetricRow — bold label, bar, left/right values, optional insight (mirrors clawrouter-usage.png)", () => {
+  it("renders the label, values, and insight line", () => {
+    render(
+      <MetricRow
+        label="Routing"
+        fraction={0.5}
+        left="50% routed locally"
+        right="2 turns"
+        insight="Routed: local: 1 · cloud: 1"
+      />,
+    );
+    expect(screen.getByText("Routing")).toBeInTheDocument();
+    expect(screen.getByText("50% routed locally")).toBeInTheDocument();
+    expect(screen.getByText("2 turns")).toBeInTheDocument();
+    expect(screen.getByText("Routed: local: 1 · cloud: 1")).toBeInTheDocument();
+  });
+  it("right and insight are optional", () => {
+    render(<MetricRow label="Saved" fraction={0} left="Not yet available" />);
+    expect(screen.getByText("Not yet available")).toBeInTheDocument();
+  });
+});
+
+describe("ActionRow — icon+label, checkable, or a chevron push (CodexBar's own row shapes)", () => {
+  it("plain row shows its icon and calls onClick", async () => {
+    const user = userEvent.setup();
+    const onClick = vi.fn();
+    const { container } = render(<ActionRow icon={ExternalLink} label="Open Dashboard" onClick={onClick} />);
+    expect(container.querySelector("svg.lucide-external-link")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Open Dashboard" }));
+    expect(onClick).toHaveBeenCalled();
+  });
+  it("checkable rows show a checkmark when on, and a blank slot when off (never the icon)", () => {
+    const { container: off } = render(<ActionRow label="Offline mode" checked={false} onClick={() => {}} />);
+    expect(off.querySelector("svg.lucide-check")).not.toBeInTheDocument();
+    const { container: on } = render(<ActionRow label="Offline mode" checked onClick={() => {}} />);
+    expect(on.querySelector("svg.lucide-check")).toBeInTheDocument();
+  });
+  it("disabled rows (offline by config) have no click handler", () => {
+    render(<ActionRow label="Offline mode (by config)" checked disabled />);
+    expect(screen.getByRole("button", { name: "Offline mode (by config)" })).toBeDisabled();
+  });
+  it("chevron rows push a sub-screen (Chat)", async () => {
+    const user = userEvent.setup();
+    const onOpenChat = vi.fn();
+    render(<ActionRow label="Chat" chevron onClick={onOpenChat} />);
+    const row = screen.getByRole("button", { name: "Chat" });
+    expect(row).toHaveTextContent("›");
+    await user.click(row);
+    expect(onOpenChat).toHaveBeenCalled();
+  });
+});
+
+describe("FooterMenuItem — exact NSMenu style, real shortcuts (never decorative)", () => {
+  it("shows the label and the right-aligned shortcut", async () => {
+    const user = userEvent.setup();
+    const onClick = vi.fn();
+    render(<FooterMenuItem label="Settings…" shortcut="⌘," onClick={onClick} />);
+    expect(screen.getByText("⌘,")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: /Settings…/ }));
+    expect(onClick).toHaveBeenCalled();
+  });
+});
+
+describe("DecisionSummary — route/model/score in the flat row grammar, why behind a disclosure", () => {
+  it("carries the route and the routing badge text", () => {
+    const { container } = render(<DecisionSummary decision={cloud} enriched offline />);
+    expect(container.querySelector('[role="meter"]')).toBeInTheDocument();
+    expect(screen.getByText(/cloud · score 0\.\d{2} · offline/)).toBeInTheDocument();
+    expect(screen.getByText("CLOUD")).toBeInTheDocument();
+  });
+  it("why is collapsed by default and toggles open", async () => {
+    const user = userEvent.setup();
+    render(<DecisionSummary decision={cloud} enriched={true} />);
+    expect(screen.queryByRole("list", { name: "top scoring factors" })).not.toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: /why/ }));
+    expect(screen.getByRole("list", { name: "top scoring factors" })).toBeInTheDocument();
+  });
+  it("shows skeleton why-rows before enrichment lands", async () => {
+    const user = userEvent.setup();
+    const { container } = render(<DecisionSummary decision={cloud} enriched={false} />);
+    await user.click(screen.getByRole("button", { name: /why/ }));
+    expect(screen.queryByRole("list")).not.toBeInTheDocument();
+    expect(container.querySelectorAll("[aria-hidden] > *").length).toBeGreaterThan(0);
+  });
+  it("local decisions render the local glyph and route", () => {
+    render(<DecisionSummary decision={local} enriched />);
+    expect(screen.getByText("LOCAL")).toBeInTheDocument();
+  });
+});
+
+describe("StreamingMessage — busy + caret while streaming, selectable text", () => {
+  it("streaming: aria-busy with a caret", () => {
+    const { container } = render(<StreamingMessage reply="Routing" streaming />);
+    expect(container.firstElementChild).toHaveAttribute("aria-busy", "true");
+    expect(container.querySelector(".animate-pulse")).toBeInTheDocument();
+  });
+  it("done: no caret, text intact", () => {
+    const { container } = render(<StreamingMessage reply="Routing decisions stay local." streaming={false} />);
+    expect(container.firstElementChild).toHaveAttribute("aria-busy", "false");
+    expect(container.querySelector(".animate-pulse")).not.toBeInTheDocument();
+    expect(screen.getByText("Routing decisions stay local.")).toBeInTheDocument();
+  });
+});
+
+describe("formatSaved — never '$0.00'", () => {
+  it("0.42 -> $0.42, 0.0072 -> <$0.01", () => {
+    expect(formatSaved(0.42)).toBe("$0.42");
+    expect(formatSaved(0.0072)).toBe("<$0.01");
+  });
+  it("the recorded fixture is sub-cent", () => {
+    expect(formatSaved(savings.saved)).toBe("<$0.01");
+  });
+});
+
+describe("OnboardingCard — the connect-a-model nudge", () => {
+  it("shows the copyable init snippet", async () => {
+    const user = userEvent.setup();
+    render(<OnboardingCard />);
+    expect(screen.getByText("wayfinder-router init")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "copy" }));
+    expect(screen.getByRole("button", { name: "copied" })).toBeInTheDocument();
+  });
+});
+
+describe("Composer — Enter sends, Shift+Enter newlines, Stop aborts", () => {
+  it("Enter sends the trimmed prompt and clears", async () => {
+    const user = userEvent.setup();
+    const onSend = vi.fn();
+    render(<Composer streaming={false} onSend={onSend} onStop={() => {}} />);
+    const box = screen.getByRole("textbox", { name: "message" });
+    await user.type(box, "  route me  {Enter}");
+    expect(onSend).toHaveBeenCalledWith("route me");
+    expect(box).toHaveValue("");
+  });
+  it("Shift+Enter inserts a newline instead of sending", async () => {
+    const user = userEvent.setup();
+    const onSend = vi.fn();
+    render(<Composer streaming={false} onSend={onSend} onStop={() => {}} />);
+    const box = screen.getByRole("textbox", { name: "message" });
+    await user.type(box, "line one{Shift>}{Enter}{/Shift}line two");
+    expect(onSend).not.toHaveBeenCalled();
+    expect(box).toHaveValue("line one\nline two");
+  });
+  it("streaming swaps send for Stop, which fires onStop", async () => {
+    const user = userEvent.setup();
+    const onStop = vi.fn();
+    render(<Composer streaming onSend={() => {}} onStop={onStop} />);
+    expect(screen.queryByRole("button", { name: "send" })).not.toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "stop streaming" }));
+    expect(onStop).toHaveBeenCalled();
+  });
+});

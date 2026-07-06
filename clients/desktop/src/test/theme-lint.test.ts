@@ -1,3 +1,5 @@
+// @vitest-environment node
+//
 // Theme lint (WF-DESIGN-0012): vendored shadcn components must be themed with the Wayfinder
 // slot variables, not shadcn's stock palette. Two failure modes this guards:
 //   1. raw Tailwind palette utilities (zinc/neutral/slate/gray/stone) surviving the theming —
@@ -6,6 +8,8 @@
 //      flip; there is no `.dark` class), so a `dark:` utility in a component is dead code that
 //      will silently never apply.
 // Scope is components/ui/** — globals.css and app code are free to say what they like.
+// Pure Node fs reads, no DOM — pinned to the node environment so jsdom's URL shim (needed by
+// every other test file here) can't break `fileURLToPath(import.meta.url)`.
 
 import { describe, expect, it } from "vitest";
 import { readFileSync, readdirSync, existsSync } from "node:fs";

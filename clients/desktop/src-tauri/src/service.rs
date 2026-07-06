@@ -1,0 +1,152 @@
+//! Service-first lifecycle glue (WF-ADR-0042 §4): the app never owns the gateway process — the
+//! WF-ADR-0038 launchd agent does. These are the exact, fixed commands the tray/CTAs shell out
+//! to, kept pure and unit-tested here; execution is a thin wrapper. No arbitrary shell: the
+//! action enum maps to one known argv, and `wayfinder-router` is resolved from a fixed
+//! candidate set (a GUI app's PATH is not the shell's).
+
+use std::path::PathBuf;
+use std::process::Command;
+
+/// The launchd label the service installs under (mirrors wayfinder_router.service.LAUNCHD_LABEL).
+pub const LAUNCHD_LABEL: &str = "com.wayfinder-router.gateway";
+pub const GATEWAY_PORT: &str = "8088";
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ServiceAction {
+    Install,
+    Uninstall,
+    Start,
+    Stop,
+}
+
+impl ServiceAction {
+    pub fn parse(s: &str) -> Option<Self> {
+        match s {
+            "install" => Some(Self::Install),
+            "uninstall" => Some(Self::Uninstall),
+            "start" => Some(Self::Start),
+            "stop" => Some(Self::Stop),
+            _ => None,
+        }
+    }
+}
+
+/// The concrete (program, args) for an action. Install/Uninstall drive the `wayfinder-router
+/// service` verbs (WF-ADR-0038); Start/Stop drive `launchctl` directly (the service CLI has no
+/// start/stop). `wf_bin` is the resolved gateway launcher; `uid` scopes the launchctl domain.
+pub fn argv(action: ServiceAction, wf_bin: &str, uid: u32) -> (String, Vec<String>) {
+    let target = format!("gui/{uid}/{LAUNCHD_LABEL}");
+    match action {
+        ServiceAction::Install => (
+            wf_bin.to_string(),
+            vec![
+                "service".into(),
+                "install".into(),
+                "--port".into(),
+                GATEWAY_PORT.into(),
+            ],
+        ),
+        ServiceAction::Uninstall => (
+            wf_bin.to_string(),
+            vec!["service".into(), "uninstall".into()],
+        ),
+        ServiceAction::Start => (
+            "launchctl".into(),
+            vec!["kickstart".into(), "-k".into(), target],
+        ),
+        ServiceAction::Stop => ("launchctl".into(), vec!["bootout".into(), target]),
+    }
+}
+
+/// Resolve the `wayfinder-router` launcher. A packaged GUI app inherits a minimal PATH, so we
+/// check PATH plus the usual user/pipx/homebrew bins; falling back to `python3 -m
+/// wayfinder_router.cli` only helps if python is itself resolvable, so we return the console
+/// script path when we can and let the caller surface a clear "install the gateway" otherwise.
+pub fn resolve_wayfinder(home: &str, path_env: &str) -> Option<String> {
+    let mut candidates: Vec<PathBuf> = Vec::new();
+    for dir in path_env.split(':').filter(|s| !s.is_empty()) {
+        candidates.push(PathBuf::from(dir).join("wayfinder-router"));
+    }
+    for dir in [
+        format!("{home}/.local/bin"),
+        "/opt/homebrew/bin".to_string(),
+        "/usr/local/bin".to_string(),
+        format!("{home}/Library/Application Support/pipx/venvs/wayfinder-router/bin"),
+    ] {
+        candidates.push(PathBuf::from(dir).join("wayfinder-router"));
+    }
+    candidates
+        .into_iter()
+        .find(|p| p.is_file())
+        .map(|p| p.to_string_lossy().into_owned())
+}
+
+/// Run an action, returning a human message on success or an error string. Best-effort resolver
+/// inputs come from the environment so the pure `argv`/`resolve_wayfinder` stay testable.
+pub fn run(action: ServiceAction) -> Result<String, String> {
+    let uid = unsafe { libc::getuid() };
+    let (program, args) = if matches!(action, ServiceAction::Install | ServiceAction::Uninstall) {
+        let home = std::env::var("HOME").unwrap_or_default();
+        let path = std::env::var("PATH").unwrap_or_default();
+        let wf = resolve_wayfinder(&home, &path).ok_or_else(|| {
+            "couldn't find `wayfinder-router` — install the gateway first (pip install wayfinder-router)"
+                .to_string()
+        })?;
+        argv(action, &wf, uid)
+    } else {
+        argv(action, "", uid)
+    };
+
+    let out = Command::new(&program)
+        .args(&args)
+        .output()
+        .map_err(|e| format!("{program}: {e}"))?;
+    if out.status.success() {
+        Ok(format!("{action:?} ok"))
+    } else {
+        let stderr = String::from_utf8_lossy(&out.stderr);
+        Err(format!("{action:?} failed: {}", stderr.trim()))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn install_uninstall_drive_the_service_verbs() {
+        let (p, a) = argv(ServiceAction::Install, "/opt/homebrew/bin/wayfinder-router", 501);
+        assert_eq!(p, "/opt/homebrew/bin/wayfinder-router");
+        assert_eq!(a, ["service", "install", "--port", "8088"]);
+        let (p, a) = argv(ServiceAction::Uninstall, "/x/wayfinder-router", 501);
+        assert_eq!(p, "/x/wayfinder-router");
+        assert_eq!(a, ["service", "uninstall"]);
+    }
+
+    #[test]
+    fn start_stop_drive_launchctl_scoped_to_the_gui_domain() {
+        let (p, a) = argv(ServiceAction::Start, "", 501);
+        assert_eq!(p, "launchctl");
+        assert_eq!(a, ["kickstart", "-k", "gui/501/com.wayfinder-router.gateway"]);
+        let (p, a) = argv(ServiceAction::Stop, "", 501);
+        assert_eq!(p, "launchctl");
+        assert_eq!(a, ["bootout", "gui/501/com.wayfinder-router.gateway"]);
+    }
+
+    #[test]
+    fn action_parse_rejects_unknown() {
+        assert_eq!(ServiceAction::parse("install"), Some(ServiceAction::Install));
+        assert_eq!(ServiceAction::parse("nuke"), None);
+    }
+
+    #[test]
+    fn resolver_finds_a_binary_on_the_path() {
+        let dir = std::env::temp_dir().join(format!("wf-resolve-{}", unsafe { libc::getpid() }));
+        std::fs::create_dir_all(&dir).unwrap();
+        let bin = dir.join("wayfinder-router");
+        std::fs::write(&bin, b"#!/bin/sh\n").unwrap();
+        let found = resolve_wayfinder("/nonexistent-home", &dir.to_string_lossy());
+        assert_eq!(found.as_deref(), Some(bin.to_string_lossy().as_ref()));
+        std::fs::remove_dir_all(&dir).ok();
+    }
+}
