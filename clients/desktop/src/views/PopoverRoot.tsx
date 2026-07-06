@@ -19,7 +19,18 @@ import { useRecent } from "@/hooks/useRecent";
 import { useEdgeNotifier } from "@/hooks/useEdgeNotifier";
 import { GATEWAY_BASE } from "@/lib/gateway";
 import { quantizeFill } from "@/lib/meter";
-import { serviceControl, setTrayState, openTarget, openSettings, quitApp, type OpenTarget, type TrayState } from "@/lib/ipc";
+import {
+  serviceControl,
+  scaffoldConfig,
+  setShortcut,
+  setTrayState,
+  openTarget,
+  openSettings,
+  quitApp,
+  type OpenTarget,
+  type Preset,
+  type TrayState,
+} from "@/lib/ipc";
 import { formatSaved, formatUpdated } from "@/lib/format";
 import { MenuHeader, ChatHeader } from "@/components/menu/MenuHeader";
 import { FooterMenuItem } from "@/components/menu/FooterMenuItem";
@@ -49,6 +60,13 @@ export function PopoverRoot({ baseUrl = GATEWAY_BASE }: { baseUrl?: string } = {
     return () => window.removeEventListener("storage", onStorage);
   }, []);
   const intervalMs = cadenceToMs(settings.cadence);
+
+  // The rebindable popover toggle (WF-DESIGN-0015): the persisted choice is the source of
+  // truth — Rust holds no shortcut state — so re-apply it on mount and whenever the Settings
+  // window changes it. Failures only log: the default ⌥W from setup stays live.
+  useEffect(() => {
+    setShortcut(settings.shortcut).catch((e) => console.warn("shortcut rebind failed", e));
+  }, [settings.shortcut]);
 
   const pollHealth = useGatewayHealth(dispatch, { baseUrl, intervalMs });
   useEdgeNotifier(gw, { enabled: settings.notifications });
@@ -83,12 +101,13 @@ export function PopoverRoot({ baseUrl = GATEWAY_BASE }: { baseUrl?: string } = {
 
   // Service-first CTAs (WF-ADR-0042 §4): the app never spawns the gateway — it asks the service
   // to. Errors (e.g. the gateway isn't installed) propagate to the view for display; the next
-  // healthz poll flips the mode once the service is up.
+  // healthz poll flips the mode once the service is up. First-run scaffolds through the config
+  // seam (WF-ADR-0044): the gateway's own init writes the config, then install + start.
   const onStartGateway = useCallback(async () => {
     await serviceControl("start");
   }, []);
-  const onInstallService = useCallback(async () => {
-    await serviceControl("install");
+  const onScaffold = useCallback(async (preset: Preset) => {
+    await scaffoldConfig(preset);
   }, []);
 
   const view = gatewayView(gw);
@@ -168,7 +187,7 @@ export function PopoverRoot({ baseUrl = GATEWAY_BASE }: { baseUrl?: string } = {
           </div>
         )}
         {view === "unreachable" && <UnreachableView onStartGateway={onStartGateway} />}
-        {view === "first-run" && <FirstRunView onInstallService={onInstallService} />}
+        {view === "first-run" && <FirstRunView onScaffold={onScaffold} />}
       </div>
     </div>
   );

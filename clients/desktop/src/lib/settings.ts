@@ -5,12 +5,25 @@
 
 export type Cadence = "auto" | "manual" | "1m" | "5m" | "15m";
 
+/** The rebindable popover toggle (WF-DESIGN-0015) — ids mirror the Rust whitelist in lib.rs;
+ *  anything else is rejected there, so loadSettings validates too and falls back to ⌥W. */
+export type ShortcutId = "alt+w" | "alt+shift+w" | "ctrl+alt+w" | "cmd+shift+w";
+
+export const SHORTCUT_LABELS: Record<ShortcutId, string> = {
+  "alt+w": "⌥W",
+  "alt+shift+w": "⌥⇧W",
+  "ctrl+alt+w": "⌃⌥W",
+  "cmd+shift+w": "⌘⇧W",
+};
+
 export interface Settings {
   /** Poll cadence for healthz/savings/recent. "auto" = the checkpointed 15s default;
    *  "manual" = no background interval (initial fetch + focus/turn refreshes only). */
   cadence: Cadence;
   /** Transition-edge notifications (WF-DESIGN-0012: edge-only) — off by default. */
   notifications: boolean;
+  /** The popover-toggle shortcut; the popover re-applies it on mount and on change. */
+  shortcut: ShortcutId;
 }
 
 export const SETTINGS_KEY = "wf.settings.v1";
@@ -18,6 +31,7 @@ export const SETTINGS_KEY = "wf.settings.v1";
 export const DEFAULT_SETTINGS: Settings = {
   cadence: "auto",
   notifications: false,
+  shortcut: "alt+w",
 };
 
 const CADENCE_MS: Record<Cadence, number | null> = {
@@ -41,6 +55,8 @@ export function loadSettings(): Settings {
     return {
       cadence: parsed.cadence && parsed.cadence in CADENCE_MS ? parsed.cadence : DEFAULT_SETTINGS.cadence,
       notifications: typeof parsed.notifications === "boolean" ? parsed.notifications : DEFAULT_SETTINGS.notifications,
+      shortcut:
+        parsed.shortcut && parsed.shortcut in SHORTCUT_LABELS ? parsed.shortcut : DEFAULT_SETTINGS.shortcut,
     };
   } catch {
     return DEFAULT_SETTINGS;

@@ -5,10 +5,11 @@
 // is reached through a chevron row, the same disclosure affordance CodexBar's own "Cost"
 // section uses. Everything here renders gateway truth — nothing is computed beyond shares of
 // the gateway's own counts (WF-ADR-0001).
-import { ExternalLink, FileText, MessageCircle, WifiOff } from "lucide-react";
+import { ExternalLink, FileText, KeyRound, MessageCircle, WifiOff } from "lucide-react";
 import type { GatewayState } from "@/lib/appState";
 import type { RecentReport } from "@/hooks/useRecent";
 import { formatSaved, type SavingsReport } from "@/lib/format";
+import { openSettings } from "@/lib/ipc";
 import { ActionRow } from "@/components/menu/ActionRow";
 import { MetricRow } from "@/components/menu/MetricRow";
 import { SplitBar } from "@/components/menu/SplitBar";
@@ -76,6 +77,11 @@ export function UsageView({
         onClick={gw.offlineConfig ? undefined : () => onOfflineToggle(!gw.offlineLocal)}
       />
       <ActionRow icon={MessageCircle} label="Chat" chevron onClick={onOpenChat} />
+      {/* Degraded affordance (WF-DESIGN-0015): the header already says which model is missing
+          its key; this is the one-click way to fix it — Settings deep-linked to Keys. */}
+      {gw.missingKeys.length > 0 && (
+        <ActionRow icon={KeyRound} label="Add key…" onClick={() => void openSettings("keys")} />
+      )}
       <Separator />
       {/* No "Open Config" here — "Config" and "Settings" read as synonyms as sibling entries
           (maintainer review); the gateway's config file is reached via Settings → Gateway. */}

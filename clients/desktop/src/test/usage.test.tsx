@@ -13,6 +13,13 @@ import { PopoverRoot } from "@/views/PopoverRoot";
 import { initialGatewayState, type GatewayState } from "@/lib/appState";
 import type { SavingsReport } from "@/lib/format";
 
+// Mock the ipc boundary so the Add-key row's Settings deep-link is assertable without Tauri.
+vi.mock("@/lib/ipc", async () => {
+  const actual = await vi.importActual<typeof import("@/lib/ipc")>("@/lib/ipc");
+  return { ...actual, openSettings: vi.fn(async () => {}) };
+});
+import { openSettings } from "@/lib/ipc";
+
 function fixture(name: string): string {
   return readFileSync(join(process.cwd(), "src", "test", "fixtures", name), "utf8");
 }
@@ -158,6 +165,35 @@ describe("UsageView — the flat list (mirrors clawrouter-usage.png)", () => {
       />,
     );
     expect(screen.getByRole("button", { name: "Offline mode (by config)" })).toBeDisabled();
+  });
+
+  it("Add key… appears only when keys are missing, and deep-links Settings → Keys", async () => {
+    const user = userEvent.setup();
+    const { rerender } = render(
+      <UsageView
+        gw={gwState()}
+        recent={RECENT_REPORT}
+        savings={SAVINGS}
+        cheapest="local"
+        onOfflineToggle={noop}
+        onOpenChat={noop}
+        onOpenTarget={noop}
+      />,
+    );
+    expect(screen.queryByRole("button", { name: "Add key…" })).not.toBeInTheDocument();
+    rerender(
+      <UsageView
+        gw={gwState({ health: "degraded", missingKeys: ["cloud"] })}
+        recent={RECENT_REPORT}
+        savings={SAVINGS}
+        cheapest="local"
+        onOfflineToggle={noop}
+        onOpenChat={noop}
+        onOpenTarget={noop}
+      />,
+    );
+    await user.click(screen.getByRole("button", { name: "Add key…" }));
+    expect(openSettings).toHaveBeenCalledWith("keys");
   });
 
   it("Chat row pushes the chat screen; Open rows call onOpenTarget", async () => {

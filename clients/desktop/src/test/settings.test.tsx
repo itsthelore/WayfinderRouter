@@ -33,12 +33,14 @@ afterEach(() => {
 describe("settings store — persistence + cadence mapping", () => {
   it("round-trips through localStorage and tolerates garbage", () => {
     expect(loadSettings()).toEqual(DEFAULT_SETTINGS);
-    saveSettings({ cadence: "5m", notifications: true });
-    expect(loadSettings()).toEqual({ cadence: "5m", notifications: true });
+    saveSettings({ cadence: "5m", notifications: true, shortcut: "ctrl+alt+w" });
+    expect(loadSettings()).toEqual({ cadence: "5m", notifications: true, shortcut: "ctrl+alt+w" });
     localStorage.setItem(SETTINGS_KEY, "not json");
     expect(loadSettings()).toEqual(DEFAULT_SETTINGS);
     localStorage.setItem(SETTINGS_KEY, JSON.stringify({ cadence: "yearly" }));
     expect(loadSettings().cadence).toBe("auto"); // unknown preset falls back
+    localStorage.setItem(SETTINGS_KEY, JSON.stringify({ shortcut: "cmd+q" }));
+    expect(loadSettings().shortcut).toBe("alt+w"); // off-whitelist shortcut falls back to ⌥W
   });
 
   it.each([
