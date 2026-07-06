@@ -192,6 +192,14 @@ describe("ChatScreen — adornments + decision summary + reply swap", () => {
     const live = document.querySelector('[aria-live="polite"]')!;
     expect(live).toHaveTextContent("reply finished, routed locally");
   });
+  it("streaming with no decision yet: a Routing… marker fills the gap instead of nothing", () => {
+    render(
+      <ChatScreen gw={gwState()} turn={turnStub({ phase: "streaming", prompt: "a fresh prompt", decision: null })} />,
+    );
+    expect(screen.getByText("a fresh prompt")).toBeInTheDocument();
+    expect(screen.getByText("Routing…")).toBeInTheDocument();
+  });
+
   it("decision-only: OnboardingCard replaces the reply", () => {
     render(
       <ChatScreen gw={gwState()} turn={turnStub({ decision: { ...local, decisionOnly: true }, enriched: true, phase: "done" })} />,
