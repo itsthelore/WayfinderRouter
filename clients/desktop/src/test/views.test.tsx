@@ -163,10 +163,18 @@ describe("PopoverRoot — the six-mode switch, driven by healthz", () => {
     });
   }
 
-  it("healthz ok -> ChatView with the composer", async () => {
+  it("healthz ok -> tabbed surface, glance first, composer behind the chat tab", async () => {
     globalThis.fetch = routedFetch(async () => new Response(fixture("healthz-ok.json"), { status: 200 })) as unknown as typeof fetch;
+    const user = userEvent.setup();
     render(<PopoverRoot />);
-    await waitFor(() => expect(screen.getByRole("status", { name: "gateway running" })).toBeInTheDocument());
+    // Two status dots once reachable (header + the glance gateway tile).
+    await waitFor(() =>
+      expect(screen.getAllByRole("status", { name: "gateway running" }).length).toBeGreaterThan(0),
+    );
+    // Glance is the default tab; the composer lives behind the chat tab (hidden, not unmounted).
+    expect(screen.getByRole("tab", { name: "glance", selected: true })).toBeInTheDocument();
+    expect(screen.queryByRole("textbox", { name: "message" })).not.toBeInTheDocument();
+    await user.click(screen.getByRole("tab", { name: "chat" }));
     expect(screen.getByRole("textbox", { name: "message" })).toBeInTheDocument();
   });
 
@@ -189,9 +197,12 @@ describe("PopoverRoot — the six-mode switch, driven by healthz", () => {
     await waitFor(() => expect(screen.getByRole("button", { name: "Start Wayfinder" })).toBeInTheDocument());
   });
 
-  it("healthz degraded -> ChatView with the missing-keys banner", async () => {
+  it("healthz degraded -> missing-keys banner behind the chat tab", async () => {
     globalThis.fetch = routedFetch(async () => new Response(fixture("healthz-degraded.json"), { status: 200 })) as unknown as typeof fetch;
+    const user = userEvent.setup();
     render(<PopoverRoot />);
+    await waitFor(() => expect(screen.getByRole("tab", { name: "chat" })).toBeInTheDocument());
+    await user.click(screen.getByRole("tab", { name: "chat" }));
     await waitFor(() => expect(screen.getByRole("alert")).toBeInTheDocument());
   });
 });

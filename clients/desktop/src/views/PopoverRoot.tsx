@@ -22,6 +22,7 @@ import type { DotStatus } from "@/components/StatusDot";
 import { FrostedHeader } from "@/components/FrostedHeader";
 import { Separator } from "@/components/ui/separator";
 import { ChatView } from "@/views/ChatView";
+import { GlanceView } from "@/views/GlanceView";
 import { UnreachableView } from "@/views/UnreachableView";
 import { FirstRunView } from "@/views/FirstRunView";
 
@@ -79,17 +80,45 @@ export function PopoverRoot({ baseUrl = GATEWAY_BASE }: { baseUrl?: string } = {
 
   const view = gatewayView(gw);
   const status = useMemo(() => dotStatus(gw), [gw]);
+  const [tab, setTab] = useState<"glance" | "chat">("glance");
 
   return (
     <div className="flex h-full flex-col">
       <FrostedHeader status={status} missingKeys={gw.missingKeys} savings={savings} />
       <Separator />
       {view === "chat" && (
-        <ChatView
-          gw={gw}
-          turn={turn}
-          onOfflineToggle={(on) => dispatch({ type: "OFFLINE_TOGGLED", on })}
-        />
+        <>
+          <div role="tablist" aria-label="popover sections" className="flex gap-1 bg-background px-3.5 pt-2">
+            {(["glance", "chat"] as const).map((t) => (
+              <button
+                key={t}
+                role="tab"
+                aria-selected={tab === t}
+                onClick={() => setTab(t)}
+                className="rounded-full px-2.5 py-1 text-[11px] font-medium tracking-wide uppercase transition-colors duration-[var(--dur-base)]"
+                style={
+                  tab === t
+                    ? { color: "var(--accent-foreground)", background: "var(--accent)" }
+                    : { color: "var(--muted-foreground)" }
+                }
+              >
+                {t}
+              </button>
+            ))}
+          </div>
+          {/* Inactive tab is hidden, never unmounted — the composer draft and any streaming
+              turn survive a tab flip, the same invariant as hide-on-blur. */}
+          <div hidden={tab !== "glance"} className="min-h-0 flex-1 overflow-y-auto">
+            <GlanceView gw={gw} status={status} recent={recent} savings={savings} cheapest={cheapest} />
+          </div>
+          <div hidden={tab !== "chat"} className="flex min-h-0 flex-1 flex-col">
+            <ChatView
+              gw={gw}
+              turn={turn}
+              onOfflineToggle={(on) => dispatch({ type: "OFFLINE_TOGGLED", on })}
+            />
+          </div>
+        </>
       )}
       {view === "unreachable" && <UnreachableView onStartGateway={onStartGateway} />}
       {view === "first-run" && <FirstRunView onInstallService={onInstallService} />}

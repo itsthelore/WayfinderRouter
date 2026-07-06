@@ -2,9 +2,10 @@
 // traffic — never "0 relative units". Sub-cent savings render as "<$0.01" rather than $0.00.
 import { cn } from "@/lib/utils";
 
-/** The /v1/savings fields this component consumes (fixture: savings.json). */
+/** The /v1/savings fields the glance surfaces consume (fixture: savings.json). */
 export interface SavingsReport {
   saved: number;
+  saved_pct: number;
   priced: boolean;
   requests: number;
 }
