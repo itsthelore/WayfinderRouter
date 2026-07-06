@@ -122,6 +122,28 @@ describe("MenuHeader — bold name, neutral health text, freshness subtext (mirr
     );
     expect(screen.getByRole("switch", { name: /offline mode/ })).toBeDisabled();
   });
+  it("the health label explains itself in a tooltip — per-state copy, offline outranking", async () => {
+    const user = userEvent.setup();
+    const { rerender, unmount } = render(<MenuHeader gw={gwState()} updatedText="now" />);
+    await user.tab(); // the health label is the first focusable — focus opens the tooltip
+    expect(await screen.findByRole("tooltip")).toHaveTextContent(
+      "The local gateway is up and routing turns.",
+    );
+    rerender(<MenuHeader gw={gwState({ offlineConfig: true })} updatedText="now" />);
+    expect(await screen.findByRole("tooltip")).toHaveTextContent(/nothing leaves this mac/i);
+    unmount();
+    render(<MenuHeader gw={gwState({ health: "degraded", missingKeys: ["cloud"] })} updatedText="now" />);
+    await user.tab(); // past the missing-keys line isn't rendered without onAddKey — label is next
+    expect(await screen.findByRole("tooltip")).toHaveTextContent(/provider key is missing/i);
+  });
+  it("the switch explains machine-wide in a tooltip on focus", async () => {
+    const user = userEvent.setup();
+    render(<MenuHeader gw={gwState()} updatedText="now" onOfflineToggle={() => {}} />);
+    await user.tab(); // health label
+    await user.tab(); // switch
+    expect(screen.getByRole("switch", { name: /offline mode/ })).toHaveFocus();
+    expect(await screen.findByRole("tooltip")).toHaveTextContent(/machine-wide/i);
+  });
 });
 
 describe("LocalMirror — the two parity branches", () => {
