@@ -27,6 +27,7 @@ import { OnboardingCard } from "@/components/OnboardingCard";
 import { Composer } from "@/components/Composer";
 import type { SlashCommand } from "@/components/SlashMenu";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import { Marker, MarkerContent, MarkerIcon } from "@/components/ui/marker";
 
 /** The user's message, in scrollback and above the live hero alike: dark, with a muted
  *  prompt marker — the flat list's answer to a chat bubble. */
@@ -48,9 +49,13 @@ function TranscriptTurn({ turn }: { turn: SettledTurn }) {
     <div className="flex flex-col border-b border-border pb-3.5">
       <PromptLine prompt={turn.prompt} />
       {turn.decision && (
-        <div className="px-5 pt-1 text-[11px] text-muted-foreground">
-          <span aria-hidden>{routeGlyph(turn.decision)}</span> {routeLabel(turn.decision)}{" "}
-          <span className="font-mono">{turn.decision.model}</span>
+        <div className="px-5 pt-1">
+          <Marker className="text-[11px]">
+            <MarkerIcon aria-hidden>{routeGlyph(turn.decision)}</MarkerIcon>
+            <MarkerContent>
+              {routeLabel(turn.decision)} <span className="font-mono">{turn.decision.model}</span>
+            </MarkerContent>
+          </Marker>
         </div>
       )}
       {turn.reply ? (
@@ -150,6 +155,22 @@ export function ChatScreen({
                   reply failed: {turn.error} — the decision above still stands
                 </div>
               )}
+            </>
+          ) : turn.phase === "streaming" ? (
+            // Headers (and so `turn.decision`) usually land with the first byte of the reply —
+            // this only shows for that brief gap, but it's a real gap: without it, submitting a
+            // second turn in an existing conversation left nothing rendered below the scrollback
+            // until the decision painted.
+            <>
+              <PromptLine prompt={turn.prompt} />
+              <div className="px-5 pt-1">
+                <Marker className="text-[11px]">
+                  <MarkerIcon aria-hidden>
+                    <span className="block size-1.5 animate-pulse rounded-full bg-muted-foreground" />
+                  </MarkerIcon>
+                  <MarkerContent>Routing…</MarkerContent>
+                </Marker>
+              </div>
             </>
           ) : turn.transcript.length === 0 ? (
             <p className="px-5 py-2.5 text-[13px] leading-[1.45] text-muted-foreground">
