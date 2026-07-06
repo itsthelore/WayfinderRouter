@@ -226,6 +226,22 @@ archived by the next SUBMIT — an aborted half-stream never is). The view auto-
 newest content (bottom sentinel, smooth scroll, instant under reduced motion). This stays a
 routing-inspection surface, not a chat product: no sessions list, no editing, no persistence.
 
+**Amendment: slash commands.** The Composer opens a small overlay menu — `SlashMenu` — the
+moment its value is a single token starting with `/`, mirroring Claude's own composer rather
+than inventing a new interaction: it lists commands filtered by prefix as you keep typing,
+arrow keys move the highlight, Enter runs the highlighted command and clears the box, Escape
+dismisses. It is a plain positioned list anchored above the textarea, not a modal — the
+textarea never loses focus, and clicking an option fires on `mousedown` (before blur) for the
+same reason. A space or newline after the first token exits slash-mode and the text becomes an
+ordinary message, so `/notacommand` with no match sends literally. The command set is
+deliberately small — `/clear` (resets the turn machine, same as if the session had never
+started), `/offline` (flips the header's global switch — same handler, same
+WF-ADR-0044-backed `config set gateway.offline` call, just reachable without leaving the
+keyboard; absent if no toggle handler is wired), `/settings` (opens the native Settings
+window) — because Chat stays a routing-inspection surface, not a general command palette:
+every command here already exists as a header control or footer row, never a new capability
+invented just for the composer.
+
 ### Settings is a separate native window (replaces the in-popover slide-over)
 
 WF-DESIGN-0013's `SettingsView` slide-over is retired. Settings… now opens a real, resizable,
