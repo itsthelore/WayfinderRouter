@@ -71,6 +71,13 @@ export function PopoverRoot({ baseUrl = GATEWAY_BASE }: { baseUrl?: string } = {
   const reachable = gw.health === "ok" || gw.health === "degraded";
   const cheapest = useCheapestModel({ baseUrl, enabled: reachable });
   const { report: savings, refresh: refreshSavings } = useSavings({ baseUrl, enabled: reachable, intervalMs });
+  // The reference's Cost section pairs a today line with a 30-day line — same here for Saved.
+  const { report: savings30d, refresh: refreshSavings30d } = useSavings({
+    baseUrl,
+    period: "30d",
+    enabled: reachable,
+    intervalMs,
+  });
   const { report: recent, refresh: refreshRecent } = useRecent({ baseUrl, cheapest, enabled: reachable, intervalMs });
   const turn = useTurn({ baseUrl, cheapest, offline: gw.offlineLocal });
 
@@ -80,6 +87,7 @@ export function PopoverRoot({ baseUrl = GATEWAY_BASE }: { baseUrl?: string } = {
     if (turn.phase === "done" || turn.phase === "error") {
       dispatch({ type: "TURN_DECISION", decisionOnly: !!turn.decision?.decisionOnly });
       void refreshSavings();
+      void refreshSavings30d();
       void refreshRecent();
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -122,6 +130,7 @@ export function PopoverRoot({ baseUrl = GATEWAY_BASE }: { baseUrl?: string } = {
         e.preventDefault();
         void pollHealth();
         void refreshSavings();
+        void refreshSavings30d();
         void refreshRecent();
       } else if (e.key === ",") {
         e.preventDefault();
@@ -133,7 +142,7 @@ export function PopoverRoot({ baseUrl = GATEWAY_BASE }: { baseUrl?: string } = {
     }
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [showFooter, pollHealth, refreshSavings, refreshRecent]);
+  }, [showFooter, pollHealth, refreshSavings, refreshSavings30d, refreshRecent]);
 
   return (
     <div className="flex h-full flex-col">
@@ -147,7 +156,7 @@ export function PopoverRoot({ baseUrl = GATEWAY_BASE }: { baseUrl?: string } = {
             onAddKey={() => void openSettings("keys")}
           />
         ))}
-      {view === "chat" && <Separator />}
+      {view === "chat" && <Separator className="mx-5 w-auto" />}
       <div className="flex min-h-0 flex-1 flex-col">
         {/* Both screens stay mounted — hidden, never unmounted — the same invariant hide-on-blur
             already relies on, so the composer's draft and any streaming turn survive a push/back
@@ -160,12 +169,13 @@ export function PopoverRoot({ baseUrl = GATEWAY_BASE }: { baseUrl?: string } = {
                 gw={gw}
                 recent={recent}
                 savings={savings}
+                savings30d={savings30d}
                 cheapest={cheapest}
                 onOfflineToggle={(on) => dispatch({ type: "OFFLINE_TOGGLED", on })}
                 onOpenChat={() => setScreen("chat")}
               />
             </div>
-            <Separator />
+            <Separator className="mx-5 w-auto" />
             <div className="py-1">
               <FooterMenuItem
                 label="Refresh"
@@ -173,6 +183,7 @@ export function PopoverRoot({ baseUrl = GATEWAY_BASE }: { baseUrl?: string } = {
                 onClick={() => {
                   void pollHealth();
                   void refreshSavings();
+                  void refreshSavings30d();
                   void refreshRecent();
                 }}
               />

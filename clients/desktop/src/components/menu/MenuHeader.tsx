@@ -31,24 +31,27 @@ export function MenuHeader({
   const health = offline ? "Offline" : HEALTH_LABEL[gw.health];
   const missing = gw.health === "degraded" && gw.missingKeys.length > 0;
   return (
-    <header className={cn("flex items-center justify-between gap-3 bg-background px-5 py-5", className)}>
-      <div className="flex flex-col gap-1">
-        <span className="text-[19px] font-bold leading-tight">Wayfinder</span>
+    // Two explicit rows (the reference's own structure): the bold name stands alone on line
+    // one; line two carries the freshness/status subtext left and the health label right on a
+    // shared baseline — exactly where CodexBar's "Updated just now … Max" pair sits.
+    <header className={cn("flex flex-col gap-1 bg-background px-5 py-5", className)}>
+      <span className="text-[19px] font-bold leading-tight">Wayfinder</span>
+      <div className="flex items-baseline justify-between gap-3">
         {missing && onAddKey ? (
           <button
             type="button"
             onClick={onAddKey}
-            className="truncate text-left text-[13px] text-muted-foreground underline decoration-dotted underline-offset-2 hover:text-foreground"
+            className="truncate text-left text-[14px] text-muted-foreground underline decoration-dotted underline-offset-2 hover:text-foreground"
           >
             Missing {gw.missingKeys.join(", ")} — add key…
           </button>
         ) : (
-          <span className="truncate text-[13px] text-muted-foreground">
+          <span className="truncate text-[14px] text-muted-foreground">
             {missing ? `Missing ${gw.missingKeys.join(", ")}` : updatedText}
           </span>
         )}
+        <span className="shrink-0 text-[14px] text-muted-foreground">{health}</span>
       </div>
-      <span className="shrink-0 text-[13px] text-muted-foreground">{health}</span>
     </header>
   );
 }

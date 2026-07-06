@@ -29,7 +29,9 @@ export function Bar({
     >
       <div
         className="h-full rounded-full transition-[width] duration-[var(--dur-slow)] ease-[var(--ease-standard)]"
-        style={{ width: `${pct}%`, background: color }}
+        // minWidth floors a nonzero fill at a 12px pill (the reference's 2% bar is a visible
+        // pill); a genuine zero stays an empty track, like the reference's "Sonnet 0% used".
+        style={{ width: `${pct}%`, minWidth: pct > 0 ? "12px" : undefined, background: color }}
       />
     </div>
   );

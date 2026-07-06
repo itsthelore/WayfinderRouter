@@ -92,9 +92,21 @@ scale that shipped, all on the body/mono stacks already in `globals.css`:
 |---|---|
 | Header name ("Wayfinder" / "Chat") | 19px, 700 |
 | Section labels (Routing/Saved), action-row labels, footer labels, the decision route+model line | 16px, 700 (metric/decision labels) or 400 (action/footer row text) — normal case, not uppercase-tracked; CodexBar's "Session"/"Weekly"/"Routing" labels are plain sentence case |
-| Body values (bar left/right values, routing badge, header subtext/health) | 13px, 400 |
-| Muted secondary (insight lines, footer shortcuts) | 12–13px, 400, muted |
+| Body values (bar left/right values, Saved's Cost-style lines, header subtext/health) | 14px, 400 |
+| Muted secondary (insight lines) / footer shortcuts | 13px, 400, muted |
 | Numerals inside rows (scores, dollar amounts, counts) | `font-mono tabular-nums`, inherits the row's size — never its own larger size |
+
+**Hierarchy comes from darkness, not size** (third correction, against the maintainer's high-res
+reference): the size scale is deliberately narrow — the reference's own — and emphasis is carried
+by foreground-vs-muted. The rules: a metric row's **left value and Cost-style body lines are dark
+foreground**; only the **right value ("Resets in …" slot), insight lines, and header subtext are
+muted**. The header is two explicit rows — bold name alone on line one; subtext left + health
+label right sharing line two's baseline (the reference's "Updated just now … Max" pair). Dividers
+are **inset** to the content padding (`mx-5`), never full-bleed. A nonzero bar fill never renders
+below a **12px pill** (`min-width`); a genuine zero stays an empty track, like the reference's
+"Sonnet 0% used". Saved renders **two Cost-style lines** — `Today: …` and `Last 30 days: …` (a
+second `/v1/savings?period=30d` feed) — each shown only when its period is priced with real
+savings.
 
 11px uppercase-tracked labels (WF-DESIGN-0012's fourth scale rung) survive only for the
 tab-strip-free popover's total absence — there is no more segmented-control pill needing that
@@ -114,10 +126,10 @@ treatment.
   the ~6 icons actually imported end up in the bundle), not the unicode glyphs (`↗ ⚙ ▤`) the first
   pass used, and every row has one now, including the Offline mode toggle (`WifiOff`, replaced by
   a checkmark when on) — the first pass left it icon-less, breaking the rows' shared left edge.
-- **The popover grew from 360×480 to 400×570** (WF-ADR-0042 amended). CodexBar's own popover reads
+- **The popover grew from 360×480 to 400×600** (WF-ADR-0042 amended). CodexBar's own popover reads
   spacious at a canvas Wayfinder's original fixed size couldn't match without cramming; widening
   it was a deliberate call (confirmed with the maintainer, since it touches an existing ADR), not
-  a silent scope-creep. The height is sized to the measured full menu (~558px) so no action row
+  a silent scope-creep. The height is sized to the measured full menu (~598px) so no action row
   ever renders half-clipped behind the scroll edge — a menu with a cut-off row reads as broken.
   `position_bottom_center` in `lib.rs` reads the window's live size, so only `tauri.conf.json`'s
   two numbers changed.

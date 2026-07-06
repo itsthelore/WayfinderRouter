@@ -57,6 +57,8 @@ describe("SplitBar — the route split as a composition, not a quota fill", () =
     expect(segments.length).toBe(2);
     expect((segments[0] as HTMLElement).style.width).toBe("25%");
     expect((segments[1] as HTMLElement).style.width).toBe("75%");
+    // A nonzero share never renders below a 12px pill (the reference's 2% bar is visible).
+    expect((segments[0] as HTMLElement).style.minWidth).toBe("12px");
   });
   it("an empty split is just the track — no segments", () => {
     const { container } = render(
@@ -104,6 +106,11 @@ describe("MetricRow — bold label, optional bar, left/right values, optional in
     expect(screen.getByText("Not yet available")).toBeInTheDocument();
     expect(screen.queryByRole("meter")).not.toBeInTheDocument();
     expect(screen.queryByRole("img")).not.toBeInTheDocument();
+  });
+  it("lines variant stacks dark body lines — the reference's own Cost form", () => {
+    render(<MetricRow label="Saved" lines={["Today: $0.04 · 15K tokens", "Last 30 days: $254.24"]} />);
+    expect(screen.getByText("Today: $0.04 · 15K tokens")).toBeInTheDocument();
+    expect(screen.getByText("Last 30 days: $254.24")).toBeInTheDocument();
   });
 });
 
