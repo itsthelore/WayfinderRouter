@@ -344,7 +344,7 @@ describe("PopoverRoot — the reachable/unreachable/first-run switch, driven by 
     await waitFor(() => expect(screen.getByText("Running")).toBeInTheDocument());
     expect(screen.getByTestId("usage")).toBeInTheDocument();
     expect(screen.queryByRole("textbox", { name: "message" })).not.toBeInTheDocument();
-    await user.click(screen.getByRole("button", { name: "Chat" }));
+    await user.click(screen.getByRole("button", { name: "Wayfinder Chat" }));
     expect(screen.getByRole("textbox", { name: "message" })).toBeInTheDocument();
   });
 
@@ -372,8 +372,8 @@ describe("PopoverRoot — the reachable/unreachable/first-run switch, driven by 
     globalThis.fetch = routedFetch(async () => new Response(fixture("healthz-degraded.json"), { status: 200 })) as unknown as typeof fetch;
     const user = userEvent.setup();
     render(<PopoverRoot />);
-    await waitFor(() => expect(screen.getByRole("button", { name: "Chat" })).toBeInTheDocument());
-    await user.click(screen.getByRole("button", { name: "Chat" }));
+    await waitFor(() => expect(screen.getByRole("button", { name: "Wayfinder Chat" })).toBeInTheDocument());
+    await user.click(screen.getByRole("button", { name: "Wayfinder Chat" }));
     await waitFor(() => expect(screen.getByRole("alert")).toBeInTheDocument());
   });
 

@@ -102,7 +102,7 @@ export function ChatHeader({ onBack }: { onBack: () => void }) {
       >
         ‹
       </button>
-      <span className="text-[19px] font-bold">Chat</span>
+      <span className="text-[19px] font-bold">Wayfinder Chat</span>
     </header>
   );
 }

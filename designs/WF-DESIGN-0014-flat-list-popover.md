@@ -291,6 +291,38 @@ already-wired capability: cadence drives all three gateway polls (via a `storage
 the popover window), notifications arm the transition-edge notifier, launch-at-login drives the
 autostart plugin, and the shortcut row is explicitly display-only until rebinding lands.
 
+## Amendment: Routing goes bar-only + a Today/7d/30d toggle; icons land everywhere
+
+Maintainer review of a live render: the Routing row's permanent left/right/insight text
+("50% routed locally" / "2 turns" / "Routed: local: 1 · cloud: 1") is gone — the row is now
+just the label, the `help` (?), a small **Today / 7d / 30d** period toggle (`headerRight`, a new
+`MetricRow` slot), and the SplitBar. The same breakdown that used to render as permanent text
+now renders in a **hover tooltip** over the bar (`components/ui/tooltip.tsx`, a vendored-but-
+previously-unused shadcn/Radix primitive) — a deliberate, narrow exception to this document's
+"hover does nothing" rule for `HelpTip`: that rule is about the *documentation* layer (what a
+stat means), not a chart-style value readout, and the accessible name was never text-only
+anyway — `SplitBar`'s `role="img"` `aria-label` already carried the identical breakdown for
+screen readers, so removing the visible copy loses nothing there.
+
+The toggle is real, not decorative: each position re-points the bar at a different `/v1/savings?
+period=` report's `by_route` field (`today`/`7d`/`30d` — the gateway already returns this
+day-bucketed local/cloud split; the frontend just hadn't read it before). This is a genuine
+calendar-day window, unlike `/router/recent`'s fixed last-N-turns count, which now only backs
+the tray meter and serves as a fallback if a report hasn't loaded `by_route` yet. No charting
+library was adopted for this — a single two-segment proportion doesn't warrant one; `SplitBar`
+stays exactly as it was, just re-fed.
+
+Icons landed next to every section label (`MetricRow`'s new `icon` prop: `Route` for Routing,
+`PiggyBank` for Saved) and every footer action (`FooterMenuItem`'s new `icon` prop: `RefreshCw`,
+`Settings`, `LogOut`) — `FooterMenuItem`'s own doc comment already claimed "icon, label" from
+this document's first pass; the code just hadn't caught up until now.
+
+Two more maintainer-review fixes bundled in: the Usage screen's scrollable content no longer
+force-stretches (`flex-1`) to fill the fixed 400×640 window when the list is short — it now
+hugs its own height so the footer follows directly after Saved, and any leftover space in the
+fixed window collects below Quit Wayfinder instead of as a gap before Refresh. And the Chat row
+(and the chat sub-screen's header) is now labelled **"Wayfinder Chat"**, not the bare "Chat".
+
 ## Later (recorded, not built)
 
 About Wayfinder panel + footer row · a menu-bar-metric picker (only worth building if Wayfinder

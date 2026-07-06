@@ -2,12 +2,25 @@
 // these — SavingsGlance/DecisionPill/etc. are retired, but the numbers they used to format still
 // need one canonical shape.
 
+/** One /v1/savings `by_route` entry — per-model realized/baseline/saved + request count
+ *  (`pricing.py`'s `_empty_route()`). "route" here means "the model this turn was sent to",
+ *  same convention as /router/recent's `by_model` — just bucketed by real calendar day so it
+ *  can be re-queried per period, not a fixed last-N-turns window. */
+export interface SavingsRouteStats {
+  requests: number;
+  realized: number;
+  baseline: number;
+  saved: number;
+  tokens: number;
+}
+
 /** The /v1/savings fields the popover consumes (fixture: savings.json). */
 export interface SavingsReport {
   saved: number;
   saved_pct: number;
   priced: boolean;
   requests: number;
+  by_route?: Record<string, SavingsRouteStats>;
 }
 
 /** "saved $0.42" (WF-DESIGN-0012) — sub-cent savings render as "<$0.01", never "$0.00". */
