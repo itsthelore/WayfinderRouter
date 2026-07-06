@@ -214,10 +214,12 @@ autostart plugin, and the shortcut row is explicitly display-only until rebindin
 
 ## Later (recorded, not built)
 
-About Wayfinder panel + footer row · a second Settings sidebar entry (Privacy/verify-lite panel,
-key management — WF-ROADMAP-0009 Phase 4) · ⌥W rebinding UI · a menu-bar-metric picker (only
-worth building if Wayfinder grows a second fill-worthy percentage, e.g. a readable budget-used%
-once WF-ADR-0032's budget has a stable HTTP surface).
+About Wayfinder panel + footer row · a menu-bar-metric picker (only worth building if Wayfinder
+grows a second fill-worthy percentage, e.g. a readable budget-used% once WF-ADR-0032's budget
+has a stable HTTP surface).
+
+> Landed since this document: the Privacy/verify-lite panel, key management, and ⌥W rebinding
+> (this list's former entries) shipped as WF-DESIGN-0015 on WF-ADR-0044's config seam.
 
 ## Related
 

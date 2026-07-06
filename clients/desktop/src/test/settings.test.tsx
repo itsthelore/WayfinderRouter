@@ -12,13 +12,19 @@ import { cadenceToMs, DEFAULT_SETTINGS, loadSettings, saveSettings, SETTINGS_KEY
 import { useSavings } from "@/hooks/useSavings";
 import { SettingsWindow } from "@/views/SettingsWindow";
 
-// Mock the ipc boundary so the Gateway section's open-config button is assertable without a
-// Tauri runtime (outside one, openTarget silently no-ops).
+// Mock the ipc boundary so the Gateway/Keys/shortcut actions are assertable without a Tauri
+// runtime (outside one, openTarget no-ops and the key/shortcut actions reject).
 vi.mock("@/lib/ipc", async () => {
   const actual = await vi.importActual<typeof import("@/lib/ipc")>("@/lib/ipc");
-  return { ...actual, openTarget: vi.fn(async () => {}) };
+  return {
+    ...actual,
+    openTarget: vi.fn(async () => {}),
+    setShortcut: vi.fn(async () => {}),
+    storeProviderKey: vi.fn(async () => "stored"),
+    deleteProviderKey: vi.fn(async () => "removed"),
+  };
 });
-import { openTarget } from "@/lib/ipc";
+import { deleteProviderKey, openTarget, setShortcut, storeProviderKey } from "@/lib/ipc";
 
 function fixture(name: string): string {
   return readFileSync(join(process.cwd(), "src", "test", "fixtures", name), "utf8");
@@ -77,10 +83,9 @@ describe("SettingsWindow — sidebar + Mac-native Form rows (mirrors clawrouter-
     expect(loadSettings().notifications).toBe(true);
   });
 
-  it("no provider search box and no API key rows — Wayfinder has neither yet", () => {
+  it("still no provider search box — models come from /router/models, nothing to search", () => {
     render(<SettingsWindow />);
     expect(screen.queryByRole("searchbox")).not.toBeInTheDocument();
-    expect(screen.queryByText(/API key/i)).not.toBeInTheDocument();
   });
 
   it("Gateway section: endpoint info + the one door to the gateway's config file", async () => {
@@ -91,5 +96,107 @@ describe("SettingsWindow — sidebar + Mac-native Form rows (mirrors clawrouter-
     expect(screen.getByText("127.0.0.1:8088")).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "Open in Finder" }));
     expect(openTarget).toHaveBeenCalledWith("config");
+  });
+
+  it("shortcut select persists the choice and invokes the rebind", async () => {
+    const user = userEvent.setup();
+    render(<SettingsWindow />);
+    await user.selectOptions(screen.getByRole("combobox", { name: "popover shortcut" }), "ctrl+alt+w");
+    expect(loadSettings().shortcut).toBe("ctrl+alt+w");
+    expect(setShortcut).toHaveBeenCalledWith("ctrl+alt+w");
+  });
+
+  it("a rejected rebind rolls the choice back and shows the reason", async () => {
+    vi.mocked(setShortcut).mockRejectedValueOnce(new Error("combo already claimed"));
+    const user = userEvent.setup();
+    render(<SettingsWindow />);
+    await user.selectOptions(screen.getByRole("combobox", { name: "popover shortcut" }), "cmd+shift+w");
+    await waitFor(() => expect(loadSettings().shortcut).toBe("alt+w")); // rolled back
+    expect(await screen.findByText("combo already claimed")).toBeInTheDocument();
+  });
+
+  it("?section=keys deep-links straight to the Keys section", async () => {
+    globalThis.fetch = vi.fn(async () =>
+      new Response(fixture("router-models.json"), { status: 200 }),
+    ) as unknown as typeof fetch;
+    window.history.replaceState(null, "", "?window=settings&section=keys");
+    render(<SettingsWindow />);
+    expect(await screen.findByRole("heading", { name: "Keys" })).toBeInTheDocument();
+    window.history.replaceState(null, "", "/");
+  });
+});
+
+describe("SettingsWindow — Keys section (WF-DESIGN-0015: keyed models from /router/models)", () => {
+  function mockModels() {
+    globalThis.fetch = vi.fn(async () =>
+      new Response(fixture("router-models.json"), { status: 200 }),
+    ) as unknown as typeof fetch;
+  }
+
+  it("lists only keyed models, with env var + status; keyless local is absent", async () => {
+    mockModels();
+    const user = userEvent.setup();
+    render(<SettingsWindow />);
+    await user.click(screen.getByRole("button", { name: "Keys" }));
+    expect(await screen.findByText("cloud")).toBeInTheDocument();
+    expect(screen.getByText(/\$ANTHROPIC_API_KEY.*Key missing/)).toBeInTheDocument();
+    expect(screen.queryByText("llama3.1")).not.toBeInTheDocument();
+    // The key input is a password field and the honesty note names the Keychain + api_key_cmd.
+    expect(screen.getByLabelText("ANTHROPIC_API_KEY key")).toHaveAttribute("type", "password");
+    expect(screen.getByText(/macOS Keychain/)).toBeInTheDocument();
+    expect(screen.getByText(/api_key_cmd/)).toBeInTheDocument();
+  });
+
+  it("Save stores the key via ipc and clears the input (never lingers in JS state)", async () => {
+    mockModels();
+    const user = userEvent.setup();
+    render(<SettingsWindow />);
+    await user.click(screen.getByRole("button", { name: "Keys" }));
+    const input = await screen.findByLabelText("ANTHROPIC_API_KEY key");
+    await user.type(input, "sk-ant-test");
+    await user.click(screen.getByRole("button", { name: "Save" }));
+    expect(storeProviderKey).toHaveBeenCalledWith("ANTHROPIC_API_KEY", "sk-ant-test");
+    await waitFor(() => expect(input).toHaveValue(""));
+  });
+
+  it("a present key offers Remove, which deletes via ipc", async () => {
+    const present = JSON.parse(fixture("router-models.json")) as {
+      models: Array<Record<string, unknown>>;
+    };
+    present.models = present.models.map((m) =>
+      m.name === "cloud" ? { ...m, key_ok: true } : m,
+    );
+    globalThis.fetch = vi.fn(async () =>
+      new Response(JSON.stringify(present), { status: 200 }),
+    ) as unknown as typeof fetch;
+    const user = userEvent.setup();
+    render(<SettingsWindow />);
+    await user.click(screen.getByRole("button", { name: "Keys" }));
+    await user.click(await screen.findByRole("button", { name: "Remove" }));
+    expect(deleteProviderKey).toHaveBeenCalledWith("ANTHROPIC_API_KEY");
+  });
+
+  it("an unreachable gateway degrades to an honest message", async () => {
+    globalThis.fetch = vi.fn(async () => {
+      throw new TypeError("Failed to fetch");
+    }) as unknown as typeof fetch;
+    const user = userEvent.setup();
+    render(<SettingsWindow />);
+    await user.click(screen.getByRole("button", { name: "Keys" }));
+    expect(await screen.findByText(/isn’t reachable/)).toBeInTheDocument();
+  });
+});
+
+describe("SettingsWindow — Privacy section (verify-lite, WF-ADR-0042 §8: honest claims only)", () => {
+  it("states the three claims and the no-telemetry line without overclaiming", async () => {
+    const user = userEvent.setup();
+    render(<SettingsWindow />);
+    await user.click(screen.getByRole("button", { name: "Privacy" }));
+    expect(screen.getByText(/decision is computed on your machine/)).toBeInTheDocument();
+    expect(screen.getByText(/only to the provider you route to/)).toBeInTheDocument();
+    expect(screen.getByText(/Offline mode is the only nothing-leaves guarantee/)).toBeInTheDocument();
+    expect(screen.getByText("No telemetry")).toBeInTheDocument();
+    // The one overclaim the design bans must never appear:
+    expect(screen.queryByText(/your data never leaves your machine/i)).not.toBeInTheDocument();
   });
 });
