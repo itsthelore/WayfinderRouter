@@ -124,6 +124,19 @@ pub fn quit_app(app: AppHandle) {
     app.exit(0);
 }
 
+/// Does this `wayfinder-router` support `init --keychain`? A capability probe, not a version
+/// check — `--keychain` (WF-ADR-0044) postdates the currently *published* release, and the
+/// unreleased worktree that added it hasn't bumped `__version__` yet, so no version number
+/// reliably means "has the flag" (a version check would even misjudge a from-source `pip
+/// install -e .` of this exact checkout). Cheap: `init --help` has no side effects.
+fn supports_keychain_init(wf: &str) -> bool {
+    Command::new(wf)
+        .args(["init", "--help"])
+        .output()
+        .map(|out| String::from_utf8_lossy(&out.stdout).contains("--keychain"))
+        .unwrap_or(false)
+}
+
 /// First-run scaffold (WF-ADR-0044 / WF-DESIGN-0015): shell the gateway's own `init --preset
 /// <p> --keychain --path <shared config>` — the app authors zero TOML — then (re)install the
 /// service so the unit carries `--config <shared config>`. The uninstall step is load-bearing:
@@ -141,6 +154,14 @@ pub fn scaffold_config(preset: String) -> Result<String, String> {
         "couldn't find `wayfinder-router` — install the gateway first (pip install wayfinder-router)"
             .to_string()
     })?;
+    if !supports_keychain_init(&wf) {
+        return Err(
+            "your installed wayfinder-router doesn't support Keychain-backed keys yet — update \
+             with `pip install --upgrade wayfinder-router` (or `pip install -e .` from a source \
+             checkout), then try again"
+                .to_string(),
+        );
+    }
     let config = service::desktop_config_path(&home);
     if let Some(dir) = std::path::Path::new(&config).parent() {
         std::fs::create_dir_all(dir).map_err(|e| format!("cannot create {}: {e}", dir.display()))?;
@@ -315,5 +336,41 @@ mod tests {
         for px in img.rgba().chunks_exact(4) {
             assert_eq!(&px[..3], &[0, 0, 0]);
         }
+    }
+
+    fn stub_wayfinder_router(dir: &std::path::Path, help_text: &str) -> String {
+        std::fs::create_dir_all(dir).unwrap();
+        let bin = dir.join("wayfinder-router");
+        std::fs::write(&bin, format!("#!/bin/sh\ncat <<'EOF'\n{help_text}\nEOF\n")).unwrap();
+        std::fs::set_permissions(&bin, std::os::unix::fs::PermissionsExt::from_mode(0o755))
+            .unwrap();
+        bin.to_string_lossy().into_owned()
+    }
+
+    #[test]
+    fn supports_keychain_init_true_when_help_lists_the_flag() {
+        let dir = std::env::temp_dir().join(format!("wf-keychain-yes-{}", unsafe { libc::getpid() }));
+        let bin = stub_wayfinder_router(
+            &dir,
+            "usage: wayfinder-router init [-h] [--preset PRESET] [--keychain] [--path PATH]",
+        );
+        assert!(supports_keychain_init(&bin));
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn supports_keychain_init_false_on_an_older_cli() {
+        let dir = std::env::temp_dir().join(format!("wf-keychain-no-{}", unsafe { libc::getpid() }));
+        let bin = stub_wayfinder_router(
+            &dir,
+            "usage: wayfinder-router init [-h] [--preset PRESET] [--path PATH]",
+        );
+        assert!(!supports_keychain_init(&bin));
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn supports_keychain_init_false_when_the_binary_is_missing() {
+        assert!(!supports_keychain_init("/nonexistent/wayfinder-router"));
     }
 }

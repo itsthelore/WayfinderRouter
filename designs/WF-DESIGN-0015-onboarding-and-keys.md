@@ -34,6 +34,12 @@ order:
 1. `wayfinder-router init --preset <p> --keychain --path
    ~/Library/Application Support/Wayfinder/wayfinder-router.toml` — an existing file is kept
    (init's "already exists" is treated as success; the app never `--force`s over user edits).
+   Before calling it, the app probes `init --help` for the literal text `--keychain` — a
+   capability check, not a version check (there is no released version number that reliably
+   means "has the flag": it postdates the currently published tag, and the unreleased worktree
+   that added it hadn't bumped `__version__` either). An installed CLI predating the flag fails
+   fast with a plain "update with `pip install --upgrade wayfinder-router`" message instead of
+   argparse's raw `unrecognized arguments: --keychain` surfacing straight into the UI.
 2. `wayfinder-router service uninstall` (best-effort) → `service install` — the install argv
    *always* bakes `--config <that path>` into the unit. The uninstall step is load-bearing:
    re-installing over a loaded agent leaves launchd's **old** job spec running (`bootstrap`
