@@ -38,6 +38,13 @@ details, release history over commit history.
   reference the desktop app onboards through. The key itself is never written to the config
   (WF-ADR-0004); without the flag, `init` output is unchanged byte-for-byte.
 
+### Fixed
+
+- **Desktop first-run: a clear message when the installed gateway predates `--keychain`**
+  (WF-DESIGN-0015). An outdated `wayfinder-router` install used to fail "Set up routing" with a raw
+  argparse error (`unrecognized arguments: --keychain`); the app now probes `init --help` for the flag
+  first and fails with a plain "update with `pip install --upgrade wayfinder-router`" message instead.
+
 ## v2026.7.0 — 2026-07-01
 
 The **run-it-anywhere** release. Install the gateway as an always-on **local service**, route
