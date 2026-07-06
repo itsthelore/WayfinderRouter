@@ -74,10 +74,23 @@ describe("MenuHeader — bold name, neutral health text, freshness subtext (mirr
     expect(screen.getByText("Updated just now")).toBeInTheDocument();
   });
   it("degraded: the subtext line names the missing keys instead of the freshness text", () => {
-    render(<MenuHeader gw={gwState({ health: "degraded", missingKeys: ["ANTHROPIC_API_KEY"] })} updatedText="Updated just now" />);
+    render(<MenuHeader gw={gwState({ health: "degraded", missingKeys: ["cloud"] })} updatedText="Updated just now" />);
     expect(screen.getByText("Degraded")).toBeInTheDocument();
-    expect(screen.getByText("Missing ANTHROPIC_API_KEY")).toBeInTheDocument();
+    expect(screen.getByText("Missing cloud")).toBeInTheDocument();
     expect(screen.queryByText("Updated just now")).not.toBeInTheDocument();
+  });
+  it("degraded + onAddKey: the missing-keys line itself is the Keys deep-link — not a menu row", async () => {
+    const user = userEvent.setup();
+    const onAddKey = vi.fn();
+    render(
+      <MenuHeader
+        gw={gwState({ health: "degraded", missingKeys: ["cloud"] })}
+        updatedText="Updated just now"
+        onAddKey={onAddKey}
+      />,
+    );
+    await user.click(screen.getByRole("button", { name: /Missing cloud — add key…/ }));
+    expect(onAddKey).toHaveBeenCalled();
   });
   it("offline (local toggle) outranks the ok health label", () => {
     render(<MenuHeader gw={gwState({ offlineLocal: true })} updatedText="Updated just now" />);

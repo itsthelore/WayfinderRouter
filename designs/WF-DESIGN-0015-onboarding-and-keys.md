@@ -19,7 +19,8 @@ Accepted
 ## The one journey this designs
 
 Install app → open popover (first-run) → pick a preset → one click → a routed gateway →
-degraded header says a key is missing → "Add key…" → Settings → Keys → paste → routed for real.
+degraded header says a key is missing (the line is the link) → Settings → Keys → paste →
+routed for real.
 No terminal, no TOML, no key in any file — and every step is the gateway's own machinery
 (WF-ADR-0044): the app never authors config and never keeps a key.
 
@@ -63,10 +64,14 @@ Honesty note rendered under the rows: keys live in the macOS Keychain, read thro
 `api_key_cmd` reference **scaffolded configs contain** — a hand-written config without that
 line won't see them (the note says so and points at Gateway → Open in Finder).
 
-The popover's degraded state gains an **"Add key…"** action row (visible only while healthz
-reports missing keys) that deep-links Settings → Keys via `open_settings`'s whitelisted
-`section` param. The deep-link applies on window *creation* only — an already-open Settings
-window is focused, not re-routed (accepted limitation).
+The popover's degraded fix-it affordance is the **header's missing-keys line itself** —
+"Missing cloud — add key…" renders as a click target deep-linking Settings → Keys via
+`open_settings`'s whitelisted `section` param. It was briefly an "Add key…" action row;
+maintainer review removed it (with the Open Dashboard / Open Logs rows, which moved into
+Settings → Gateway) so the popover's action list stays behavior-only and never re-grows a
+scattered menu next to its one "Settings…" door. The status that names the problem carries the
+click. The deep-link applies on window *creation* only — an already-open Settings window is
+focused, not re-routed (accepted limitation).
 
 ## Privacy (Settings → Privacy — the verify-lite panel)
 

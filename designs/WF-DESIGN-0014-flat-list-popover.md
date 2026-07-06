@@ -114,10 +114,10 @@ treatment.
   the ~6 icons actually imported end up in the bundle), not the unicode glyphs (`↗ ⚙ ▤`) the first
   pass used, and every row has one now, including the Offline mode toggle (`WifiOff`, replaced by
   a checkmark when on) — the first pass left it icon-less, breaking the rows' shared left edge.
-- **The popover grew from 360×480 to 400×670** (WF-ADR-0042 amended). CodexBar's own popover reads
+- **The popover grew from 360×480 to 400×570** (WF-ADR-0042 amended). CodexBar's own popover reads
   spacious at a canvas Wayfinder's original fixed size couldn't match without cramming; widening
   it was a deliberate call (confirmed with the maintainer, since it touches an existing ADR), not
-  a silent scope-creep. The height is sized to the measured full menu (~661px) so no action row
+  a silent scope-creep. The height is sized to the measured full menu (~558px) so no action row
   ever renders half-clipped behind the scroll edge — a menu with a cut-off row reads as broken.
   `position_bottom_center` in `lib.rs` reads the window's live size, so only `tauri.conf.json`'s
   two numbers changed.
@@ -150,12 +150,14 @@ which is bar-less too; and the complexity score (chat sub-screen) keeps a plain 
 because a 0..1 score genuinely is a meter. The slider-thumb knob is gone everywhere — a thumb
 reads as a draggable control, and none of these are.
 - **ActionRow** — icon + label, optional trailing checkmark (offline mode) or chevron (Chat, see
-  below) — CodexBar's "Add Account…" / "Usage Dashboard" / "Status Page" rows. Wayfinder's set:
-  Offline mode (checkmark toggle), Chat (chevron — pushes a full-screen sub-view, see below),
-  Open Dashboard, Open Logs. There is deliberately **no "Open Config" row**: "Config" and
-  "Settings" read as synonyms when they sit as sibling menu entries (maintainer review), so the
-  gateway's config file is reached through Settings → Gateway instead — one door, with the
-  app-preferences vs router-config distinction explained where the user is already looking.
+  below) — the row *shape* is CodexBar's "Add Account…" / "Usage Dashboard" grammar, but
+  Wayfinder's set is deliberately **behavior only**: Offline mode (checkmark toggle) and Chat
+  (chevron — pushes a full-screen sub-view, see below). Two maintainer reviews shaped this:
+  first "Open Config" was cut ("Config" and "Settings" read as synonyms as sibling menu
+  entries), then Open Dashboard / Open Logs / Add key… followed for the same reason — every
+  open-something and fix-something action lives inside Settings (Gateway and Keys sections;
+  WF-DESIGN-0015), so the popover never re-grows a scattered menu next to its one "Settings…"
+  door. The degraded fix-it affordance is the header's missing-keys line itself, not a row.
 - **FooterMenuItem** — icon, label, right-aligned real `⌘`-shortcut (wired to an actual
   `keydown` listener, not a decorative label): Refresh (`⌘R`), Settings… (`⌘,`), Quit Wayfinder
   (`⌘Q`). CodexBar's fourth footer row, "About CodexBar", is deliberately **not** built —
