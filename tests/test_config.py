@@ -337,3 +337,71 @@ def test_set_toml_bool_ignores_commented_keys():
     # the commented example survives; a real key is inserted under the header
     assert "# offline = false\n" in out
     assert out.startswith("[gateway]\noffline = true\n")
+
+
+# ------------------------------------------------------------------- add_model_table (the seam)
+
+
+def test_add_model_table_appends_a_new_table_preserving_everything_else():
+    from wayfinder_router.config import add_model_table
+
+    text = "[gateway]\ntimeout = 30\n\n[gateway.models.local]\nbase_url = \"http://x\"\nmodel = \"m\"\n"
+    out = add_model_table(
+        text, "anthropic-opus", base_url="https://api.anthropic.com/v1", model="claude-opus-4-1",
+        api_key_env="ANTHROPIC_API_KEY", api_key_cmd="security find-generic-password -w",
+        cost_per_1k=0.015,
+    )
+    for line in text.splitlines(keepends=True):
+        assert line in out  # every existing line survives byte-for-byte
+    assert out.endswith(
+        "[gateway.models.anthropic-opus]\n"
+        'base_url = "https://api.anthropic.com/v1"\n'
+        'model = "claude-opus-4-1"\n'
+        'api_key_env = "ANTHROPIC_API_KEY"\n'
+        'api_key_cmd = "security find-generic-password -w"\n'
+        "cost_per_1k = 0.015\n"
+    )
+
+
+def test_add_model_table_minimal_fields_only():
+    from wayfinder_router.config import add_model_table
+
+    out = add_model_table(
+        "[gateway]\ntimeout = 30\n", "ollama", base_url="http://localhost:11434/v1", model="llama3.3",
+    )
+    assert out == (
+        "[gateway]\ntimeout = 30\n\n[gateway.models.ollama]\n"
+        'base_url = "http://localhost:11434/v1"\n'
+        'model = "llama3.3"\n'
+    )
+
+
+def test_add_model_table_rejects_a_name_collision():
+    from wayfinder_router.config import WayfinderConfigError, add_model_table
+
+    text = '[gateway.models.mine]\nbase_url = "http://x"\nmodel = "m"\n'
+    with pytest.raises(WayfinderConfigError, match="already exists"):
+        add_model_table(text, "mine", base_url="http://y", model="n")
+
+
+def test_add_model_table_escapes_quotes_and_backslashes():
+    from wayfinder_router.config import add_model_table
+
+    out = add_model_table("", "x", base_url="http://x", model='weird"model\\name')
+    assert 'model = "weird\\"model\\\\name"\n' in out
+
+
+def test_add_model_table_round_trips_through_the_real_parsers():
+    from wayfinder_router import bootstrap
+    from wayfinder_router.config import add_model_table, routing_config_from_toml
+    from wayfinder_router.gateway import gateway_config_from_toml
+
+    for name in ("hybrid", "openai", "gemini"):
+        text = bootstrap.render_config(bootstrap.PRESETS[name])
+        out = add_model_table(
+            text, "extra", base_url="https://example.test/v1", model="m", api_key_env="EXTRA_API_KEY",
+        )
+        gw = gateway_config_from_toml(out)
+        assert gw.models["extra"].model == "m"
+        assert gw.models["extra"].api_key_env == "EXTRA_API_KEY"
+        routing_config_from_toml(out)  # must not raise — new model isn't in any tier

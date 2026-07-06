@@ -111,6 +111,56 @@ def set_toml_bool(text: str, table: str, key: str, value: bool) -> str:
     return f"{text}{tail}\n[{table}]\n{key} = {rendered}\n"
 
 
+def _toml_string(value: str) -> str:
+    """A TOML basic string literal: backslash and double-quote escaped, wrapped in quotes."""
+    return '"' + value.replace("\\", "\\\\").replace('"', '\\"') + '"'
+
+
+def _has_model_table(text: str, name: str) -> bool:
+    target = f"gateway.models.{name}"
+    for line in text.splitlines():
+        stripped = line.strip()
+        if stripped.startswith("[") and stripped.endswith("]"):
+            if stripped[1:-1].strip() == target:
+                return True
+    return False
+
+
+def add_model_table(
+    text: str,
+    name: str,
+    *,
+    base_url: str,
+    model: str,
+    api_key_env: str | None = None,
+    api_key_cmd: str | None = None,
+    cost_per_1k: float | None = None,
+) -> str:
+    """Line-preserving insert of a new ``[gateway.models.<name>]`` table.
+
+    The write half of the `config add-model` seam (WF-ADR-0044): registers a new upstream
+    endpoint without touching a single existing line — always appended at the end (TOML
+    allows a table to appear anywhere relative to unrelated tables, so this never has to
+    parse or rewrite what's already there, the same trick `set_toml_bool`'s append case
+    relies on). Raises :class:`WayfinderConfigError` if a table by this name already exists —
+    unlike `set_toml_bool`'s idempotent update, two additions are never "the same edit twice",
+    so a name collision is always a mistake worth stopping on. The caller re-parses the result
+    through the real config parsers before writing anything to disk (belt and braces, same as
+    `config set`).
+    """
+    if _has_model_table(text, name):
+        raise WayfinderConfigError(f"a model named '{name}' already exists in this config")
+    lines = [f"[gateway.models.{name}]", f"base_url = {_toml_string(base_url)}", f"model = {_toml_string(model)}"]
+    if api_key_env is not None:
+        lines.append(f"api_key_env = {_toml_string(api_key_env)}")
+    if api_key_cmd is not None:
+        lines.append(f"api_key_cmd = {_toml_string(api_key_cmd)}")
+    if cost_per_1k is not None:
+        lines.append(f"cost_per_1k = {cost_per_1k}")
+    tail = "" if text.endswith("\n") or not text else "\n"
+    return f"{text}{tail}\n" + "\n".join(lines) + "\n"
+
+
 def routing_config_from_toml(text: str, where: str = CONFIG_FILE) -> RoutingConfig:
     """Parse a :class:`RoutingConfig` from ``wayfinder-router.toml`` text.
 

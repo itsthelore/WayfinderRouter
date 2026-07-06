@@ -184,6 +184,13 @@ PRESETS: dict[str, Preset] = {
 _KEYCHAIN_CMD = '/usr/bin/security find-generic-password -s wayfinder-router -a {env} -w'
 
 
+def keychain_api_key_cmd(env: str) -> str:
+    """The `api_key_cmd` string reading ``env``'s key from the macOS Keychain — the one seam
+    reference every Keychain-backed model (init's `--keychain`, `config add-model --keychain`)
+    is built from, so there is exactly one place that knows this command's shape."""
+    return _KEYCHAIN_CMD.format(env=env)
+
+
 def render_config(preset: Preset, keychain: bool = False) -> str:
     """The ``wayfinder-router.toml`` scaffold for ``preset`` (loads back unchanged).
 

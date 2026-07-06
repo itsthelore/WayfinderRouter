@@ -457,6 +457,12 @@ def _cmd_keys(args: argparse.Namespace) -> int:
 # The `config set` whitelist (WF-ADR-0044): the seam grows verb by verb, key by key — never a
 # general TOML editor. Each entry maps a dotted key to (table, key, parser).
 _CONFIG_BOOLS = {"gateway.offline": ("gateway", "offline")}
+# Mirrors the desktop app's Keychain-side validation (clients/desktop/src-tauri/src/keychain.rs
+# `valid_env_var`) — the same env-var name crosses both, so both ends must agree on its shape.
+_ENV_VAR_RE = re.compile(r"^[A-Z][A-Z0-9_]{0,63}$")
+# A bare TOML key, no dots — a dotted name would silently create a deeper nested table
+# (`[gateway.models.a.b]`) instead of the single model entry `add-model` promises.
+_MODEL_NAME_RE = re.compile(r"^[a-z][a-z0-9_-]{0,63}$")
 
 
 def _cmd_config(args: argparse.Namespace) -> int:
@@ -513,6 +519,88 @@ def _cmd_config(args: argparse.Namespace) -> int:
     print(
         f"wayfinder-router: set {args.key} = {args.value} in {path} "
         "(a running gateway hot-reloads this on its next request)",
+        file=sys.stderr,
+    )
+    return EXIT_OK
+
+
+def _cmd_config_add_model(args: argparse.Namespace) -> int:
+    """`config add-model --name --base-url --model [...]` — register a new upstream endpoint
+    (WF-ADR-0044): the same whitelisted-verb seam as `config set`, sized for an open-ended set
+    of providers (anything OpenAI-compatible — Anthropic, OpenAI, Gemini, a HuggingFace
+    Inference Endpoint, a local Ollama/LM Studio server, ...) rather than a fixed enum.
+
+    Registers the endpoint only — it does NOT add the model to any `[[routing.tiers]]` band,
+    so it won't receive automatically-scored traffic until it's placed in the tier ladder
+    (WF-ADR-0002) by hand. It is immediately visible via `/router/models`, keyable, and usable
+    as a same-tier `fallback` target or by direct name.
+    """
+    from pathlib import Path
+
+    from .bootstrap import keychain_api_key_cmd
+    from .config import add_model_table, find_config_file, routing_config_from_toml
+    from .gateway import gateway_config_from_toml
+
+    if not _MODEL_NAME_RE.match(args.name):
+        print(
+            f"wayfinder-router: --name '{args.name}' must be lowercase letters, digits, "
+            "'-', or '_' only (no dots — that would create a nested table)",
+            file=sys.stderr,
+        )
+        return EXIT_USAGE
+    if not args.base_url or not (args.base_url.startswith("http://") or args.base_url.startswith("https://")):
+        print("wayfinder-router: --base-url must be a http:// or https:// URL", file=sys.stderr)
+        return EXIT_USAGE
+    if not args.model:
+        print("wayfinder-router: --model must not be empty", file=sys.stderr)
+        return EXIT_USAGE
+    if args.api_key_env is not None and not _ENV_VAR_RE.match(args.api_key_env):
+        print(
+            f"wayfinder-router: --api-key-env '{args.api_key_env}' must look like "
+            "ANTHROPIC_API_KEY (A-Z, 0-9, _, starting with a letter)",
+            file=sys.stderr,
+        )
+        return EXIT_USAGE
+    if args.cost_per_1k is not None and args.cost_per_1k < 0:
+        print("wayfinder-router: --cost-per-1k must not be negative", file=sys.stderr)
+        return EXIT_USAGE
+    if args.keychain and not args.api_key_env:
+        print("wayfinder-router: --keychain needs --api-key-env to name the variable it fills", file=sys.stderr)
+        return EXIT_USAGE
+
+    path = Path(args.path) if args.path else find_config_file(".")
+    if path is None or not path.is_file():
+        where = args.path or "wayfinder-router.toml"
+        print(
+            f"wayfinder-router: no config at {where} — run `wayfinder-router init` to create one",
+            file=sys.stderr,
+        )
+        return EXIT_USAGE
+
+    api_key_cmd = keychain_api_key_cmd(args.api_key_env) if args.keychain else None
+    original = path.read_text(encoding="utf-8")
+    try:
+        updated = add_model_table(
+            original,
+            args.name,
+            base_url=args.base_url,
+            model=args.model,
+            api_key_env=args.api_key_env,
+            api_key_cmd=api_key_cmd,
+            cost_per_1k=args.cost_per_1k,
+        )
+        gw = gateway_config_from_toml(updated, where=str(path))
+        routing_config_from_toml(updated, where=str(path))
+    except WayfinderConfigError as exc:
+        print(f"wayfinder-router: refusing to write — {exc}", file=sys.stderr)
+        return EXIT_CONFIG
+    if args.name not in gw.models:  # belt and braces: the edit must actually have taken
+        print("wayfinder-router: refusing to write — edit did not take effect", file=sys.stderr)
+        return EXIT_CONFIG
+    path.write_text(updated, encoding="utf-8")
+    print(
+        f"wayfinder-router: added gateway.models.{args.name} ({args.model} via {args.base_url}) "
+        f"to {path} — restart the gateway to pick it up; not yet in any routing tier",
         file=sys.stderr,
     )
     return EXIT_OK
@@ -1291,17 +1379,52 @@ def build_parser() -> argparse.ArgumentParser:
 
     p_config = sub.add_parser(
         "config",
-        help="Set a whitelisted config value in wayfinder-router.toml (WF-ADR-0044): "
-             "line-preserving, schema-validated, hot-reloaded by a running gateway.",
+        help="Mutate wayfinder-router.toml through a whitelisted verb (WF-ADR-0044): "
+             "line-preserving, schema-validated, never a general editor.",
     )
-    p_config.add_argument("action", choices=["set"], help="Action to perform (currently: set).")
-    p_config.add_argument("key", help="Dotted config key (currently: gateway.offline).")
-    p_config.add_argument("value", help="New value ('true' or 'false' for boolean keys).")
-    p_config.add_argument(
+    config_sub = p_config.add_subparsers(dest="config_action", required=True)
+
+    p_config_set = config_sub.add_parser(
+        "set", help="Set a whitelisted scalar config value; hot-reloaded by a running gateway.",
+    )
+    p_config_set.add_argument("key", help="Dotted config key (currently: gateway.offline).")
+    p_config_set.add_argument("value", help="New value ('true' or 'false' for boolean keys).")
+    p_config_set.add_argument(
         "--path", default=None,
         help="Explicit config file (default: WAYFINDER_CONFIG, else the cwd walk-up).",
     )
-    p_config.set_defaults(func=_cmd_config)
+    p_config_set.set_defaults(func=_cmd_config)
+
+    p_config_add_model = config_sub.add_parser(
+        "add-model",
+        help="Register a new [gateway.models.*] endpoint — any OpenAI-compatible provider, "
+             "not a fixed list. Not added to any routing tier; restart the gateway to load it.",
+    )
+    p_config_add_model.add_argument(
+        "--name", required=True,
+        help="A short, unique slug for this entry (e.g. anthropic-opus) — lowercase, digits, "
+             "'-'/'_' only, no dots.",
+    )
+    p_config_add_model.add_argument(
+        "--base-url", required=True, help="The OpenAI-compatible base URL, e.g. https://api.anthropic.com/v1.",
+    )
+    p_config_add_model.add_argument("--model", required=True, help="The upstream model id to send.")
+    p_config_add_model.add_argument(
+        "--api-key-env", default=None,
+        help="Env var holding the key (e.g. ANTHROPIC_API_KEY) — omit for a keyless endpoint.",
+    )
+    p_config_add_model.add_argument(
+        "--cost-per-1k", type=float, default=None, help="Optional informational $/1k-token cost.",
+    )
+    p_config_add_model.add_argument(
+        "--keychain", action="store_true",
+        help="macOS: add an api_key_cmd reading --api-key-env from the Keychain (needs --api-key-env).",
+    )
+    p_config_add_model.add_argument(
+        "--path", default=None,
+        help="Explicit config file (default: WAYFINDER_CONFIG, else the cwd walk-up).",
+    )
+    p_config_add_model.set_defaults(func=_cmd_config_add_model)
 
     p_keys = sub.add_parser(
         "keys", help="Mint a virtual API key for the gateway (WF-ADR-0035)."
