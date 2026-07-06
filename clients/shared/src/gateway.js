@@ -62,22 +62,38 @@ export function decisionFromHeaders(headers, cheapest) {
 // upstream's OpenAI delta chunks stream token-by-token (onToken), and the gateway's trailing
 // `event: wayfinder` enriches the decision with the full "why" (onDecision again). Returns the
 // final reply text. The client still never scores — the gateway does.
+//
+// `headers` lets a caller add per-turn wayfinder headers (X-Wayfinder-Offline from the popover's
+// toggle, a route pin, …). A JSON (non-SSE) response — a dry-run or a no-models decision_only
+// gateway (WF-ADR-0042) — is parsed on the same path: the decision fires, the reply is ''.
+// The body is drained with an explicit reader loop, not `for await`: WKWebView/Safari at the
+// macOS 14 floor has no async iterator on ReadableStream.
 export async function routeTurnStream(messages, opts = {}) {
   const {baseUrl = 'http://127.0.0.1:8088', model = 'auto', threshold = null,
-    cheapest = null, onDecision, onToken, signal = null} = opts;
+    cheapest = null, onDecision, onToken, signal = null, headers = {}} = opts;
   const res = await fetch(`${baseUrl}/v1/chat/completions`, {
     method: 'POST',
     signal,
     headers: {'Content-Type': 'application/json', 'X-Wayfinder-Debug': '1',
-      ...(threshold != null ? {'X-Wayfinder-Threshold': String(threshold)} : {})},
+      ...(threshold != null ? {'X-Wayfinder-Threshold': String(threshold)} : {}),
+      ...headers},
     body: JSON.stringify({model, messages, stream: true}),
   });
   if (onDecision) onDecision(decisionFromHeaders(res.headers, cheapest));
+  if ((res.headers.get('content-type') || '').includes('application/json')) {
+    const data = await res.json();
+    if (data.wayfinder && onDecision) onDecision(decisionFromDebug(data.wayfinder));
+    return (data.choices && data.choices[0] && data.choices[0].message
+      && data.choices[0].message.content) || '';
+  }
   let reply = '';
   const td = new TextDecoder();
   let buf = '';
-  for await (const chunk of res.body) {
-    buf += td.decode(chunk, {stream: true});
+  const reader = res.body.getReader();
+  for (;;) {
+    const {done, value} = await reader.read();
+    if (done) break;
+    buf += td.decode(value, {stream: true});
     let i;
     while ((i = buf.indexOf('\n\n')) >= 0) {
       const block = buf.slice(0, i); buf = buf.slice(i + 2);
