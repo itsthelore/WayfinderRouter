@@ -29,6 +29,7 @@ import { GATEWAY_BASE } from "@/lib/gateway";
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
 import { Separator } from "@/components/ui/separator";
+import { NativeSelect, NativeSelectOption } from "@/components/ui/native-select";
 import {
   Item,
   ItemActions,
@@ -94,18 +95,18 @@ function GeneralSection({ settings, onChange }: { settings: Settings; onChange: 
       <h2 className="pb-2 text-[15px] font-semibold">General</h2>
 
       <FormRow label="Refresh cadence" description="How often the popover polls the gateway for health, savings, and routing.">
-        <select
+        <NativeSelect
+          size="sm"
           aria-label="refresh cadence"
           value={settings.cadence}
           onChange={(e) => onChange({ ...settings, cadence: e.target.value as Cadence })}
-          className="h-8 rounded-md border border-input bg-background px-2 text-[13px]"
         >
           {CADENCES.map(({ value, label }) => (
-            <option key={value} value={value}>
+            <NativeSelectOption key={value} value={value}>
               {label}
-            </option>
+            </NativeSelectOption>
           ))}
-        </select>
+        </NativeSelect>
       </FormRow>
       <Separator />
 
@@ -136,7 +137,8 @@ function GeneralSection({ settings, onChange }: { settings: Settings; onChange: 
         description="Global shortcut to show or hide Wayfinder from anywhere. Rolled back if the combo can't register (already claimed by another app)."
       >
         <div className="flex flex-col items-end gap-1">
-          <select
+          <NativeSelect
+            size="sm"
             aria-label="popover shortcut"
             value={settings.shortcut}
             onChange={(e) => {
@@ -149,14 +151,14 @@ function GeneralSection({ settings, onChange }: { settings: Settings; onChange: 
                 setShortcutError(err instanceof Error ? err.message : String(err));
               });
             }}
-            className="h-8 rounded-md border border-input bg-background px-2 font-mono text-[13px]"
+            className="font-mono"
           >
             {(Object.keys(SHORTCUT_LABELS) as ShortcutId[]).map((id) => (
-              <option key={id} value={id}>
+              <NativeSelectOption key={id} value={id}>
                 {SHORTCUT_LABELS[id]}
-              </option>
+              </NativeSelectOption>
             ))}
-          </select>
+          </NativeSelect>
           {shortcutError && (
             <span className="text-[11px]" style={{ color: "var(--destructive)" }}>
               {shortcutError}
