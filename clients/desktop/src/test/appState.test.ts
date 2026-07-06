@@ -10,6 +10,7 @@ import {
   gatewayMode,
   gatewayReducer,
   gatewayView,
+  historyFromTranscript,
   initialGatewayState,
   initialTurnState,
   showDegradedBanner,
@@ -18,6 +19,7 @@ import {
   type GatewayEvent,
   type GatewayState,
   type HealthzBody,
+  type SettledTurn,
 } from "@/lib/appState";
 
 function fixture<T = Record<string, unknown>>(name: string): T {
@@ -178,5 +180,95 @@ describe("turn machine — decision paints early, enriches once, survives errors
     s = turnReducer(s, { type: "ERROR", message: "aborted" });
     const after = turnReducer(s, { type: "TOKEN", delta: "x", reply: "x" });
     expect(after.reply).toBe("");
+  });
+});
+
+describe("transcript — settled turns collapse into scrollback on the next SUBMIT", () => {
+  const local = decisionFromDebug(fixture<{ wayfinder: Record<string, unknown> }>("decision-local.json").wayfinder);
+  const cloud = decisionFromDebug(fixture<{ wayfinder: Record<string, unknown> }>("decision-cloud.json").wayfinder);
+
+  function settle(state = initialTurnState, prompt = "q", reply = "a") {
+    let s = turnReducer(state, { type: "SUBMIT", prompt });
+    s = turnReducer(s, { type: "DECISION", decision: cloud });
+    s = turnReducer(s, { type: "TOKEN", delta: reply, reply });
+    return turnReducer(s, { type: "DONE", reply });
+  }
+
+  it("done -> SUBMIT archives the turn; the live slots reset", () => {
+    const done = settle(initialTurnState, "first question", "first answer");
+    const s = turnReducer(done, { type: "SUBMIT", prompt: "second" });
+    expect(s.transcript).toHaveLength(1);
+    expect(s.transcript[0]).toMatchObject({
+      prompt: "first question",
+      reply: "first answer",
+      decision: cloud,
+      error: null,
+    });
+    expect(s.prompt).toBe("second");
+    expect(s.reply).toBe("");
+    expect(s.decision).toBeNull();
+  });
+
+  it("error -> SUBMIT archives too, error kept — the decision is still the product", () => {
+    let s = turnReducer(initialTurnState, { type: "SUBMIT", prompt: "p" });
+    s = turnReducer(s, { type: "DECISION", decision: local });
+    s = turnReducer(s, { type: "ERROR", message: "upstream 502" });
+    const next = turnReducer(s, { type: "SUBMIT", prompt: "again" });
+    expect(next.transcript[0]).toMatchObject({ prompt: "p", error: "upstream 502", decision: local, reply: "" });
+  });
+
+  it("the first SUBMIT (from idle) archives nothing; streaming interrupted by SUBMIT is dropped", () => {
+    const first = turnReducer(initialTurnState, { type: "SUBMIT", prompt: "p" });
+    expect(first.transcript).toHaveLength(0);
+    // A re-submit mid-stream (the hook aborts the old turn) never archives a half-turn.
+    const resubmit = turnReducer(first, { type: "SUBMIT", prompt: "p2" });
+    expect(resubmit.transcript).toHaveLength(0);
+  });
+
+  it("scrollback caps at 20 — oldest turns fall off the front", () => {
+    let s = initialTurnState;
+    for (let i = 0; i < 25; i++) s = settle(s, `q${i}`, `a${i}`);
+    const final = turnReducer(s, { type: "SUBMIT", prompt: "last" });
+    expect(final.transcript).toHaveLength(20);
+    expect(final.transcript[0]!.prompt).toBe("q5");
+    expect(final.transcript[19]!.prompt).toBe("q24");
+  });
+
+  it("RESET clears the transcript with everything else", () => {
+    const done = settle();
+    const s = turnReducer(turnReducer(done, { type: "SUBMIT", prompt: "x" }), { type: "RESET" });
+    expect(s.transcript).toHaveLength(0);
+  });
+});
+
+describe("historyFromTranscript — the wire-shaped conversation for the next send", () => {
+  const settled = (prompt: string, reply: string): SettledTurn => ({
+    prompt,
+    reply,
+    decision: null,
+    enriched: false,
+    error: reply ? null : "boom",
+  });
+
+  it("builds user/assistant pairs, oldest first", () => {
+    expect(historyFromTranscript([settled("q1", "a1"), settled("q2", "a2")])).toEqual([
+      { role: "user", content: "q1" },
+      { role: "assistant", content: "a1" },
+      { role: "user", content: "q2" },
+      { role: "assistant", content: "a2" },
+    ]);
+  });
+
+  it("turns without a reply contribute only their user line — never a fabricated answer", () => {
+    expect(historyFromTranscript([settled("failed", "")])).toEqual([
+      { role: "user", content: "failed" },
+    ]);
+  });
+
+  it("caps at the last 8 turns", () => {
+    const long = Array.from({ length: 12 }, (_, i) => settled(`q${i}`, `a${i}`));
+    const history = historyFromTranscript(long);
+    expect(history).toHaveLength(16);
+    expect(history[0]).toEqual({ role: "user", content: "q4" });
   });
 });

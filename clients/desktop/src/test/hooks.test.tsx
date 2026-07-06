@@ -148,19 +148,28 @@ describe("useTurn — SSE replay of the recorded transcript", () => {
     expect(result.current.decision).not.toBeNull(); // the decision is the product
   });
 
-  it("offline preference adds the X-Wayfinder-Offline header per turn", async () => {
-    const seen: Record<string, string>[] = [];
+  it("send forwards the caller's history ahead of the new user message", async () => {
+    const bodies: Array<{ messages: Array<{ role: string; content: string }> }> = [];
     globalThis.fetch = vi.fn(async (_url, init?: RequestInit) => {
-      seen.push({ ...(init?.headers as Record<string, string>) });
+      bodies.push(JSON.parse(String(init?.body)));
       return new Response(JSON.stringify({ wayfinder: DECISION_LOCAL.wayfinder }), {
         status: 200,
         headers: { "content-type": "application/json" },
       });
     }) as typeof fetch;
 
-    const { result } = renderHook(() => useTurn({ offline: true }));
-    await act(async () => result.current.send("hi"));
-    expect(seen[0]["X-Wayfinder-Offline"]).toBe("1");
+    const { result } = renderHook(() => useTurn({}));
+    await act(async () =>
+      result.current.send("follow-up", [
+        { role: "user", content: "earlier" },
+        { role: "assistant", content: "answer" },
+      ]),
+    );
+    expect(bodies[0].messages).toEqual([
+      { role: "user", content: "earlier" },
+      { role: "assistant", content: "answer" },
+      { role: "user", content: "follow-up" },
+    ]);
   });
 });
 

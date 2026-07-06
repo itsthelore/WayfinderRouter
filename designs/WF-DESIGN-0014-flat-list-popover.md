@@ -211,6 +211,21 @@ decision-first hierarchy (WF-ADR-0020): the decision is still the first thing sh
 reply, just typographically consistent with the rest of the popover instead of a 22px hero digit.
 Unreachable/first-run keep their WF-DESIGN-0013 invariant: full-surface takeover, no header list.
 
+**Amendment: Chat holds a session transcript.** The first cut was a single-turn probe — each
+send wiped the previous turn and every request went out as a one-message conversation.
+Maintainer review grew it into a session: settled turns collapse into compact **scrollback
+rows** above the live turn (the prompt, dark, with a muted `›` marker; a one-line muted
+routing decision — glyph, route, model; the reply, or its error line), and each send carries
+the **last 8 settled turns as user/assistant history** (`historyFromTranscript`; turns without
+a reply — errors, decision-only — contribute only their user line, never a fabricated answer).
+The full decision hero (score bar, why rows) stays reserved for the live turn, keeping
+decision-first hierarchy per turn without repeating the ornament 20 times. Boundaries: the
+transcript is **in-memory only** (never persisted — quitting the app is the clear affordance),
+capped at 20 turns of scrollback, and lives in the same pure turn reducer (a settled turn is
+archived by the next SUBMIT — an aborted half-stream never is). The view auto-follows the
+newest content (bottom sentinel, smooth scroll, instant under reduced motion). This stays a
+routing-inspection surface, not a chat product: no sessions list, no editing, no persistence.
+
 ### Settings is a separate native window (replaces the in-popover slide-over)
 
 WF-DESIGN-0013's `SettingsView` slide-over is retired. Settings… now opens a real, resizable,

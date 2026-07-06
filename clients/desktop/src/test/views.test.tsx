@@ -199,6 +199,50 @@ describe("ChatScreen — adornments + decision summary + reply swap", () => {
     expect(screen.getByText("wayfinder-router init")).toBeInTheDocument();
     expect(screen.queryByText("hello there")).not.toBeInTheDocument();
   });
+
+  // ------------------------------------------------------------------ the session transcript
+  const settledOk = { prompt: "earlier question", decision: cloud, enriched: true, reply: "earlier answer", error: null };
+  const settledErr = { prompt: "failed question", decision: local, enriched: false, reply: "", error: "upstream 502" };
+
+  it("scrollback: settled turns render prompt, a one-line decision, and the reply", () => {
+    render(
+      <ChatScreen
+        gw={gwState()}
+        turn={turnStub({ transcript: [settledOk], decision: local, enriched: true, reply: "live reply", phase: "done" })}
+      />,
+    );
+    expect(screen.getByText("earlier question")).toBeInTheDocument();
+    expect(screen.getByText("earlier answer")).toBeInTheDocument();
+    // The live turn shows its prompt too, plus the full hero — the scrollback decision is one
+    // compact line, so the score meter appears exactly once.
+    expect(screen.getByRole("meter", { name: "complexity score" })).toBeInTheDocument();
+    expect(screen.getByText("live reply")).toBeInTheDocument();
+  });
+
+  it("scrollback: an error turn shows its error line instead of a reply", () => {
+    render(<ChatScreen gw={gwState()} turn={turnStub({ transcript: [settledErr] })} />);
+    expect(screen.getByText("failed question")).toBeInTheDocument();
+    expect(screen.getByText(/reply failed: upstream 502/)).toBeInTheDocument();
+  });
+
+  it("send carries the transcript as history — user/assistant pairs", async () => {
+    const user = userEvent.setup();
+    const send = vi.fn(async () => {});
+    render(<ChatScreen gw={gwState()} turn={turnStub({ transcript: [settledOk], send })} />);
+    await user.type(screen.getByRole("textbox", { name: "message" }), "follow-up");
+    await user.keyboard("{Enter}");
+    expect(send).toHaveBeenCalledWith("follow-up", [
+      { role: "user", content: "earlier question" },
+      { role: "assistant", content: "earlier answer" },
+    ]);
+  });
+
+  it("the empty-state hint shows only when there is neither a live decision nor scrollback", () => {
+    const { rerender } = render(<ChatScreen gw={gwState()} turn={turnStub()} />);
+    expect(screen.getByText(/Send a message — Wayfinder routes it/)).toBeInTheDocument();
+    rerender(<ChatScreen gw={gwState()} turn={turnStub({ transcript: [settledOk] })} />);
+    expect(screen.queryByText(/Send a message — Wayfinder routes it/)).not.toBeInTheDocument();
+  });
 });
 
 describe("UnreachableView / FirstRunView — never a dead screen", () => {
