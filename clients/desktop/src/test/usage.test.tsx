@@ -179,6 +179,9 @@ describe("UsageView — the flat list (mirrors clawrouter-usage.png)", () => {
     expect(onOpenChat).toHaveBeenCalled();
     await user.click(screen.getByRole("button", { name: "Open Dashboard" }));
     expect(onOpenTarget).toHaveBeenCalledWith("dashboard");
+    // No "Open Config" row — Config-vs-Settings read as synonyms as sibling entries; the
+    // gateway's config file is reached via Settings → Gateway instead (WF-DESIGN-0014).
+    expect(screen.queryByRole("button", { name: "Open Config" })).not.toBeInTheDocument();
   });
 });
 

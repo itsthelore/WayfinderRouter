@@ -114,10 +114,10 @@ treatment.
   the ~6 icons actually imported end up in the bundle), not the unicode glyphs (`↗ ⚙ ▤`) the first
   pass used, and every row has one now, including the Offline mode toggle (`WifiOff`, replaced by
   a checkmark when on) — the first pass left it icon-less, breaking the rows' shared left edge.
-- **The popover grew from 360×480 to 400×720** (WF-ADR-0042 amended). CodexBar's own popover reads
+- **The popover grew from 360×480 to 400×670** (WF-ADR-0042 amended). CodexBar's own popover reads
   spacious at a canvas Wayfinder's original fixed size couldn't match without cramming; widening
   it was a deliberate call (confirmed with the maintainer, since it touches an existing ADR), not
-  a silent scope-creep. The height is sized to the measured full menu (~712px) so no action row
+  a silent scope-creep. The height is sized to the measured full menu (~661px) so no action row
   ever renders half-clipped behind the scroll edge — a menu with a cut-off row reads as broken.
   `position_bottom_center` in `lib.rs` reads the window's live size, so only `tauri.conf.json`'s
   two numbers changed.
@@ -151,8 +151,11 @@ because a 0..1 score genuinely is a meter. The slider-thumb knob is gone everywh
 reads as a draggable control, and none of these are.
 - **ActionRow** — icon + label, optional trailing checkmark (offline mode) or chevron (Chat, see
   below) — CodexBar's "Add Account…" / "Usage Dashboard" / "Status Page" rows. Wayfinder's set:
-  Offline mode (checkmark toggle), Open Dashboard, Open Config, Open Logs, Chat (chevron —
-  pushes a full-screen sub-view, see below).
+  Offline mode (checkmark toggle), Chat (chevron — pushes a full-screen sub-view, see below),
+  Open Dashboard, Open Logs. There is deliberately **no "Open Config" row**: "Config" and
+  "Settings" read as synonyms when they sit as sibling menu entries (maintainer review), so the
+  gateway's config file is reached through Settings → Gateway instead — one door, with the
+  app-preferences vs router-config distinction explained where the user is already looking.
 - **FooterMenuItem** — icon, label, right-aligned real `⌘`-shortcut (wired to an actual
   `keydown` listener, not a decorative label): Refresh (`⌘R`), Settings… (`⌘,`), Quit Wayfinder
   (`⌘Q`). CodexBar's fourth footer row, "About CodexBar", is deliberately **not** built —
@@ -188,10 +191,15 @@ decorated `WebviewWindow` (`src-tauri/src/commands.rs::open_settings`, built on 
 declared in `tauri.conf.json` — so a closed window is simply rebuilt on the next open rather than
 tracked as stale). Layout mirrors `clawrouter-settings.png`: a sidebar list on the left, a detail
 pane on the right using Mac-native Form rows (bold label + gray description on the left, the
-control flush right). Wayfinder's sidebar has exactly one entry today, **General** — cadence,
-notifications, launch-at-login, and the (display-only, not yet rebindable) shortcut — because
-that is all the real content there is; it is a real, data-driven list component so a second entry
-(Privacy, Keys) slots in without restructuring when WF-ROADMAP-0009 Phase 4 lands them. No
+control flush right). Wayfinder's sidebar has two entries: **General** — cadence, notifications,
+launch-at-login, and the (display-only, not yet rebindable) shortcut — and **Gateway** — the
+loopback endpoint (read-only) and the one door to the gateway's own config file ("Open in
+Finder"; the app opens it, never edits it — WF-ADR-0042/0004). The Gateway entry exists because
+"Config" and "Settings" as sibling popover rows read as synonyms (maintainer review): app
+preferences and router configuration *are* different things, but the UI must make that
+distinction where the user is looking, not ask them to guess it from two near-identical menu
+words. The sidebar is a real, data-driven list, so a third entry (Privacy, Keys) slots in
+without restructuring when WF-ROADMAP-0009 Phase 4 lands them. No
 provider search box (ClawRouter's search box searches *its* provider list; Wayfinder has nothing
 to search yet) and no API key / Base URL rows (WF-ADR-0004's Keychain glue is still Phase 4, not
 this pass) — both are recorded under Later rather than faked.
