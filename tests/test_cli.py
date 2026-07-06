@@ -475,3 +475,76 @@ def test_config_set_rejects_unknown_key_bad_value_and_missing_file(tmp_path, mon
     assert "unknown config key" in capsys.readouterr().err
     assert main(["config", "set", "gateway.offline", "maybe"]) == 2
     assert "'true' or 'false'" in capsys.readouterr().err
+
+
+def test_config_add_model_registers_a_new_endpoint(tmp_path, monkeypatch, capsys):
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.delenv("WAYFINDER_CONFIG", raising=False)
+    assert main(["init"]) == 0
+    capsys.readouterr()
+    assert main([
+        "config", "add-model",
+        "--name", "anthropic-opus",
+        "--base-url", "https://api.anthropic.com/v1",
+        "--model", "claude-opus-4-1",
+        "--api-key-env", "ANTHROPIC_API_KEY",
+        "--keychain",
+    ]) == 0
+    text = (tmp_path / "wayfinder-router.toml").read_text(encoding="utf-8")
+    assert '[gateway.models.anthropic-opus]' in text
+    assert 'model = "claude-opus-4-1"' in text
+    assert 'api_key_cmd = "/usr/bin/security find-generic-password -s wayfinder-router -a ANTHROPIC_API_KEY -w"' in text
+    err = capsys.readouterr().err
+    assert "not yet in any routing tier" in err  # registering is not routing
+
+
+def test_config_add_model_keyless_endpoint_needs_no_env_var(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.delenv("WAYFINDER_CONFIG", raising=False)
+    assert main(["init"]) == 0
+    assert main([
+        "config", "add-model", "--name", "ollama-local",
+        "--base-url", "http://localhost:11434/v1", "--model", "llama3.3",
+    ]) == 0
+    text = (tmp_path / "wayfinder-router.toml").read_text(encoding="utf-8")
+    assert '[gateway.models.ollama-local]' in text
+    assert "api_key_env" not in text.split("[gateway.models.ollama-local]", 1)[1]
+
+
+def test_config_add_model_rejects_bad_input(tmp_path, monkeypatch, capsys):
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.delenv("WAYFINDER_CONFIG", raising=False)
+    assert main(["init"]) == 0
+
+    def add(**kw):
+        args = ["config", "add-model", "--name", "x", "--base-url", "https://x", "--model", "m"]
+        for k, v in kw.items():
+            args += [f"--{k.replace('_', '-')}", v]
+        return main(args)
+
+    assert main(["config", "add-model", "--name", "x", "--base-url", "https://x", "--model", "m"]) == 0
+    assert add() == 1  # name collision with the one just added — a config-refusal, not a usage error
+    assert "already exists" in capsys.readouterr().err
+
+    assert add(name="Bad.Name") == 2
+    assert "no dots" in capsys.readouterr().err
+
+    assert add(name="y", base_url="ftp://nope") == 2
+    assert "http:// or https://" in capsys.readouterr().err
+
+    assert add(name="z", api_key_env="lowercase") == 2
+    assert "ANTHROPIC_API_KEY" in capsys.readouterr().err
+
+    assert main([
+        "config", "add-model", "--name", "w", "--base-url", "https://x", "--model", "m", "--keychain",
+    ]) == 2  # --keychain with no --api-key-env
+    assert "needs --api-key-env" in capsys.readouterr().err
+
+
+def test_config_add_model_no_config_is_a_clear_usage_error(tmp_path, monkeypatch, capsys):
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.delenv("WAYFINDER_CONFIG", raising=False)
+    assert main([
+        "config", "add-model", "--name", "x", "--base-url", "https://x", "--model", "m",
+    ]) == 2
+    assert "run `wayfinder-router init`" in capsys.readouterr().err

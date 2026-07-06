@@ -21,6 +21,19 @@ Accepted
 > and the edited text must re-parse through the real config parsers before anything is written.
 > A running gateway hot-reloads the change on its next request; no restart. The whitelist grows
 > key by key — this is still not a general TOML editor.
+>
+> Amendment: `config add-model` — a second verb, a different shape. The desktop's Keys UI
+> needed to register a brand-new `[gateway.models.*]` endpoint, not just flip an existing
+> scalar, and the maintainer was explicit that the provider set is open-ended — "anything
+> OpenAI-compatible," not a fixed enum. `wayfinder-router config add-model --name --base-url
+> --model [--api-key-env] [--cost-per-1k] [--keychain] [--path]` (`config.add_model_table`, the
+> insert-a-table sibling of `set_toml_bool`) validates each field, refuses a name collision,
+> and re-parses through the real parsers exactly like `config set` — but it only *registers*
+> the endpoint. It never touches `[[routing.tiers]]`: placing a new model into the scored
+> routing ladder is a real decision (where does it rank in complexity?) the seam does not
+> guess at. A registered model is immediately visible via `/router/models`, keyable through the
+> existing Keychain flow, and usable as a same-tier `fallback` or by direct name — but it won't
+> receive automatically-routed traffic until a human puts it in a tier.
 
 ## Category
 

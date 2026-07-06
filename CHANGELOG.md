@@ -38,6 +38,14 @@ details, release history over commit history.
   reference the desktop app onboards through. The key itself is never written to the config
   (WF-ADR-0004); without the flag, `init` output is unchanged byte-for-byte.
 
+- **`config add-model`** (WF-ADR-0044). `wayfinder-router config add-model --name --base-url --model
+  [--api-key-env] [--cost-per-1k] [--keychain] [--path]` registers a brand-new `[gateway.models.*]`
+  endpoint — any OpenAI-compatible provider, not a fixed list — without hand-editing TOML: line-preserving,
+  validated against the real config schema, refuses a name collision. It only registers the endpoint;
+  it never places the model into `[[routing.tiers]]`, so it won't receive automatically-routed traffic
+  until that's done by hand. It is what the desktop app's Keys screen shells out to when adding a
+  provider that isn't in your config yet.
+
 ### Fixed
 
 - **Desktop first-run: a clear message when the installed gateway predates `--keychain`**
