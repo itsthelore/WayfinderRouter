@@ -12,7 +12,7 @@
 //   dry-run    -> decision-local.json, decision-cloud.json      (X-Wayfinder-Debug payloads)
 //   degraded   -> healthz-degraded.json                         (missing_keys verbatim)
 //   healthy    -> healthz-ok.json, sse-transcript.txt,
-//                 sse-headers.json, savings.json
+//                 sse-headers.json, savings.json, recent.json
 //   offline    -> healthz-offline.json, decision-offline.json   ([gateway] offline = true)
 //   no-models  -> decision-only.json                            (skipped until the gateway
 //                                                                supports decision_only — PR #68)
@@ -251,6 +251,8 @@ async function main() {
       save("sse-transcript.txt", raw.replace(/("request_id"\s*:\s*")[0-9a-f]+(")/g, "$1fx-sse$2"));
       await debugTurn(COMPLEX_PROMPT); // a cloud-routed turn so savings has both routes
       save("savings.json", normalize(await (await fetch(`${GW}/v1/savings?period=all`)).json(), "savings"));
+      // The route-split feed after one local + one cloud turn — drives the tray meter + tile.
+      save("recent.json", normalize(await (await fetch(`${GW}/router/recent`)).json(), "recent"));
     });
 
     console.log("scenario: offline ([gateway] offline = true)");

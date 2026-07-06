@@ -24,12 +24,48 @@ pub fn tray_image(state: &str) -> Image<'static> {
     Image::from_bytes(bytes).expect("tray template PNG decodes")
 }
 
+/// The live meter W (glance pivot): the hollow W with its bottom `fill` fraction solid — the
+/// menu-bar icon itself is a usage meter (fill = local-routing share; the savings `$` rides in
+/// the title). Row-spliced from the two committed templates, so the result stays a pure
+/// black+alpha template image. A visual floor keeps a running-but-0% W visibly distinct from
+/// the hollow "stopped" W.
+const METER_FLOOR: f64 = 0.12;
+
+fn meter_image(fill: f64) -> Image<'static> {
+    let solid = tray_image("running");
+    let hollow = tray_image("stopped");
+    let (w, h) = (solid.width(), solid.height());
+    debug_assert_eq!((w, h), (hollow.width(), hollow.height()));
+    let fill = fill.clamp(METER_FLOOR, 1.0);
+    // First row (from the top) that renders solid; everything above stays hollow.
+    let cutoff = ((1.0 - fill) * h as f64).round() as u32;
+    let stride = (w * 4) as usize;
+    let mut rgba = Vec::with_capacity(stride * h as usize);
+    for y in 0..h {
+        let src = if y >= cutoff { solid.rgba() } else { hollow.rgba() };
+        let row = y as usize * stride;
+        rgba.extend_from_slice(&src[row..row + stride]);
+    }
+    Image::new_owned(rgba, w, h)
+}
+
 /// Drive the tray from the webview's single healthz poll: the W shape carries health
-/// (running/degraded/stopped) and the title carries the savings `$` only (WF-DESIGN-0012).
+/// (running/degraded/stopped), `fill` carries the local-routing share when running (the live
+/// meter), and the title carries the savings `$` only — never a route (WF-DESIGN-0012 + the
+/// glance amendment). Health outranks the meter: degraded keeps its notch, stopped stays hollow.
 #[tauri::command]
-pub fn set_tray_state(app: AppHandle, state: String, title: Option<String>) -> Result<(), String> {
+pub fn set_tray_state(
+    app: AppHandle,
+    state: String,
+    title: Option<String>,
+    fill: Option<f64>,
+) -> Result<(), String> {
     let tray = app.tray_by_id("wayfinder").ok_or("tray not found")?;
-    tray.set_icon(Some(tray_image(&state))).map_err(|e| e.to_string())?;
+    let icon = match (state.as_str(), fill) {
+        ("running", Some(f)) if f.is_finite() => meter_image(f),
+        _ => tray_image(&state),
+    };
+    tray.set_icon(Some(icon)).map_err(|e| e.to_string())?;
     tray.set_icon_as_template(true).map_err(|e| e.to_string())?;
     // Empty/None title clears it — the tray shows only a savings figure, never a route.
     tray.set_title(title.filter(|t| !t.is_empty())).map_err(|e| e.to_string())?;
@@ -104,4 +140,49 @@ fn ensure_config_dir() -> String {
 
 fn logs_dir() -> String {
     format!("{}/Library/Logs", home())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn meter_full_is_the_solid_w() {
+        assert_eq!(meter_image(1.0).rgba(), tray_image("running").rgba());
+    }
+
+    #[test]
+    fn meter_floor_keeps_a_solid_sliver() {
+        // fill 0 clamps to METER_FLOOR: the top is hollow, the bottom rows are solid — a
+        // running-but-empty meter never renders identical to the hollow "stopped" W.
+        let img = meter_image(0.0);
+        let hollow = tray_image("stopped");
+        let solid = tray_image("running");
+        let stride = (img.width() * 4) as usize;
+        let h = img.height() as usize;
+        let cutoff = ((1.0 - METER_FLOOR) * h as f64).round() as usize;
+        assert_eq!(&img.rgba()[..cutoff * stride], &hollow.rgba()[..cutoff * stride]);
+        assert_eq!(&img.rgba()[cutoff * stride..], &solid.rgba()[cutoff * stride..]);
+        assert_ne!(img.rgba(), hollow.rgba());
+    }
+
+    #[test]
+    fn meter_half_splices_at_the_middle_row() {
+        let img = meter_image(0.5);
+        let hollow = tray_image("stopped");
+        let solid = tray_image("running");
+        let stride = (img.width() * 4) as usize;
+        let cutoff = (img.height() as usize).div_ceil(2); // (1 - 0.5) * h rounded
+        assert_eq!(&img.rgba()[..cutoff * stride], &hollow.rgba()[..cutoff * stride]);
+        assert_eq!(&img.rgba()[cutoff * stride..], &solid.rgba()[cutoff * stride..]);
+    }
+
+    #[test]
+    fn meter_stays_a_template_image() {
+        // Template = black + alpha only: every RGB byte is 0 in both sources and the splice.
+        let img = meter_image(0.62);
+        for px in img.rgba().chunks_exact(4) {
+            assert_eq!(&px[..3], &[0, 0, 0]);
+        }
+    }
 }

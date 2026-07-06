@@ -10,11 +10,17 @@ function inTauri(): boolean {
 
 export type TrayState = "running" | "degraded" | "stopped";
 
-/** Update the tray from the healthz poll: the W shape carries health, the title the savings $. */
-export async function setTrayState(state: TrayState, title: string | null): Promise<void> {
+/** Update the tray from the healthz poll: the W shape carries health, `fill` makes the running
+ *  W a live meter (local-routing share, 0–1; quantized upstream), and the title carries the
+ *  savings $ only. Health outranks the meter — degraded/stopped ignore `fill`. */
+export async function setTrayState(
+  state: TrayState,
+  title: string | null,
+  fill: number | null = null,
+): Promise<void> {
   if (!inTauri()) return;
   try {
-    await invoke("set_tray_state", { state, title });
+    await invoke("set_tray_state", { state, title, fill });
   } catch (err) {
     console.warn("set_tray_state failed", err);
   }

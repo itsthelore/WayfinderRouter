@@ -12,8 +12,10 @@ import { useGatewayHealth, readSeenGateway } from "@/hooks/useGatewayHealth";
 import { useCheapestModel } from "@/hooks/useCheapestModel";
 import { useSavings } from "@/hooks/useSavings";
 import { useTurn } from "@/hooks/useTurn";
+import { useRecent } from "@/hooks/useRecent";
 import { useEdgeNotifier } from "@/hooks/useEdgeNotifier";
 import { GATEWAY_BASE } from "@/lib/gateway";
+import { quantizeFill } from "@/lib/meter";
 import { serviceControl, setTrayState, type TrayState } from "@/lib/ipc";
 import { formatSaved } from "@/components/SavingsGlance";
 import type { DotStatus } from "@/components/StatusDot";
@@ -39,27 +41,31 @@ export function PopoverRoot({ baseUrl = GATEWAY_BASE }: { baseUrl?: string } = {
   const reachable = gw.health === "ok" || gw.health === "degraded";
   const cheapest = useCheapestModel({ baseUrl, enabled: reachable });
   const { report: savings, refresh: refreshSavings } = useSavings({ baseUrl, enabled: reachable });
+  const { report: recent, refresh: refreshRecent } = useRecent({ baseUrl, cheapest, enabled: reachable });
   const turn = useTurn({ baseUrl, cheapest, offline: gw.offlineLocal });
 
   // Event-driven: when a turn settles, tell the gateway machine whether it was decision-only
-  // (drives that mode) and refresh the savings glance the moment money moved.
+  // (drives that mode) and refresh the glance feeds the moment the numbers moved.
   useEffect(() => {
     if (turn.phase === "done" || turn.phase === "error") {
       dispatch({ type: "TURN_DECISION", decisionOnly: !!turn.decision?.decisionOnly });
       void refreshSavings();
+      void refreshRecent();
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [turn.phase]);
 
-  // Tray sync: the W shape follows health, the tray title shows only the savings $ (never a
-  // route) — WF-DESIGN-0012. Driven by this single poll, so there is one source of tray truth.
+  // Tray sync: the W shape follows health, its fill is the local-routing share (the live meter,
+  // savings-forward: the $ rides in the title, never a route). Quantized so poll noise never
+  // re-renders the icon; one source of tray truth (WF-DESIGN-0012 + glance amendment).
   const traySaved =
     savings && savings.priced && savings.saved > 0 ? formatSaved(savings.saved) : null;
+  const trayFill = quantizeFill(recent?.localShare ?? null);
   useEffect(() => {
     const state: TrayState =
       gw.health === "ok" ? "running" : gw.health === "degraded" ? "degraded" : "stopped";
-    void setTrayState(state, traySaved);
-  }, [gw.health, traySaved]);
+    void setTrayState(state, traySaved, trayFill);
+  }, [gw.health, traySaved, trayFill]);
 
   // Service-first CTAs (WF-ADR-0042 §4): the app never spawns the gateway — it asks the service
   // to. Errors (e.g. the gateway isn't installed) propagate to the view for display; the next
