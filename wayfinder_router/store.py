@@ -171,9 +171,15 @@ def _iter_valid_frames(buf: Any, buflen: int) -> Iterator[_Frame]:
 
 # --- shard (sqlite) helpers, shared by the store and the rebuild worker ------------------------
 def _apply_pragmas(con: sqlite3.Connection) -> None:
-    """WAL + synchronous=NORMAL keep the INSERT off the platter; a bounded cache caps RSS."""
+    """WAL + synchronous=NORMAL keep the INSERT off the platter; a bounded cache caps RSS.
+
+    wal_autocheckpoint=0 keeps SQLite's auto-checkpoint off the per-append commit path (it was
+    the measured append-p99 tail); checkpoints run explicitly at the durability barrier / seal /
+    close instead, so the WAL between barriers stays bounded by the fsync_bytes cadence.
+    """
     con.execute("PRAGMA journal_mode=WAL")
     con.execute("PRAGMA synchronous=NORMAL")
+    con.execute("PRAGMA wal_autocheckpoint=0")
     con.execute(f"PRAGMA cache_size={_SHARD_CACHE_PAGES}")
 
 
