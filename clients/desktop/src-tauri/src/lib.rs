@@ -9,6 +9,7 @@
 //! detects/attaches and offers service control.
 
 mod commands;
+mod keychain;
 mod service;
 mod tray;
 
@@ -40,6 +41,10 @@ pub fn run() {
             commands::open_settings,
             commands::quit_app,
             commands::notify,
+            commands::scaffold_config,
+            commands::store_provider_key,
+            commands::delete_provider_key,
+            commands::set_shortcut,
         ])
         .setup(|app| {
             setup(app)?;
@@ -82,24 +87,44 @@ fn setup(app: &mut App) -> Result<(), Box<dyn std::error::Error>> {
     }
 
     tray::build(app)?;
-    // Best-effort: a missing Accessibility grant must not stop the tray/popover from working;
-    // the hotkey simply stays inactive until the user grants it.
-    if let Err(e) = register_toggle_shortcut(app) {
-        log::warn!("⌥W global shortcut unavailable (grant Accessibility to enable): {e}");
+    // Best-effort: registration can fail if another app claimed the combo (RegisterEventHotKey
+    // needs no Accessibility grant — the old warning here claimed otherwise and was wrong, per
+    // WF-ROADMAP-0009 Phase 4's note); the popover still opens from the tray, and the Settings
+    // shortcut row lets the user pick a different combo.
+    if let Err(e) = apply_shortcut(app.handle(), DEFAULT_SHORTCUT) {
+        log::warn!("global shortcut unavailable (combo already claimed?): {e}");
     }
     Ok(())
 }
 
-fn register_toggle_shortcut(app: &App) -> Result<(), Box<dyn std::error::Error>> {
-    // ⌥W toggles the popover (maintainer pick — on-brand and unclaimed by macOS; rebinding
-    // lands with the Phase 4 settings row).
-    let alt_w = Shortcut::new(Some(Modifiers::ALT), Code::KeyW);
-    app.global_shortcut()
-        .on_shortcut(alt_w, |app, _shortcut, event| {
-            if event.state == ShortcutState::Pressed {
-                toggle_popover(app);
-            }
-        })?;
+/// The rebind whitelist (WF-DESIGN-0015): fixed ids, fixed combos — the webview can never
+/// register an arbitrary key. No ⌥Space: it collides with common launchers (the roadmap's own
+/// note). Ids are what `lib/settings.ts` persists.
+pub(crate) const DEFAULT_SHORTCUT: &str = "alt+w";
+
+fn shortcut_for(id: &str) -> Option<Shortcut> {
+    match id {
+        "alt+w" => Some(Shortcut::new(Some(Modifiers::ALT), Code::KeyW)),
+        "alt+shift+w" => Some(Shortcut::new(Some(Modifiers::ALT | Modifiers::SHIFT), Code::KeyW)),
+        "ctrl+alt+w" => Some(Shortcut::new(Some(Modifiers::CONTROL | Modifiers::ALT), Code::KeyW)),
+        "cmd+shift+w" => Some(Shortcut::new(Some(Modifiers::SUPER | Modifiers::SHIFT), Code::KeyW)),
+        _ => None,
+    }
+}
+
+/// (Re)bind the popover toggle: validate against the whitelist, drop every prior registration,
+/// register the new combo with the one shared handler. Called at setup (default) and from the
+/// `set_shortcut` command (Settings). Errors propagate so the caller can roll back its UI.
+pub(crate) fn apply_shortcut(app: &AppHandle, id: &str) -> Result<(), String> {
+    let shortcut = shortcut_for(id).ok_or_else(|| format!("unknown shortcut: {id}"))?;
+    let gs = app.global_shortcut();
+    gs.unregister_all().map_err(|e| e.to_string())?;
+    gs.on_shortcut(shortcut, |app, _shortcut, event| {
+        if event.state == ShortcutState::Pressed {
+            toggle_popover(app);
+        }
+    })
+    .map_err(|e| e.to_string())?;
     Ok(())
 }
 
@@ -142,4 +167,21 @@ fn position_bottom_center(app: &AppHandle, win: &WebviewWindow) {
     let x = mpos.x + (msize.width as i32 - size.width as i32) / 2;
     let y = mpos.y + msize.height as i32 - size.height as i32 - lift;
     let _ = win.set_position(PhysicalPosition::new(x, y));
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn shortcut_whitelist_is_closed() {
+        for ok in ["alt+w", "alt+shift+w", "ctrl+alt+w", "cmd+shift+w"] {
+            assert!(shortcut_for(ok).is_some(), "{ok}");
+        }
+        // No ⌥Space (launcher collision) and no arbitrary combos.
+        for bad in ["alt+space", "cmd+q", "w", "", "alt+w; rm -rf"] {
+            assert!(shortcut_for(bad).is_none(), "{bad:?}");
+        }
+        assert!(shortcut_for(DEFAULT_SHORTCUT).is_some());
+    }
 }
