@@ -55,3 +55,26 @@ export async function notify(title: string, body: string): Promise<void> {
     console.warn("notify failed", err);
   }
 }
+
+/** Launch-at-login for the APP (tauri-plugin-autostart) — the gateway has its own agent
+ *  (WF-ADR-0038); see docs/desktop-lifecycle.md. null = unknown (outside the desktop app). */
+export async function autostartEnabled(): Promise<boolean | null> {
+  if (!inTauri()) return null;
+  try {
+    const { isEnabled } = await import("@tauri-apps/plugin-autostart");
+    return await isEnabled();
+  } catch (err) {
+    console.warn("autostart isEnabled failed", err);
+    return null;
+  }
+}
+
+export async function setAutostart(on: boolean): Promise<void> {
+  if (!inTauri()) return;
+  try {
+    const plugin = await import("@tauri-apps/plugin-autostart");
+    await (on ? plugin.enable() : plugin.disable());
+  } catch (err) {
+    console.warn("autostart set failed", err);
+  }
+}

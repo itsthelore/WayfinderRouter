@@ -10,8 +10,8 @@ export function useGatewayHealth(
   dispatch: (event: GatewayEvent) => void,
   {
     baseUrl = GATEWAY_BASE,
-    intervalMs = 15_000,
-  }: { baseUrl?: string; intervalMs?: number } = {},
+    intervalMs = 15_000 as number | null, // null: no background interval (manual cadence)
+  }: { baseUrl?: string; intervalMs?: number | null } = {},
 ) {
   useEffect(() => {
     let alive = true;
@@ -32,12 +32,12 @@ export function useGatewayHealth(
       }
     }
     void poll();
-    const id = setInterval(() => void poll(), intervalMs);
-    const onFocus = () => void poll();
+    const id = intervalMs != null ? setInterval(() => void poll(), intervalMs) : null;
+    const onFocus = () => void poll(); // the focus poll survives every cadence, incl. manual
     window.addEventListener("focus", onFocus);
     return () => {
       alive = false;
-      clearInterval(id);
+      if (id != null) clearInterval(id);
       window.removeEventListener("focus", onFocus);
     };
   }, [dispatch, baseUrl, intervalMs]);

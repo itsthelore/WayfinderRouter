@@ -23,8 +23,10 @@ import { FrostedHeader } from "@/components/FrostedHeader";
 import { Separator } from "@/components/ui/separator";
 import { ChatView } from "@/views/ChatView";
 import { GlanceView } from "@/views/GlanceView";
+import { SettingsView } from "@/views/SettingsView";
 import { UnreachableView } from "@/views/UnreachableView";
 import { FirstRunView } from "@/views/FirstRunView";
+import { cadenceToMs, loadSettings, saveSettings, type Settings } from "@/lib/settings";
 
 function dotStatus(gw: GatewayState): DotStatus {
   if (gw.health === "ok") return "ok";
@@ -36,13 +38,22 @@ export function PopoverRoot({ baseUrl = GATEWAY_BASE }: { baseUrl?: string } = {
   const [seen] = useState(readSeenGateway);
   const [gw, dispatch] = useReducer(gatewayReducer, seen, initialGatewayState);
 
-  useGatewayHealth(dispatch, { baseUrl });
-  // Transition-edge notifications, dormant for now — the Settings toggle (Phase 4) flips `enabled`.
-  useEdgeNotifier(gw, { enabled: false });
+  // Persisted preferences: the cadence preset drives every poll; notifications arm the edge
+  // detector (previously dormant). Saved on change, loaded once.
+  const [settings, setSettings] = useState(loadSettings);
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const intervalMs = cadenceToMs(settings.cadence);
+  const updateSettings = useCallback((next: Settings) => {
+    setSettings(next);
+    saveSettings(next);
+  }, []);
+
+  useGatewayHealth(dispatch, { baseUrl, intervalMs });
+  useEdgeNotifier(gw, { enabled: settings.notifications });
   const reachable = gw.health === "ok" || gw.health === "degraded";
   const cheapest = useCheapestModel({ baseUrl, enabled: reachable });
-  const { report: savings, refresh: refreshSavings } = useSavings({ baseUrl, enabled: reachable });
-  const { report: recent, refresh: refreshRecent } = useRecent({ baseUrl, cheapest, enabled: reachable });
+  const { report: savings, refresh: refreshSavings } = useSavings({ baseUrl, enabled: reachable, intervalMs });
+  const { report: recent, refresh: refreshRecent } = useRecent({ baseUrl, cheapest, enabled: reachable, intervalMs });
   const turn = useTurn({ baseUrl, cheapest, offline: gw.offlineLocal });
 
   // Event-driven: when a turn settles, tell the gateway machine whether it was decision-only
@@ -84,8 +95,19 @@ export function PopoverRoot({ baseUrl = GATEWAY_BASE }: { baseUrl?: string } = {
 
   return (
     <div className="flex h-full flex-col">
-      <FrostedHeader status={status} missingKeys={gw.missingKeys} savings={savings} />
+      <FrostedHeader
+        status={status}
+        missingKeys={gw.missingKeys}
+        savings={savings}
+        onSettings={settingsOpen ? undefined : () => setSettingsOpen(true)}
+      />
       <Separator />
+      {/* Settings slides over the main surface, which stays mounted (hidden) underneath —
+          the composer draft and any streaming turn survive, same invariant as the tabs. */}
+      {settingsOpen && (
+        <SettingsView settings={settings} onChange={updateSettings} onClose={() => setSettingsOpen(false)} />
+      )}
+      <div hidden={settingsOpen} className="flex min-h-0 flex-1 flex-col">
       {view === "chat" && (
         <>
           <div role="tablist" aria-label="popover sections" className="flex gap-1 bg-background px-3.5 pt-2">
@@ -122,6 +144,7 @@ export function PopoverRoot({ baseUrl = GATEWAY_BASE }: { baseUrl?: string } = {
       )}
       {view === "unreachable" && <UnreachableView onStartGateway={onStartGateway} />}
       {view === "first-run" && <FirstRunView onInstallService={onInstallService} />}
+      </div>
     </div>
   );
 }

@@ -17,7 +17,7 @@ export function useRecent({
   cheapest = null as string | null,
   intervalMs = 15_000,
   enabled = true,
-}: { baseUrl?: string; cheapest?: string | null; intervalMs?: number; enabled?: boolean } = {}) {
+}: { baseUrl?: string; cheapest?: string | null; intervalMs?: number | null; enabled?: boolean } = {}) {
   const [report, setReport] = useState<RecentReport | null>(null);
 
   const refresh = useCallback(async () => {
@@ -37,6 +37,7 @@ export function useRecent({
   useEffect(() => {
     if (!enabled) return;
     void refresh();
+    if (intervalMs == null) return; // manual cadence: initial fetch + event-driven refreshes only
     const id = setInterval(() => void refresh(), intervalMs);
     return () => clearInterval(id);
   }, [refresh, intervalMs, enabled]);

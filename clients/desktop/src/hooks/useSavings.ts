@@ -10,7 +10,7 @@ export function useSavings({
   period = "today",
   intervalMs = 15_000,
   enabled = true,
-}: { baseUrl?: string; period?: string; intervalMs?: number; enabled?: boolean } = {}) {
+}: { baseUrl?: string; period?: string; intervalMs?: number | null; enabled?: boolean } = {}) {
   const [report, setReport] = useState<SavingsReport | null>(null);
 
   const refresh = useCallback(async () => {
@@ -26,6 +26,7 @@ export function useSavings({
   useEffect(() => {
     if (!enabled) return;
     void refresh();
+    if (intervalMs == null) return; // manual cadence: initial fetch + event-driven refreshes only
     const id = setInterval(() => void refresh(), intervalMs);
     return () => clearInterval(id);
   }, [refresh, intervalMs, enabled]);
