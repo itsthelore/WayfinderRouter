@@ -100,6 +100,18 @@ export const showOfflineChip = (s: GatewayState) =>
 
 export type TurnPhase = "idle" | "streaming" | "done" | "error";
 
+/** A settled turn, archived into the transcript when the next SUBMIT arrives. */
+export interface SettledTurn {
+  prompt: string;
+  decision: Decision | null;
+  enriched: boolean;
+  reply: string;
+  error: string | null;
+}
+
+/** Scrollback bound — old turns fall off the front; the popover is a glance, not an archive. */
+const TRANSCRIPT_CAP = 20;
+
 export interface TurnState {
   phase: TurnPhase;
   prompt: string;
@@ -110,6 +122,9 @@ export interface TurnState {
   enriched: boolean;
   reply: string;
   error: string | null;
+  /** The session's settled turns, oldest first. In-memory only — never persisted; quitting
+   *  the app is the clear affordance. */
+  transcript: SettledTurn[];
 }
 
 export type TurnEvent =
@@ -127,14 +142,29 @@ export const initialTurnState: TurnState = {
   enriched: false,
   reply: "",
   error: null,
+  transcript: [],
 };
 
 export function turnReducer(state: TurnState, event: TurnEvent): TurnState {
   switch (event.type) {
-    case "SUBMIT":
-      // A new turn resets everything — including the previous decision (it collapses into
-      // the transcript; the hero re-reserves its slots for the incoming one).
-      return { ...initialTurnState, phase: "streaming", prompt: event.prompt };
+    case "SUBMIT": {
+      // A new turn resets everything except the transcript — the previous turn, if it
+      // settled, collapses into it (the hero re-reserves its slots for the incoming one).
+      const settled = state.phase === "done" || state.phase === "error";
+      const transcript = settled
+        ? [
+            ...state.transcript,
+            {
+              prompt: state.prompt,
+              decision: state.decision,
+              enriched: state.enriched,
+              reply: state.reply,
+              error: state.error,
+            },
+          ].slice(-TRANSCRIPT_CAP)
+        : state.transcript;
+      return { ...initialTurnState, phase: "streaming", prompt: event.prompt, transcript };
+    }
     case "DECISION": {
       // First fire = headers (no contributions); second = the wayfinder enrichment. The
       // enriched flag flips only when contributions arrive, so the UI can fill the why
@@ -153,4 +183,21 @@ export function turnReducer(state: TurnState, event: TurnEvent): TurnState {
     case "RESET":
       return initialTurnState;
   }
+}
+
+/** How many settled turns ride along as conversation history on each request — a payload
+ *  bound, smaller than the scrollback cap on purpose. */
+const HISTORY_CAP = 8;
+
+/** The wire-shaped history for the next send: user/assistant pairs from the last settled
+ *  turns. Turns without a reply (errors, decision-only) contribute only their user line —
+ *  the model should still see what was asked, but never a fabricated answer. */
+export function historyFromTranscript(
+  transcript: SettledTurn[],
+  maxTurns: number = HISTORY_CAP,
+): Array<{ role: string; content: string }> {
+  return transcript.slice(-maxTurns).flatMap((turn) => [
+    { role: "user", content: turn.prompt },
+    ...(turn.reply ? [{ role: "assistant", content: turn.reply }] : []),
+  ]);
 }

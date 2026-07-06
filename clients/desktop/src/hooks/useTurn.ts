@@ -11,8 +11,6 @@ export interface UseTurnOptions {
   baseUrl?: string;
   /** models[0] from useCheapestModel — colours the early headers decision. */
   cheapest?: string | null;
-  /** The OfflineToggle's client preference: adds X-Wayfinder-Offline per turn (WF-ADR-0039). */
-  offline?: boolean;
 }
 
 export interface UseTurn extends TurnState {
@@ -21,7 +19,7 @@ export interface UseTurn extends TurnState {
   reset: () => void;
 }
 
-export function useTurn({ baseUrl = GATEWAY_BASE, cheapest = null, offline = false }: UseTurnOptions = {}): UseTurn {
+export function useTurn({ baseUrl = GATEWAY_BASE, cheapest = null }: UseTurnOptions = {}): UseTurn {
   const [state, dispatch] = useReducer(turnReducer, initialTurnState);
   const abortRef = useRef<AbortController | null>(null);
 
@@ -36,7 +34,6 @@ export function useTurn({ baseUrl = GATEWAY_BASE, cheapest = null, offline = fal
           baseUrl,
           cheapest,
           signal: controller.signal,
-          headers: offline ? { "X-Wayfinder-Offline": "1" } : {},
           onDecision: (decision) => dispatch({ type: "DECISION", decision }),
           onToken: (delta, reply) => dispatch({ type: "TOKEN", delta, reply }),
         });
@@ -52,7 +49,7 @@ export function useTurn({ baseUrl = GATEWAY_BASE, cheapest = null, offline = fal
         });
       }
     },
-    [baseUrl, cheapest, offline],
+    [baseUrl, cheapest],
   );
 
   const stop = useCallback(() => abortRef.current?.abort(), []);
