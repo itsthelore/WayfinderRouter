@@ -323,6 +323,17 @@ hugs its own height so the footer follows directly after Saved, and any leftover
 fixed window collects below Quit Wayfinder instead of as a gap before Refresh. And the Chat row
 (and the chat sub-screen's header) is now labelled **"Wayfinder Chat"**, not the bare "Chat".
 
+## Amendment: the real wordmark replaces the plain-text "Wayfinder"
+
+The two standalone brand moments — `MenuHeader`'s top line and `FirstRunView`'s hero — now
+render `src/assets/wayfinder-wordmark.png` instead of bold text. The maintainer-supplied source
+had its transparency flattened to a faint checkerboard pattern rather than a real alpha
+channel (common when an image is exported/re-saved through a tool that doesn't preserve alpha);
+it was reprocessed (near-white pixels keyed to transparent, cropped to content, downscaled to a
+600px-wide retina-ready PNG, ~98KB) before landing in the repo. Every other "Wayfinder" in the
+UI — "Wayfinder Chat", "Wayfinder scored this turn", "Wayfinder isn't running" — stays plain
+text; those are sentences the word is part of, not the standalone brand mark.
+
 ## Later (recorded, not built)
 
 About Wayfinder panel + footer row · a menu-bar-metric picker (only worth building if Wayfinder
