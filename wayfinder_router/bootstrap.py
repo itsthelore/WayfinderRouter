@@ -178,9 +178,31 @@ PRESETS: dict[str, Preset] = {
 }
 
 
-def render_config(preset: Preset) -> str:
-    """The ``wayfinder-router.toml`` scaffold for ``preset`` (loads back unchanged)."""
-    return preset.config_toml
+# The macOS Keychain read used by `init --keychain` (WF-ADR-0044): the desktop app stores the
+# key under service "wayfinder-router" / account "<ENV_VAR>", and the gateway reads it back at
+# startup through this command — the key itself never lands in the config file (WF-ADR-0004).
+_KEYCHAIN_CMD = '/usr/bin/security find-generic-password -s wayfinder-router -a {env} -w'
+
+
+def render_config(preset: Preset, keychain: bool = False) -> str:
+    """The ``wayfinder-router.toml`` scaffold for ``preset`` (loads back unchanged).
+
+    With ``keychain=True`` (macOS; `init --keychain`), every **uncommented** ``api_key_env``
+    line gains an ``api_key_cmd`` reading that env var's key from the macOS Keychain — the seam
+    the desktop app scaffolds through (WF-ADR-0044). Commented example blocks stay untouched,
+    and ``keychain=False`` returns the template byte-for-byte unchanged.
+    """
+    if not keychain:
+        return preset.config_toml
+    out: list[str] = []
+    for line in preset.config_toml.splitlines(keepends=True):
+        out.append(line)
+        stripped = line.strip()
+        if stripped.startswith("api_key_env"):
+            env = stripped.split("=", 1)[1].strip().strip('"')
+            cmd = _KEYCHAIN_CMD.format(env=env)
+            out.append(f'api_key_cmd = "{cmd}"   # macOS Keychain (the desktop app stores this item)\n')
+    return "".join(out)
 
 
 def render_env_example(preset: Preset) -> str:

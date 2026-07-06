@@ -341,6 +341,24 @@ def test_init_unknown_preset_is_usage_error(tmp_path, monkeypatch, capsys):
     assert "unknown preset" in capsys.readouterr().err
 
 
+def test_init_keychain_reaches_the_output(tmp_path, monkeypatch, capsys):
+    """`--keychain` (WF-ADR-0044) threads through to the rendered config, with --print and
+    with a real write; without the flag no Keychain reference appears."""
+    monkeypatch.chdir(tmp_path)
+    assert main(["init", "--print", "--keychain"]) == 0
+    printed = capsys.readouterr().out
+    assert (
+        'api_key_cmd = "/usr/bin/security find-generic-password '
+        '-s wayfinder-router -a ANTHROPIC_API_KEY -w"' in printed
+    )
+    assert main(["init", "--keychain"]) == 0
+    cfg = (tmp_path / "wayfinder-router.toml").read_text(encoding="utf-8")
+    assert "find-generic-password" in cfg
+    assert main(["init", "--force"]) == 0  # plain init: no reference
+    cfg = (tmp_path / "wayfinder-router.toml").read_text(encoding="utf-8")
+    assert 'api_key_cmd = "/usr/bin/security' not in cfg
+
+
 def test_doctor_without_config_is_usage_error(tmp_path, capsys):
     assert main(["doctor", "--dir", str(tmp_path)]) == 2
     assert "no wayfinder-router.toml" in capsys.readouterr().err

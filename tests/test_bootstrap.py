@@ -62,6 +62,42 @@ def test_presets_carry_rough_costs():
     assert gemini.models["pro"].cost_per_1k > gemini.models["flash"].cost_per_1k
 
 
+def test_keychain_scaffold_adds_api_key_cmd_per_keyed_model():
+    """`init --keychain` (WF-ADR-0044): every keyed model gains an api_key_cmd reading its OWN
+    env var from the macOS Keychain; keyless models gain nothing; the config still loads."""
+    for name in ("hybrid", "openai", "gemini"):
+        text = bootstrap.render_config(bootstrap.PRESETS[name], keychain=True)
+        gw = gateway_config_from_toml(text)
+        for model in gw.models.values():
+            if model.api_key_env is None:
+                assert model.api_key_cmd is None
+            else:
+                assert model.api_key_cmd == (
+                    "/usr/bin/security find-generic-password "
+                    f"-s wayfinder-router -a {model.api_key_env} -w"
+                )
+
+
+def test_keychain_scaffold_leaves_commented_blocks_alone():
+    """The hybrid template's commented Gemini alternative and its `# api_key_cmd` example must
+    survive untouched — only uncommented api_key_env lines gain a reference."""
+    plain = bootstrap.render_config(bootstrap.PRESETS["hybrid"])
+    keyed = bootstrap.render_config(bootstrap.PRESETS["hybrid"], keychain=True)
+    # exactly one insertion for hybrid (one keyed model: cloud)
+    assert keyed.count("find-generic-password") == 1
+    # every commented line survives byte-for-byte
+    commented = [ln for ln in plain.splitlines() if ln.lstrip().startswith("#")]
+    for ln in commented:
+        assert ln in keyed
+
+
+def test_keychain_false_is_byte_identical():
+    for name in ("hybrid", "openai", "gemini"):
+        preset = bootstrap.PRESETS[name]
+        assert bootstrap.render_config(preset, keychain=False) == preset.config_toml
+        assert bootstrap.render_config(preset) == preset.config_toml
+
+
 def test_env_example_lists_names_without_secrets():
     text = bootstrap.render_env_example(bootstrap.PRESETS["hybrid"])
     assert "ANTHROPIC_API_KEY=" in text
