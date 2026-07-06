@@ -40,7 +40,6 @@ from wayfinder_router.policy import (
     CompiledPolicy,
     MatchCondition,
     PolicyContext,
-    PolicyDecision,
     Rule,
     compile_policy,
 )

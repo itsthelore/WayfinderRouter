@@ -33,7 +33,6 @@ from wayfinder_router.policy import (
     VERB_PRECEDENCE,
     VERBS,
     BlockOutcome,
-    CompiledPolicy,
     MatchCondition,
     PolicyContext,
     PolicyDecision,

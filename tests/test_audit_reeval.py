@@ -21,7 +21,7 @@ Ambiguities resolved to the strictest reading (noted per test):
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any, Iterator
+from typing import Any
 
 from wayfinder_router.audit import (
     AUDIT_INDEX_FIELDS,

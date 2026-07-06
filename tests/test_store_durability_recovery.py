@@ -21,9 +21,7 @@ from __future__ import annotations
 import os
 import sqlite3
 import struct
-import zlib
 
-import pytest
 
 from wayfinder_router import store
 from wayfinder_router.store import RecordStore

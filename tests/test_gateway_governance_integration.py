@@ -386,7 +386,6 @@ def test_audit_record_carries_identity_and_vkey_attribution(tmp_path, monkeypatc
 
 
 def test_audit_absent_when_audit_table_disabled(tmp_path, monkeypatch):
-    from wayfinder_router import audit
 
     audit_dir = tmp_path / "gov"
     # [policy] active but no [audit] table -> audit_active is false -> nothing is appended (§6).
