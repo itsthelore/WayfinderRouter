@@ -276,3 +276,64 @@ def test_invalid_lexicon_is_rejected(tmp_path):
     ):
         with pytest.raises(WayfinderConfigError):
             load_routing_config(_write(tmp_path, body))
+
+
+# ---------------------------------------------------------------------- set_toml_bool (the seam)
+
+
+def test_set_toml_bool_replaces_in_place_preserving_everything_else():
+    from wayfinder_router.config import set_toml_bool
+
+    text = (
+        "# top comment\n"
+        "[routing]\n"
+        "threshold = 0.08\n"
+        "\n"
+        "[gateway]\n"
+        "# offline keeps everything local (WF-ADR-0039)\n"
+        "offline = false\n"
+        "timeout = 30\n"
+    )
+    out = set_toml_bool(text, "gateway", "offline", True)
+    assert "offline = true\n" in out
+    # every other line survives byte-for-byte
+    for line in text.splitlines(keepends=True):
+        if not line.startswith("offline"):
+            assert line in out
+    # flipping back round-trips to the original
+    assert set_toml_bool(out, "gateway", "offline", False) == text
+
+
+def test_set_toml_bool_inserts_under_an_existing_header():
+    from wayfinder_router.config import set_toml_bool
+
+    text = "[gateway]\ntimeout = 30\n\n[gateway.models.local]\nbase_url = \"http://x\"\nmodel = \"m\"\n"
+    out = set_toml_bool(text, "gateway", "offline", True)
+    assert out.startswith("[gateway]\noffline = true\ntimeout = 30\n")
+    # the sub-table is untouched — [gateway.models.local] must never match [gateway]
+    assert '[gateway.models.local]\nbase_url = "http://x"\nmodel = "m"\n' in out
+
+
+def test_set_toml_bool_appends_a_missing_section_and_still_parses():
+    from wayfinder_router import bootstrap
+    from wayfinder_router.config import routing_config_from_toml, set_toml_bool
+    from wayfinder_router.gateway import gateway_config_from_toml
+
+    # The shipped presets have [gateway.models.*] blocks but no bare [gateway] — the appended
+    # super-table-after-sub-table form must be TOML the real parsers accept.
+    for name in ("hybrid", "openai", "gemini"):
+        text = bootstrap.render_config(bootstrap.PRESETS[name])
+        out = set_toml_bool(text, "gateway", "offline", True)
+        assert out.endswith("\n[gateway]\noffline = true\n")
+        assert gateway_config_from_toml(out).offline is True
+        routing_config_from_toml(out)  # must not raise
+
+
+def test_set_toml_bool_ignores_commented_keys():
+    from wayfinder_router.config import set_toml_bool
+
+    text = "[gateway]\n# offline = false\n"
+    out = set_toml_bool(text, "gateway", "offline", True)
+    # the commented example survives; a real key is inserted under the header
+    assert "# offline = false\n" in out
+    assert out.startswith("[gateway]\noffline = true\n")

@@ -25,6 +25,13 @@ details, release history over commit history.
   explicitly-configured-but-missing file is a clear "not found" (never a silent fallback to some other
   file). Fully backward-compatible — unset means the unchanged behavior.
 
+- **`config set`** (WF-ADR-0044). `wayfinder-router config set gateway.offline true|false [--path]`
+  flips offline-first delivery (WF-ADR-0039) for **every** client of the gateway, without hand-editing
+  TOML: the edit is line-preserving (comments and unrelated lines survive byte-for-byte), validated
+  against the real config schema before anything is written, and hot-reloaded by a running gateway on
+  its next request. Whitelisted keys only — `gateway.offline` is the first; this is a seam, not a
+  general TOML editor. It is what the desktop app's new global Offline switch shells out to.
+
 - **`init --keychain`** (WF-ADR-0044, macOS). `wayfinder-router init --preset <p> --keychain` scaffolds
   the same preset config with an `api_key_cmd` per keyed model that reads the key from the macOS
   Keychain (`/usr/bin/security find-generic-password -s wayfinder-router -a <ENV_VAR> -w`) — the

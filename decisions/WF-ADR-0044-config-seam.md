@@ -9,12 +9,18 @@ tags: [config, gateway, cli, desktop, keys, keychain, seam, onboarding]
 
 ## Status
 
-Proposed
+Accepted
 
 > Drafted with WF-ROADMAP-0009 Phase 4 (desktop onboarding & keys), whose first-run flow is the
-> seam's first consumer. Proposed rather than Accepted because the seam's future half — a
-> `config set` verb family — is designed here but deliberately not built yet; the ADR should be
-> revisited (and either accepted or amended) when the first `config set` need actually arrives.
+> seam's first consumer. Originally Proposed pending the first real `config set` need — which
+> arrived immediately: the desktop's offline toggle had to become **global** (the popover
+> header's switch must mean machine-wide, not this-app's-chat-turns), and the only honest way
+> to flip `[gateway] offline` for every client is through the seam. `wayfinder-router config
+> set gateway.offline true|false [--path]` shipped as designed in §3: whitelisted keys only,
+> line-preserving edits (`config.set_toml_bool` — every untouched line survives byte-for-byte),
+> and the edited text must re-parse through the real config parsers before anything is written.
+> A running gateway hot-reloads the change on its next request; no restart. The whitelist grows
+> key by key — this is still not a general TOML editor.
 
 ## Category
 

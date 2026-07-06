@@ -454,6 +454,70 @@ def _cmd_keys(args: argparse.Namespace) -> int:
     return EXIT_OK
 
 
+# The `config set` whitelist (WF-ADR-0044): the seam grows verb by verb, key by key — never a
+# general TOML editor. Each entry maps a dotted key to (table, key, parser).
+_CONFIG_BOOLS = {"gateway.offline": ("gateway", "offline")}
+
+
+def _cmd_config(args: argparse.Namespace) -> int:
+    """`config set <key> <value>` — the gateway-owned config mutation seam (WF-ADR-0044).
+
+    Line-preserving (comments and unrelated lines survive byte-for-byte), schema-validated
+    (the edited text must re-parse through the real config parsers before anything is written),
+    and whitelisted (only known keys, only valid values). A running gateway hot-reloads the
+    change on its next request — no restart.
+    """
+    from pathlib import Path
+
+    from .config import (
+        WayfinderConfigError,
+        find_config_file,
+        routing_config_from_toml,
+        set_toml_bool,
+    )
+    from .gateway import gateway_config_from_toml
+
+    entry = _CONFIG_BOOLS.get(args.key)
+    if entry is None:
+        known = ", ".join(sorted(_CONFIG_BOOLS))
+        print(f"wayfinder-router: unknown config key '{args.key}' (known: {known})", file=sys.stderr)
+        return EXIT_USAGE
+    if args.value not in ("true", "false"):
+        print(f"wayfinder-router: {args.key} takes 'true' or 'false', not '{args.value}'", file=sys.stderr)
+        return EXIT_USAGE
+    value = args.value == "true"
+
+    path = Path(args.path) if args.path else find_config_file(".")
+    if path is None or not path.is_file():
+        where = args.path or "wayfinder-router.toml"
+        print(
+            f"wayfinder-router: no config at {where} — run `wayfinder-router init` to create one",
+            file=sys.stderr,
+        )
+        return EXIT_USAGE
+
+    table, key = entry
+    original = path.read_text(encoding="utf-8")
+    updated = set_toml_bool(original, table, key, value)
+    # The seam's safety promise: never write a config the gateway itself wouldn't load.
+    try:
+        gw = gateway_config_from_toml(updated, where=str(path))
+        routing_config_from_toml(updated, where=str(path))
+    except WayfinderConfigError as exc:
+        print(f"wayfinder-router: refusing to write — edit would not parse: {exc}", file=sys.stderr)
+        return EXIT_CONFIG
+    if gw.offline is not value:  # belt and braces: the edit must actually have taken
+        print("wayfinder-router: refusing to write — edit did not take effect", file=sys.stderr)
+        return EXIT_CONFIG
+    path.write_text(updated, encoding="utf-8")
+    print(
+        f"wayfinder-router: set {args.key} = {args.value} in {path} "
+        "(a running gateway hot-reloads this on its next request)",
+        file=sys.stderr,
+    )
+    return EXIT_OK
+
+
 def _cmd_doctor(args: argparse.Namespace) -> int:
     from . import bootstrap
     from .config import find_config_file
@@ -1224,6 +1288,20 @@ def build_parser() -> argparse.ArgumentParser:
         "--dir", default=".", help="Where to start the search for wayfinder-router.toml."
     )
     p_doctor.set_defaults(func=_cmd_doctor)
+
+    p_config = sub.add_parser(
+        "config",
+        help="Set a whitelisted config value in wayfinder-router.toml (WF-ADR-0044): "
+             "line-preserving, schema-validated, hot-reloaded by a running gateway.",
+    )
+    p_config.add_argument("action", choices=["set"], help="Action to perform (currently: set).")
+    p_config.add_argument("key", help="Dotted config key (currently: gateway.offline).")
+    p_config.add_argument("value", help="New value ('true' or 'false' for boolean keys).")
+    p_config.add_argument(
+        "--path", default=None,
+        help="Explicit config file (default: WAYFINDER_CONFIG, else the cwd walk-up).",
+    )
+    p_config.set_defaults(func=_cmd_config)
 
     p_keys = sub.add_parser(
         "keys", help="Mint a virtual API key for the gateway (WF-ADR-0035)."
