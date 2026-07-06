@@ -1,7 +1,7 @@
 // Component tests against the RECORDED gateway fixtures (WF-DESIGN-0012 "Testing the contract").
 // jsdom cannot see vibrancy/motion — those live in docs/desktop-fidelity.md's manual list.
 
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { render, screen } from "@testing-library/react";
@@ -254,5 +254,82 @@ describe("Composer — Enter sends, Shift+Enter newlines, Stop aborts", () => {
     expect(screen.queryByRole("button", { name: "send" })).not.toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "stop streaming" }));
     expect(onStop).toHaveBeenCalled();
+  });
+
+  describe("slash commands — the '/' menu, filtered and keyboard-navigable like Claude's", () => {
+    const commands = [
+      { name: "clear", description: "Clear this conversation", run: vi.fn() },
+      { name: "clock", description: "unused in these tests", run: vi.fn() },
+      { name: "settings", description: "Open Settings…", run: vi.fn() },
+    ];
+    beforeEach(() => commands.forEach((c) => (c.run as ReturnType<typeof vi.fn>).mockClear()));
+
+    it("bare '/' lists every command; a mid-message '/' does not", async () => {
+      const user = userEvent.setup();
+      render(<Composer streaming={false} commands={commands} onSend={() => {}} onStop={() => {}} />);
+      const box = screen.getByRole("textbox", { name: "message" });
+      await user.type(box, "/");
+      expect(screen.getByRole("listbox", { name: "slash commands" })).toBeInTheDocument();
+      expect(screen.getAllByRole("option")).toHaveLength(3);
+      await user.clear(box);
+      await user.type(box, "not / a command");
+      expect(screen.queryByRole("listbox")).not.toBeInTheDocument();
+    });
+
+    it("filters by prefix as you type, and closes once the command word is followed by a space", async () => {
+      const user = userEvent.setup();
+      render(<Composer streaming={false} commands={commands} onSend={() => {}} onStop={() => {}} />);
+      const box = screen.getByRole("textbox", { name: "message" });
+      await user.type(box, "/cl");
+      expect(screen.getAllByRole("option").map((o) => o.textContent)).toEqual([
+        expect.stringContaining("/clear"),
+        expect.stringContaining("/clock"),
+      ]);
+      await user.type(box, "ear ");
+      expect(screen.queryByRole("listbox")).not.toBeInTheDocument();
+    });
+
+    it("ArrowDown/ArrowUp move the highlight, Enter runs the highlighted command and clears the box", async () => {
+      const user = userEvent.setup();
+      render(<Composer streaming={false} commands={commands} onSend={() => {}} onStop={() => {}} />);
+      const box = screen.getByRole("textbox", { name: "message" });
+      await user.type(box, "/");
+      await user.keyboard("{ArrowDown}{ArrowDown}"); // clear -> clock -> settings
+      expect(screen.getByRole("option", { name: /settings/ })).toHaveAttribute("aria-selected", "true");
+      await user.keyboard("{ArrowUp}"); // back to clock
+      await user.keyboard("{Enter}");
+      expect(commands[1]!.run).toHaveBeenCalled();
+      expect(commands[0]!.run).not.toHaveBeenCalled();
+      expect(box).toHaveValue("");
+    });
+
+    it("clicking a command runs it without losing textarea focus", async () => {
+      const user = userEvent.setup();
+      render(<Composer streaming={false} commands={commands} onSend={() => {}} onStop={() => {}} />);
+      const box = screen.getByRole("textbox", { name: "message" });
+      await user.type(box, "/settings");
+      await user.click(screen.getByRole("option", { name: /settings/ }));
+      expect(commands[2]!.run).toHaveBeenCalled();
+    });
+
+    it("Escape dismisses the menu and clears the composer", async () => {
+      const user = userEvent.setup();
+      render(<Composer streaming={false} commands={commands} onSend={() => {}} onStop={() => {}} />);
+      const box = screen.getByRole("textbox", { name: "message" });
+      await user.type(box, "/cl");
+      await user.keyboard("{Escape}");
+      expect(screen.queryByRole("listbox")).not.toBeInTheDocument();
+      expect(box).toHaveValue("");
+    });
+
+    it("no matching command -> no menu, and Enter sends the literal text", async () => {
+      const user = userEvent.setup();
+      const onSend = vi.fn();
+      render(<Composer streaming={false} commands={commands} onSend={onSend} onStop={() => {}} />);
+      const box = screen.getByRole("textbox", { name: "message" });
+      await user.type(box, "/nope{Enter}");
+      expect(screen.queryByRole("listbox")).not.toBeInTheDocument();
+      expect(onSend).toHaveBeenCalledWith("/nope");
+    });
   });
 });

@@ -9,7 +9,7 @@
 // reply — and each send carries the recent history so the gateway sees a conversation, not a
 // bag of one-offs. In-memory only; quitting the app is the clear affordance. The full decision
 // hero (score bar, why rows) stays reserved for the live turn.
-import { useEffect, useRef } from "react";
+import { useEffect, useMemo, useRef } from "react";
 import { routeGlyph, routeLabel } from "@wayfinder/shared/decision";
 import {
   historyFromTranscript,
@@ -20,10 +20,12 @@ import {
 } from "@/lib/appState";
 import type { UseTurn } from "@/hooks/useTurn";
 import { useReducedMotion } from "@/hooks/useReducedMotion";
+import { openSettings } from "@/lib/ipc";
 import { DecisionSummary } from "@/components/DecisionSummary";
 import { StreamingMessage } from "@/components/StreamingMessage";
 import { OnboardingCard } from "@/components/OnboardingCard";
 import { Composer } from "@/components/Composer";
+import type { SlashCommand } from "@/components/SlashMenu";
 import { ScrollArea } from "@/components/ui/scroll-area";
 
 /** The user's message, in scrollback and above the live hero alike: dark, with a muted
@@ -67,13 +69,38 @@ function TranscriptTurn({ turn }: { turn: SettledTurn }) {
 export function ChatScreen({
   gw,
   turn,
+  onOfflineToggle,
+  offlinePending = false,
 }: {
   gw: GatewayState;
   turn: UseTurn;
+  /** Flips GLOBAL offline delivery (WF-ADR-0044) — the same handler the header switch uses;
+   *  the "/offline" slash command is just another door to it. */
+  onOfflineToggle?: (on: boolean) => void;
+  offlinePending?: boolean;
 }) {
   const offline = showOfflineChip(gw);
   const reducedMotion = useReducedMotion();
   const bottomRef = useRef<HTMLDivElement | null>(null);
+
+  // Slash commands (WF-DESIGN-0014 amendment): a small, curated set — this stays a
+  // routing-inspection surface, not a general command palette.
+  const commands: SlashCommand[] = useMemo(() => {
+    const list: SlashCommand[] = [
+      { name: "clear", description: "Clear this conversation", run: () => turn.reset() },
+    ];
+    if (onOfflineToggle) {
+      list.push({
+        name: "offline",
+        description: gw.offlineConfig ? "Turn off global offline mode" : "Turn on global offline mode",
+        run: () => {
+          if (!offlinePending) onOfflineToggle(!gw.offlineConfig);
+        },
+      });
+    }
+    list.push({ name: "settings", description: "Open Settings…", run: () => void openSettings() });
+    return list;
+  }, [turn, onOfflineToggle, offlinePending, gw.offlineConfig]);
 
   // Auto-follow: keep the newest content in view as turns settle and tokens stream. jsdom has
   // no scrollIntoView; real WebKit does — hence the optional call.
@@ -136,6 +163,7 @@ export function ChatScreen({
       <div className="flex flex-col gap-2 border-t border-border bg-background p-5">
         <Composer
           streaming={turn.phase === "streaming"}
+          commands={commands}
           onSend={(prompt) => void turn.send(prompt, historyFromTranscript(turn.transcript))}
           onStop={turn.stop}
         />

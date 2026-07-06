@@ -214,7 +214,12 @@ export function PopoverRoot({ baseUrl = GATEWAY_BASE }: { baseUrl?: string } = {
         )}
         {view === "chat" && (
           <div hidden={screen !== "chat"} className="flex min-h-0 flex-1 flex-col">
-            <ChatScreen gw={gw} turn={turn} />
+            <ChatScreen
+              gw={gw}
+              turn={turn}
+              onOfflineToggle={onOfflineToggle}
+              offlinePending={offlinePending}
+            />
           </div>
         )}
         {view === "unreachable" && <UnreachableView onStartGateway={onStartGateway} />}

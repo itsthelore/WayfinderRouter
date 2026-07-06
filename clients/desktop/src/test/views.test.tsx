@@ -243,6 +243,48 @@ describe("ChatScreen — adornments + decision summary + reply swap", () => {
     rerender(<ChatScreen gw={gwState()} turn={turnStub({ transcript: [settledOk] })} />);
     expect(screen.queryByText(/Send a message — Wayfinder routes it/)).not.toBeInTheDocument();
   });
+
+  // ------------------------------------------------------------------- slash commands
+  it("/clear resets the turn; /settings opens Settings; /offline is absent without a handler", async () => {
+    const user = userEvent.setup();
+    const reset = vi.fn();
+    render(<ChatScreen gw={gwState()} turn={turnStub({ reset })} />);
+    const box = screen.getByRole("textbox", { name: "message" });
+    await user.type(box, "/");
+    expect(screen.getAllByRole("option").map((o) => within(o).getByText(/^\//).textContent)).toEqual([
+      "/clear",
+      "/settings",
+    ]);
+    await user.click(screen.getByRole("option", { name: /clear/ }));
+    expect(reset).toHaveBeenCalled();
+
+    await user.type(box, "/settings");
+    await user.keyboard("{Enter}");
+    expect(vi.mocked(openSettings)).toHaveBeenCalled();
+  });
+
+  it("/offline appears when a toggle handler is supplied, and flips the current config state", async () => {
+    const user = userEvent.setup();
+    const onOfflineToggle = vi.fn();
+    render(<ChatScreen gw={gwState()} turn={turnStub()} onOfflineToggle={onOfflineToggle} />);
+    const box = screen.getByRole("textbox", { name: "message" });
+    await user.type(box, "/offline");
+    expect(screen.getByRole("option", { name: /Turn on global offline mode/ })).toBeInTheDocument();
+    await user.keyboard("{Enter}");
+    expect(onOfflineToggle).toHaveBeenCalledWith(true);
+  });
+
+  it("/offline is a no-op while a toggle is already pending", async () => {
+    const user = userEvent.setup();
+    const onOfflineToggle = vi.fn();
+    render(
+      <ChatScreen gw={gwState()} turn={turnStub()} onOfflineToggle={onOfflineToggle} offlinePending />,
+    );
+    const box = screen.getByRole("textbox", { name: "message" });
+    await user.type(box, "/offline");
+    await user.keyboard("{Enter}");
+    expect(onOfflineToggle).not.toHaveBeenCalled();
+  });
 });
 
 describe("UnreachableView / FirstRunView — never a dead screen", () => {
