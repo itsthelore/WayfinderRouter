@@ -36,6 +36,24 @@ scorer parity check is green (`VITE_PARITY_OK`; the dev/build scripts set it, th
 the enforcement). Without it the surface says "decisions unavailable" rather than risk a drifted
 local score.
 
+## The glance surface & live meter (glance pivot — WF-DESIGN-0013)
+
+- **Tabs**: a reachable gateway opens on **Glance**; chat is one tab away. Type half a message in
+  Chat, flip to Glance and back — the draft must survive (hidden, never unmounted).
+- **Tiles**: *routing* shows local/cloud share bars with counts (send one easy + one hard prompt
+  and watch the split move); *saved* shows the `$` figure + percent once priced turns land, and an
+  honest empty state before that; *gateway* shows the dot + endpoint (+ missing keys in amber when
+  degraded).
+- **The live meter W**: with the gateway running, the tray W fills bottom-up with the local share —
+  all-local turns → solid W; mixed → partial. It must stay a *template* (tints with the menu-bar
+  appearance). Degraded always shows the notch (health outranks the meter); stopped is hollow; a
+  running gateway with no turns yet shows the full solid W; a running 0%-local W keeps a visible
+  solid sliver (never identical to stopped).
+- **Settings** (gear): cadence `manual` stops background polls (watch the network pane go quiet;
+  focus still re-polls); `1m/5m/15m` slow them; **Notifications on** + stop the service → exactly
+  one "gateway stopped responding" notification on the edge (and one "back" when it returns —
+  never one per poll); launch-at-login toggles the app's own agent. Esc closes Settings first.
+
 ## The no-reflow decision paint (the nail)
 
 Send a turn on a healthy gateway and watch the hero:
