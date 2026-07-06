@@ -22,9 +22,18 @@ vi.mock("@/lib/ipc", async () => {
     setShortcut: vi.fn(async () => {}),
     storeProviderKey: vi.fn(async () => "stored"),
     deleteProviderKey: vi.fn(async () => "removed"),
+    addModel: vi.fn(async () => "added"),
+    detectLocalProviders: vi.fn(async () => []),
   };
 });
-import { deleteProviderKey, openTarget, setShortcut, storeProviderKey } from "@/lib/ipc";
+import {
+  addModel,
+  deleteProviderKey,
+  detectLocalProviders,
+  openTarget,
+  setShortcut,
+  storeProviderKey,
+} from "@/lib/ipc";
 
 function fixture(name: string): string {
   return readFileSync(join(process.cwd(), "src", "test", "fixtures", name), "utf8");
@@ -188,6 +197,137 @@ describe("SettingsWindow — Keys section (WF-DESIGN-0015: keyed models from /ro
     render(<SettingsWindow />);
     await user.click(screen.getByRole("button", { name: "Keys" }));
     expect(await screen.findByText(/isn’t reachable/)).toBeInTheDocument();
+  });
+});
+
+describe("SettingsWindow — Keys section: Add Provider or Model (WF-ADR-0044 amendment)", () => {
+  afterEach(() => {
+    vi.mocked(addModel).mockClear();
+    vi.mocked(detectLocalProviders).mockClear();
+  });
+
+  function mockModels() {
+    globalThis.fetch = vi.fn(async () =>
+      new Response(fixture("router-models.json"), { status: 200 }),
+    ) as unknown as typeof fetch;
+  }
+
+  it("picking a preset fills the form; Add calls the config seam and closes it", async () => {
+    mockModels();
+    const user = userEvent.setup();
+    render(<SettingsWindow />);
+    await user.click(screen.getByRole("button", { name: "Keys" }));
+    await user.click(await screen.findByRole("button", { name: "+ Add Provider or Model" }));
+    await user.click(screen.getByRole("button", { name: "Anthropic" }));
+    expect(screen.getByLabelText("provider name")).toHaveValue("anthropic");
+    expect(screen.getByLabelText("base URL")).toHaveValue("https://api.anthropic.com/v1");
+    expect(screen.getByLabelText("API key env var")).toHaveValue("ANTHROPIC_API_KEY");
+
+    await user.type(screen.getByLabelText("model id"), "claude-opus-4-8");
+    await user.click(screen.getByRole("button", { name: "Add" }));
+    expect(addModel).toHaveBeenCalledWith(
+      "anthropic",
+      "https://api.anthropic.com/v1",
+      "claude-opus-4-8",
+      "ANTHROPIC_API_KEY",
+    );
+    await waitFor(() =>
+      expect(screen.queryByRole("button", { name: "Cancel" })).not.toBeInTheDocument(),
+    );
+  });
+
+  it("the same provider can be added twice under different names — the name field is freely editable", async () => {
+    mockModels();
+    const user = userEvent.setup();
+    render(<SettingsWindow />);
+    await user.click(screen.getByRole("button", { name: "Keys" }));
+    await user.click(await screen.findByRole("button", { name: "+ Add Provider or Model" }));
+    await user.click(screen.getByRole("button", { name: "Anthropic" }));
+    const nameInput = screen.getByLabelText("provider name");
+    await user.clear(nameInput);
+    await user.type(nameInput, "anthropic-fast");
+    await user.type(screen.getByLabelText("model id"), "claude-haiku-4-5");
+    await user.click(screen.getByRole("button", { name: "Add" }));
+    expect(addModel).toHaveBeenCalledWith(
+      "anthropic-fast",
+      "https://api.anthropic.com/v1",
+      "claude-haiku-4-5",
+      "ANTHROPIC_API_KEY",
+    );
+  });
+
+  it("Custom leaves every field blank and keyless is allowed (Ollama/LM Studio, no api key env)", async () => {
+    mockModels();
+    const user = userEvent.setup();
+    render(<SettingsWindow />);
+    await user.click(screen.getByRole("button", { name: "Keys" }));
+    await user.click(await screen.findByRole("button", { name: "+ Add Provider or Model" }));
+    await user.click(screen.getByRole("button", { name: "Ollama" }));
+    expect(screen.getByLabelText("API key env var")).toHaveValue("");
+    await user.type(screen.getByLabelText("model id"), "llama3.1");
+    await user.click(screen.getByRole("button", { name: "Add" }));
+    expect(addModel).toHaveBeenCalledWith(
+      "ollama",
+      "http://127.0.0.1:11434/v1",
+      "llama3.1",
+      undefined,
+    );
+  });
+
+  it("rejects an invalid name before ever calling the seam", async () => {
+    mockModels();
+    const user = userEvent.setup();
+    render(<SettingsWindow />);
+    await user.click(screen.getByRole("button", { name: "Keys" }));
+    await user.click(await screen.findByRole("button", { name: "+ Add Provider or Model" }));
+    await user.click(screen.getByRole("button", { name: "Custom" }));
+    await user.type(screen.getByLabelText("provider name"), "Not Valid!");
+    await user.type(screen.getByLabelText("base URL"), "https://example.com/v1");
+    await user.type(screen.getByLabelText("model id"), "some-model");
+    await user.click(screen.getByRole("button", { name: "Add" }));
+    expect(await screen.findByText(/lowercase letters/)).toBeInTheDocument();
+    expect(addModel).not.toHaveBeenCalled();
+  });
+
+  it("surfaces the seam's rejection reason (e.g. a name collision) without closing the form", async () => {
+    mockModels();
+    vi.mocked(addModel).mockRejectedValueOnce(
+      new Error("a model named 'anthropic' already exists in this config"),
+    );
+    const user = userEvent.setup();
+    render(<SettingsWindow />);
+    await user.click(screen.getByRole("button", { name: "Keys" }));
+    await user.click(await screen.findByRole("button", { name: "+ Add Provider or Model" }));
+    await user.click(screen.getByRole("button", { name: "Anthropic" }));
+    await user.type(screen.getByLabelText("model id"), "claude-opus-4-8");
+    await user.click(screen.getByRole("button", { name: "Add" }));
+    expect(await screen.findByText(/already exists/)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Cancel" })).toBeInTheDocument();
+  });
+
+  it("Cancel closes the form without calling the seam", async () => {
+    mockModels();
+    const user = userEvent.setup();
+    render(<SettingsWindow />);
+    await user.click(screen.getByRole("button", { name: "Keys" }));
+    await user.click(await screen.findByRole("button", { name: "+ Add Provider or Model" }));
+    await user.click(screen.getByRole("button", { name: "Custom" }));
+    await user.click(screen.getByRole("button", { name: "Cancel" }));
+    expect(screen.queryByLabelText("provider name")).not.toBeInTheDocument();
+    expect(addModel).not.toHaveBeenCalled();
+  });
+
+  it("marks detected local runners with a bullet and a caption", async () => {
+    mockModels();
+    vi.mocked(detectLocalProviders).mockResolvedValueOnce([
+      { id: "ollama", baseUrl: "http://127.0.0.1:11434/v1" },
+    ]);
+    const user = userEvent.setup();
+    render(<SettingsWindow />);
+    await user.click(screen.getByRole("button", { name: "Keys" }));
+    await user.click(await screen.findByRole("button", { name: "+ Add Provider or Model" }));
+    expect(await screen.findByRole("button", { name: "Ollama •" })).toBeInTheDocument();
+    expect(screen.getByText(/detected running on this Mac/)).toBeInTheDocument();
   });
 });
 
