@@ -78,7 +78,7 @@ from collections import deque
 from collections.abc import AsyncIterator, Callable, Iterable, Iterator
 from dataclasses import dataclass, field, replace
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from .complexity import (
     RoutingConfig,
@@ -99,6 +99,14 @@ from . import anthropic_adapter, cache, pricing, ratelimit, reliability, vkeys
 
 if TYPE_CHECKING:  # type-only; the runtime imports these lazily inside build_app
     from fastapi import FastAPI, Response
+
+    # Governance spine (WF-DESIGN-0013, WF-ROADMAP-0012): type-only so ``import wayfinder_router``
+    # never pulls the governance stack (Contract 1); the runtime imports them lazily in build_app,
+    # the stage helpers, and the config parsers — mirroring the ``from . import bootstrap`` posture.
+    from .audit import AuditLog, AuditRecord
+    from .detectors import DetectorHit, DetectorRegistry
+    from .identity import IdentityRegistry, Principal
+    from .policy import CompiledPolicy, PolicyDecision
 
 logger = logging.getLogger("wayfinder_router.gateway")
 
@@ -213,6 +221,16 @@ class Metrics:
         self.cache_avoided_cost = 0.0  # cost a hit avoided (chosen-tier cost; distinct from savings)
         self.rate_limited: dict[str, int] = {}  # 429s by tripped limit ("rpm"/"tpm"; WF-ADR-0034)
         self.key_requests: dict[str, int] = {}  # requests by virtual-key id (WF-ADR-0035)
+        # Governance counters (WF-DESIGN-0013 §6): all zero/empty until a policy evaluates a
+        # request, and each render block is truthiness-guarded, so /metrics stays byte-identical
+        # to today whenever governance is inactive (the zero-regression covenant, Contract 11).
+        self.policy_evaluations = 0  # policy evaluations run on the request path
+        self.policy_verbs: dict[str, int] = {}  # terminal verb -> count
+        self.policy_blocks = 0  # deny/block terminal decisions
+        self.policy_redactions = 0  # detector names scrubbed from forwarded bodies
+        self.detector_hits: dict[str, int] = {}  # detector name -> firings
+        self.audit_appends = 0  # AuditRecords appended (only when [audit] is active)
+        self.identity_attributions: dict[str, int] = {}  # principal kind -> count
 
     def set_model_costs(self, costs: dict[str, float]) -> None:
         """Record per-model cost metadata to surface as a gauge (informational)."""
@@ -252,6 +270,24 @@ class Metrics:
     def observe_key_request(self, key_id: str) -> None:
         """An authenticated request was attributed to a virtual key (WF-ADR-0035)."""
         self.key_requests[key_id] = self.key_requests.get(key_id, 0) + 1
+
+    def observe_policy(
+        self, kind: str, pdecision: PolicyDecision, hits: tuple[DetectorHit, ...]
+    ) -> None:
+        """Bump the additive governance counters for one evaluated request (WF-DESIGN-0013 §6)."""
+        self.policy_evaluations += 1
+        self.policy_verbs[pdecision.verb] = self.policy_verbs.get(pdecision.verb, 0) + 1
+        self.identity_attributions[kind] = self.identity_attributions.get(kind, 0) + 1
+        for hit in hits:
+            self.detector_hits[hit.name] = self.detector_hits.get(hit.name, 0) + 1
+        if pdecision.block is not None:
+            self.policy_blocks += 1
+        if pdecision.redactions:
+            self.policy_redactions += len(pdecision.redactions)
+
+    def observe_audit_append(self) -> None:
+        """Count one appended AuditRecord; gates the audit-appends metric line (WF-DESIGN-0013 §2)."""
+        self.audit_appends += 1
 
     def record_reload_failure(self) -> None:
         self.reload_failures += 1
@@ -310,6 +346,69 @@ class Metrics:
             for key_id, n in sorted(self.key_requests.items()):
                 lines.append(
                     f'wayfinder_router_key_requests_total{{key="{_label_escape(key_id)}"}} {n}'
+                )
+
+        # Governance blocks (WF-DESIGN-0013 §6): each is emitted ONLY when non-empty, mirroring the
+        # ``key_requests`` guard above — an unconditional ``... 0`` line would break the covenant.
+        if self.policy_evaluations:
+            lines.append(
+                "# HELP wayfinder_router_policy_evaluations_total "
+                "Policy evaluations run on the request path (WF-DESIGN-0013 §6)."
+            )
+            lines.append("# TYPE wayfinder_router_policy_evaluations_total counter")
+            lines.append(f"wayfinder_router_policy_evaluations_total {self.policy_evaluations}")
+        if self.policy_verbs:
+            lines.append(
+                "# HELP wayfinder_router_policy_verb_total "
+                "Terminal policy verbs by name (WF-DESIGN-0013 §3)."
+            )
+            lines.append("# TYPE wayfinder_router_policy_verb_total counter")
+            for verb, n in sorted(self.policy_verbs.items()):
+                lines.append(
+                    f'wayfinder_router_policy_verb_total{{verb="{_label_escape(verb)}"}} {n}'
+                )
+        if self.policy_blocks:
+            lines.append(
+                "# HELP wayfinder_router_policy_blocks_total "
+                "Requests terminated by a deny/block verb (WF-DESIGN-0013 §3)."
+            )
+            lines.append("# TYPE wayfinder_router_policy_blocks_total counter")
+            lines.append(f"wayfinder_router_policy_blocks_total {self.policy_blocks}")
+        if self.policy_redactions:
+            lines.append(
+                "# HELP wayfinder_router_policy_redactions_total "
+                "Detector names scrubbed from forwarded bodies (WF-DESIGN-0013 §3)."
+            )
+            lines.append("# TYPE wayfinder_router_policy_redactions_total counter")
+            lines.append(f"wayfinder_router_policy_redactions_total {self.policy_redactions}")
+        if self.detector_hits:
+            lines.append(
+                "# HELP wayfinder_router_detector_hits_total "
+                "Detector firings by detector name (WF-DESIGN-0013 §4)."
+            )
+            lines.append("# TYPE wayfinder_router_detector_hits_total counter")
+            for detector, n in sorted(self.detector_hits.items()):
+                lines.append(
+                    f'wayfinder_router_detector_hits_total'
+                    f'{{detector="{_label_escape(detector)}"}} {n}'
+                )
+        if self.audit_appends:
+            lines.append(
+                "# HELP wayfinder_router_audit_appends_total "
+                "AuditRecords appended to the decision log (WF-DESIGN-0013 §2)."
+            )
+            lines.append("# TYPE wayfinder_router_audit_appends_total counter")
+            lines.append(f"wayfinder_router_audit_appends_total {self.audit_appends}")
+        if self.identity_attributions:
+            lines.append(
+                "# HELP wayfinder_router_identity_attributions_total "
+                "Resolved principals by kind (WF-DESIGN-0013 §5)."
+            )
+            lines.append("# TYPE wayfinder_router_identity_attributions_total counter")
+            for kind, n in sorted(self.identity_attributions.items()):
+                lines.append(
+                    f'wayfinder_router_identity_attributions_total'
+                    f'{{kind="{_label_escape(kind)}"}} {n}'
                 )
 
         lines.append(
@@ -457,6 +556,32 @@ class VirtualKey:
 
 
 @dataclass(frozen=True)
+class AuditConfig:
+    """Audit-log destination for the governance spine (WF-DESIGN-0013 §2, WF-ROADMAP-0012).
+
+    Present only when ``[audit].enabled = true``; ``dir`` is the store root and ``durability``
+    selects the append barrier. Its mere presence is ``audit_active`` — the stage appends a record
+    per served/terminated decision only when this is set.
+    """
+
+    dir: str
+    durability: str = "buffered"  # "buffered" | "strict"
+
+
+@dataclass(frozen=True)
+class StoreConfig:
+    """Backend selector for the Movement-A stateful surfaces (WF-DESIGN-0013 §7, WF-ROADMAP-0012).
+
+    The single knob choosing in-memory (default, today's behavior) or disk-backed storage for the
+    response cache, savings ledger, rate limiter, and circuit breaker. ``dir`` is the shared root
+    for the disk backend and is required when ``backend = "disk"``.
+    """
+
+    backend: str = "memory"  # "memory" | "disk"
+    dir: str | None = None  # store root; required when backend == "disk"
+
+
+@dataclass(frozen=True)
 class GatewayConfig:
     """Maps recommended model names to upstream endpoints (from `[gateway.models]`).
 
@@ -495,6 +620,15 @@ class GatewayConfig:
     rate_limit: RateLimit | None = None
     # Virtual keys (WF-ADR-0035): gateway-issued credentials by id. Empty = open (no auth).
     keys: dict[str, VirtualKey] = field(default_factory=dict)
+    # Governance spine (WF-DESIGN-0013 §3/§5/§2, WF-ROADMAP-0012). All default to the absent/off
+    # value so an unconfigured gateway is byte-identical: ``governance_active ≡ policy is not None``,
+    # ``audit_active ≡ audit is not None``. ``policy``/``identity`` are compiled only when their
+    # table is present AND ``enabled = true`` (the config layer owns the skip decision).
+    policy: CompiledPolicy | None = None
+    identity: IdentityRegistry | None = None
+    audit: AuditConfig | None = None
+    # Store backend (WF-DESIGN-0013 §7): the single Movement-A knob; default memory = today.
+    store: StoreConfig = field(default_factory=StoreConfig)
 
 
 # Which chat-message text the router scores. The deterministic core scores
@@ -656,15 +790,112 @@ def _keys_from_toml(raw: object, where: str) -> dict[str, VirtualKey]:
     return keys
 
 
+def _policy_from_toml(data: dict, text: str, where: str) -> CompiledPolicy | None:
+    """Compile ``[policy]`` only when it is present and ``enabled = true`` (WF-DESIGN-0013 §3).
+
+    The config layer owns the enabled-gate — ``policy.policy_from_toml`` raises on absent/disabled,
+    so we peek ``enabled`` ourselves and leave the policy ``None`` otherwise (governance inactive).
+    A compile error is wrapped as :class:`WayfinderConfigError` so a bad hot-reload keeps last-good
+    config (``_ConfigHolder.current`` catches only that type).
+    """
+    pol = data.get("policy")
+    if not isinstance(pol, dict):
+        return None
+    enabled = pol.get("enabled", False)
+    if not isinstance(enabled, bool):
+        raise WayfinderConfigError(f"{where}: 'policy.enabled' must be a boolean")
+    if not enabled:
+        return None
+    from . import policy as _policy  # local import: keeps the governance stack lazily reachable
+    try:
+        return _policy.policy_from_toml(text)
+    except _policy.PolicyError as exc:
+        raise WayfinderConfigError(f"{where}: {exc}") from exc
+
+
+def _identity_from_toml(data: dict, text: str, where: str) -> IdentityRegistry | None:
+    """Build the identity registry from ``[identity]`` only when present and enabled (§5).
+
+    Absent/disabled leaves ``None``; the stage then falls back to an empty registry (vkey-tag
+    synthesis / ANONYMOUS), so governance attribution works with no ``[identity]`` table at all.
+    Registry errors are wrapped so a bad hot-reload keeps last-good config.
+    """
+    idt = data.get("identity")
+    if not isinstance(idt, dict):
+        return None
+    enabled = idt.get("enabled", False)
+    if not isinstance(enabled, bool):
+        raise WayfinderConfigError(f"{where}: 'identity.enabled' must be a boolean")
+    if not enabled:
+        return None
+    from . import identity as _identity  # local import: governance stays lazily reachable
+    try:
+        return _identity.IdentityRegistry.from_toml(text)
+    except (_identity.IdentityError, KeyError) as exc:
+        raise WayfinderConfigError(f"{where}: invalid [identity]: {exc}") from exc
+
+
+def _audit_from_toml(data: dict, where: str) -> AuditConfig | None:
+    """Parse ``[audit]`` into an :class:`AuditConfig` when enabled, else ``None`` (§2).
+
+    ``dir`` is required and non-empty; ``durability`` defaults ``buffered`` and must be one of the
+    two barriers. Absent or ``enabled != true`` leaves ``None`` (audit inactive — nothing appended).
+    """
+    aud = data.get("audit")
+    if not isinstance(aud, dict):
+        return None
+    enabled = aud.get("enabled", False)
+    if not isinstance(enabled, bool):
+        raise WayfinderConfigError(f"{where}: 'audit.enabled' must be a boolean")
+    if not enabled:
+        return None
+    audit_dir = aud.get("dir")
+    if not isinstance(audit_dir, str) or not audit_dir:
+        raise WayfinderConfigError(f"{where}: 'audit.dir' must be a non-empty string")
+    durability = aud.get("durability", "buffered")
+    if durability not in ("buffered", "strict"):
+        raise WayfinderConfigError(
+            f"{where}: 'audit.durability' must be one of buffered, strict"
+        )
+    return AuditConfig(dir=audit_dir, durability=durability)
+
+
+def _store_from_toml(raw: object, where: str) -> StoreConfig:
+    """Parse ``[gateway.store]`` into a :class:`StoreConfig`; absent = memory (§7).
+
+    ``backend`` is memory (default, today's in-RAM behavior) or disk; ``dir`` is required and
+    non-empty for disk and ignored for memory. The disk *flip* of the stateful surfaces is
+    Movement A's scope — this layer only parses, validates, and threads the choice.
+    """
+    if raw is None:
+        return StoreConfig()
+    if not isinstance(raw, dict):
+        raise WayfinderConfigError(f"{where}: '[gateway.store]' must be a table")
+    backend = raw.get("backend", "memory")
+    if backend not in ("memory", "disk"):
+        raise WayfinderConfigError(
+            f"{where}: 'gateway.store.backend' must be one of memory, disk"
+        )
+    store_dir = raw.get("dir")
+    if backend == "disk" and (not isinstance(store_dir, str) or not store_dir):
+        raise WayfinderConfigError(f"{where}: 'gateway.store.dir' must be a non-empty string")
+    return StoreConfig(backend=backend, dir=store_dir if backend == "disk" else None)
+
+
 def gateway_config_from_toml(text: str, where: str = "wayfinder-router.toml") -> GatewayConfig:
     """Parse a :class:`GatewayConfig` from ``wayfinder-router.toml`` text (file-free)."""
     try:
         data = tomllib.loads(text)
     except tomllib.TOMLDecodeError as exc:
         raise WayfinderConfigError(f"{where}: invalid TOML: {exc}") from exc
+    # Governance tables are TOP-LEVEL, so they are parsed independently of the ``[gateway]`` guard
+    # below — a policy-only config must still activate governance (WF-DESIGN-0013 §6).
+    gw_policy = _policy_from_toml(data, text, where)
+    gw_identity = _identity_from_toml(data, text, where)
+    gw_audit = _audit_from_toml(data, where)
     gateway = data.get("gateway")
     if gateway is None:
-        return GatewayConfig()
+        return GatewayConfig(policy=gw_policy, identity=gw_identity, audit=gw_audit)
     if not isinstance(gateway, dict):
         raise WayfinderConfigError(f"{where}: '[gateway]' must be a table")
     route_on = gateway.get("route_on", "turn")
@@ -702,6 +933,7 @@ def gateway_config_from_toml(text: str, where: str = "wayfinder-router.toml") ->
     cache_cfg = _cache_from_toml(gateway.get("cache"), where)
     rate_limit = _rate_limit_from_toml(gateway.get("rate_limit"), where)
     keys = _keys_from_toml(gateway.get("keys"), where)
+    store = _store_from_toml(gateway.get("store"), where)
     raw_models = gateway.get("models") or {}
     if not isinstance(raw_models, dict):
         raise WayfinderConfigError(f"{where}: '[gateway.models]' must be a table")
@@ -787,6 +1019,7 @@ def gateway_config_from_toml(text: str, where: str = "wayfinder-router.toml") ->
         slash_directives=slash_directives, offline=offline,
         retries=retries, breaker_threshold=breaker_threshold, breaker_cooldown=breaker_cooldown,
         failover=failover, budget=budget, cache=cache_cfg, rate_limit=rate_limit, keys=keys,
+        policy=gw_policy, identity=gw_identity, audit=gw_audit, store=store,
     )
 
 
@@ -853,6 +1086,11 @@ def dump_gateway_toml(gateway: GatewayConfig) -> str:
         if rl.window != ratelimit.DEFAULT_WINDOW:
             lines.append(f"window = {round(rl.window, 6)!r}")
         blocks.append("\n".join(lines))
+    if gateway.store.backend != "memory":  # emit the store knob only when off the memory default
+        slines = ["[gateway.store]", f'backend = "{gateway.store.backend}"']
+        if gateway.store.dir is not None:
+            slines.append(f'dir = "{gateway.store.dir}"')
+        blocks.append("\n".join(slines))
     for kid, vk in gateway.keys.items():  # [gateway.keys.<id>] + optional nested scope tables
         lines = [f"[gateway.keys.{kid}]", f'hash = "{vk.hash}"']
         if vk.tags:
@@ -878,6 +1116,18 @@ def dump_gateway_toml(gateway: GatewayConfig) -> str:
             if rlk.window != ratelimit.DEFAULT_WINDOW:
                 rlines.append(f"window = {round(rlk.window, 6)!r}")
             blocks.append("\n".join(rlines))
+    if gateway.policy is not None:  # header only — rule bodies are not re-serialized (see below)
+        # A CompiledPolicy cannot faithfully round-trip to [policy.rules.*] (the hash is derived and
+        # the args are flattened), so — like the endpoint/reliability round-trip this dump exists for
+        # — the rule corpus stays in the committed file; we emit only the activating header.
+        blocks.append(
+            f"[policy]\nenabled = true\nid = \"{gateway.policy.policy_id}\""
+        )
+    if gateway.audit is not None:  # [audit] round-trips fully (dir + non-default durability)
+        alines = ["[audit]", "enabled = true", f'dir = "{gateway.audit.dir}"']
+        if gateway.audit.durability != "buffered":
+            alines.append(f'durability = "{gateway.audit.durability}"')
+        blocks.append("\n".join(alines))
     for name, model in gateway.models.items():
         lines = [
             f"[gateway.models.{name}]",
@@ -1438,6 +1688,222 @@ class _ConfigHolder:
         return self._routing, self._gateway
 
 
+# --- governance stage (WF-DESIGN-0013 §6, WF-ROADMAP-0012) ------------------
+# The single new stage sits AFTER the per-key allowlist clamp and BEFORE ``wf_headers``. Its mass
+# lives in these module-level helpers rather than in ``build_app``'s already-worst-in-repo closure;
+# the closure spine only orchestrates them. Every helper is pure or state-passed and reduces to a
+# no-op skip when ``[policy]`` is absent (the zero-regression covenant, Contract 11).
+
+
+@dataclass(frozen=True)
+class _GovDecision:
+    """Decision-time governance signals carried from the policy seam to a post-response audit append.
+
+    Audit-append happens where cost data exists — alongside ``_record_turn`` for served requests and
+    at the block/throttle early-returns for terminated ones (WF-DESIGN-0013 §6) — so the seam captures
+    the decision-time inputs into this immutable carrier and the append site supplies the costs.
+    """
+
+    request_id: str
+    principal: Principal
+    vkey_id: str | None
+    pdecision: PolicyDecision
+    hits: tuple[DetectorHit, ...]
+    route: str  # the final post-policy route (== x-wayfinder-router-model), never served_by
+    route_pre_policy: str
+    score: float
+    mode: str
+    offline: bool
+    budget_state: str | None
+    policy_id: str | None
+    request_digest: str
+
+
+def _governance_evaluate(
+    policy: CompiledPolicy,
+    principal: Principal,
+    vkey_id: str | None,
+    body: dict,
+    route: str,
+    score: float,
+    hits: tuple[DetectorHit, ...],
+) -> PolicyDecision:
+    """Evaluate the compiled policy over one request's already-resolved signals (§3/§6).
+
+    ``route`` is the post-clamp, pre-verb choice (``route_pre_policy``); the context is built from
+    plain primitives only, matching ``PolicyContext``'s wayfinder-free surface.
+    """
+    from .policy import PolicyContext
+
+    model = body.get("model")
+    ctx = PolicyContext(
+        identity_id=principal.id,
+        identity_kind=principal.kind,
+        team=principal.team,
+        tags=frozenset(principal.tags),
+        vkey_id=vkey_id,
+        model=model if isinstance(model, str) else "",
+        route=route,
+        score=score,
+        detector_names=frozenset(hit.name for hit in hits),
+    )
+    return policy.evaluate(ctx)
+
+
+def _policy_mode(pdecision: PolicyDecision, route_pre_policy: str, mode: str) -> str:
+    """Report a ``policy-<verb>`` mode when a verb rewrote the route, else keep the prior mode."""
+    return f"policy-{pdecision.verb}" if pdecision.route != route_pre_policy else mode
+
+
+def _redact_body(
+    body: dict, redactions: tuple[str, ...], detector_registry: DetectorRegistry
+) -> None:
+    """Scrub the named detectors' spans out of ``body['messages']`` in place (§3, redact verb).
+
+    Rewrites the FORWARDED copy only — the client's posted object is a separate dict. Each detector
+    is rescanned against the current message text (``.scan`` honors validators such as the card
+    Luhn check), and a message that does not carry a given secret yields ``None`` and is skipped
+    (the detector name comes from the whole-prompt scan, which may span other messages).
+    """
+    from .detectors import DETECTORS_BY_NAME
+
+    messages = body.get("messages")
+    if not isinstance(messages, list):
+        return
+    for message in messages:
+        if not isinstance(message, dict):
+            continue
+        content = message.get("content")
+        if not isinstance(content, str):
+            continue
+        for name in redactions:
+            detector = DETECTORS_BY_NAME.get(name)
+            if detector is None:
+                continue
+            hit = detector.scan(content)
+            if hit is None:  # this secret lives in another message — nothing to scrub here
+                continue
+            for start, end in sorted(hit.spans, reverse=True):  # right-to-left keeps offsets valid
+                content = content[:start] + "[REDACTED]" + content[end:]
+        message["content"] = content
+
+
+def _ensure_audit_log(
+    state: dict[str, object], audit: AuditConfig | None
+) -> AuditLog | None:
+    """Keep the long-lived audit log matched to hot-reloaded ``[audit]`` config (§2).
+
+    Mirrors the response-cache reconfigure posture: open when now-present, close+reopen when ``dir``
+    changed, close when now-absent. The ``dir`` is config-driven, so a create-once singleton is
+    wrong here — this is the reconfigure-per-request precedent instead.
+    """
+    from .audit import AuditLog
+
+    current = state.get("log")
+    assert current is None or isinstance(current, AuditLog)
+    if audit is None:
+        if current is not None:
+            current.close()
+            state["log"] = None
+            state["dir"] = None
+        return None
+    if current is not None and state.get("dir") == audit.dir:
+        return current
+    if current is not None:
+        current.close()
+    log = AuditLog(audit.dir, durability=audit.durability)
+    state["log"] = log
+    state["dir"] = audit.dir
+    return log
+
+
+def _governance_audit_record(
+    gov: _GovDecision,
+    *,
+    prompt_tokens: int,
+    completion_tokens: int,
+    estimated: bool,
+    realized: float,
+    baseline: float,
+    saved: float,
+    unit: str,
+) -> AuditRecord:
+    """Assemble the 30-field AuditRecord from carried signals plus realized costs (§2).
+
+    Decision signals are captured at the policy seam; the cost fields arrive from ``_record_turn``
+    for served requests (or are zeros for block/throttle terminations). ``route`` is the carried
+    post-policy choice, never the possibly-different ``served_by``.
+    """
+    from .audit import AUDIT_SCHEMA_VERSION, AuditRecord
+
+    principal = gov.principal
+    pdecision = gov.pdecision
+    return AuditRecord(
+        schema_version=AUDIT_SCHEMA_VERSION,
+        seq=0,  # the store assigns the real seq at append; overlaid again at read
+        ts_wall=time.time(),
+        ts_mono=time.perf_counter(),
+        request_id=gov.request_id,
+        identity_id=principal.id,
+        identity_kind=principal.kind,
+        team=principal.team,
+        tags=principal.tags,
+        vkey_id=gov.vkey_id,
+        route=gov.route,
+        route_pre_policy=gov.route_pre_policy,
+        score=gov.score,
+        mode=gov.mode,
+        offline=gov.offline,
+        budget_state=gov.budget_state,
+        policy_id=gov.policy_id,
+        policy_hash=pdecision.policy_hash,
+        rule=pdecision.rule,
+        verbs=pdecision.verbs,
+        detector_hits=gov.hits,
+        prompt_tokens=prompt_tokens,
+        completion_tokens=completion_tokens,
+        estimated=estimated,
+        realized=realized,
+        baseline=baseline,
+        saved=saved,
+        unit=unit,
+        request_digest=gov.request_digest,
+    )
+
+
+def _governance_audit_append(
+    audit_log: AuditLog,
+    metrics: Metrics,
+    gov: _GovDecision,
+    *,
+    prompt_tokens: int,
+    completion_tokens: int,
+    estimated: bool,
+    realized: float,
+    baseline: float,
+    saved: float,
+    unit: str,
+) -> None:
+    """Append one decision's AuditRecord and count it (§2).
+
+    No per-request ``flush``: the committed store drains every append to the OS and autocommits its
+    index, so a fresh reader observes the record without a durability barrier (store.py append).
+    """
+    metrics.observe_audit_append()
+    audit_log.append(
+        _governance_audit_record(
+            gov,
+            prompt_tokens=prompt_tokens,
+            completion_tokens=completion_tokens,
+            estimated=estimated,
+            realized=realized,
+            baseline=baseline,
+            saved=saved,
+            unit=unit,
+        )
+    )
+
+
 def build_app(
     start_dir: str = ".", *, dry_run: bool = False, timeout: float | None = None,
     clock: Callable[[], float] = time.monotonic,
@@ -1467,13 +1933,24 @@ def build_app(
     feedback_token = os.environ.get(_FEEDBACK_TOKEN_ENV)
     recent: deque[dict] = deque(maxlen=_RECENT_MAX)  # decision metadata only, no prompt text
 
+    # Store backend (WF-DESIGN-0013 §7, WF-ROADMAP-0012): resolve the disk root once so the
+    # long-lived stateful surfaces below can be threaded onto it. Memory (the default) keeps every
+    # surface exactly as today; the disk flip derives a per-surface path under this root because the
+    # surfaces take distinct kwargs — one directory for the cache class, a db file for each other.
+    _store0 = holder.current()[1].store
+    _store_dir: Path | None = None
+    if _store0.backend == "disk" and _store0.dir is not None:
+        _store_dir = Path(_store0.dir)
+        _store_dir.mkdir(parents=True, exist_ok=True)
+
     # Savings ledger (WF-DESIGN-0007): per-day realized/baseline/savings from routing
     # decisions x a price table. Persisted best-effort so the report survives restarts.
     savings_path = os.environ.get(_SAVINGS_FILE_ENV) or str(Path(start_dir) / "wayfinder-savings.json")
+    _ledger_db = str(_store_dir / "savings.db") if _store_dir is not None else None
     try:
-        ledger = pricing.SavingsLedger.load(savings_path)
+        ledger = pricing.SavingsLedger.load(savings_path, db_path=_ledger_db)
     except (OSError, ValueError):
-        ledger = pricing.SavingsLedger()
+        ledger = pricing.SavingsLedger(db_path=_ledger_db)
     _last_save = [0.0]  # debounce cell for disk snapshots
 
     def _persist_savings() -> None:
@@ -1547,24 +2024,49 @@ def build_app(
             "/v1/feedback is unauthenticated; set %s to require a bearer token", _FEEDBACK_TOKEN_ENV
         )
 
+    # Governance registries (WF-DESIGN-0013 §4/§5): stateless singletons built once for the
+    # gateway's lifetime — like ``breaker`` — via local imports, so ``import wayfinder_router`` stays
+    # governance-free (Contract 1). ``empty_identity`` is the fallback when ``[identity]`` is absent
+    # (vkey-tag synthesis / ANONYMOUS still work). ``audit_state`` is the reconfigure-per-request
+    # cell for the long-lived audit log (opened lazily only when ``[audit]`` is active).
+    from . import detectors as _detectors_mod
+    from . import identity as _identity_mod
+
+    detector_registry = _detectors_mod.DetectorRegistry.default()
+    empty_identity = _identity_mod.IdentityRegistry([])
+    audit_state: dict[str, object] = {"log": None, "dir": None}
+
     # Reliability (WF-ADR-0031): one circuit breaker for the gateway's lifetime; thresholds
     # come from the initial config so this runtime state survives routing/cost hot-reloads.
     breaker = reliability.CircuitBreaker(
-        threshold=gw0.breaker_threshold, cooldown=gw0.breaker_cooldown
+        threshold=gw0.breaker_threshold, cooldown=gw0.breaker_cooldown,
+        state_path=str(_store_dir / "breaker.db") if _store_dir is not None else None,
     )
 
     # Response cache (WF-ADR-0033): one long-lived store for the gateway's lifetime. Off unless
-    # configured; the handler keeps it in sync with hot-reloaded config (disabling purges it).
+    # configured; the handler keeps it in sync with hot-reloaded config (disabling purges it). The
+    # disk backend (WF-DESIGN-0013 §7a) is a distinct class keyed on a directory, not a kwarg.
     _cache0 = gw0.cache or CacheConfig()
-    response_cache = cache.ResponseCache(
-        enabled=_cache0.enabled, ttl=_cache0.ttl,
-        max_entries=_cache0.max_entries, max_bytes=_cache0.max_bytes,
-    )
+    response_cache: cache.ResponseCache | cache.DiskResponseCache
+    if _store_dir is not None:
+        response_cache = cache.DiskResponseCache(
+            enabled=_cache0.enabled, ttl=_cache0.ttl,
+            max_entries=_cache0.max_entries, max_bytes=_cache0.max_bytes,
+            dir=str(_store_dir / "cache"),
+        )
+    else:
+        response_cache = cache.ResponseCache(
+            enabled=_cache0.enabled, ttl=_cache0.ttl,
+            max_entries=_cache0.max_entries, max_bytes=_cache0.max_bytes,
+        )
 
     # Rate limit (WF-ADR-0034): one long-lived limiter; its window counters survive config
     # hot-reloads (like the breaker), and the handler keeps the limits in sync.
     _rl0 = gw0.rate_limit or RateLimit()
-    rate_limiter = ratelimit.RateLimiter(rpm=_rl0.rpm, tpm=_rl0.tpm, window=_rl0.window, clock=clock)
+    rate_limiter = ratelimit.RateLimiter(
+        rpm=_rl0.rpm, tpm=_rl0.tpm, window=_rl0.window, clock=clock,
+        state_path=str(_store_dir / "ratelimit.db") if _store_dir is not None else None,
+    )
 
     # Per-virtual-key rate limiters (WF-ADR-0035): one per key, created on first use and kept
     # alive across requests so each key's window counters persist. Synced to current config.
@@ -2026,6 +2528,71 @@ def build_app(
             if clamped != chosen:
                 chosen, mode = clamped, "key-scoped"
 
+        # Governance stage (WF-DESIGN-0013 §6, WF-ROADMAP-0012): AFTER the per-key clamp (today's
+        # final route word) and BEFORE ``wf_headers``. Resolve the principal, scan detectors,
+        # evaluate the compiled policy, then mutate ``chosen``/``mode``, short-circuit on
+        # deny/block/throttle, and redact the forwarded body. When ``[policy]`` is absent this
+        # reduces to the single ``is None`` check below — the covenant's runtime half (Contract 11).
+        route_pre_policy = chosen  # post-clamp, pre-verb: what a routes=[...] rule matches on (§6)
+        prompt_all = extract_prompt(messages, route_on="all")  # hoisted so the detector scan can run
+        pdecision: PolicyDecision | None = None
+        gov: _GovDecision | None = None
+        audit_log: AuditLog | None = None
+        if gw.policy is not None:
+            audit_log = _ensure_audit_log(audit_state, gw.audit)  # None unless [audit] is active
+            identity_registry = gw.identity or empty_identity
+            principal = identity_registry.resolve(
+                vkey_id=key_id, vkey_tags=(key_cfg.tags if key_cfg is not None else ())
+            )
+            hits = detector_registry.scan(prompt_all)
+            pdecision = _governance_evaluate(
+                gw.policy, principal, key_id, body, route_pre_policy, decision.score, hits
+            )
+            metrics.observe_policy(principal.kind, pdecision, hits)
+            pmode = _policy_mode(pdecision, route_pre_policy, mode)
+            _unit = "usd" if budget_priced else "relative"  # decision-time unit for zero-cost appends
+            if audit_log is not None:
+                # Capture the decision-time signals; the append lands post-response with real costs.
+                gov = _GovDecision(
+                    request_id=request_id, principal=principal, vkey_id=key_id,
+                    pdecision=pdecision, hits=hits, route=pdecision.route,
+                    route_pre_policy=route_pre_policy, score=decision.score, mode=pmode,
+                    offline=offline, budget_state=budget_state, policy_id=gw.policy.policy_id,
+                    request_digest=cache.cache_key(pdecision.route, body),
+                )
+            if pdecision.block is not None:  # deny/block -> structured 403; never reaches an upstream
+                if audit_log is not None and gov is not None:
+                    _governance_audit_append(
+                        audit_log, metrics, gov, prompt_tokens=0, completion_tokens=0,
+                        estimated=False, realized=0.0, baseline=0.0, saved=0.0, unit=_unit,
+                    )
+                return JSONResponse(
+                    status_code=pdecision.block.status,
+                    content={"error": {
+                        "message": pdecision.block.message,
+                        "type": "wayfinder_router_policy_blocked",
+                    }},
+                    headers={**pdecision.to_headers(), "x-wayfinder-router-request-id": request_id},
+                )
+            if pdecision.throttle:  # throttle -> 429; also never reaches an upstream
+                if audit_log is not None and gov is not None:
+                    _governance_audit_append(
+                        audit_log, metrics, gov, prompt_tokens=0, completion_tokens=0,
+                        estimated=False, realized=0.0, baseline=0.0, saved=0.0, unit=_unit,
+                    )
+                return JSONResponse(
+                    status_code=429,
+                    content={"error": {
+                        "message": "throttled by policy",
+                        "type": "wayfinder_router_policy_throttled",
+                    }},
+                    headers={**pdecision.to_headers(), "x-wayfinder-router-request-id": request_id},
+                )
+            if pdecision.redactions:  # rewrite the FORWARDED copy only (§3); original body untouched
+                _redact_body(body, pdecision.redactions, detector_registry)
+            chosen = pdecision.route  # policy is the last route word, after the clamp (§6)
+            mode = pmode
+
         wf_headers = {
             "x-wayfinder-router-model": chosen,
             "x-wayfinder-router-score": f"{decision.score:.2f}",
@@ -2036,6 +2603,8 @@ def build_app(
             wf_headers["x-wayfinder-router-budget"] = budget_state
         if offline:  # set once, so every path (cache hit, dry-run, delivery) carries the marker
             wf_headers["x-wayfinder-router-offline"] = "true"
+        if pdecision is not None:  # merge the three policy headers onto the decision headers (§3/§6)
+            wf_headers.update(pdecision.to_headers())
         # Informational rate-limit headers (WF-ADR-0034): tell well-behaved clients how much
         # headroom they have so they can self-pace before hitting a 429. Reflects the tightest
         # applicable RPM cap (gateway-wide vs this key's), by remaining headroom.
@@ -2052,7 +2621,7 @@ def build_app(
         logger.info(
             "request %s -> %s (score %.2f, mode %s)", request_id, chosen, decision.score, mode
         )
-        entry = {  # mutable: cost fields (metadata only) are filled in after the upstream replies
+        entry: dict[str, Any] = {  # mutable: cost fields (metadata only) filled after the reply
             "request_id": request_id,
             "model": chosen,
             "score": round(decision.score, 2),
@@ -2062,8 +2631,8 @@ def build_app(
         if key_id is not None:  # attribution: which virtual key this turn belongs to (WF-ADR-0035)
             entry["key"] = key_id
         recent.append(entry)
-        # Full prompt text, used only as a token-count fallback when the upstream omits `usage`.
-        prompt_all = extract_prompt(messages, route_on="all")
+        # ``prompt_all`` (the token-count fallback when the upstream omits ``usage``) was hoisted
+        # above the governance stage for the detector scan; it is unchanged by the stage.
         metrics.observe_decision(chosen, mode, decision_seconds)
         # Opt-in: surface the decision in the response so a client can show it
         # (default stays byte-clean for strict clients). The headers always carry it.
@@ -2177,6 +2746,15 @@ def build_app(
                 metrics.observe_cache_hit(avoided)
                 entry["cache"] = "hit"  # decision-feed metadata only — never the body
                 logger.info("request %s cache hit (served-by %s)", request_id, deliver_from)
+                if audit_log is not None and gov is not None:
+                    # A cache hit bypasses ``_record_turn`` (it is free); record the decision with the
+                    # cached token counts and zero realized cost so the audit trail stays one-per-turn.
+                    _governance_audit_append(
+                        audit_log, metrics, gov,
+                        prompt_tokens=cached.prompt_tokens, completion_tokens=cached.completion_tokens,
+                        estimated=cached.estimated, realized=0.0, baseline=0.0, saved=0.0,
+                        unit="usd" if budget_priced else "relative",
+                    )
                 return Response(
                     content=cached.body, status_code=cached.status,
                     media_type=cached.content_type,
@@ -2248,9 +2826,16 @@ def build_app(
                     breaker.record(served, True)
                     # No upstream `usage` over SSE by default, so estimate from the streamed text.
                     completion_text = "".join(parse_sse_deltas("".join(streamed).splitlines()))
-                    s_pt, s_ct, _ = _record_turn(
+                    s_pt, s_ct, s_est = _record_turn(
                         entry, served, decision, gw, None, prompt_all, completion_text, vkey=key_id
                     )
+                    if audit_log is not None and gov is not None:  # append with the realized costs
+                        _c = entry["cost"]
+                        _governance_audit_append(
+                            audit_log, metrics, gov, prompt_tokens=s_pt, completion_tokens=s_ct,
+                            estimated=s_est, realized=_c["realized"], baseline=_c["baseline"],
+                            saved=_c["saved"], unit=_c["unit"],
+                        )
                     rate_limiter.add_tokens(s_pt + s_ct)  # count served tokens toward TPM
                     if key_limiter is not None:
                         key_limiter.add_tokens(s_pt + s_ct)  # ...and the key's own TPM window
@@ -2287,6 +2872,13 @@ def build_app(
                 entry, served_by, decision, gw, response_obj,
                 prompt_all, _first_choice_text(response_obj), vkey=key_id,
             )
+            if audit_log is not None and gov is not None:  # append the decision with realized costs
+                _c = entry["cost"]
+                _governance_audit_append(
+                    audit_log, metrics, gov, prompt_tokens=pt, completion_tokens=ct,
+                    estimated=estimated, realized=_c["realized"], baseline=_c["baseline"],
+                    saved=_c["saved"], unit=_c["unit"],
+                )
             rate_limiter.add_tokens(pt + ct)  # count served tokens toward TPM (WF-ADR-0034)
             if key_limiter is not None:
                 key_limiter.add_tokens(pt + ct)  # ...and the key's own TPM window
