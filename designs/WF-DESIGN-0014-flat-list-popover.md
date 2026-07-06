@@ -63,6 +63,21 @@ the decision was: **keep the fill-meter mechanism from WF-DESIGN-0013 (`src-taur
 tray}.rs`, `lib/meter.ts`), drop nothing there, and do not add a metric picker.** That code was
 already correct in kind; only the popover DOM around it was wrong.
 
+**Amendment: the tray shape is now a signpost, not a W.** The maintainer asked for a shape in
+that spirit (a two-arm signpost). Its point data is traced from lucide-react's own
+"signpost-big" icon (ISC licensed; lucide is already this app's icon library — HelpTip, the
+send button, etc.) rather than hand-drawn, so the proportions are a real icon's, not an
+approximation. A first hand-drawn cut, and a first pass at porting it, both rendered "running"
+as a formless blob — a uniformly thick stroke over the whole shape merges the two signs into
+one mass at 22px. The fix: the post and ground stay plain strokes at two widths (thick for
+running/degraded, thin for the hollow stopped state — the same trick the old W used), but the
+two signs are filled *polygons*, so they stay legible as distinct pennants at every state; the
+notch chips the upper sign's tip via a triangle cut on top of the polygon fill. `meter_image`'s
+row-splice needed the post/ground to vary too, not just the signs — it needs every row band to
+differ between the running and stopped source images, since the local-routing-share fill can
+land anywhere. Every semantic this section already covers is untouched: three health states,
+never colour (macOS tints the template), the fill-meter row-splice, no percentage picker.
+
 ## What ports unchanged
 
 Everything data/logic-shaped, because none of it renders anything — WF-ADR-0001 (the client never
