@@ -1485,6 +1485,14 @@ def test_router_models_carries_the_tier_ladder(tmp_path):
     assert tiers == [{"model": "local", "min_score": 0.0}, {"model": "cloud", "min_score": 0.6}]
 
 
+def test_router_models_reports_no_tier_ladder_in_classifier_mode(tmp_path):
+    # In classifier mode the score-band tiers are inert (the classifier decides), so /router/models
+    # reports an empty ladder — the Providers pane shows no editable thresholds that change nothing.
+    (tmp_path / "wayfinder-router.toml").write_text(CLASSIFIER_CONFIG, encoding="utf-8")
+    tc = TestClient(gateway.build_app(start_dir=str(tmp_path)))
+    assert tc.get("/router/models").json()["tiers"] == []
+
+
 def test_demo_page_has_models_status(client):
     text = client[0].get("/demo").text
     assert 'id="models"' in text and "/router/models" in text

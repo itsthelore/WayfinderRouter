@@ -1789,7 +1789,15 @@ def build_app(
             }
             for name, m in gw.models.items()
         ]
-        tiers = [{"model": t.model, "min_score": t.min_score} for t in (routing.tiers or ())]
+        # Only the score-band ladder that is actually driving routing. In classifier mode the
+        # `tiers` field still holds the default local/cloud bands, but they are inert — the
+        # classifier decides — so report an empty ladder rather than thresholds the Providers
+        # pane would render as editable when they change nothing (WF-DESIGN-0015).
+        tiers = (
+            []
+            if routing.classifier is not None
+            else [{"model": t.model, "min_score": t.min_score} for t in (routing.tiers or ())]
+        )
         return {"models": models, "tiers": tiers, "dry_run": dry_run}
 
     @app.post("/router/config", response_class=PlainTextResponse)

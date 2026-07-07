@@ -588,6 +588,21 @@ def test_config_set_model_sets_and_clears_fallback(tmp_path, monkeypatch):
     assert "fallbacks = []" in text
 
 
+def test_config_set_model_applies_enabled_and_fallback_in_one_invocation(tmp_path, monkeypatch):
+    # Both edits target distinct keys and are applied sequentially on the prior's output — neither
+    # clobbers the other's TOML write (the desktop's setModelFallback + setModelEnabled paths).
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.delenv("WAYFINDER_CONFIG", raising=False)
+    _write_two_model_config(tmp_path)
+    assert (
+        main(["config", "set-model", "--name", "cloud", "--enabled", "false", "--fallback", "local"])
+        == 0
+    )
+    text = (tmp_path / "wayfinder-router.toml").read_text(encoding="utf-8")
+    assert "enabled = false" in text
+    assert 'fallbacks = ["local"]' in text
+
+
 def test_config_set_model_rejects_bad_input(tmp_path, monkeypatch, capsys):
     monkeypatch.chdir(tmp_path)
     monkeypatch.delenv("WAYFINDER_CONFIG", raising=False)
