@@ -432,9 +432,11 @@ pub async fn detect_local_providers() -> Vec<DetectedProvider> {
 
 /// A provider endpoint must be an http(s) URL before we spawn a probe — whitelist discipline
 /// (WF-ADR-0044 §Risks), the same "validate the input shape before acting on it" the CLI slug
-/// guard applies. Keeps `test_connection` from handing `reqwest` a `file://` or worse.
+/// guard applies. Keeps `test_connection` from handing `reqwest` a `file://` or worse. URL schemes
+/// are case-insensitive (RFC 3986 §3.1), so `HTTPS://…` is accepted; leading whitespace is not.
 fn is_http_url(s: &str) -> bool {
-    s.starts_with("http://") || s.starts_with("https://")
+    let lower = s.to_ascii_lowercase();
+    lower.starts_with("http://") || lower.starts_with("https://")
 }
 
 /// Probe an arbitrary provider endpoint for the Providers pane's "Test Connection" button. Same
@@ -619,7 +621,8 @@ mod tests {
 
     #[test]
     fn is_http_url_gates_the_test_connection_probe() {
-        for ok in ["http://127.0.0.1:11434/v1", "https://api.anthropic.com/v1", "http://x"] {
+        // Schemes are case-insensitive (RFC 3986); a mixed-case scheme is still accepted.
+        for ok in ["http://127.0.0.1:11434/v1", "https://api.anthropic.com/v1", "http://x", "HTTPS://API.X/v1", "Http://x"] {
             assert!(is_http_url(ok), "{ok}");
         }
         for bad in ["", "ftp://host", "file:///etc/passwd", "127.0.0.1:11434", "ws://host", "  http://x"] {
