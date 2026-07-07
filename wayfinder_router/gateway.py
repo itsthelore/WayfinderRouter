@@ -1773,7 +1773,8 @@ def build_app(
 
         Also carries the scored tier ladder (``tiers``: ascending ``min_score`` + ``model``,
         WF-ADR-0002) so a client can show where each model sits in the routing bands without
-        sending a chat turn to read the decision. Empty in classifier mode (no ordered tiers)."""
+        sending a chat turn to read the decision (empty in classifier mode), and each model's
+        ``fallbacks`` (WF-ADR-0031) so a client can render/edit them without parsing config."""
         routing, gw = holder.current()
         models = [
             {
@@ -1784,6 +1785,7 @@ def build_app(
                 "key_ok": m.api_key_env is None or bool(os.environ.get(m.api_key_env)),
                 "context_window": m.context_window,
                 "enabled": m.enabled,
+                "fallbacks": list(m.fallbacks),
             }
             for name, m in gw.models.items()
         ]

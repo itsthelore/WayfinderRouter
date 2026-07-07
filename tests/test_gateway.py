@@ -1458,6 +1458,20 @@ def test_router_models_reports_context_window_and_enabled(tmp_path):
     assert by["cloud"]["context_window"] == 200000 and by["cloud"]["enabled"] is False
 
 
+def test_router_models_reports_fallbacks(tmp_path):
+    cfg = (
+        "[routing]\nthreshold = 0.2\n\n"
+        '[gateway.models.local]\nbase_url = "http://localhost:11434/v1"\nmodel = "m"\n\n'
+        '[gateway.models.cloud]\nbase_url = "https://api.anthropic.com/v1"\nmodel = "m2"\n'
+        'fallbacks = ["local"]\n'
+    )
+    (tmp_path / "wayfinder-router.toml").write_text(cfg, encoding="utf-8")
+    tc = TestClient(gateway.build_app(start_dir=str(tmp_path)))
+    by = {m["name"]: m for m in tc.get("/router/models").json()["models"]}
+    assert by["local"]["fallbacks"] == []
+    assert by["cloud"]["fallbacks"] == ["local"]
+
+
 def test_router_models_carries_the_tier_ladder(tmp_path):
     cfg = (
         '[[routing.tiers]]\nmin_score = 0.0\nmodel = "local"\n\n'
