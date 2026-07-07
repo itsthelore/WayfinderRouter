@@ -287,6 +287,100 @@ pub fn add_model(
     Ok(format!("added {name} — restarted the gateway to load it"))
 }
 
+/// A model name is the `[gateway.models.<name>]` slug: strict `^[a-z][a-z0-9_-]{0,63}$`, the
+/// same shape the CLI enforces — validated here too so nothing off-whitelist is ever handed to a
+/// process spawn (WF-ADR-0044 §Risks: whitelist discipline is the seam's security boundary).
+fn valid_model_name(name: &str) -> bool {
+    let mut chars = name.chars();
+    match chars.next() {
+        Some(c) if c.is_ascii_lowercase() => {}
+        _ => return false,
+    }
+    name.len() <= 64 && chars.all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-' || c == '_')
+}
+
+/// Edit delivery-time fields on an existing `[gateway.models.*]` entry by shelling `config
+/// set-model` (WF-ADR-0044 amendment). `enabled` and `fallback` are both delivery concerns
+/// (WF-ADR-0001: never the scored decision), and the gateway hot-reloads config on its next
+/// request — so, unlike `add_model`, this does NOT restart the service. `clear_fallback` maps to
+/// `--no-fallback`; a `fallback` value maps to `--fallback <model>` (they're mutually exclusive,
+/// enforced by the CLI). At least one of the three edits must be requested or the CLI no-ops.
+#[tauri::command]
+pub fn set_model(
+    name: String,
+    enabled: Option<bool>,
+    fallback: Option<String>,
+    clear_fallback: bool,
+) -> Result<String, String> {
+    if !valid_model_name(&name) {
+        return Err(format!("invalid model name '{name}'"));
+    }
+    if let Some(fb) = &fallback {
+        if !valid_model_name(fb) {
+            return Err(format!("invalid fallback model name '{fb}'"));
+        }
+    }
+    let home = std::env::var("HOME").unwrap_or_default();
+    let path = std::env::var("PATH").unwrap_or_default();
+    let wf = service::resolve_wayfinder(&home, &path).ok_or_else(|| {
+        "couldn't find `wayfinder-router` — install the gateway first (pip install wayfinder-router)"
+            .to_string()
+    })?;
+    let config = service::desktop_config_path(&home);
+    let mut args = vec!["config".to_string(), "set-model".to_string(), "--name".to_string(), name.clone()];
+    if let Some(on) = enabled {
+        args.push("--enabled".to_string());
+        args.push(if on { "true".to_string() } else { "false".to_string() });
+    }
+    if let Some(fb) = &fallback {
+        args.push("--fallback".to_string());
+        args.push(fb.clone());
+    } else if clear_fallback {
+        args.push("--no-fallback".to_string());
+    }
+    args.push("--path".to_string());
+    args.push(config);
+    let out = Command::new(&wf).args(&args).output().map_err(|e| format!("{wf}: {e}"))?;
+    if out.status.success() {
+        Ok(format!("updated {name}")) // config hot-reloads; no restart
+    } else {
+        let stderr = String::from_utf8_lossy(&out.stderr);
+        Err(format!("config set-model failed: {}", stderr.trim()))
+    }
+}
+
+/// Move an existing routing tier's score boundary by shelling `config set-threshold`
+/// (WF-ADR-0044 amendment). Unlike `set_model`'s delivery fields, this IS a routing-decision
+/// change (WF-ADR-0002) — the gateway rejects a value that would break tier ordering, and
+/// hot-reloads a valid one on its next request (no restart).
+#[tauri::command]
+pub fn set_threshold(model: String, min_score: f64) -> Result<String, String> {
+    if !valid_model_name(&model) {
+        return Err(format!("invalid model name '{model}'"));
+    }
+    if !(0.0..=1.0).contains(&min_score) {
+        return Err("min_score must be between 0.0 and 1.0".to_string());
+    }
+    let home = std::env::var("HOME").unwrap_or_default();
+    let path = std::env::var("PATH").unwrap_or_default();
+    let wf = service::resolve_wayfinder(&home, &path).ok_or_else(|| {
+        "couldn't find `wayfinder-router` — install the gateway first (pip install wayfinder-router)"
+            .to_string()
+    })?;
+    let config = service::desktop_config_path(&home);
+    let score = format!("{min_score}");
+    let out = Command::new(&wf)
+        .args(["config", "set-threshold", "--model", &model, "--min-score", &score, "--path", &config])
+        .output()
+        .map_err(|e| format!("{wf}: {e}"))?;
+    if out.status.success() {
+        Ok(format!("set {model} threshold to {min_score}"))
+    } else {
+        let stderr = String::from_utf8_lossy(&out.stderr);
+        Err(format!("config set-threshold failed: {}", stderr.trim()))
+    }
+}
+
 /// A local runner the "add a model" form can offer as a one-click suggestion, alongside its
 /// prefillable base URL.
 #[derive(serde::Serialize)]
@@ -465,5 +559,18 @@ mod tests {
     #[test]
     fn supports_keychain_init_false_when_the_binary_is_missing() {
         assert!(!supports_keychain_init("/nonexistent/wayfinder-router"));
+    }
+
+    #[test]
+    fn valid_model_name_matches_the_cli_slug_shape() {
+        for ok in ["local", "cloud", "anthropic-opus", "gpt_4o", "a", "m1"] {
+            assert!(valid_model_name(ok), "{ok}");
+        }
+        for bad in ["", "Local", "1model", "-lead", "with.dot", "with space", "with/slash"] {
+            assert!(!valid_model_name(bad), "{bad:?}");
+        }
+        // length cap: 64 accepted, 65 rejected
+        assert!(valid_model_name(&format!("a{}", "b".repeat(63))));
+        assert!(!valid_model_name(&format!("a{}", "b".repeat(64))));
     }
 }

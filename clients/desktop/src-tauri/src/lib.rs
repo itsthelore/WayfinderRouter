@@ -48,6 +48,8 @@ pub fn run() {
             commands::set_shortcut,
             commands::set_offline,
             commands::add_model,
+            commands::set_model,
+            commands::set_threshold,
             commands::detect_local_providers,
         ])
         .setup(|app| {
