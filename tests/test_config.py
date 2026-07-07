@@ -405,3 +405,116 @@ def test_add_model_table_round_trips_through_the_real_parsers():
         assert gw.models["extra"].model == "m"
         assert gw.models["extra"].api_key_env == "EXTRA_API_KEY"
         routing_config_from_toml(out)  # must not raise — new model isn't in any tier
+
+
+# ---------------------------------------------------------------- set_toml_string_list (the seam)
+
+
+def test_set_toml_string_list_replaces_in_place_preserving_everything_else():
+    from wayfinder_router.config import set_toml_string_list
+
+    text = (
+        "[gateway.models.cloud]\n"
+        'base_url = "http://x"\n'
+        'model = "m"\n'
+        "fallbacks = [\"old\"]\n"
+        "cost_per_1k = 0.01\n"
+    )
+    out = set_toml_string_list(text, "gateway.models.cloud", "fallbacks", ["local"])
+    assert 'fallbacks = ["local"]\n' in out
+    assert 'cost_per_1k = 0.01\n' in out  # unrelated line survives byte-for-byte
+
+
+def test_set_toml_string_list_inserts_under_an_existing_header():
+    from wayfinder_router.config import set_toml_string_list
+
+    text = '[gateway.models.cloud]\nbase_url = "http://x"\nmodel = "m"\n'
+    out = set_toml_string_list(text, "gateway.models.cloud", "fallbacks", ["local", "backup"])
+    assert out == (
+        '[gateway.models.cloud]\nfallbacks = ["local", "backup"]\nbase_url = "http://x"\nmodel = "m"\n'
+    )
+
+
+def test_set_toml_string_list_empty_list_clears_rather_than_removes():
+    from wayfinder_router.config import set_toml_string_list
+
+    text = '[gateway.models.cloud]\nfallbacks = ["local"]\n'
+    out = set_toml_string_list(text, "gateway.models.cloud", "fallbacks", [])
+    assert out == '[gateway.models.cloud]\nfallbacks = []\n'
+
+
+def test_set_toml_string_list_escapes_values():
+    from wayfinder_router.config import set_toml_string_list
+
+    out = set_toml_string_list("", "gateway.models.cloud", "fallbacks", ['weird"name'])
+    assert 'fallbacks = ["weird\\"name"]\n' in out
+
+
+# ------------------------------------------------------------------- set_tier_min_score (the seam)
+
+
+def test_set_tier_min_score_replaces_in_place_preserving_everything_else():
+    from wayfinder_router.config import set_tier_min_score
+
+    text = (
+        "[[routing.tiers]]\n"
+        "min_score = 0.0\n"
+        'model = "local"\n'
+        "\n"
+        "[[routing.tiers]]\n"
+        'model = "cloud"\n'
+        "min_score = 0.6\n"
+        "cost = 1.0\n"
+    )
+    out = set_tier_min_score(text, "cloud", 0.45)
+    assert "min_score = 0.45\n" in out
+    assert 'model = "local"\n' in out
+    assert "min_score = 0.0\n" in out  # the other tier's line is untouched
+    assert "cost = 1.0\n" in out
+
+
+def test_set_tier_min_score_inserts_a_missing_key():
+    from wayfinder_router.config import set_tier_min_score
+
+    text = '[[routing.tiers]]\nmodel = "local"\n'
+    out = set_tier_min_score(text, "local", 0.0)
+    assert out == '[[routing.tiers]]\nmin_score = 0.0\nmodel = "local"\n'
+
+
+def test_set_tier_min_score_rejects_an_unknown_model():
+    from wayfinder_router.config import WayfinderConfigError, set_tier_min_score
+
+    text = '[[routing.tiers]]\nmin_score = 0.0\nmodel = "local"\n'
+    with pytest.raises(WayfinderConfigError, match="no '\\[\\[routing.tiers\\]\\]' entry"):
+        set_tier_min_score(text, "cloud", 0.5)
+
+
+def test_set_tier_min_score_rejects_when_no_tiers_exist():
+    from wayfinder_router.config import WayfinderConfigError, set_tier_min_score
+
+    with pytest.raises(WayfinderConfigError, match="no '\\[\\[routing.tiers\\]\\]' entries"):
+        set_tier_min_score("[routing]\nthreshold = 0.5\n", "local", 0.0)
+
+
+def test_set_tier_min_score_round_trips_through_the_real_parser():
+    from wayfinder_router.config import routing_config_from_toml, set_tier_min_score
+
+    text = '[[routing.tiers]]\nmin_score = 0.0\nmodel = "local"\n\n[[routing.tiers]]\nmin_score = 0.6\nmodel = "cloud"\n'
+    out = set_tier_min_score(text, "cloud", 0.3)
+    routing = routing_config_from_toml(out)
+    assert [(t.min_score, t.model) for t in routing.tiers] == [(0.0, "local"), (0.3, "cloud")]
+
+
+def test_set_tier_min_score_a_breaking_edit_still_writes_but_reparse_catches_it():
+    # The primitive itself is pure text surgery — it's the CLI/caller's job to re-parse and
+    # refuse to write on a monotonicity violation (belt and braces, same as every seam verb).
+    from wayfinder_router import WayfinderConfigError
+    from wayfinder_router.config import routing_config_from_toml, set_tier_min_score
+
+    text = (
+        '[[routing.tiers]]\nmin_score = 0.0\nmodel = "local"\n\n'
+        '[[routing.tiers]]\nmin_score = 0.6\nmodel = "cloud"\n'
+    )
+    out = set_tier_min_score(text, "cloud", 0.0)  # ties local's 0.0 — no longer strictly ascending
+    with pytest.raises(WayfinderConfigError, match="ascending"):
+        routing_config_from_toml(out)

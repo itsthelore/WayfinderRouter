@@ -548,3 +548,107 @@ def test_config_add_model_no_config_is_a_clear_usage_error(tmp_path, monkeypatch
         "config", "add-model", "--name", "x", "--base-url", "https://x", "--model", "m",
     ]) == 2
     assert "run `wayfinder-router init`" in capsys.readouterr().err
+
+
+# ------------------------------------------------------------------------- config set-model
+
+
+def _write_two_model_config(tmp_path) -> None:
+    (tmp_path / "wayfinder-router.toml").write_text(
+        '[[routing.tiers]]\nmin_score = 0.0\nmodel = "local"\n\n'
+        '[[routing.tiers]]\nmin_score = 0.6\nmodel = "cloud"\n\n'
+        '[gateway.models.local]\nbase_url = "http://localhost:11434/v1"\nmodel = "llama3.1"\n\n'
+        '[gateway.models.cloud]\nbase_url = "https://api.anthropic.com/v1"\nmodel = "claude-sonnet-4-6"\n',
+        encoding="utf-8",
+    )
+
+
+def test_config_set_model_enables_and_disables(tmp_path, monkeypatch, capsys):
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.delenv("WAYFINDER_CONFIG", raising=False)
+    _write_two_model_config(tmp_path)
+    assert main(["config", "set-model", "--name", "cloud", "--enabled", "false"]) == 0
+    text = (tmp_path / "wayfinder-router.toml").read_text(encoding="utf-8")
+    assert "enabled = false" in text
+    assert "updated gateway.models.cloud" in capsys.readouterr().err
+    assert main(["config", "set-model", "--name", "cloud", "--enabled", "true"]) == 0
+    text = (tmp_path / "wayfinder-router.toml").read_text(encoding="utf-8")
+    assert "enabled = true" in text
+
+
+def test_config_set_model_sets_and_clears_fallback(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.delenv("WAYFINDER_CONFIG", raising=False)
+    _write_two_model_config(tmp_path)
+    assert main(["config", "set-model", "--name", "cloud", "--fallback", "local"]) == 0
+    text = (tmp_path / "wayfinder-router.toml").read_text(encoding="utf-8")
+    assert 'fallbacks = ["local"]' in text
+    assert main(["config", "set-model", "--name", "cloud", "--no-fallback"]) == 0
+    text = (tmp_path / "wayfinder-router.toml").read_text(encoding="utf-8")
+    assert "fallbacks = []" in text
+
+
+def test_config_set_model_rejects_bad_input(tmp_path, monkeypatch, capsys):
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.delenv("WAYFINDER_CONFIG", raising=False)
+    _write_two_model_config(tmp_path)
+
+    assert main(["config", "set-model", "--name", "cloud"]) == 2  # nothing to do
+    assert "nothing to do" in capsys.readouterr().err
+
+    assert main([
+        "config", "set-model", "--name", "cloud", "--fallback", "local", "--no-fallback",
+    ]) == 2
+    assert "mutually exclusive" in capsys.readouterr().err
+
+    assert main(["config", "set-model", "--name", "unknown-model", "--enabled", "false"]) == 2
+    assert "unknown model" in capsys.readouterr().err
+
+    # a fallback naming itself, or an unconfigured model, is a config-refusal (caught on reparse)
+    assert main(["config", "set-model", "--name", "cloud", "--fallback", "cloud"]) == 1
+    assert "cannot include itself" in capsys.readouterr().err
+    assert main(["config", "set-model", "--name", "cloud", "--fallback", "ghost"]) == 1
+    assert "unknown model" in capsys.readouterr().err
+
+
+def test_config_set_model_no_config_is_a_clear_usage_error(tmp_path, monkeypatch, capsys):
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.delenv("WAYFINDER_CONFIG", raising=False)
+    assert main(["config", "set-model", "--name", "x", "--enabled", "false"]) == 2
+    assert "run `wayfinder-router init`" in capsys.readouterr().err
+
+
+# --------------------------------------------------------------------- config set-threshold
+
+
+def test_config_set_threshold_moves_an_existing_tier(tmp_path, monkeypatch, capsys):
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.delenv("WAYFINDER_CONFIG", raising=False)
+    _write_two_model_config(tmp_path)
+    assert main(["config", "set-threshold", "--model", "cloud", "--min-score", "0.45"]) == 0
+    text = (tmp_path / "wayfinder-router.toml").read_text(encoding="utf-8")
+    assert "min_score = 0.45" in text
+    assert "hot-reloads this on its next request" in capsys.readouterr().err
+
+
+def test_config_set_threshold_rejects_bad_input(tmp_path, monkeypatch, capsys):
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.delenv("WAYFINDER_CONFIG", raising=False)
+    _write_two_model_config(tmp_path)
+
+    assert main(["config", "set-threshold", "--model", "cloud", "--min-score", "1.5"]) == 2
+    assert "0.0 and 1.0" in capsys.readouterr().err
+
+    assert main(["config", "set-threshold", "--model", "ghost", "--min-score", "0.5"]) == 1
+    assert "no '[[routing.tiers]]' entry" in capsys.readouterr().err
+
+    # ties the other tier's min_score — breaks strict ascending order, caught on reparse
+    assert main(["config", "set-threshold", "--model", "cloud", "--min-score", "0.0"]) == 1
+    assert "ascending" in capsys.readouterr().err
+
+
+def test_config_set_threshold_no_config_is_a_clear_usage_error(tmp_path, monkeypatch, capsys):
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.delenv("WAYFINDER_CONFIG", raising=False)
+    assert main(["config", "set-threshold", "--model", "x", "--min-score", "0.5"]) == 2
+    assert "run `wayfinder-router init`" in capsys.readouterr().err
