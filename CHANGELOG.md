@@ -8,6 +8,13 @@ details, release history over commit history.
 
 ### Added
 
+- **Desktop: an "Avg routing time" stat on the Usage screen** (WF-DESIGN-0014). A footer stat
+  strip pairs the week's savings share with the median time to *decide* a route, read from
+  `/router/recent`'s `p50_decision_ms`. Sub-millisecond p50s read as "<1 ms" (a route is a table
+  walk, not a model call — WF-ADR-0001); the caption says "recent turns" (the last ≤200-turn ring
+  the gateway keeps), not a calendar week, since that is the window the number actually covers.
+  Decision latency only — never the upstream model's response time.
+
 - **Desktop: the live turn's decision is a prompt-analysis card** (WF-DESIGN-0014). The chat
   screen's routing summary is restyled to the mockup grammar: the complexity score as a large
   numeral in the route accent (teal local / amber cloud) over a 0–1 bar, a route pill, a

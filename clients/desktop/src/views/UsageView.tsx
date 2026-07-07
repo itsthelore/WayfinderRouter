@@ -14,7 +14,7 @@
 import { useState } from "react";
 import { MessageCircle, PiggyBank, Route } from "lucide-react";
 import type { RecentReport } from "@/hooks/useRecent";
-import { formatSaved, type SavingsReport } from "@/lib/format";
+import { formatDecisionMs, formatSaved, type SavingsReport } from "@/lib/format";
 import { ActionRow } from "@/components/menu/ActionRow";
 import { MetricRow } from "@/components/menu/MetricRow";
 import { SplitBar } from "@/components/menu/SplitBar";
@@ -95,6 +95,9 @@ export function UsageView({
 
   const hasSavings = !!savings && savings.priced && savings.saved > 0;
   const has30d = !!savings30d && savings30d.priced && savings30d.saved > 0;
+  // The week's savings share for the footer strip — the % framing the mockup leads with, a
+  // glance headline over the dollar Saved lines above. Null (unpriced / no week yet) → em dash.
+  const week7dPct = savings7d && savings7d.priced && savings7d.saved > 0 ? Math.round(savings7d.saved_pct) : null;
 
   // The reference's Cost form: stacked dark body lines, today then the 30-day window. Each
   // line renders only when its period is priced with real savings (never "0 relative units").
@@ -145,10 +148,56 @@ export function UsageView({
       />
       <Separator className="mx-5 w-auto" />
 
+      {/* The mockup's footer stat strip: the week's savings share beside the decision-latency
+          p50. Both are plain text (no bar, no meter) — the popover keeps exactly one img, the
+          route split. The window here is the recent ring (last ≤200 turns), not a calendar week,
+          so the caption says "recent turns", not the mockup's "7 days" the backend can't back. */}
+      <div className="grid grid-cols-2 gap-4 px-5 py-3.5">
+        <StatCell
+          label="Estimated savings this week"
+          value={week7dPct != null ? `${week7dPct}%` : "—"}
+          caption="vs always-cloud"
+          accent
+        />
+        <StatCell
+          label="Avg routing time"
+          value={formatDecisionMs(recent?.p50DecisionMs ?? null)}
+          caption="p50 over recent turns"
+        />
+      </div>
+      <Separator className="mx-5 w-auto" />
+
       {/* Offline moved to the header switch (WF-DESIGN-0015 amendment): it is GLOBAL now —
           flipped through `config set gateway.offline` (WF-ADR-0044) — and a machine-wide mode
           belongs beside the machine-wide status, not in the action list. */}
       <ActionRow icon={MessageCircle} label="Wayfinder Chat" chevron onClick={onOpenChat} />
+    </div>
+  );
+}
+
+/** One footer stat: a small label, a bold value, a caption. Plain text — no bar, no meter (the
+ *  popover keeps a single img, the route split). `accent` tints the value with the route teal. */
+function StatCell({
+  label,
+  value,
+  caption,
+  accent = false,
+}: {
+  label: string;
+  value: string;
+  caption: string;
+  accent?: boolean;
+}) {
+  return (
+    <div className="flex flex-col gap-0.5">
+      <span className="text-[11px] text-muted-foreground">{label}</span>
+      <span
+        className="text-[18px] font-bold leading-tight tabular-nums"
+        style={accent ? { color: "var(--primary)" } : undefined}
+      >
+        {value}
+      </span>
+      <span className="text-[11px] text-muted-foreground">{caption}</span>
     </div>
   );
 }

@@ -4,6 +4,7 @@
     "local": 1,
     "cloud": 1
   },
+  "p50_decision_ms": 0.42,
   "recent": [
     {
       "request_id": "fx-recent",
@@ -11,6 +12,7 @@
       "score": 0.62,
       "mode": "scored",
       "ts": 0,
+      "decision_ms": 0.42,
       "cost": {
         "realized": 0.016,
         "baseline": 0.016,
@@ -26,6 +28,7 @@
       "score": 0,
       "mode": "scored",
       "ts": 0,
+      "decision_ms": 0.31,
       "cost": {
         "realized": 0.0018,
         "baseline": 0.009,

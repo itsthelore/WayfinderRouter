@@ -19,7 +19,7 @@ const RECENT = fixture("recent.json");
 const SAVINGS = JSON.parse(fixture("savings.json")) as SavingsReport;
 // The 30-day window: same shape, bigger numbers (the reference's "Last 30 days" line).
 const SAVINGS_30D: SavingsReport = { ...SAVINGS, saved: 1.82, saved_pct: 31.2 };
-const RECENT_REPORT: RecentReport = { total: 2, byModel: { local: 1, cloud: 1 }, localShare: 0.5 };
+const RECENT_REPORT: RecentReport = { total: 2, byModel: { local: 1, cloud: 1 }, localShare: 0.5, p50DecisionMs: 0.42 };
 
 const realFetch = globalThis.fetch;
 afterEach(() => {
@@ -35,6 +35,7 @@ describe("useRecent — the route split behind the meter and the Routing row", (
     expect(result.current.report!.total).toBe(2);
     expect(result.current.report!.localShare).toBe(0.5);
     expect(result.current.report!.byModel).toEqual({ local: 1, cloud: 1 });
+    expect(result.current.report!.p50DecisionMs).toBe(0.42);
   });
 
   it("no cheapest tier yet -> share is null (meter stays off)", async () => {
@@ -162,10 +163,29 @@ describe("UsageView — the flat list (mirrors clawrouter-usage.png)", () => {
     expect(screen.queryByRole("meter")).not.toBeInTheDocument();
   });
 
+  it("the footer stat strip shows the week's savings % and the sub-ms routing p50 (plain text)", () => {
+    render(
+      <UsageView
+        recent={RECENT_REPORT}
+        savings={SAVINGS}
+        savings7d={SAVINGS_7D}
+        savings30d={SAVINGS_30D}
+        cheapest="local"
+        onOpenChat={noop}
+      />,
+    );
+    // 7d saved_pct 30.1 → "30%"; p50 0.42 ms is sub-millisecond → "<1 ms". Both are text, so the
+    // route split stays the only img on the screen.
+    expect(screen.getByText("30%")).toBeInTheDocument();
+    expect(screen.getByText("<1 ms")).toBeInTheDocument();
+    expect(screen.getByText("p50 over recent turns")).toBeInTheDocument();
+    expect(screen.getAllByRole("img").length).toBe(1);
+  });
+
   it("empty states: no turns yet, unpriced savings", () => {
     render(
       <UsageView
-        recent={{ total: 0, byModel: {}, localShare: null }}
+        recent={{ total: 0, byModel: {}, localShare: null, p50DecisionMs: null }}
         savings={{ ...SAVINGS, priced: false, requests: 0, by_route: {} }}
         savings7d={null}
         savings30d={null}

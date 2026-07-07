@@ -10,6 +10,9 @@ export interface RecentReport {
   byModel: Record<string, number>;
   /** Fraction of recent turns routed to the cheapest tier; null until there is data. */
   localShare: number | null;
+  /** Median time to DECIDE a route over the recent ring (WF-ADR-0001) — a table walk, never the
+   *  upstream model's latency; null when the gateway reported none (no turns, or an old build). */
+  p50DecisionMs: number | null;
 }
 
 export function useRecent({
@@ -24,11 +27,20 @@ export function useRecent({
     try {
       const res = await fetch(`${baseUrl}/router/recent`);
       if (!res.ok) throw new Error(`recent ${res.status}`);
-      const body = (await res.json()) as { total: number; by_model: Record<string, number> };
+      const body = (await res.json()) as {
+        total: number;
+        by_model: Record<string, number>;
+        p50_decision_ms?: number | null;
+      };
       const total = body.total ?? 0;
       const localShare =
         cheapest && total > 0 ? (body.by_model?.[cheapest] ?? 0) / total : total > 0 ? null : null;
-      setReport({ total, byModel: body.by_model ?? {}, localShare });
+      setReport({
+        total,
+        byModel: body.by_model ?? {},
+        localShare,
+        p50DecisionMs: body.p50_decision_ms ?? null,
+      });
     } catch {
       setReport(null); // unreachable gateway: no meter, no tile — the views degrade
     }

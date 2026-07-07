@@ -29,6 +29,15 @@ export function formatSaved(saved: number): string {
   return `$${saved.toFixed(2)}`;
 }
 
+/** The decision-latency stat under Saved (WF-DESIGN-0014 amendment). A route is decided by a
+ *  table walk, not a model call (WF-ADR-0001), so sub-millisecond p50s read as "<1 ms"; `null`
+ *  (no turn decided yet, or an older gateway) renders as an em dash. Never model latency. */
+export function formatDecisionMs(ms: number | null): string {
+  if (ms == null) return "—";
+  if (ms < 1) return "<1 ms";
+  return `${Math.round(ms)} ms`;
+}
+
 /** A short "Updated {relative}" freshness line for the header's second row (CodexBar's own
  *  wording). `never` renders as an em dash — no gateway contact yet this session. */
 export function formatUpdated(lastUpdatedMs: number | null, nowMs: number): string {
