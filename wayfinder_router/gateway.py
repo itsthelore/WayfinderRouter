@@ -1769,8 +1769,12 @@ def build_app(
     def router_models() -> dict:
         """Read-only view of the configured endpoints and whether each model's key is
         present (WF-ADR-0025). Returns only the env-var *name* and a boolean — never a
-        secret. Keys live in the environment: set the named var and restart."""
-        _, gw = holder.current()
+        secret. Keys live in the environment: set the named var and restart.
+
+        Also carries the scored tier ladder (``tiers``: ascending ``min_score`` + ``model``,
+        WF-ADR-0002) so a client can show where each model sits in the routing bands without
+        sending a chat turn to read the decision. Empty in classifier mode (no ordered tiers)."""
+        routing, gw = holder.current()
         models = [
             {
                 "name": name,
@@ -1783,7 +1787,8 @@ def build_app(
             }
             for name, m in gw.models.items()
         ]
-        return {"models": models, "dry_run": dry_run}
+        tiers = [{"model": t.model, "min_score": t.min_score} for t in (routing.tiers or ())]
+        return {"models": models, "tiers": tiers, "dry_run": dry_run}
 
     @app.post("/router/config", response_class=PlainTextResponse)
     def export_config(body: dict = Body(default={})) -> Response:  # noqa: B008 - FastAPI default

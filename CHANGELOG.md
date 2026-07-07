@@ -36,9 +36,9 @@ details, release history over commit history.
   to its fallback; the scored decision never changes) and its single same-tier fallback.
   `config set-threshold --model --min-score` moves an existing routing tier's score boundary —
   a real decision change, rejected up front if it would break tier ordering. `/router/models`
-  also now reports each model's `context_window` and `enabled` state, and `/router/recent`
-  reports `p50_decision_ms` — the median time to *decide* a route, distinct from the upstream
-  model's own response time.
+  also now reports each model's `context_window` and `enabled` state plus the scored `tiers`
+  ladder (ascending `min_score` + `model`), and `/router/recent` reports `p50_decision_ms` — the
+  median time to *decide* a route, distinct from the upstream model's own response time.
 
 - **Decision-only replies when no model is configured** (WF-ADR-0042). A running gateway with no
   `[gateway.models]` now answers `/v1/chat/completions` with the routing **decision** (HTTP 200,
