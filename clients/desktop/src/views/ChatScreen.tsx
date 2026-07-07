@@ -9,7 +9,8 @@
 // reply — and each send carries the recent history so the gateway sees a conversation, not a
 // bag of one-offs. In-memory only; quitting the app is the clear affordance. The full decision
 // hero (score bar, why rows) stays reserved for the live turn.
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
+import { Check, Copy } from "lucide-react";
 import { routeGlyph, routeLabel } from "@wayfinder/shared/decision";
 import {
   historyFromTranscript,
@@ -36,15 +37,39 @@ import {
 } from "@/components/ui/message-scroller";
 
 /** The user's message, in scrollback and above the live hero alike: dark, with a muted
- *  prompt marker — the flat list's answer to a chat bubble. */
-function PromptLine({ prompt }: { prompt: string }) {
+ *  prompt marker — the flat list's answer to a chat bubble. The live turn gets a copy button
+ *  (mockup top-right); scrollback turns don't, to keep the compact rows quiet. */
+function PromptLine({ prompt, copyable = false }: { prompt: string; copyable?: boolean }) {
   return (
-    <div className="select-text whitespace-pre-wrap break-words px-5 pt-3.5 text-[13px] font-medium leading-[1.45]">
-      <span aria-hidden className="mr-1.5 text-muted-foreground">
-        ›
-      </span>
-      {prompt}
+    <div className="flex items-start gap-2 px-5 pt-3.5">
+      <div className="min-w-0 flex-1 select-text whitespace-pre-wrap break-words text-[13px] font-medium leading-[1.45]">
+        <span aria-hidden className="mr-1.5 text-muted-foreground">
+          ›
+        </span>
+        {prompt}
+      </div>
+      {copyable && <CopyButton text={prompt} />}
     </div>
+  );
+}
+
+/** Copy the prompt to the clipboard (webview-safe, no Rust — WF-ADR-0042). Flips to a check for a
+ *  beat so the click has feedback; a blocked clipboard just no-ops. */
+function CopyButton({ text }: { text: string }) {
+  const [copied, setCopied] = useState(false);
+  return (
+    <button
+      type="button"
+      aria-label={copied ? "prompt copied" : "copy prompt"}
+      onClick={() => {
+        void navigator.clipboard?.writeText(text);
+        setCopied(true);
+        window.setTimeout(() => setCopied(false), 1200);
+      }}
+      className="shrink-0 rounded p-1 text-muted-foreground transition-colors hover:text-foreground"
+    >
+      {copied ? <Check aria-hidden className="size-3.5" /> : <Copy aria-hidden className="size-3.5" />}
+    </button>
   );
 }
 
@@ -151,7 +176,7 @@ export function ChatScreen({
                 <MessageScrollerItem scrollAnchor>
                   {turn.decision ? (
                     <>
-                      <PromptLine prompt={turn.prompt} />
+                      <PromptLine prompt={turn.prompt} copyable />
                       <DecisionSummary decision={turn.decision} enriched={turn.enriched} offline={offline} />
                       {turn.decision.decisionOnly ? (
                         <OnboardingCard />
@@ -170,7 +195,7 @@ export function ChatScreen({
                     // it, submitting a second turn in an existing conversation left nothing
                     // rendered below the scrollback until the decision painted.
                     <>
-                      <PromptLine prompt={turn.prompt} />
+                      <PromptLine prompt={turn.prompt} copyable />
                       <div className="px-5 pt-1">
                         <Marker className="text-[11px]">
                           <MarkerIcon aria-hidden>

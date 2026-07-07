@@ -56,3 +56,64 @@ export function routingBadge(decision, { cache = false, offline = false } = {}) 
   if (cache) parts.push('cache hit');
   return parts.join(' · ');
 }
+
+/** A single contribution's raw `value` by feature name, or 0 when the feature is absent. */
+function featureValue(decision, name) {
+  const rows = (decision && decision.contributions) || [];
+  const hit = rows.find((c) => c.name === name);
+  return hit ? hit.value : 0;
+}
+
+/** Bucket a count into low/medium/high by the two boundaries [lo, hi). */
+function bucket(n, lo, hi) {
+  if (n >= hi) return 'high';
+  if (n >= lo) return 'medium';
+  return 'low';
+}
+
+/**
+ * The five prompt-analysis rows behind the score (WF-DESIGN-0014 amendment), for the popover
+ * Overview card. Display-only — it reads the contributions the gateway already returned and NEVER
+ * scores (WF-ADR-0001). Each row is `{ key, label, value }` where `value` is a short human string:
+ *   Word count → the raw count; Lists → 'none' or the item count; Code blocks / Structured
+ *   sections → 'no' / 'yes'; Lexical signals → 'low' | 'medium' | 'high' bucketed from the
+ *   reasoning + math + constraint term counts (the three keyword-family features).
+ */
+export function featureRows(decision) {
+  const words = featureValue(decision, 'word_count');
+  const lists = featureValue(decision, 'list_item_count');
+  const code = featureValue(decision, 'code_block_count');
+  const sections = featureValue(decision, 'heading_count') + featureValue(decision, 'table_row_count');
+  const lexical =
+    featureValue(decision, 'reasoning_term_count') +
+    featureValue(decision, 'math_symbol_count') +
+    featureValue(decision, 'constraint_term_count');
+  return [
+    { key: 'words', label: 'Word count', value: String(words) },
+    { key: 'lists', label: 'Lists', value: lists ? String(lists) : 'none' },
+    { key: 'code', label: 'Code blocks', value: code ? 'yes' : 'no' },
+    { key: 'sections', label: 'Structured sections', value: sections ? 'yes' : 'no' },
+    { key: 'lexical', label: 'Lexical signals', value: bucket(lexical, 3, 12) },
+  ];
+}
+
+/**
+ * A short "why" sentence mirroring the mockup, assembled from the same counts `featureRows` uses —
+ * e.g. "short prompt, no code, no structured sections." Length, code, and structured-sections
+ * clauses always appear (so the sentence reads the same shape every turn); a "technical terms"
+ * clause is appended only when the lexical signal is high. Display-only, never scores.
+ */
+export function whyLine(decision) {
+  const words = featureValue(decision, 'word_count');
+  const code = featureValue(decision, 'code_block_count');
+  const sections = featureValue(decision, 'heading_count') + featureValue(decision, 'table_row_count');
+  const lexical =
+    featureValue(decision, 'reasoning_term_count') +
+    featureValue(decision, 'math_symbol_count') +
+    featureValue(decision, 'constraint_term_count');
+  const parts = [words < 40 ? 'short prompt' : words < 200 ? 'medium-length prompt' : 'long prompt'];
+  parts.push(code ? 'code detected' : 'no code');
+  parts.push(sections ? 'structured sections' : 'no structured sections');
+  if (lexical >= 12) parts.push('technical terms');
+  return `${parts.join(', ')}.`;
+}

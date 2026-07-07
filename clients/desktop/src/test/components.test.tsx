@@ -4,9 +4,10 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { render, screen } from "@testing-library/react";
+import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { decisionFromDebug } from "@wayfinder/shared/gateway";
+import { featureRows, whyLine } from "@wayfinder/shared/decision";
 import { ExternalLink } from "lucide-react";
 import { Bar } from "@/components/menu/Bar";
 import { SplitBar } from "@/components/menu/SplitBar";
@@ -167,30 +168,48 @@ describe("FooterMenuItem — exact NSMenu style, real shortcuts (never decorativ
   });
 });
 
-describe("DecisionSummary — route/model/score in the flat row grammar, why behind a disclosure", () => {
-  it("carries the route and the routing badge text", () => {
+describe("DecisionSummary — the live turn's prompt-analysis card (WF-DESIGN-0014)", () => {
+  it("shows the score numeral, route pill, and deterministic caption", () => {
     const { container } = render(<DecisionSummary decision={cloud} enriched offline />);
     expect(container.querySelector('[role="meter"]')).toBeInTheDocument();
-    expect(screen.getByText(/cloud · score 0\.\d{2} · offline/)).toBeInTheDocument();
-    expect(screen.getByText("CLOUD")).toBeInTheDocument();
+    expect(screen.getByText("Route: Cloud")).toBeInTheDocument();
+    expect(screen.getByText(cloud.score.toFixed(2))).toBeInTheDocument();
+    expect(screen.getByText("Deterministic · No model call · offline")).toBeInTheDocument();
   });
-  it("why is collapsed by default and toggles open", async () => {
-    const user = userEvent.setup();
-    render(<DecisionSummary decision={cloud} enriched={true} />);
-    expect(screen.queryByRole("list", { name: "top scoring factors" })).not.toBeInTheDocument();
-    await user.click(screen.getByRole("button", { name: /why/ }));
-    expect(screen.getByRole("list", { name: "top scoring factors" })).toBeInTheDocument();
+  it("renders the five feature rows and the why line once enriched", () => {
+    render(<DecisionSummary decision={cloud} enriched />);
+    const list = screen.getByRole("list", { name: "prompt features" });
+    expect(within(list).getAllByRole("listitem")).toHaveLength(5);
+    expect(screen.getByRole("listitem", { name: "Code blocks: yes" })).toBeInTheDocument();
+    expect(screen.getByText(/code detected/)).toBeInTheDocument();
   });
-  it("shows skeleton why-rows before enrichment lands", async () => {
-    const user = userEvent.setup();
+  it("skeletons the feature rows before enrichment lands (no contributions yet)", () => {
     const { container } = render(<DecisionSummary decision={cloud} enriched={false} />);
-    await user.click(screen.getByRole("button", { name: /why/ }));
-    expect(screen.queryByRole("list")).not.toBeInTheDocument();
+    expect(screen.queryByRole("list", { name: "prompt features" })).not.toBeInTheDocument();
     expect(container.querySelectorAll("[aria-hidden] > *").length).toBeGreaterThan(0);
   });
-  it("local decisions render the local glyph and route", () => {
+  it("local decisions render the local route pill", () => {
     render(<DecisionSummary decision={local} enriched />);
-    expect(screen.getByText("LOCAL")).toBeInTheDocument();
+    expect(screen.getByText("Route: Local")).toBeInTheDocument();
+  });
+});
+
+describe("featureRows / whyLine — pure display helpers over the gateway's contributions", () => {
+  it("summarises a simple prompt as the mockup does (short, no code, no sections)", () => {
+    const rows = Object.fromEntries(featureRows(local).map((r) => [r.key, r.value]));
+    expect(rows).toMatchObject({ words: "2", lists: "none", code: "no", sections: "no", lexical: "low" });
+    expect(whyLine(local)).toBe("short prompt, no code, no structured sections.");
+  });
+  it("summarises a rich prompt (code, structured sections, high lexical signal)", () => {
+    const rows = Object.fromEntries(featureRows(cloud).map((r) => [r.key, r.value]));
+    expect(rows).toMatchObject({ words: "420", code: "yes", sections: "yes", lexical: "high" });
+    expect(whyLine(cloud)).toContain("code detected");
+    expect(whyLine(cloud)).toContain("technical terms");
+  });
+  it("is total over a decision with no contributions (header-only)", () => {
+    const bare = { model: "local", score: 0, isLocal: true, contributions: [] } as unknown as typeof local;
+    expect(featureRows(bare).map((r) => r.value)).toEqual(["0", "none", "no", "no", "low"]);
+    expect(whyLine(bare)).toBe("short prompt, no code, no structured sections.");
   });
 });
 

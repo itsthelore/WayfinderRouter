@@ -79,6 +79,16 @@ declare module "@wayfinder/shared/decision" {
     decision: Decision | null | undefined,
     flags?: { cache?: boolean; offline?: boolean },
   ): string;
+
+  /** One prompt-analysis row for the Overview card: a stable key (also the icon lookup), a human
+   *  label, and a short display value ('none' / 'no' / 'yes' / 'low' | 'medium' | 'high' / count). */
+  export interface FeatureRow {
+    key: string;
+    label: string;
+    value: string;
+  }
+  export function featureRows(decision: Decision | null | undefined): FeatureRow[];
+  export function whyLine(decision: Decision | null | undefined): string;
 }
 
 declare module "@wayfinder/shared/theme" {

@@ -8,6 +8,14 @@ details, release history over commit history.
 
 ### Added
 
+- **Desktop: the live turn's decision is a prompt-analysis card** (WF-DESIGN-0014). The chat
+  screen's routing summary is restyled to the mockup grammar: the complexity score as a large
+  numeral in the route accent (teal local / amber cloud) over a 0–1 bar, a route pill, a
+  "Deterministic · No model call" caption, and — once the enriched decision lands — a five-row
+  feature readout (word count, lists, code blocks, structured sections, lexical signal) with a
+  one-line "why". Everything is read from the decision the gateway already returned; the client
+  still never scores (WF-ADR-0001). The prompt line gets a copy button.
+
 - **Desktop: Settings gains a Providers pane and a 5-tab layout** (WF-DESIGN-0015). The Settings
   window is now General / Providers / Display / Advanced / About across a horizontal tab strip.
   The old Keys section becomes **Providers** — a master-detail view: a list of every configured

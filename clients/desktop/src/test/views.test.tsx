@@ -5,7 +5,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { render, screen, waitFor, within } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { decisionFromDebug } from "@wayfinder/shared/gateway";
 import { localPreview, parityVerified } from "@/lib/scorerPreview";
@@ -184,8 +184,20 @@ describe("ChatScreen — adornments + decision summary + reply swap", () => {
     render(
       <ChatScreen gw={gwState()} turn={turnStub({ decision: cloud, enriched: true, reply: "hello there", phase: "done" })} />,
     );
-    expect(screen.getByText("CLOUD")).toBeInTheDocument();
+    expect(screen.getByText("Route: Cloud")).toBeInTheDocument();
     expect(screen.getByText("hello there")).toBeInTheDocument();
+  });
+  it("the live prompt has a copy button that writes it to the clipboard", () => {
+    const writeText = vi.fn(() => Promise.resolve());
+    Object.defineProperty(navigator, "clipboard", { value: { writeText }, configurable: true });
+    render(
+      <ChatScreen
+        gw={gwState()}
+        turn={turnStub({ decision: cloud, enriched: true, reply: "hi", phase: "done", prompt: "copy me" })}
+      />,
+    );
+    fireEvent.click(screen.getByRole("button", { name: "copy prompt" }));
+    expect(writeText).toHaveBeenCalledWith("copy me");
   });
   it("announces the settled route once, politely, in an sr-only live region", () => {
     render(<ChatScreen gw={gwState()} turn={turnStub({ decision: local, enriched: true, reply: "hi", phase: "done" })} />);
