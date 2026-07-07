@@ -647,7 +647,7 @@ function ProviderDetail({
       <Separator />
       <FormRow
         label="Fallback"
-        description="If this endpoint fails, delivery retries the model you pick here first (WF-ADR-0031). Keep it in the same cost tier — a cross-tier pick changes what a failover costs."
+        description="If this endpoint fails, delivery retries the model you pick here first — keep it to a same-cost-tier peer (WF-ADR-0031)."
       >
         <NativeSelect
           size="sm"
