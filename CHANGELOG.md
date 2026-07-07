@@ -8,6 +8,18 @@ details, release history over commit history.
 
 ### Added
 
+- **Desktop: Settings gains a Providers pane and a 5-tab layout** (WF-DESIGN-0015). The Settings
+  window is now General / Providers / Display / Advanced / About across a horizontal tab strip.
+  The old Keys section becomes **Providers** — a master-detail view: a list of every configured
+  model (health dot + its share of the last 7 days' routing) on the left, and on the right the
+  selected model's endpoint, model id, context window, route eligibility, an **Enabled** switch,
+  a **fallback** picker, and — for models above the base tier — a **routing-threshold** slider,
+  all writing through the gateway's config CLI and hot-reloading with no restart. The base tier
+  shows "Base tier" with no slider (its boundary is structural, not editable). **Display** is new
+  (a "show savings in the menu bar" toggle, plus a note that appearance follows the system
+  theme); **Advanced** holds the former Gateway section; **About** carries the wordmark and the
+  privacy summary. Old deep-links (`keys`, `gateway`, `privacy`) still resolve to their new homes.
+
 - **Desktop: Routing period toggle (Today / 7d / 30d)** (WF-DESIGN-0014). The popover's Routing
   row is now just the bar — the local/cloud breakdown that used to sit as permanent text lives
   in a hover tooltip instead — with a toggle to pick which day-window it describes, reusing the

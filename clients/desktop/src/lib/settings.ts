@@ -24,6 +24,9 @@ export interface Settings {
   notifications: boolean;
   /** The popover-toggle shortcut; the popover re-applies it on mount and on change. */
   shortcut: ShortcutId;
+  /** Show the savings $ in the menu-bar title (Settings → Display). On by default; when off,
+   *  the tray carries only the health/meter shape, no dollar figure. */
+  trayShowSavings: boolean;
 }
 
 export const SETTINGS_KEY = "wf.settings.v1";
@@ -32,6 +35,7 @@ export const DEFAULT_SETTINGS: Settings = {
   cadence: "auto",
   notifications: false,
   shortcut: "alt+w",
+  trayShowSavings: true,
 };
 
 const CADENCE_MS: Record<Cadence, number | null> = {
@@ -57,6 +61,8 @@ export function loadSettings(): Settings {
       notifications: typeof parsed.notifications === "boolean" ? parsed.notifications : DEFAULT_SETTINGS.notifications,
       shortcut:
         parsed.shortcut && parsed.shortcut in SHORTCUT_LABELS ? parsed.shortcut : DEFAULT_SETTINGS.shortcut,
+      trayShowSavings:
+        typeof parsed.trayShowSavings === "boolean" ? parsed.trayShowSavings : DEFAULT_SETTINGS.trayShowSavings,
     };
   } catch {
     return DEFAULT_SETTINGS;

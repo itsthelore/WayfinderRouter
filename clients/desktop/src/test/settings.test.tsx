@@ -12,8 +12,8 @@ import { cadenceToMs, DEFAULT_SETTINGS, loadSettings, saveSettings, SETTINGS_KEY
 import { useSavings } from "@/hooks/useSavings";
 import { SettingsWindow } from "@/views/SettingsWindow";
 
-// Mock the ipc boundary so the Gateway/Keys/shortcut actions are assertable without a Tauri
-// runtime (outside one, openTarget no-ops and the key/shortcut actions reject).
+// Mock the ipc boundary so the Settings actions are assertable without a Tauri runtime (outside
+// one, openTarget no-ops and the key/shortcut/model actions reject).
 vi.mock("@/lib/ipc", async () => {
   const actual = await vi.importActual<typeof import("@/lib/ipc")>("@/lib/ipc");
   return {
@@ -24,6 +24,9 @@ vi.mock("@/lib/ipc", async () => {
     deleteProviderKey: vi.fn(async () => "removed"),
     addModel: vi.fn(async () => "added"),
     detectLocalProviders: vi.fn(async () => []),
+    setModelEnabled: vi.fn(async () => "updated"),
+    setModelFallback: vi.fn(async () => "updated"),
+    setTierThreshold: vi.fn(async () => "updated"),
   };
 });
 import {
@@ -31,9 +34,22 @@ import {
   deleteProviderKey,
   detectLocalProviders,
   openTarget,
+  setModelEnabled,
+  setModelFallback,
   setShortcut,
+  setTierThreshold,
   storeProviderKey,
 } from "@/lib/ipc";
+
+// The Providers pane fetches /router/models AND /v1/savings; route the mock by URL so both land.
+function mockGateway(modelsBody?: string): void {
+  const models = modelsBody ?? fixture("router-models.json");
+  globalThis.fetch = vi.fn(async (url: string | URL) => {
+    const u = String(url);
+    if (u.includes("/v1/savings")) return new Response(fixture("savings.json"), { status: 200 });
+    return new Response(models, { status: 200 }); // /router/models
+  }) as unknown as typeof fetch;
+}
 
 function fixture(name: string): string {
   return readFileSync(join(process.cwd(), "src", "test", "fixtures", name), "utf8");
@@ -48,8 +64,13 @@ afterEach(() => {
 describe("settings store — persistence + cadence mapping", () => {
   it("round-trips through localStorage and tolerates garbage", () => {
     expect(loadSettings()).toEqual(DEFAULT_SETTINGS);
-    saveSettings({ cadence: "5m", notifications: true, shortcut: "ctrl+alt+w" });
-    expect(loadSettings()).toEqual({ cadence: "5m", notifications: true, shortcut: "ctrl+alt+w" });
+    saveSettings({ cadence: "5m", notifications: true, shortcut: "ctrl+alt+w", trayShowSavings: false });
+    expect(loadSettings()).toEqual({
+      cadence: "5m",
+      notifications: true,
+      shortcut: "ctrl+alt+w",
+      trayShowSavings: false,
+    });
     localStorage.setItem(SETTINGS_KEY, "not json");
     expect(loadSettings()).toEqual(DEFAULT_SETTINGS);
     localStorage.setItem(SETTINGS_KEY, JSON.stringify({ cadence: "yearly" }));
@@ -97,11 +118,11 @@ describe("SettingsWindow — sidebar + Mac-native Form rows (mirrors clawrouter-
     expect(screen.queryByRole("searchbox")).not.toBeInTheDocument();
   });
 
-  it("Gateway section: endpoint, config file, dashboard, and logs — all the open-targets live HERE, not as popover rows", async () => {
+  it("Advanced section: gateway endpoint, config file, dashboard, and logs — all the open-targets live HERE, not as popover rows", async () => {
     const user = userEvent.setup();
     render(<SettingsWindow />);
-    await user.click(screen.getByRole("button", { name: "Gateway" }));
-    expect(screen.getByText("Endpoint")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Advanced" }));
+    expect(screen.getByText("Gateway endpoint")).toBeInTheDocument();
     expect(screen.getByText("127.0.0.1:8088")).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "Open in Finder" }));
     expect(openTarget).toHaveBeenCalledWith("config");
@@ -109,6 +130,15 @@ describe("SettingsWindow — sidebar + Mac-native Form rows (mirrors clawrouter-
     expect(openTarget).toHaveBeenCalledWith("dashboard");
     await user.click(screen.getByRole("button", { name: "Show in Finder" }));
     expect(openTarget).toHaveBeenCalledWith("logs");
+  });
+
+  it("Display section: the menu-bar savings toggle writes straight through to the settings store", async () => {
+    const user = userEvent.setup();
+    render(<SettingsWindow />);
+    await user.click(screen.getByRole("button", { name: "Display" }));
+    expect(loadSettings().trayShowSavings).toBe(true); // default
+    await user.click(screen.getByRole("switch", { name: "show savings in menu bar" }));
+    expect(loadSettings().trayShowSavings).toBe(false);
   });
 
   it("shortcut select persists the choice and invokes the rebind", async () => {
@@ -128,44 +158,86 @@ describe("SettingsWindow — sidebar + Mac-native Form rows (mirrors clawrouter-
     expect(await screen.findByText("combo already claimed")).toBeInTheDocument();
   });
 
-  it("?section=keys deep-links straight to the Keys section", async () => {
-    globalThis.fetch = vi.fn(async () =>
-      new Response(fixture("router-models.json"), { status: 200 }),
-    ) as unknown as typeof fetch;
+  it("?section=providers deep-links straight to the Providers section", async () => {
+    mockGateway();
+    window.history.replaceState(null, "", "?window=settings&section=providers");
+    render(<SettingsWindow />);
+    expect(await screen.findByRole("heading", { name: "Providers" })).toBeInTheDocument();
+    window.history.replaceState(null, "", "/");
+  });
+
+  it("a legacy ?section=keys deep-link still lands on Providers (remapped)", async () => {
+    mockGateway();
     window.history.replaceState(null, "", "?window=settings&section=keys");
     render(<SettingsWindow />);
-    expect(await screen.findByRole("heading", { name: "Keys" })).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "Providers" })).toBeInTheDocument();
     window.history.replaceState(null, "", "/");
   });
 });
 
-describe("SettingsWindow — Keys section (WF-DESIGN-0015: keyed models from /router/models)", () => {
-  function mockModels() {
-    globalThis.fetch = vi.fn(async () =>
-      new Response(fixture("router-models.json"), { status: 200 }),
-    ) as unknown as typeof fetch;
-  }
-
-  it("lists only keyed models, with env var + status; keyless local is absent", async () => {
-    mockModels();
-    const user = userEvent.setup();
-    render(<SettingsWindow />);
-    await user.click(screen.getByRole("button", { name: "Keys" }));
-    expect(await screen.findByText("cloud")).toBeInTheDocument();
-    expect(screen.getByText(/\$ANTHROPIC_API_KEY.*Key missing/)).toBeInTheDocument();
-    expect(screen.queryByText("llama3.1")).not.toBeInTheDocument();
-    // The key input is a password field and the honesty note names the Keychain + api_key_cmd.
-    expect(screen.getByLabelText("ANTHROPIC_API_KEY key")).toHaveAttribute("type", "password");
-    expect(screen.getByText(/macOS Keychain/)).toBeInTheDocument();
-    expect(screen.getByText(/api_key_cmd/)).toBeInTheDocument();
+describe("SettingsWindow — Providers master-detail (WF-ADR-0044 amendment)", () => {
+  afterEach(() => {
+    vi.mocked(setModelEnabled).mockClear();
+    vi.mocked(setModelFallback).mockClear();
+    vi.mocked(setTierThreshold).mockClear();
   });
 
-  it("Save stores the key via ipc and clears the input (never lingers in JS state)", async () => {
-    mockModels();
+  async function openProviders() {
     const user = userEvent.setup();
     render(<SettingsWindow />);
-    await user.click(screen.getByRole("button", { name: "Keys" }));
+    await user.click(screen.getByRole("button", { name: "Providers" }));
+    return user;
+  }
+
+  it("lists every configured model (not just keyed ones); first is selected by default", async () => {
+    mockGateway();
+    await openProviders();
+    // Both models appear in the master list — local is keyless, but Providers still shows it.
+    expect(await screen.findByRole("button", { name: "local" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "cloud" })).toBeInTheDocument();
+    // local (base tier, min_score 0.0) is selected first: detail shows its endpoint + "Base tier".
+    expect(screen.getByText("http://localhost:11434/v1")).toBeInTheDocument();
+    expect(screen.getByText("Base tier")).toBeInTheDocument();
+  });
+
+  it("the base tier shows no threshold slider; an escalation tier does", async () => {
+    mockGateway();
+    const user = await openProviders();
+    await screen.findByRole("button", { name: "local" });
+    // local = base tier → no slider.
+    expect(screen.queryByRole("slider", { name: "local routing threshold" })).not.toBeInTheDocument();
+    // cloud = escalation tier (min_score 0.45) → slider present, seeded to 0.45.
+    await user.click(screen.getByRole("button", { name: "cloud" }));
+    const slider = await screen.findByRole("slider", { name: "cloud routing threshold" });
+    expect(slider).toHaveValue("0.45");
+  });
+
+  it("the enable switch calls setModelEnabled for the selected model", async () => {
+    mockGateway();
+    const user = await openProviders();
+    await screen.findByRole("button", { name: "local" });
+    await user.click(screen.getByRole("switch", { name: "local enabled" }));
+    expect(setModelEnabled).toHaveBeenCalledWith("local", false); // fixture local is enabled → toggles off
+  });
+
+  it("the fallback select excludes the model itself and reflects the current fallback", async () => {
+    mockGateway();
+    const user = await openProviders();
+    await user.click(await screen.findByRole("button", { name: "cloud" }));
+    const select = screen.getByRole("combobox", { name: "cloud fallback" });
+    // cloud's configured fallback is "local" (fixture); the option list is None + local, never cloud.
+    expect(select).toHaveValue("local");
+    expect(screen.queryByRole("option", { name: "cloud" })).not.toBeInTheDocument();
+    await user.selectOptions(select, "None");
+    expect(setModelFallback).toHaveBeenCalledWith("cloud", null);
+  });
+
+  it("selecting a keyed model shows the Keychain key input; Save stores it and clears the field", async () => {
+    mockGateway();
+    const user = await openProviders();
+    await user.click(await screen.findByRole("button", { name: "cloud" }));
     const input = await screen.findByLabelText("ANTHROPIC_API_KEY key");
+    expect(input).toHaveAttribute("type", "password");
     await user.type(input, "sk-ant-test");
     await user.click(screen.getByRole("button", { name: "Save" }));
     expect(storeProviderKey).toHaveBeenCalledWith("ANTHROPIC_API_KEY", "sk-ant-test");
@@ -176,17 +248,21 @@ describe("SettingsWindow — Keys section (WF-DESIGN-0015: keyed models from /ro
     const present = JSON.parse(fixture("router-models.json")) as {
       models: Array<Record<string, unknown>>;
     };
-    present.models = present.models.map((m) =>
-      m.name === "cloud" ? { ...m, key_ok: true } : m,
-    );
-    globalThis.fetch = vi.fn(async () =>
-      new Response(JSON.stringify(present), { status: 200 }),
-    ) as unknown as typeof fetch;
-    const user = userEvent.setup();
-    render(<SettingsWindow />);
-    await user.click(screen.getByRole("button", { name: "Keys" }));
+    present.models = present.models.map((m) => (m.name === "cloud" ? { ...m, key_ok: true } : m));
+    mockGateway(JSON.stringify(present));
+    const user = await openProviders();
+    await user.click(await screen.findByRole("button", { name: "cloud" }));
     await user.click(await screen.findByRole("button", { name: "Remove" }));
     expect(deleteProviderKey).toHaveBeenCalledWith("ANTHROPIC_API_KEY");
+  });
+
+  it("a seam rejection (e.g. a self-referential fallback) surfaces inline", async () => {
+    mockGateway();
+    vi.mocked(setModelEnabled).mockRejectedValueOnce(new Error("edit did not take effect"));
+    const user = await openProviders();
+    await screen.findByRole("button", { name: "local" });
+    await user.click(screen.getByRole("switch", { name: "local enabled" }));
+    expect(await screen.findByText("edit did not take effect")).toBeInTheDocument();
   });
 
   it("an unreachable gateway degrades to an honest message", async () => {
@@ -195,7 +271,7 @@ describe("SettingsWindow — Keys section (WF-DESIGN-0015: keyed models from /ro
     }) as unknown as typeof fetch;
     const user = userEvent.setup();
     render(<SettingsWindow />);
-    await user.click(screen.getByRole("button", { name: "Keys" }));
+    await user.click(screen.getByRole("button", { name: "Providers" }));
     expect(await screen.findByText(/isn’t reachable/)).toBeInTheDocument();
   });
 });
@@ -216,7 +292,7 @@ describe("SettingsWindow — Keys section: Add Provider or Model (WF-ADR-0044 am
     mockModels();
     const user = userEvent.setup();
     render(<SettingsWindow />);
-    await user.click(screen.getByRole("button", { name: "Keys" }));
+    await user.click(screen.getByRole("button", { name: "Providers" }));
     await user.click(await screen.findByRole("button", { name: "+ Add Provider or Model" }));
     await user.click(screen.getByRole("button", { name: "Anthropic" }));
     expect(screen.getByLabelText("provider name")).toHaveValue("anthropic");
@@ -240,7 +316,7 @@ describe("SettingsWindow — Keys section: Add Provider or Model (WF-ADR-0044 am
     mockModels();
     const user = userEvent.setup();
     render(<SettingsWindow />);
-    await user.click(screen.getByRole("button", { name: "Keys" }));
+    await user.click(screen.getByRole("button", { name: "Providers" }));
     await user.click(await screen.findByRole("button", { name: "+ Add Provider or Model" }));
     await user.click(screen.getByRole("button", { name: "Anthropic" }));
     const nameInput = screen.getByLabelText("provider name");
@@ -260,7 +336,7 @@ describe("SettingsWindow — Keys section: Add Provider or Model (WF-ADR-0044 am
     mockModels();
     const user = userEvent.setup();
     render(<SettingsWindow />);
-    await user.click(screen.getByRole("button", { name: "Keys" }));
+    await user.click(screen.getByRole("button", { name: "Providers" }));
     await user.click(await screen.findByRole("button", { name: "+ Add Provider or Model" }));
     await user.click(screen.getByRole("button", { name: "Ollama" }));
     expect(screen.getByLabelText("API key env var")).toHaveValue("");
@@ -278,7 +354,7 @@ describe("SettingsWindow — Keys section: Add Provider or Model (WF-ADR-0044 am
     mockModels();
     const user = userEvent.setup();
     render(<SettingsWindow />);
-    await user.click(screen.getByRole("button", { name: "Keys" }));
+    await user.click(screen.getByRole("button", { name: "Providers" }));
     await user.click(await screen.findByRole("button", { name: "+ Add Provider or Model" }));
     await user.click(screen.getByRole("button", { name: "Custom" }));
     await user.type(screen.getByLabelText("provider name"), "Not Valid!");
@@ -296,7 +372,7 @@ describe("SettingsWindow — Keys section: Add Provider or Model (WF-ADR-0044 am
     );
     const user = userEvent.setup();
     render(<SettingsWindow />);
-    await user.click(screen.getByRole("button", { name: "Keys" }));
+    await user.click(screen.getByRole("button", { name: "Providers" }));
     await user.click(await screen.findByRole("button", { name: "+ Add Provider or Model" }));
     await user.click(screen.getByRole("button", { name: "Anthropic" }));
     await user.type(screen.getByLabelText("model id"), "claude-opus-4-8");
@@ -309,7 +385,7 @@ describe("SettingsWindow — Keys section: Add Provider or Model (WF-ADR-0044 am
     mockModels();
     const user = userEvent.setup();
     render(<SettingsWindow />);
-    await user.click(screen.getByRole("button", { name: "Keys" }));
+    await user.click(screen.getByRole("button", { name: "Providers" }));
     await user.click(await screen.findByRole("button", { name: "+ Add Provider or Model" }));
     await user.click(screen.getByRole("button", { name: "Custom" }));
     await user.click(screen.getByRole("button", { name: "Cancel" }));
@@ -324,18 +400,19 @@ describe("SettingsWindow — Keys section: Add Provider or Model (WF-ADR-0044 am
     ]);
     const user = userEvent.setup();
     render(<SettingsWindow />);
-    await user.click(screen.getByRole("button", { name: "Keys" }));
+    await user.click(screen.getByRole("button", { name: "Providers" }));
     await user.click(await screen.findByRole("button", { name: "+ Add Provider or Model" }));
     expect(await screen.findByRole("button", { name: "Ollama •" })).toBeInTheDocument();
     expect(screen.getByText(/detected running on this Mac/)).toBeInTheDocument();
   });
 });
 
-describe("SettingsWindow — Privacy section (verify-lite, WF-ADR-0042 §8: honest claims only)", () => {
-  it("states the three claims and the no-telemetry line without overclaiming", async () => {
+describe("SettingsWindow — About section (verify-lite claims + wordmark, WF-ADR-0042 §8)", () => {
+  it("shows the wordmark and states the three claims + no-telemetry without overclaiming", async () => {
     const user = userEvent.setup();
     render(<SettingsWindow />);
-    await user.click(screen.getByRole("button", { name: "Privacy" }));
+    await user.click(screen.getByRole("button", { name: "About" }));
+    expect(screen.getByRole("img", { name: "Wayfinder" })).toBeInTheDocument();
     expect(screen.getByText(/decision is computed on your machine/)).toBeInTheDocument();
     expect(screen.getByText(/only to the provider you route to/)).toBeInTheDocument();
     expect(screen.getByText(/Offline mode is the only nothing-leaves guarantee/)).toBeInTheDocument();

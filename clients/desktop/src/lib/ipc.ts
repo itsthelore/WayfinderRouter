@@ -45,7 +45,7 @@ export async function openTarget(target: OpenTarget): Promise<void> {
   }
 }
 
-export type SettingsSection = "general" | "gateway" | "keys" | "privacy";
+export type SettingsSection = "general" | "providers" | "display" | "advanced" | "about";
 
 /** Open the separate native Settings window (WF-DESIGN-0014) — never an in-popover slide-over.
  *  `section` deep-links a sidebar section on window creation (WF-DESIGN-0015); an already-open
@@ -117,6 +117,33 @@ export async function detectLocalProviders(): Promise<DetectedProvider[]> {
     console.warn("detect_local_providers failed", err);
     return [];
   }
+}
+
+/** Enable or disable an existing model for delivery (WF-ADR-0044 amendment). Delivery-time only
+ *  (WF-ADR-0001): a disabled model is skipped at request time like a broken endpoint, never
+ *  removed from the scored decision. Hot-reloaded — no restart. Rejects with the CLI's reason. */
+export async function setModelEnabled(name: string, enabled: boolean): Promise<string> {
+  if (!inTauri()) throw new Error("editing a model needs the desktop app");
+  return invoke<string>("set_model", { name, enabled, fallback: null, clearFallback: false });
+}
+
+/** Set (or clear, when `fallback` is null) a model's single same-tier fallback (WF-ADR-0031).
+ *  Hot-reloaded — no restart. Rejects with the CLI's reason (unknown model, self-reference). */
+export async function setModelFallback(name: string, fallback: string | null): Promise<string> {
+  if (!inTauri()) throw new Error("editing a model needs the desktop app");
+  return invoke<string>("set_model", {
+    name,
+    enabled: null,
+    fallback,
+    clearFallback: fallback === null,
+  });
+}
+
+/** Move an existing routing tier's score boundary (WF-ADR-0002/0044). A real decision change —
+ *  the gateway rejects a value that breaks tier ordering. Hot-reloaded — no restart. */
+export async function setTierThreshold(model: string, minScore: number): Promise<string> {
+  if (!inTauri()) throw new Error("editing a threshold needs the desktop app");
+  return invoke<string>("set_threshold", { model, minScore });
 }
 
 /** Rebind the popover toggle (WF-DESIGN-0015). Rejects on unknown ids or when the combo can't

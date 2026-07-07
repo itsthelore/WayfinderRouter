@@ -102,7 +102,12 @@ pub fn open_settings(app: AppHandle, section: Option<String>) -> Result<(), Stri
     }
     let mut url = String::from("index.html?window=settings");
     if let Some(s) = section {
-        if !matches!(s.as_str(), "general" | "gateway" | "keys" | "privacy") {
+        // Current section ids + the legacy ids the webview still remaps (keys/gateway/privacy →
+        // providers/advanced/about) so an old deep-link from a not-yet-reloaded popover still lands.
+        if !matches!(
+            s.as_str(),
+            "general" | "providers" | "display" | "advanced" | "about" | "keys" | "gateway" | "privacy"
+        ) {
             return Err(format!("unknown settings section: {s}"));
         }
         url.push_str(&format!("&section={s}"));

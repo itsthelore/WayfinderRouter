@@ -110,8 +110,11 @@ export function PopoverRoot({ baseUrl = GATEWAY_BASE }: { baseUrl?: string } = {
   // Tray sync: the W shape follows health, its fill is the local-routing share (the live meter,
   // savings-forward: the $ rides in the title, never a route). Quantized so poll noise never
   // re-renders the icon (WF-DESIGN-0013's meter, kept unchanged per WF-DESIGN-0014's Context).
+  // Settings → Display can suppress the savings $ (trayShowSavings) — then the tray is shape-only.
   const traySaved =
-    savings && savings.priced && savings.saved > 0 ? formatSaved(savings.saved) : null;
+    settings.trayShowSavings && savings && savings.priced && savings.saved > 0
+      ? formatSaved(savings.saved)
+      : null;
   const trayFill = quantizeFill(recent?.localShare ?? null);
   useEffect(() => {
     const state: TrayState =
@@ -185,7 +188,7 @@ export function PopoverRoot({ baseUrl = GATEWAY_BASE }: { baseUrl?: string } = {
           <MenuHeader
             gw={gw}
             updatedText={formatUpdated(lastUpdated, Date.now())}
-            onAddKey={() => void openSettings("keys")}
+            onAddKey={() => void openSettings("providers")}
             onOfflineToggle={onOfflineToggle}
             offlinePending={offlinePending}
           />
