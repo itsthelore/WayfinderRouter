@@ -575,11 +575,19 @@ def test_router_recent_tracks_decisions_without_prompt_text(client):
     assert body["by_model"] == {"local": 1, "cloud": 1}
     # Most-recent-first; metadata only, never the prompt text.
     first = body["recent"][0]
-    assert set(first) == {"request_id", "model", "score", "mode", "ts", "cost"}
+    assert set(first) == {"request_id", "model", "score", "mode", "ts", "cost", "decision_ms"}
     # The cost block is dollars + token counts only — still no prompt text (WF-DESIGN-0007/0008).
     assert set(first["cost"]) == {"realized", "baseline", "saved", "tokens", "unit", "estimated"}
     assert first["model"] == "cloud"
     assert "a secret prompt body" not in test_client.get("/router/recent").text
+    assert isinstance(body["p50_decision_ms"], float) and body["p50_decision_ms"] >= 0
+
+
+def test_router_recent_p50_decision_ms_is_none_with_no_history(client):
+    test_client, _ = client
+    body = test_client.get("/router/recent").json()
+    assert body["total"] == 0
+    assert body["p50_decision_ms"] is None
 
 
 def test_router_dashboard_serves_self_contained_html(client):

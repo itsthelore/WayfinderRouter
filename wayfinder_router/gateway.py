@@ -1735,7 +1735,17 @@ def build_app(
         for entry in items:
             by_model[entry["model"]] = by_model.get(entry["model"], 0) + 1
         clamped = max(1, min(limit, _RECENT_MAX))
-        return {"total": len(items), "by_model": by_model, "recent": items[-clamped:][::-1]}
+        # p50 over whatever's still in the bounded ring (WF-ADR-0044 amendment) — decision
+        # latency, never the upstream model's own response time (that's a separate histogram,
+        # `wayfinder_router_upstream_latency_seconds`, on /metrics).
+        durations = sorted(e["decision_ms"] for e in items if "decision_ms" in e)
+        p50_decision_ms = durations[len(durations) // 2] if durations else None
+        return {
+            "total": len(items),
+            "by_model": by_model,
+            "recent": items[-clamped:][::-1],
+            "p50_decision_ms": p50_decision_ms,
+        }
 
     @app.get("/router", response_class=HTMLResponse)
     def router_dashboard() -> str:
@@ -2067,6 +2077,7 @@ def build_app(
             "score": round(decision.score, 2),
             "mode": mode,
             "ts": time.time(),
+            "decision_ms": round(decision_seconds * 1000, 3),
         }
         if key_id is not None:  # attribution: which virtual key this turn belongs to (WF-ADR-0035)
             entry["key"] = key_id
