@@ -6,7 +6,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { render, renderHook, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, renderHook, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { cadenceToMs, DEFAULT_SETTINGS, loadSettings, saveSettings, SETTINGS_KEY } from "@/lib/settings";
 import { useSavings } from "@/hooks/useSavings";
@@ -213,6 +213,37 @@ describe("SettingsWindow — Providers master-detail (WF-ADR-0044 amendment)", (
     await user.click(screen.getByRole("button", { name: "cloud" }));
     const slider = await screen.findByRole("slider", { name: "cloud routing threshold" });
     expect(slider).toHaveValue("0.45");
+  });
+
+  it("dragging an escalation tier's threshold commits the new value on release", async () => {
+    mockGateway();
+    const user = await openProviders();
+    await user.click(await screen.findByRole("button", { name: "cloud" }));
+    const slider = await screen.findByRole("slider", { name: "cloud routing threshold" });
+    fireEvent.change(slider, { target: { value: "0.6" } });
+    fireEvent.pointerUp(slider);
+    await waitFor(() => expect(setTierThreshold).toHaveBeenCalledWith("cloud", 0.6));
+  });
+
+  it("a rejected threshold edit surfaces the reason and snaps the slider back to the live value", async () => {
+    mockGateway();
+    vi.mocked(setTierThreshold).mockRejectedValueOnce(new Error("first tier must be 0.0"));
+    const user = await openProviders();
+    await user.click(await screen.findByRole("button", { name: "cloud" }));
+    const slider = await screen.findByRole("slider", { name: "cloud routing threshold" });
+    fireEvent.change(slider, { target: { value: "0" } });
+    fireEvent.pointerUp(slider);
+    expect(await screen.findByText("first tier must be 0.0")).toBeInTheDocument();
+    await waitFor(() => expect(slider).toHaveValue("0.45")); // reverted to the fixture's min_score
+  });
+
+  it("a disabled model reads Disabled in the detail pane", async () => {
+    const feed = JSON.parse(fixture("router-models.json")) as { models: Array<Record<string, unknown>> };
+    feed.models = feed.models.map((m) => (m.name === "local" ? { ...m, enabled: false } : m));
+    mockGateway(JSON.stringify(feed));
+    await openProviders();
+    await screen.findByRole("button", { name: "local" }); // local is selected first
+    expect(screen.getByText("Disabled")).toBeInTheDocument();
   });
 
   it("the enable switch calls setModelEnabled for the selected model", async () => {

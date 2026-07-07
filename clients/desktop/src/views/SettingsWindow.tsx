@@ -556,6 +556,26 @@ function ProviderDetail({
     }
   }
 
+  // Commit the slider's optimistic value on release (pointer) OR when focus leaves (keyboard —
+  // arrow keys fire no pointer event, so onPointerUp alone would silently drop a keyboard edit).
+  // On rejection, snap `threshold` back to the live min_score: unlike the enable Switch and the
+  // fallback select (both bound to props, so they revert for free), the slider holds local state
+  // and would otherwise keep displaying a value the gateway refused.
+  async function commitThreshold() {
+    if (threshold === placement.minScore) return;
+    setBusy(true);
+    setError(null);
+    try {
+      await setTierThreshold(model.name, threshold);
+      onChanged();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+      setThreshold(placement.minScore);
+    } finally {
+      setBusy(false);
+    }
+  }
+
   const status = !model.enabled ? "Disabled" : model.key_ok ? "Healthy" : "Key missing";
   const counts = routedCounts(model.name, savings);
 
@@ -614,9 +634,8 @@ function ProviderDetail({
                 disabled={busy}
                 aria-label={`${model.name} routing threshold`}
                 onChange={(e) => setThreshold(Number(e.target.value))}
-                onPointerUp={() => {
-                  if (threshold !== placement.minScore) void act(() => setTierThreshold(model.name, threshold));
-                }}
+                onPointerUp={() => void commitThreshold()}
+                onBlur={() => void commitThreshold()}
                 className="w-40 accent-[var(--primary)]"
               />
               <span className="w-10 text-right font-mono text-[13px] tabular-nums">{threshold.toFixed(2)}</span>
@@ -626,7 +645,10 @@ function ProviderDetail({
       )}
 
       <Separator />
-      <FormRow label="Fallback" description="If this endpoint fails, delivery retries the model you pick here (same-tier, WF-ADR-0031).">
+      <FormRow
+        label="Fallback"
+        description="If this endpoint fails, delivery retries the model you pick here first (WF-ADR-0031). Keep it in the same cost tier — a cross-tier pick changes what a failover costs."
+      >
         <NativeSelect
           size="sm"
           aria-label={`${model.name} fallback`}
