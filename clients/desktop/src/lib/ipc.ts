@@ -119,6 +119,15 @@ export async function detectLocalProviders(): Promise<DetectedProvider[]> {
   }
 }
 
+/** Probe a provider endpoint for the Providers pane's "Test Connection" button (WF-ADR-0042
+ *  narrow exception — arbitrary hosts aren't in the webview CSP, so the GET is Rust-side). A
+ *  read-only reach test, never a chat turn. Resolves with a human status on ANY HTTP answer (a
+ *  401 is "up, wants a key"); rejects with a reason on a transport failure. */
+export async function testConnection(baseUrl: string): Promise<string> {
+  if (!inTauri()) throw new Error("testing a connection needs the desktop app");
+  return invoke<string>("test_connection", { baseUrl });
+}
+
 /** Enable or disable an existing model for delivery (WF-ADR-0044 amendment). Delivery-time only
  *  (WF-ADR-0001): a disabled model is skipped at request time like a broken endpoint, never
  *  removed from the scored decision. Hot-reloaded — no restart. Rejects with the CLI's reason. */

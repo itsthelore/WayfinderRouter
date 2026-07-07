@@ -23,6 +23,14 @@ details, release history over commit history.
   one-line "why". Everything is read from the decision the gateway already returned; the client
   still never scores (WF-ADR-0001). The prompt line gets a copy button.
 
+- **Desktop: a "Test Connection" button on each provider** (WF-DESIGN-0015, WF-ADR-0042). The
+  Providers detail pane can probe the selected model's endpoint with a read-only GET and report
+  the result inline — "connected (HTTP 200)", "reachable — endpoint answered HTTP 401 (key
+  required?)" when the host answers but wants a key, or a plain transport error when it can't be
+  reached. The probe is Rust-side (an arbitrary provider host is not in the webview's CSP), the
+  same narrow read-only exception the local-runner detection already uses; it never sends a chat
+  turn.
+
 - **Desktop: Settings gains a Providers pane and a 5-tab layout** (WF-DESIGN-0015). The Settings
   window is now General / Providers / Display / Advanced / About across a horizontal tab strip.
   The old Keys section becomes **Providers** — a master-detail view: a list of every configured

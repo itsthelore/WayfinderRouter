@@ -430,6 +430,44 @@ pub async fn detect_local_providers() -> Vec<DetectedProvider> {
         .collect()
 }
 
+/// A provider endpoint must be an http(s) URL before we spawn a probe — whitelist discipline
+/// (WF-ADR-0044 §Risks), the same "validate the input shape before acting on it" the CLI slug
+/// guard applies. Keeps `test_connection` from handing `reqwest` a `file://` or worse.
+fn is_http_url(s: &str) -> bool {
+    s.starts_with("http://") || s.starts_with("https://")
+}
+
+/// Probe an arbitrary provider endpoint for the Providers pane's "Test Connection" button. Same
+/// narrow, read-only WF-ADR-0042 §3 exception as `detect_local_providers`: a provider host the
+/// user typed is not in the webview's CSP `connect-src`, so only Rust can reach it. A GET to
+/// `{base_url}/models`, never a chat turn — nothing is sent for delivery. ANY HTTP answer means
+/// the endpoint is reachable, so a 401/403 reads as "up, but wants a key" (a successful *reach*,
+/// which is what the button tests); only a transport failure (DNS, refused, timeout) is an error.
+#[tauri::command]
+pub async fn test_connection(base_url: String) -> Result<String, String> {
+    if !is_http_url(&base_url) {
+        return Err("endpoint must be an http:// or https:// URL".into());
+    }
+    let url = format!("{}/models", base_url.trim_end_matches('/'));
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(3))
+        .build()
+        .unwrap_or_default();
+    match client.get(&url).send().await {
+        Ok(resp) => {
+            let code = resp.status().as_u16();
+            if resp.status().is_success() {
+                Ok(format!("connected (HTTP {code})"))
+            } else {
+                Ok(format!("reachable — endpoint answered HTTP {code} (key required?)"))
+            }
+        }
+        Err(e) if e.is_timeout() => Err("no response — the endpoint timed out".into()),
+        Err(e) if e.is_connect() => Err("could not connect to the endpoint".into()),
+        Err(_) => Err("the request failed".into()),
+    }
+}
+
 /// A transition-edge notification (WF-DESIGN-0012: edge-only, off by default — the webview's
 /// edge detector decides when). Dep-free via `osascript` so v1 pulls in no notification plugin;
 /// app-attributed notifications (tauri-plugin-notification) are a follow-up pending a dependency
@@ -577,5 +615,15 @@ mod tests {
         // length cap: 64 accepted, 65 rejected
         assert!(valid_model_name(&format!("a{}", "b".repeat(63))));
         assert!(!valid_model_name(&format!("a{}", "b".repeat(64))));
+    }
+
+    #[test]
+    fn is_http_url_gates_the_test_connection_probe() {
+        for ok in ["http://127.0.0.1:11434/v1", "https://api.anthropic.com/v1", "http://x"] {
+            assert!(is_http_url(ok), "{ok}");
+        }
+        for bad in ["", "ftp://host", "file:///etc/passwd", "127.0.0.1:11434", "ws://host", "  http://x"] {
+            assert!(!is_http_url(bad), "{bad:?}");
+        }
     }
 }

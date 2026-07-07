@@ -23,6 +23,7 @@ import {
   setShortcut,
   setTierThreshold,
   storeProviderKey,
+  testConnection,
   type DetectedProvider,
 } from "@/lib/ipc";
 import { fetchModels, type GatewayModelInfo, type ModelsFeed, type TierEntry } from "@/lib/models";
@@ -522,6 +523,8 @@ function ProviderDetail({
 }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [testing, setTesting] = useState(false);
+  const [testResult, setTestResult] = useState<{ ok: boolean; text: string } | null>(null);
   const placement = tierPlacement(model.name, tiers);
   const currentFallback = model.fallbacks[0] ?? null;
   // Local slider value for smooth dragging; the write only fires on release (onPointerUp).
@@ -538,6 +541,18 @@ function ProviderDetail({
       setError(e instanceof Error ? e.message : String(e));
     } finally {
       setBusy(false);
+    }
+  }
+
+  async function runTest() {
+    setTesting(true);
+    setTestResult(null);
+    try {
+      setTestResult({ ok: true, text: await testConnection(model.endpoint) });
+    } catch (e) {
+      setTestResult({ ok: false, text: e instanceof Error ? e.message : String(e) });
+    } finally {
+      setTesting(false);
     }
   }
 
@@ -657,6 +672,28 @@ function ProviderDetail({
         </>
       )}
 
+      <Separator />
+      <div className="flex items-center gap-3 pt-3">
+        <Button
+          type="button"
+          size="sm"
+          variant="outline"
+          disabled={testing}
+          onClick={() => void runTest()}
+        >
+          {testing ? "Testing…" : "Test Connection"}
+        </Button>
+        {testResult && (
+          <span
+            role="status"
+            className="text-[11px]"
+            style={{ color: testResult.ok ? "var(--accent-foreground)" : "var(--destructive)" }}
+          >
+            {testResult.text}
+          </span>
+        )}
+      </div>
+
       {error && (
         <span className="pt-2 text-[11px]" style={{ color: "var(--destructive)" }}>
           {error}
@@ -765,6 +802,7 @@ function ProvidersSection() {
           <div className="min-w-0 flex-1 border-l border-border pl-4">
             {selectedModel && (
               <ProviderDetail
+                key={selectedModel.name}
                 model={selectedModel}
                 tiers={tiers}
                 allModels={models}

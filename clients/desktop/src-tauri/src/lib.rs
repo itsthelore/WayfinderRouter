@@ -51,6 +51,7 @@ pub fn run() {
             commands::set_model,
             commands::set_threshold,
             commands::detect_local_providers,
+            commands::test_connection,
         ])
         .setup(|app| {
             setup(app)?;

@@ -27,6 +27,7 @@ vi.mock("@/lib/ipc", async () => {
     setModelEnabled: vi.fn(async () => "updated"),
     setModelFallback: vi.fn(async () => "updated"),
     setTierThreshold: vi.fn(async () => "updated"),
+    testConnection: vi.fn(async () => "connected (HTTP 200)"),
   };
 });
 import {
@@ -39,6 +40,7 @@ import {
   setShortcut,
   setTierThreshold,
   storeProviderKey,
+  testConnection,
 } from "@/lib/ipc";
 
 // The Providers pane fetches /router/models AND /v1/savings; route the mock by URL so both land.
@@ -180,6 +182,7 @@ describe("SettingsWindow — Providers master-detail (WF-ADR-0044 amendment)", (
     vi.mocked(setModelEnabled).mockClear();
     vi.mocked(setModelFallback).mockClear();
     vi.mocked(setTierThreshold).mockClear();
+    vi.mocked(testConnection).mockClear();
   });
 
   async function openProviders() {
@@ -254,6 +257,24 @@ describe("SettingsWindow — Providers master-detail (WF-ADR-0044 amendment)", (
     await user.click(await screen.findByRole("button", { name: "cloud" }));
     await user.click(await screen.findByRole("button", { name: "Remove" }));
     expect(deleteProviderKey).toHaveBeenCalledWith("ANTHROPIC_API_KEY");
+  });
+
+  it("Test Connection probes the selected model's endpoint and shows the result inline", async () => {
+    mockGateway();
+    const user = await openProviders();
+    await screen.findByRole("button", { name: "local" });
+    await user.click(screen.getByRole("button", { name: "Test Connection" }));
+    expect(testConnection).toHaveBeenCalledWith("http://localhost:11434/v1");
+    expect(await screen.findByText("connected (HTTP 200)")).toBeInTheDocument();
+  });
+
+  it("a failed Test Connection surfaces the transport error inline", async () => {
+    mockGateway();
+    vi.mocked(testConnection).mockRejectedValueOnce(new Error("could not connect to the endpoint"));
+    const user = await openProviders();
+    await screen.findByRole("button", { name: "local" });
+    await user.click(screen.getByRole("button", { name: "Test Connection" }));
+    expect(await screen.findByText("could not connect to the endpoint")).toBeInTheDocument();
   });
 
   it("a seam rejection (e.g. a self-referential fallback) surfaces inline", async () => {
