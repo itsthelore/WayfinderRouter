@@ -391,6 +391,7 @@ class GatewayModel:
     cost_per_1k: float | None = None  # optional cost metadata (WF-ADR-0017), informational
     fallbacks: tuple[str, ...] = ()  # same-tier endpoints to try if this one fails (WF-ADR-0031)
     context_window: int | None = None  # optional token limit for the pre-call check (WF-ADR-0031)
+    enabled: bool = True  # delivery-time only — never filters the scored decision (WF-ADR-0001)
 
 
 @dataclass(frozen=True)
@@ -757,6 +758,9 @@ def gateway_config_from_toml(text: str, where: str = "wayfinder-router.toml") ->
             raise WayfinderConfigError(
                 f"{where}: 'gateway.models.{name}.context_window' must be a positive integer"
             )
+        enabled = entry.get("enabled", True)
+        if not isinstance(enabled, bool):
+            raise WayfinderConfigError(f"{where}: 'gateway.models.{name}.enabled' must be a boolean")
         models[name] = GatewayModel(
             base_url=base_url,
             model=model,
@@ -765,6 +769,7 @@ def gateway_config_from_toml(text: str, where: str = "wayfinder-router.toml") ->
             cost_per_1k=float(cost_per_1k) if cost_per_1k is not None else None,
             fallbacks=tuple(raw_fallbacks),
             context_window=context_window,
+            enabled=enabled,
         )
     for name, gm in models.items():  # fallbacks must name other configured models
         for fb in gm.fallbacks:
@@ -895,6 +900,8 @@ def dump_gateway_toml(gateway: GatewayConfig) -> str:
             lines.append(f"fallbacks = [{rendered}]")
         if model.context_window is not None:
             lines.append(f"context_window = {model.context_window}")
+        if not model.enabled:
+            lines.append("enabled = false")
         blocks.append("\n".join(lines))
     return "\n\n".join(blocks)
 
@@ -1761,6 +1768,8 @@ def build_app(
                 "model": m.model,
                 "api_key_env": m.api_key_env,
                 "key_ok": m.api_key_env is None or bool(os.environ.get(m.api_key_env)),
+                "context_window": m.context_window,
+                "enabled": m.enabled,
             }
             for name, m in gw.models.items()
         ]
@@ -2208,9 +2217,13 @@ def build_app(
         # open or that fail the pre-call check. The scored decision is unchanged either way.
         prompt_estimate = pricing.estimate_tokens(prompt_all)
 
-        def _precall_ok(name: str) -> bool:  # skip a target whose window can't fit the prompt
+        def _precall_ok(name: str) -> bool:  # skip a disabled target or one whose window can't fit
             model = gw.models.get(name)
-            return model is None or reliability.precheck_ok(prompt_estimate, model.context_window)
+            if model is None:
+                return True
+            if not model.enabled:
+                return False
+            return reliability.precheck_ok(prompt_estimate, model.context_window)
 
         if offline and ladder:
             # Offline-first (WF-ADR-0039): deliver to the cheapest tier only (`deliver_from`,

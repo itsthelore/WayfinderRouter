@@ -606,6 +606,136 @@ def _cmd_config_add_model(args: argparse.Namespace) -> int:
     return EXIT_OK
 
 
+def _cmd_config_set_model(args: argparse.Namespace) -> int:
+    """`config set-model --name [--enabled true|false] [--fallback <model>|--no-fallback]` —
+    edit fields on an EXISTING `[gateway.models.*]` entry (WF-ADR-0044 amendment). `--enabled`
+    is delivery-time only (WF-ADR-0001): a disabled model is skipped at request time exactly
+    like a broken endpoint, cascading to its fallbacks or the tier's failover policy — the
+    scored decision itself never changes. `--fallback` sets a single same-tier fallback
+    (WF-ADR-0031); `fallbacks` is a list in the schema, but this verb only ever manages one
+    entry, matching the one dropdown this seam exists to serve.
+    """
+    from pathlib import Path
+
+    from .config import (
+        WayfinderConfigError,
+        find_config_file,
+        routing_config_from_toml,
+        set_toml_bool,
+        set_toml_string_list,
+    )
+    from .gateway import gateway_config_from_toml
+
+    if args.fallback is not None and args.no_fallback:
+        print("wayfinder-router: --fallback and --no-fallback are mutually exclusive", file=sys.stderr)
+        return EXIT_USAGE
+    if args.enabled is None and args.fallback is None and not args.no_fallback:
+        print("wayfinder-router: nothing to do — pass --enabled and/or --fallback/--no-fallback", file=sys.stderr)
+        return EXIT_USAGE
+    if args.enabled is not None and args.enabled not in ("true", "false"):
+        print(f"wayfinder-router: --enabled takes 'true' or 'false', not '{args.enabled}'", file=sys.stderr)
+        return EXIT_USAGE
+
+    path = Path(args.path) if args.path else find_config_file(".")
+    if path is None or not path.is_file():
+        where = args.path or "wayfinder-router.toml"
+        print(
+            f"wayfinder-router: no config at {where} — run `wayfinder-router init` to create one",
+            file=sys.stderr,
+        )
+        return EXIT_USAGE
+
+    original = path.read_text(encoding="utf-8")
+    try:
+        current = gateway_config_from_toml(original, where=str(path))
+    except WayfinderConfigError as exc:
+        print(f"wayfinder-router: {path} does not currently parse: {exc}", file=sys.stderr)
+        return EXIT_CONFIG
+    if args.name not in current.models:
+        known = ", ".join(sorted(current.models)) or "(none configured)"
+        print(f"wayfinder-router: unknown model '{args.name}' (known: {known})", file=sys.stderr)
+        return EXIT_USAGE
+
+    table = f"gateway.models.{args.name}"
+    updated = original
+    if args.enabled is not None:
+        updated = set_toml_bool(updated, table, "enabled", args.enabled == "true")
+    if args.fallback is not None:
+        updated = set_toml_string_list(updated, table, "fallbacks", [args.fallback])
+    elif args.no_fallback:
+        updated = set_toml_string_list(updated, table, "fallbacks", [])
+
+    try:
+        gw = gateway_config_from_toml(updated, where=str(path))
+        routing_config_from_toml(updated, where=str(path))
+    except WayfinderConfigError as exc:
+        print(f"wayfinder-router: refusing to write — {exc}", file=sys.stderr)
+        return EXIT_CONFIG
+    edited = gw.models.get(args.name)
+    took = edited is not None
+    if edited is not None:
+        if args.enabled is not None:
+            took = took and edited.enabled == (args.enabled == "true")
+        if args.fallback is not None:
+            took = took and edited.fallbacks == (args.fallback,)
+        if args.no_fallback:
+            took = took and edited.fallbacks == ()
+    if not took:
+        print("wayfinder-router: refusing to write — edit did not take effect", file=sys.stderr)
+        return EXIT_CONFIG
+    path.write_text(updated, encoding="utf-8")
+    print(
+        f"wayfinder-router: updated gateway.models.{args.name} in {path} "
+        "(restart the gateway to pick up delivery changes)",
+        file=sys.stderr,
+    )
+    return EXIT_OK
+
+
+def _cmd_config_set_threshold(args: argparse.Namespace) -> int:
+    """`config set-threshold --model --min-score` — move an EXISTING `[[routing.tiers]]`
+    entry's score boundary (WF-ADR-0044 amendment). This is a real routing-decision change
+    (WF-ADR-0002), unlike `set-model`'s delivery-only fields — the edit is re-parsed through
+    `routing_config_from_toml` before anything is written, so a value that breaks tier
+    monotonicity (ascending, first = 0.0) is rejected up front rather than corrupting the file.
+    """
+    from pathlib import Path
+
+    from .config import WayfinderConfigError, find_config_file, routing_config_from_toml, set_tier_min_score
+
+    if not 0.0 <= args.min_score <= 1.0:
+        print("wayfinder-router: --min-score must be between 0.0 and 1.0", file=sys.stderr)
+        return EXIT_USAGE
+
+    path = Path(args.path) if args.path else find_config_file(".")
+    if path is None or not path.is_file():
+        where = args.path or "wayfinder-router.toml"
+        print(
+            f"wayfinder-router: no config at {where} — run `wayfinder-router init` to create one",
+            file=sys.stderr,
+        )
+        return EXIT_USAGE
+
+    original = path.read_text(encoding="utf-8")
+    try:
+        updated = set_tier_min_score(original, args.model, args.min_score)
+        routing = routing_config_from_toml(updated, where=str(path))
+    except WayfinderConfigError as exc:
+        print(f"wayfinder-router: refusing to write — {exc}", file=sys.stderr)
+        return EXIT_CONFIG
+    edited = next((t for t in routing.tiers if t.model == args.model), None)
+    if edited is None or round(edited.min_score, 6) != round(args.min_score, 6):
+        print("wayfinder-router: refusing to write — edit did not take effect", file=sys.stderr)
+        return EXIT_CONFIG
+    path.write_text(updated, encoding="utf-8")
+    print(
+        f"wayfinder-router: set routing.tiers[model={args.model}].min_score = {args.min_score} in {path} "
+        "(a running gateway hot-reloads this on its next request)",
+        file=sys.stderr,
+    )
+    return EXIT_OK
+
+
 def _cmd_doctor(args: argparse.Namespace) -> int:
     from . import bootstrap
     from .config import find_config_file
@@ -1425,6 +1555,44 @@ def build_parser() -> argparse.ArgumentParser:
         help="Explicit config file (default: WAYFINDER_CONFIG, else the cwd walk-up).",
     )
     p_config_add_model.set_defaults(func=_cmd_config_add_model)
+
+    p_config_set_model = config_sub.add_parser(
+        "set-model",
+        help="Edit fields on an existing [gateway.models.*] entry: --enabled (delivery-time "
+             "only, WF-ADR-0001) and/or --fallback/--no-fallback (WF-ADR-0031, single entry).",
+    )
+    p_config_set_model.add_argument("--name", required=True, help="The model to edit (must already exist).")
+    p_config_set_model.add_argument(
+        "--enabled", default=None, choices=["true", "false"],
+        help="Enable or disable this model for delivery — the scored decision is unaffected.",
+    )
+    p_config_set_model.add_argument(
+        "--fallback", default=None,
+        help="Set this model's single same-tier fallback (must be another configured model).",
+    )
+    p_config_set_model.add_argument(
+        "--no-fallback", action="store_true", help="Clear this model's fallback list.",
+    )
+    p_config_set_model.add_argument(
+        "--path", default=None,
+        help="Explicit config file (default: WAYFINDER_CONFIG, else the cwd walk-up).",
+    )
+    p_config_set_model.set_defaults(func=_cmd_config_set_model)
+
+    p_config_set_threshold = config_sub.add_parser(
+        "set-threshold",
+        help="Move an existing [[routing.tiers]] entry's min_score (WF-ADR-0002) — a real "
+             "routing-decision change, rejected up front if it breaks tier ordering.",
+    )
+    p_config_set_threshold.add_argument("--model", required=True, help="The tier's model name.")
+    p_config_set_threshold.add_argument(
+        "--min-score", type=float, required=True, help="New score boundary, 0.0-1.0.",
+    )
+    p_config_set_threshold.add_argument(
+        "--path", default=None,
+        help="Explicit config file (default: WAYFINDER_CONFIG, else the cwd walk-up).",
+    )
+    p_config_set_threshold.set_defaults(func=_cmd_config_set_threshold)
 
     p_keys = sub.add_parser(
         "keys", help="Mint a virtual API key for the gateway (WF-ADR-0035)."

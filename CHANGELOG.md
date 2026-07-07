@@ -29,6 +29,15 @@ details, release history over commit history.
   `@shadcn/react` — everything else here was vendored code, no new packages), which brings a
   scroll-to-bottom button and a top/bottom fade the old hand-rolled scroll area didn't have.
 
+- **`config set-model` / `config set-threshold`** (WF-ADR-0044). Two more config-seam verbs,
+  the backend half of a desktop Providers pane: `config set-model --name [--enabled true|false]
+  [--fallback <model>|--no-fallback]` edits an existing model's enable state (delivery-time
+  only — a disabled model is skipped at request time exactly like a broken endpoint, cascading
+  to its fallback; the scored decision never changes) and its single same-tier fallback.
+  `config set-threshold --model --min-score` moves an existing routing tier's score boundary —
+  a real decision change, rejected up front if it would break tier ordering. `/router/models`
+  also now reports each model's `context_window` and `enabled` state.
+
 - **Decision-only replies when no model is configured** (WF-ADR-0042). A running gateway with no
   `[gateway.models]` now answers `/v1/chat/completions` with the routing **decision** (HTTP 200,
   `{"wayfinder": {…}}` and an `x-wayfinder-router-decision-only: true` header) instead of a `500` — so
