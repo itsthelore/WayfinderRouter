@@ -192,6 +192,12 @@ describe("DecisionSummary — the live turn's prompt-analysis card (WF-DESIGN-00
     render(<DecisionSummary decision={local} enriched />);
     expect(screen.getByText("Route: Local")).toBeInTheDocument();
   });
+  it("the caption surfaces the cache-hit and decision-only delivery states", () => {
+    const { rerender } = render(<DecisionSummary decision={cloud} enriched cache />);
+    expect(screen.getByText("Deterministic · No model call · cache hit")).toBeInTheDocument();
+    rerender(<DecisionSummary decision={{ ...cloud, decisionOnly: true }} enriched />);
+    expect(screen.getByText("Deterministic · No model call · decision only")).toBeInTheDocument();
+  });
 });
 
 describe("featureRows / whyLine — pure display helpers over the gateway's contributions", () => {
@@ -210,6 +216,21 @@ describe("featureRows / whyLine — pure display helpers over the gateway's cont
     const bare = { model: "local", score: 0, isLocal: true, contributions: [] } as unknown as typeof local;
     expect(featureRows(bare).map((r) => r.value)).toEqual(["0", "none", "no", "no", "low"]);
     expect(whyLine(bare)).toBe("short prompt, no code, no structured sections.");
+  });
+  it("covers the medium buckets — mid word count, a list count, medium lexical signal", () => {
+    const mid = {
+      model: "cloud",
+      score: 0.4,
+      isLocal: false,
+      contributions: [
+        { name: "word_count", value: 80, share: 0.5 },
+        { name: "list_item_count", value: 3, share: 0.1 },
+        { name: "reasoning_term_count", value: 5, share: 0.2 },
+      ],
+    } as unknown as typeof cloud;
+    const rows = Object.fromEntries(featureRows(mid).map((r) => [r.key, r.value]));
+    expect(rows).toMatchObject({ words: "80", lists: "3", lexical: "medium" });
+    expect(whyLine(mid)).toContain("medium-length prompt");
   });
 });
 

@@ -198,6 +198,8 @@ describe("ChatScreen — adornments + decision summary + reply swap", () => {
     );
     fireEvent.click(screen.getByRole("button", { name: "copy prompt" }));
     expect(writeText).toHaveBeenCalledWith("copy me");
+    // The button flips to a confirmed state so the click has feedback.
+    expect(screen.getByRole("button", { name: "prompt copied" })).toBeInTheDocument();
   });
   it("announces the settled route once, politely, in an sr-only live region", () => {
     render(<ChatScreen gw={gwState()} turn={turnStub({ decision: local, enriched: true, reply: "hi", phase: "done" })} />);

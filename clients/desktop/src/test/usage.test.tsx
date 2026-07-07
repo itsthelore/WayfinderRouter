@@ -182,6 +182,14 @@ describe("UsageView — the flat list (mirrors clawrouter-usage.png)", () => {
     expect(screen.getAllByRole("img").length).toBe(1);
   });
 
+  it("the routing-time stat renders whole milliseconds, and an em dash when the gateway reports none", () => {
+    const props = { savings: SAVINGS, savings7d: SAVINGS_7D, savings30d: SAVINGS_30D, cheapest: "local", onOpenChat: noop };
+    const { rerender } = render(<UsageView recent={{ ...RECENT_REPORT, p50DecisionMs: 5 }} {...props} />);
+    expect(screen.getByText("5 ms")).toBeInTheDocument();
+    rerender(<UsageView recent={{ ...RECENT_REPORT, p50DecisionMs: null }} {...props} />);
+    expect(screen.getByText("—")).toBeInTheDocument();
+  });
+
   it("empty states: no turns yet, unpriced savings", () => {
     render(
       <UsageView
