@@ -371,14 +371,42 @@ upstream copies use literal `dark:` Tailwind variants — dead code here, since 
 `prefers-color-scheme` only (`theme-lint.test.ts` catches this; it fired twice this pass, on
 `button.tsx` and `native-select.tsx`). Every sync needs that check before landing.
 
+## Amendment: the live decision is a prompt-analysis card; Usage gains a routing-time stat
+
+A supplied product mockup gave the routing summary a richer grammar. It applies to the **live
+turn only** — Wayfinder stores no prompt history (WF-ADR-0001/0042), so this is one card, not a
+feed; settled turns still collapse to the compact scrollback marker.
+
+`DecisionSummary` (the chat screen's live turn) becomes: the complexity score as a large numeral
+in the route accent (`--primary` local / `--route-cloud` cloud) over the existing 0–1 `Bar`
+(still `role="meter"`, `aria-label="complexity score"` — the meter is load-bearing for tests and
+AT), a **route pill** (lucide `Monitor`/`Cloud` + "Route: Local|Cloud" on the accent-weak
+background), a "Deterministic · No model call" caption (true by construction, WF-ADR-0001), and a
+five-row **feature readout** — Word count, Lists, Code blocks, Structured sections, Lexical
+signals — with a one-line **"Why:"** sentence. The feature rows and the why line need the
+enriched debug payload (the header-only decision carries no `contributions`), so they skeleton
+until it lands while the score, bar, and route paint from the headers. The prompt line gains a
+copy button (webview clipboard, no Rust). Two pure, display-only helpers do the shaping in the
+shared decision module — `featureRows` and `whyLine` — reading the contributions the gateway
+already returned; **no scorer change, no parity impact, the client still never scores.**
+
+The Usage screen gains a footer **stat strip** (mockup): the week's savings share beside an
+**Avg routing time** — the median time to *decide* a route, read from `/router/recent`'s
+`p50_decision_ms`. Both are plain text (no bar, no meter — the popover keeps its single `img`,
+the route split). Sub-millisecond p50s read as "<1 ms" (a route is a table walk, not a model
+call). The caption is "p50 over recent turns", **not** the mockup's "over last 7 days" — the
+backend's window is the recent-ring (last ≤200 turns), and the doc renders the honest span.
+
 ## Later (recorded, not built)
 
-About Wayfinder panel + footer row · a menu-bar-metric picker (only worth building if Wayfinder
-grows a second fill-worthy percentage, e.g. a readable budget-used% once WF-ADR-0032's budget
-has a stable HTTP surface).
+A menu-bar-metric picker (only worth building if Wayfinder grows a second fill-worthy
+percentage, e.g. a readable budget-used% once WF-ADR-0032's budget has a stable HTTP surface) —
+its future home is the Display tab (WF-DESIGN-0015 amendment).
 
 > Landed since this document: the Privacy/verify-lite panel, key management, and ⌥W rebinding
-> (this list's former entries) shipped as WF-DESIGN-0015 on WF-ADR-0044's config seam.
+> shipped as WF-DESIGN-0015 on WF-ADR-0044's config seam; the About panel now lives there too, in
+> the five-tab Settings restructure. The plain-text placeholder wordmark was replaced by the real
+> brand wordmark (see the wordmark amendment above).
 
 ## Related
 

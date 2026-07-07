@@ -146,14 +146,56 @@ state always renders healthz truth, never optimistic local state — an edit mad
 hand shows up on the next poll exactly the same way. The old per-turn
 `X-Wayfinder-Offline` header path in the client is deleted along with the row.
 
+## Amendment: Settings is a five-tab window; Keys becomes Providers
+
+A supplied product mockup reworked Settings into a horizontal icon-tab strip — **General /
+Providers / Display / Advanced / About** — replacing the four-item vertical sidebar this doc
+first described. The tabs map as follows, and this amendment supersedes the "Keys" and "Privacy"
+section descriptions above:
+
+- **General** — unchanged: cadence, notifications, launch-at-login, the shortcut rebind.
+- **Providers** — the old Keys section, rebuilt as a **master-detail pane** and absorbing the
+  key experience entirely. The left list has one row per configured model (not just keyed ones —
+  a keyless local model still appears) with a health dot (teal enabled+keyed / amber key-missing
+  / grey disabled) and its share of the last 7 days' routing (`/v1/savings?period=7d`
+  `by_route`). The right detail pane, for the selected model, shows read-only endpoint / model
+  id / context window / route eligibility, and edits — all through the config seam
+  (WF-ADR-0044), hot-reloaded with no restart: an **Enabled** switch (delivery-time only,
+  WF-ADR-0001 — a disabled model is skipped at request time, never removed from the scored
+  decision), a **Fallback** picker (same-tier failover, WF-ADR-0031; the list excludes the model
+  itself), and a **routing-threshold** slider shown only for escalation tiers. The base tier's
+  boundary is structural (its `min_score` is `0.0` and the gateway always rejects moving it), so
+  it reads "Base tier" with no slider — more honest than a control that can only fail. The
+  model's Keychain key row folds in unchanged. A **Test Connection** button probes the endpoint
+  read-only (WF-ADR-0042 §3 exception, Rust-side because arbitrary hosts aren't in the webview
+  CSP) and reports the result inline. The `+ Add Provider or Model` flow is the list's add
+  affordance; there is no remove (no `config remove-model` verb exists — we don't fake one).
+- **Display** — new: a "show savings in the menu bar" switch (a `trayShowSavings` setting,
+  default on; when off the tray carries only the health/meter shape, no dollar figure) and an
+  informational row stating appearance follows the system theme (`prefers-color-scheme` only,
+  WF-DESIGN-0012 — rendered as fact, not a toggle).
+- **Advanced** — the former Gateway section verbatim: endpoint, open config / dashboard / logs.
+- **About** — new: the wordmark, the app version (`@tauri-apps/api/app` `getVersion()`, "—"
+  outside Tauri), and the verify-lite privacy claims moved here verbatim from the old Privacy
+  section (the banned-overclaim test still asserts "your data never leaves your machine" never
+  appears).
+
+Deep-link compatibility: the legacy section ids `keys` / `gateway` / `privacy` remap to
+`providers` / `advanced` / `about` in both the webview (`initialSection`) and the Rust
+`open_settings` whitelist, so an old deep-link from a not-yet-reloaded popover still lands.
+
 ## Verification & known limits
 
 jsdom coverage: preset pick → scaffold arg, busy/error, Add-key row visibility + deep-link,
-Keys list/save/remove/unreachable, Add Provider or Model (preset fill, freeform name reuse,
+Providers master-detail (lists every model, base-tier-no-slider vs escalation-tier-slider,
+enable switch → `setModelEnabled`, fallback select excludes self, key save/remove/unreachable,
+seam-rejection surfacing, **Test Connection** success + transport-error inline, legacy
+`keys`→Providers deep-link), Add Provider or Model (preset fill, freeform name reuse,
 custom/keyless, client-side name validation, seam-rejection surfacing, detected-local-runner
-badge, Cancel), Privacy claims (and the banned overclaim's absence), shortcut persist/rollback,
-plus Rust unit tables for the keychain script builder (escaping + rejection), the shortcut
-whitelist, and the install argv. **Not coverable in CI (Linux): the real `/usr/bin/security -i`
+badge, Cancel), the Display "show savings" toggle, About claims (and the banned overclaim's
+absence), shortcut persist/rollback, plus Rust unit tables for the keychain script builder
+(escaping + rejection), the shortcut whitelist, the `is_http_url` probe guard, and the install
+argv. **Not coverable in CI (Linux): the real `/usr/bin/security -i`
 round-trip and the launchd uninstall→install flow — a real-Mac smoke test is a required
 pre-release step (WF-ROADMAP-0009 Phase 5).**
 

@@ -32,6 +32,20 @@ Accepted
 > `tauri_plugin_positioner::on_tray_event` (not just clicks, so its tracked rect never goes
 > stale), and `show_popover` anchors via `Position::TrayBottomCenter` — an ordinary macOS menu
 > extra, popover centred under the tray icon with its top edge at the icon's bottom.
+>
+> Amendment (config-mutation commands + a read-only reach probe, WF-DESIGN-0015): the Providers
+> pane adds two shell-out commands on the WF-ADR-0044 seam — `set_model` and `set_threshold`
+> (landed with the config `set-model` / `set-threshold` verbs). Unlike `add_model` and a key
+> change (which need a service restart — key resolution is startup-only), these do **not**
+> restart: the gateway hot-reloads config by mtime on the next request. Every user-supplied model
+> name is shape-checked (`valid_model_name`, the CLI slug regex) before it reaches a spawned CLI —
+> the §Risks whitelist discipline. Separately, **`test_connection`** extends the one narrow,
+> read-only HTTP exception §3 already carries for `detect_local_providers`: an arbitrary provider
+> host the user typed is not in the webview's CSP `connect-src`, so only Rust can probe it. It is
+> a GET to `{base_url}/models`, never a chat turn; `base_url` is scheme-checked (`is_http_url`)
+> before the request; any HTTP answer means reachable. §3's "the webview reaches the gateway
+> directly, Rust doesn't proxy HTTP" still holds for the *gateway* — this is a provider-host reach
+> test, the same category as the local-runner detection.
 
 ## Category
 
