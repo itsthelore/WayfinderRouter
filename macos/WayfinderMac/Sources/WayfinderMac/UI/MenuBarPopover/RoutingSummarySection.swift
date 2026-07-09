@@ -8,31 +8,37 @@ public struct RoutingSummarySection: View {
     }
 
     public var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            HStack(alignment: .firstTextBaseline, spacing: 10) {
-                Label("Routing", systemImage: "arrow.left.arrow.right")
-                    .font(.system(size: 16, weight: .semibold))
-                    .foregroundStyle(.primary)
+        HStack(spacing: NativeMenuMetrics.rowSpacing) {
+            NativeMenuIconWell(symbolName: "arrow.left.arrow.right", tint: WayfinderTheme.local)
 
-                Spacer()
+            VStack(alignment: .leading, spacing: 5) {
+                HStack(alignment: .firstTextBaseline) {
+                    Text("Routing")
+                        .font(.system(size: 17, weight: .semibold))
+                        .foregroundStyle(.primary)
+                    Spacer()
+                    Text(totalText)
+                        .font(.system(size: 14, weight: .regular).monospacedDigit())
+                        .foregroundStyle(.secondary)
+                }
 
-                Text(totalText)
-                    .font(.system(size: 13, weight: .regular).monospacedDigit())
+                Text(routeMixText)
+                    .font(.system(size: 13, weight: .regular))
                     .foregroundStyle(.secondary)
+                    .lineLimit(1)
+
+                HStack(spacing: 10) {
+                    SplitRouteBar(localPercent: stats.localPercent)
+                        .frame(width: 118)
+                    Text(routeCountText)
+                        .font(.system(size: 12, weight: .regular))
+                        .foregroundStyle(.tertiary)
+                        .lineLimit(1)
+                }
             }
-
-            SplitRouteBar(localPercent: stats.localPercent)
-
-            Text(routeMixText)
-                .font(.system(size: 14, weight: .regular))
-                .foregroundStyle(.primary)
-
-            Text(routeCountText)
-                .font(.system(size: 13, weight: .regular))
-                .foregroundStyle(.secondary)
         }
-        .padding(.horizontal, 20)
-        .padding(.vertical, 12)
+        .frame(height: NativeMenuMetrics.metricRowHeight)
+        .padding(.horizontal, NativeMenuMetrics.horizontalPadding)
         .accessibilityElement(children: .combine)
         .accessibilityLabel("Routing, \(routeMixText), \(routeCountText)")
     }
@@ -53,9 +59,9 @@ public struct RoutingSummarySection: View {
 
     private var routeCountText: String {
         guard let local = stats.localRouteCount, let cloud = stats.cloudRouteCount else {
-            return "Routed: not yet available"
+            return "Not yet available"
         }
-        return "Routed: local: \(local) · cloud: \(cloud)"
+        return "local: \(local) · cloud: \(cloud)"
     }
 }
 
@@ -69,19 +75,19 @@ private struct SplitRouteBar: View {
 
             ZStack(alignment: .leading) {
                 Capsule()
-                    .fill(Color.primary.opacity(0.10))
+                    .fill(Color.primary.opacity(0.12))
 
                 HStack(spacing: 0) {
                     Rectangle()
-                        .fill(WayfinderTheme.local.opacity(0.86))
+                        .fill(WayfinderTheme.local.opacity(0.92))
                         .frame(width: localWidth)
                     Rectangle()
-                        .fill(WayfinderTheme.cloud.opacity(0.74))
+                        .fill(WayfinderTheme.cloud.opacity(0.80))
                 }
                 .clipShape(Capsule())
             }
         }
-        .frame(height: 6)
+        .frame(height: 7)
         .accessibilityHidden(true)
     }
 }

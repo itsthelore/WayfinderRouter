@@ -65,7 +65,7 @@ final class PopoverController {
             self?.close()
             onQuit()
         }
-        hostingController.view.layer?.cornerRadius = 12
+        hostingController.view.layer?.cornerRadius = 20
         hostingController.view.layer?.masksToBounds = true
 
         panel.contentViewController = hostingController

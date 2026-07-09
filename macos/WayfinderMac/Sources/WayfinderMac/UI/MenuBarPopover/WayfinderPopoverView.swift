@@ -24,50 +24,53 @@ public struct WayfinderPopoverView: View {
     public var body: some View {
         VStack(spacing: 0) {
             header
-            hairline
-            VStack(spacing: 0) {
-                StatusRow(
-                    symbolName: "server.rack",
-                    title: "Gateway",
-                    detail: appState.gatewayOverview.gateway.detail,
-                    status: appState.gatewayOverview.gateway.title,
-                    tint: gatewayTint
-                )
-                rowDivider
-                StatusRow(
-                    symbolName: "cloud",
-                    title: "Hosted",
-                    detail: appState.gatewayOverview.hosted.detail,
-                    status: appState.gatewayOverview.hosted.title,
-                    tint: hostedTint
-                )
-                hairline
-                RoutingSummarySection(stats: appState.routingStats)
-                hairline
-                SavedSummarySection(stats: appState.routingStats)
-                hairline
-                PopoverActionRow(
-                    symbolName: "message",
-                    title: "Chat",
-                    trailing: "chevron.right",
-                    action: onOpenChat
-                )
-                hairline
-                footerRows
-            }
-            .padding(.top, 4)
+            NativeMenuSeparator()
+
+            StatusRow(
+                symbolName: "server.rack",
+                title: "Gateway",
+                detail: appState.gatewayOverview.gateway.detail,
+                status: appState.gatewayOverview.gateway.title,
+                tint: gatewayTint,
+                filled: appState.gatewayOverview.gateway.isRunning
+            )
+            NativeMenuSeparator(leadingInset: 80)
+
+            StatusRow(
+                symbolName: "cloud",
+                title: "Hosted",
+                detail: appState.gatewayOverview.hosted.detail,
+                status: appState.gatewayOverview.hosted.title,
+                tint: hostedTint,
+                filled: hostedIsReady
+            )
+
+            NativeMenuSeparator()
+            RoutingSummarySection(stats: appState.routingStats)
+            NativeMenuSeparator(leadingInset: 80)
+            SavedSummarySection(stats: appState.routingStats)
+
+            NativeMenuSeparator()
+            PopoverActionRow(
+                symbolName: "message",
+                title: "Chat",
+                trailing: "chevron.right",
+                action: onOpenChat
+            )
+
             Spacer(minLength: 0)
+            NativeMenuSeparator()
+            footerRows
         }
         .frame(width: Self.contentWidth, height: Self.contentHeight, alignment: .top)
         .background {
             Rectangle()
                 .fill(.regularMaterial)
-            Color(nsColor: .windowBackgroundColor).opacity(0.18)
+            Color(nsColor: .windowBackgroundColor).opacity(0.08)
         }
-        .overlay(alignment: .top) {
-            Rectangle()
-                .fill(Color(nsColor: .separatorColor).opacity(0.35))
-                .frame(height: 1)
+        .overlay {
+            RoundedRectangle(cornerRadius: 20, style: .continuous)
+                .stroke(Color(nsColor: .separatorColor).opacity(0.35), lineWidth: 1)
         }
         .onAppear {
             appState.refreshStats()
@@ -75,23 +78,27 @@ public struct WayfinderPopoverView: View {
     }
 
     private var header: some View {
-        HStack(alignment: .center, spacing: 12) {
-            Text("Wayfinder")
-                .font(.system(size: 19, weight: .semibold))
+        HStack(alignment: .center, spacing: 14) {
+            VStack(alignment: .leading, spacing: 7) {
+                Text("Wayfinder")
+                    .font(.system(size: 23, weight: .bold))
+                    .foregroundStyle(.primary)
+                Text(appState.gatewayOverview.updatedAt.relativeUpdateText)
+                    .font(.system(size: 14, weight: .regular))
+                    .foregroundStyle(.secondary)
+            }
 
             Spacer()
 
-            VStack(alignment: .trailing, spacing: 2) {
-                Text(appState.gatewayOverview.gateway.title)
-                    .font(.system(size: 13, weight: .medium))
-                    .foregroundStyle(.secondary)
-                Text(appState.gatewayOverview.updatedAt.relativeUpdateText)
-                    .font(.system(size: 12, weight: .regular))
-                    .foregroundStyle(.tertiary)
-            }
+            Text(appState.gatewayOverview.gateway.title)
+                .font(.system(size: 14, weight: .semibold))
+                .foregroundStyle(.secondary)
+                .padding(.horizontal, 10)
+                .padding(.vertical, 5)
+                .background(Color.primary.opacity(0.07), in: Capsule())
         }
-        .frame(height: 54)
-        .padding(.horizontal, 20)
+        .frame(height: 72)
+        .padding(.horizontal, NativeMenuMetrics.horizontalPadding)
     }
 
     private var footerRows: some View {
@@ -102,14 +109,14 @@ public struct WayfinderPopoverView: View {
                 shortcut: "⌘R",
                 action: appState.refreshStats
             )
-            rowDivider
+            NativeMenuSeparator(leadingInset: 80)
             PopoverActionRow(
                 symbolName: "gearshape",
                 title: "Settings...",
                 shortcut: "⌘,",
                 action: onOpenSettings
             )
-            rowDivider
+            NativeMenuSeparator(leadingInset: 80)
             PopoverActionRow(
                 symbolName: "power",
                 title: "Quit Wayfinder",
@@ -126,7 +133,7 @@ public struct WayfinderPopoverView: View {
         case .degraded:
             return WayfinderTheme.cloud
         case .stopped, .unreachable, .notInstalled:
-            return Color.secondary.opacity(0.58)
+            return Color.secondary.opacity(0.65)
         }
     }
 
@@ -137,23 +144,17 @@ public struct WayfinderPopoverView: View {
         case .checkKeys:
             return WayfinderTheme.cloud
         case .disabled, .noModels, .unavailable:
-            return Color.secondary.opacity(0.58)
+            return Color.secondary.opacity(0.65)
         }
     }
 
-    private var hairline: some View {
-        Rectangle()
-            .fill(Color(nsColor: .separatorColor).opacity(0.55))
-            .frame(height: 1)
-            .padding(.horizontal, 20)
-    }
-
-    private var rowDivider: some View {
-        Rectangle()
-            .fill(Color(nsColor: .separatorColor).opacity(0.36))
-            .frame(height: 1)
-            .padding(.leading, 50)
-            .padding(.trailing, 20)
+    private var hostedIsReady: Bool {
+        switch appState.gatewayOverview.hosted {
+        case .ready:
+            return true
+        case .checkKeys, .disabled, .noModels, .unavailable:
+            return false
+        }
     }
 }
 
@@ -163,20 +164,18 @@ private struct StatusRow: View {
     let detail: String
     let status: String
     let tint: Color
+    let filled: Bool
 
     var body: some View {
-        HStack(spacing: 10) {
-            Image(systemName: symbolName)
-                .font(.system(size: 13, weight: .medium))
-                .foregroundStyle(tint)
-                .frame(width: 20)
+        HStack(spacing: NativeMenuMetrics.rowSpacing) {
+            NativeMenuIconWell(symbolName: symbolName, tint: tint, filled: filled)
 
-            VStack(alignment: .leading, spacing: 1) {
+            VStack(alignment: .leading, spacing: 4) {
                 Text(title)
-                    .font(.system(size: 14, weight: .medium))
+                    .font(.system(size: 17, weight: .semibold))
                     .foregroundStyle(.primary)
                 Text(detail)
-                    .font(.system(size: 12, weight: .regular))
+                    .font(.system(size: 13, weight: .regular))
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
                     .truncationMode(.middle)
@@ -185,11 +184,13 @@ private struct StatusRow: View {
             Spacer()
 
             Text(status)
-                .font(.system(size: 12, weight: .regular))
+                .font(.system(size: 14, weight: .semibold))
                 .foregroundStyle(.secondary)
+                .lineLimit(1)
         }
-        .frame(height: 42)
-        .padding(.horizontal, 20)
+        .frame(height: NativeMenuMetrics.statusRowHeight)
+        .padding(.horizontal, NativeMenuMetrics.horizontalPadding)
+        .contentShape(Rectangle())
         .accessibilityLabel("\(title), \(status), \(detail)")
         .accessibilityAddTraits(.isStaticText)
     }
