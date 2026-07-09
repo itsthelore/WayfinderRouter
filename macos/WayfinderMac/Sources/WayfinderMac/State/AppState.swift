@@ -6,6 +6,7 @@ public final class AppState: ObservableObject {
     @Published public private(set) var analysis: PromptAnalysisState = .idle
     @Published public var statsRange: StatsRange = .today
     @Published public private(set) var routingStats: RoutingStats
+    @Published public private(set) var gatewayOverview: GatewayOverview
     @Published public private(set) var isRefreshingStats = false
     @Published public var chatDraft = ""
     @Published public private(set) var chatMessages: [ChatMessage]
@@ -18,6 +19,7 @@ public final class AppState: ObservableObject {
     public init(client: any WayfinderClient) {
         self.client = client
         self.routingStats = .mock
+        self.gatewayOverview = .mock
         self.chatMessages = .mockConversation
     }
 
@@ -61,12 +63,12 @@ public final class AppState: ObservableObject {
         }
 
         isRefreshingStats = true
-        let range = statsRange
         Task {
             do {
-                let stats = try await client.loadStats(range: range)
+                let overview = try await client.loadOverview()
                 await MainActor.run {
-                    self.routingStats = stats
+                    self.gatewayOverview = overview
+                    self.routingStats = overview.routingStats
                     self.isRefreshingStats = false
                 }
             } catch {
@@ -167,13 +169,31 @@ private extension RoutingStats {
         RoutingStats(
             localPercent: 0.68,
             cloudPercent: 0.32,
+            localRouteCount: 17,
+            cloudRouteCount: 8,
+            totalTurns: 25,
             savedToday: Decimal(string: "0.01") ?? 0,
             savedLast30Days: Decimal(string: "0.01") ?? 0,
             cloudSpendToday: Decimal(string: "0.00") ?? 0,
             percentVsAlwaysCloud: 0.29,
+            isPriced: true,
+            hasSavings: true,
+            savedTodayDisplay: "Today: $0.01 · 29% vs always-cloud",
+            savedLast30DaysDisplay: "Last 30 days: $0.01 · 29% vs always-cloud",
             averageRoutingTimeMilliseconds: 0.82,
             updatedAt: Date(),
             isRunning: true
+        )
+    }
+}
+
+private extension GatewayOverview {
+    static var mock: GatewayOverview {
+        GatewayOverview(
+            gateway: .running(detail: "2 configured models"),
+            hosted: .checkKeys(detail: "ANTHROPIC_API_KEY"),
+            routingStats: .mock,
+            updatedAt: Date()
         )
     }
 }

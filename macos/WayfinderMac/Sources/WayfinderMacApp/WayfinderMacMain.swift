@@ -7,7 +7,7 @@ enum WayfinderMacMain {
 
     @MainActor
     static func main() {
-        let delegate = AppDelegate(client: MockWayfinderClient())
+        let delegate = AppDelegate(client: GatewayWayfinderClient())
         appDelegate = delegate
 
         let app = NSApplication.shared
