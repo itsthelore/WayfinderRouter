@@ -62,6 +62,6 @@ extension Double {
 extension Decimal {
     var currencyText: String {
         let value = NSDecimalNumber(decimal: self).doubleValue
-        return value.formatted(.currency(code: "USD").precision(.fractionLength(2)))
+        return "$" + value.formatted(.number.precision(.fractionLength(2)))
     }
 }

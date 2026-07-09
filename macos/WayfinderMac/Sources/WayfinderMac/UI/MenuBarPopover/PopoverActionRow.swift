@@ -77,16 +77,17 @@ struct PopoverMenuRow<Accessory: View>: View {
         }) {
             HStack(spacing: 9) {
                 Image(systemName: symbolName)
-                    .font(.system(size: 12, weight: .medium))
+                    .font(.system(size: 13, weight: .regular))
                     .foregroundStyle(isEnabled ? .secondary : .tertiary)
-                    .frame(width: 14)
+                    .frame(width: 20)
                 Text(title)
-                    .font(.system(size: 12, weight: .medium))
+                    .font(.system(size: 14, weight: .regular))
                     .foregroundStyle(isEnabled ? .primary : .secondary)
                 Spacer()
                 accessory()
             }
-            .frame(height: 28)
+            .frame(height: 32)
+            .padding(.horizontal, 20)
             .contentShape(Rectangle())
             .background(isEnabled && hovering ? Color.primary.opacity(0.06) : Color.clear)
         }
