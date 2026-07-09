@@ -44,18 +44,18 @@ This is a Swift Package executable for the first prototype. It creates a native 
 - Menu-bar popover: routing split, saved summary, running toggle, refresh/settings/chat/quit rows.
 - Wayfinder Chat window: routed conversation examples, compact route cards, why disclosure, bottom composer.
 - Settings window: native sidebar, Keys screen, provider picker/form, existing key status row, Keychain info box.
-- Service boundary: `WayfinderClient` supports `route(prompt:)` and `loadStats(range:)`, with `MockWayfinderClient` powering the UI by default.
+- Service boundary: `WayfinderClient` supports `route(prompt:)`, `loadStats(range:)`, and `loadOverview()`. The app entrypoint uses `GatewayWayfinderClient` for live status/stat rendering; `MockWayfinderClient` remains available for previews and tests.
 
 ## Integration Strategy
 
 Recommended path:
 
 1. Keep the native app behind the `WayfinderClient` protocol.
-2. Use `GatewayWayfinderClient` as the real source-of-truth integration once the local gateway lifecycle is ready.
+2. Use `GatewayWayfinderClient` as the real source-of-truth integration for menu-bar status, routing mix, and savings data.
 3. Keep `LocalWayfinderClient` as a prototype/degraded preview only unless a parity test is added against the Python golden corpus.
 4. Avoid storing provider keys in the app. Follow the existing gateway and Keychain pattern from the Tauri client.
 
-The first UI patch runs with `MockWayfinderClient` so the menu-bar, chat, and settings surfaces can be shaped without bootstrapping the gateway. To switch to the gateway later, initialize `AppDelegate(client: GatewayWayfinderClient())` in `Sources/WayfinderMacApp/WayfinderMacMain.swift`.
+The first UI patch ran with `MockWayfinderClient` so the menu-bar, chat, and settings surfaces could be shaped without bootstrapping the gateway. The native menu now starts with `AppDelegate(client: GatewayWayfinderClient())` in `Sources/WayfinderMacApp/WayfinderMacMain.swift`.
 
 ## Risks And Unknowns
 
