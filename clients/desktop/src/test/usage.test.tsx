@@ -71,76 +71,22 @@ describe("quantizeFill — 5% steps so poll noise never re-renders the tray", ()
 
 describe("UsageView — the flat list (mirrors clawrouter-usage.png)", () => {
   const noop = () => {};
-  const SAVINGS_7D: SavingsReport = {
-    ...SAVINGS,
-    saved: 0.91,
-    saved_pct: 30.1,
-    requests: 6,
-    by_route: { local: { ...SAVINGS.by_route!.local, requests: 4 }, cloud: { ...SAVINGS.by_route!.cloud, requests: 2 } },
-  };
-
-  it("Routing is JUST the bar (maintainer steer) — no permanent left/right/insight text", () => {
+  it("Routing row shows the local share, count, and the literal 'Routed: local: N · cloud: N' line", () => {
     render(
       <UsageView
         recent={RECENT_REPORT}
         savings={SAVINGS}
-        savings7d={SAVINGS_7D}
         savings30d={SAVINGS_30D}
         cheapest="local"
         onOpenChat={noop}
       />,
     );
-    expect(screen.queryByText("50% routed locally")).not.toBeInTheDocument();
-    expect(screen.queryByText("2 turns")).not.toBeInTheDocument();
-    expect(screen.queryByText("Routed: local: 1 · cloud: 1")).not.toBeInTheDocument();
-    // The bar is a composition (local vs cloud split), not a quota fill (WF-DESIGN-0014); the
-    // same breakdown that used to render as permanent text is still the accessible name.
+    expect(screen.getByText("50% routed locally")).toBeInTheDocument();
+    expect(screen.getByText("2 turns")).toBeInTheDocument();
+    expect(screen.getByText("Routed: local: 1 · cloud: 1")).toBeInTheDocument();
+    // The bar is a composition (local vs cloud split), not a quota fill (WF-DESIGN-0014).
     expect(
       screen.getByRole("img", { name: "route split — local: 1 (50%), cloud: 1 (50%)" }),
-    ).toBeInTheDocument();
-  });
-
-  it("hovering the bar reveals the local/cloud breakdown in a tooltip", async () => {
-    const user = userEvent.setup();
-    render(
-      <UsageView
-        recent={RECENT_REPORT}
-        savings={SAVINGS}
-        savings7d={SAVINGS_7D}
-        savings30d={SAVINGS_30D}
-        cheapest="local"
-        onOpenChat={noop}
-      />,
-    );
-    await user.hover(screen.getByRole("img", { name: /route split/ }));
-    // Radix renders the visible bubble plus a visually-hidden sr-only echo with the same
-    // text — both matches are fine, we just need at least one to have opened.
-    const matches = await screen.findAllByText(
-      "50% routed locally · 2 turns — local: 1 · cloud: 1",
-      {},
-      { timeout: 2000 },
-    );
-    expect(matches.length).toBeGreaterThan(0);
-  });
-
-  it("the Today/7d/30d toggle switches which period's by_route drives the bar", async () => {
-    const user = userEvent.setup();
-    render(
-      <UsageView
-        recent={RECENT_REPORT}
-        savings={SAVINGS}
-        savings7d={SAVINGS_7D}
-        savings30d={SAVINGS_30D}
-        cheapest="local"
-        onOpenChat={noop}
-      />,
-    );
-    expect(
-      screen.getByRole("img", { name: "route split — local: 1 (50%), cloud: 1 (50%)" }),
-    ).toBeInTheDocument();
-    await user.click(screen.getByRole("button", { name: "7d" }));
-    expect(
-      screen.getByRole("img", { name: "route split — local: 4 (67%), cloud: 2 (33%)" }),
     ).toBeInTheDocument();
   });
 
@@ -149,7 +95,6 @@ describe("UsageView — the flat list (mirrors clawrouter-usage.png)", () => {
       <UsageView
         recent={RECENT_REPORT}
         savings={SAVINGS}
-        savings7d={SAVINGS_7D}
         savings30d={SAVINGS_30D}
         cheapest="local"
         onOpenChat={noop}
@@ -166,15 +111,14 @@ describe("UsageView — the flat list (mirrors clawrouter-usage.png)", () => {
     render(
       <UsageView
         recent={{ total: 0, byModel: {}, localShare: null }}
-        savings={{ ...SAVINGS, priced: false, requests: 0, by_route: {} }}
-        savings7d={null}
+        savings={{ ...SAVINGS, priced: false }}
         savings30d={null}
         cheapest="local"
         onOpenChat={noop}
       />,
     );
+    expect(screen.getByText("No turns yet")).toBeInTheDocument();
     expect(screen.getByText("Not yet available")).toBeInTheDocument();
-    expect(screen.getByRole("img", { name: "route split — local: 0, cloud: 0" })).toBeInTheDocument();
   });
 
   it("actions are ONLY behavior — Chat pushes; every open/fix action lives in Settings", async () => {
@@ -184,13 +128,12 @@ describe("UsageView — the flat list (mirrors clawrouter-usage.png)", () => {
       <UsageView
         recent={RECENT_REPORT}
         savings={SAVINGS}
-        savings7d={SAVINGS_7D}
         savings30d={SAVINGS_30D}
         cheapest="local"
         onOpenChat={onOpenChat}
       />,
     );
-    await user.click(screen.getByRole("button", { name: "Wayfinder Chat" }));
+    await user.click(screen.getByRole("button", { name: "Chat" }));
     expect(onOpenChat).toHaveBeenCalled();
     // The popover must never re-grow a scattered menu next to the one Settings… door
     // (maintainer review): no open-target rows and no Add-key row — even when degraded, the
@@ -214,12 +157,12 @@ describe("PopoverRoot — chat push/back, draft survives (hidden, not unmounted)
     }) as unknown as typeof fetch;
     const user = userEvent.setup();
     render(<PopoverRoot />);
-    await waitFor(() => expect(screen.getByRole("button", { name: "Wayfinder Chat" })).toBeInTheDocument());
-    await user.click(screen.getByRole("button", { name: "Wayfinder Chat" }));
+    await waitFor(() => expect(screen.getByRole("button", { name: "Chat" })).toBeInTheDocument());
+    await user.click(screen.getByRole("button", { name: "Chat" }));
     await user.type(screen.getByRole("textbox", { name: "message" }), "half a thought");
     await user.click(screen.getByRole("button", { name: "back to Wayfinder" }));
     expect(screen.getByTestId("usage")).toBeInTheDocument();
-    await user.click(screen.getByRole("button", { name: "Wayfinder Chat" }));
+    await user.click(screen.getByRole("button", { name: "Chat" }));
     expect(screen.getByRole("textbox", { name: "message" })).toHaveValue("half a thought");
   });
 });

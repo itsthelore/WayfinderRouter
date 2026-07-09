@@ -8,38 +8,6 @@ details, release history over commit history.
 
 ### Added
 
-- **Desktop: Routing period toggle (Today / 7d / 30d)** (WF-DESIGN-0014). The popover's Routing
-  row is now just the bar — the local/cloud breakdown that used to sit as permanent text lives
-  in a hover tooltip instead — with a toggle to pick which day-window it describes, reusing the
-  gateway's existing `/v1/savings?period=` `by_route` breakdown (a real calendar-day split,
-  unlike `/router/recent`'s fixed last-N-turns window). Icons were also added next to every
-  section title and footer action (gear for Settings, etc.), and the Usage screen's footer no
-  longer leaves a gap after a short list — it now follows the content directly.
-
-- **Desktop: real wordmark**. The plain-text "Wayfinder" in the popover header and the first-run
-  hero is now the actual brand wordmark (a transparent PNG, sized for both spots), replacing the
-  bold-text placeholder.
-
-- **Desktop: adopts several of shadcn's newer components** (WF-DESIGN-0014). `marker` (the
-  chat transcript's routing-decision line, plus a new "Routing…" state filling a real gap that
-  used to render nothing between sending a message and the decision arriving), `item` (every
-  Settings row now composes it under the hood; the sidebar nav gets a per-section icon), the
-  Routing period toggle rebuilt on `button-group`, the two Settings dropdowns rebuilt on
-  `native-select`, and `message-scroller` for the chat transcript (a real new dependency,
-  `@shadcn/react` — everything else here was vendored code, no new packages), which brings a
-  scroll-to-bottom button and a top/bottom fade the old hand-rolled scroll area didn't have.
-
-- **`config set-model` / `config set-threshold`** (WF-ADR-0044). Two more config-seam verbs,
-  the backend half of a desktop Providers pane: `config set-model --name [--enabled true|false]
-  [--fallback <model>|--no-fallback]` edits an existing model's enable state (delivery-time
-  only — a disabled model is skipped at request time exactly like a broken endpoint, cascading
-  to its fallback; the scored decision never changes) and its single same-tier fallback.
-  `config set-threshold --model --min-score` moves an existing routing tier's score boundary —
-  a real decision change, rejected up front if it would break tier ordering. `/router/models`
-  also now reports each model's `context_window` and `enabled` state, and `/router/recent`
-  reports `p50_decision_ms` — the median time to *decide* a route, distinct from the upstream
-  model's own response time.
-
 - **Decision-only replies when no model is configured** (WF-ADR-0042). A running gateway with no
   `[gateway.models]` now answers `/v1/chat/completions` with the routing **decision** (HTTP 200,
   `{"wayfinder": {…}}` and an `x-wayfinder-router-decision-only: true` header) instead of a `500` — so
@@ -69,26 +37,6 @@ details, release history over commit history.
   Keychain (`/usr/bin/security find-generic-password -s wayfinder-router -a <ENV_VAR> -w`) — the
   reference the desktop app onboards through. The key itself is never written to the config
   (WF-ADR-0004); without the flag, `init` output is unchanged byte-for-byte.
-
-- **`config add-model`** (WF-ADR-0044). `wayfinder-router config add-model --name --base-url --model
-  [--api-key-env] [--cost-per-1k] [--keychain] [--path]` registers a brand-new `[gateway.models.*]`
-  endpoint — any OpenAI-compatible provider, not a fixed list — without hand-editing TOML: line-preserving,
-  validated against the real config schema, refuses a name collision. It only registers the endpoint;
-  it never places the model into `[[routing.tiers]]`, so it won't receive automatically-routed traffic
-  until that's done by hand. It is what the desktop app's Keys screen shells out to when adding a
-  provider that isn't in your config yet.
-
-- **Desktop: detect local model runners** (WF-ADR-0042). The Keys screen now checks loopback for a
-  running Ollama or LM Studio and offers them as one-click quick-picks — a narrow, justified Rust-side
-  probe (not the webview, so the CSP's `connect-src` stays untouched) that only reports whether the two
-  known local ports answered, nothing else.
-
-### Fixed
-
-- **Desktop first-run: a clear message when the installed gateway predates `--keychain`**
-  (WF-DESIGN-0015). An outdated `wayfinder-router` install used to fail "Set up routing" with a raw
-  argparse error (`unrecognized arguments: --keychain`); the app now probes `init --help` for the flag
-  first and fails with a plain "update with `pip install --upgrade wayfinder-router`" message instead.
 
 ## v2026.7.0 — 2026-07-01
 

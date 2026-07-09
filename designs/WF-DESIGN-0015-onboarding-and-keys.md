@@ -34,12 +34,6 @@ order:
 1. `wayfinder-router init --preset <p> --keychain --path
    ~/Library/Application Support/Wayfinder/wayfinder-router.toml` — an existing file is kept
    (init's "already exists" is treated as success; the app never `--force`s over user edits).
-   Before calling it, the app probes `init --help` for the literal text `--keychain` — a
-   capability check, not a version check (there is no released version number that reliably
-   means "has the flag": it postdates the currently published tag, and the unreleased worktree
-   that added it hadn't bumped `__version__` either). An installed CLI predating the flag fails
-   fast with a plain "update with `pip install --upgrade wayfinder-router`" message instead of
-   argparse's raw `unrecognized arguments: --keychain` surfacing straight into the UI.
 2. `wayfinder-router service uninstall` (best-effort) → `service install` — the install argv
    *always* bakes `--config <that path>` into the unit. The uninstall step is load-bearing:
    re-installing over a loaded agent leaves launchd's **old** job spec running (`bootstrap`
@@ -79,39 +73,6 @@ scattered menu next to its one "Settings…" door. The status that names the pro
 click. The deep-link applies on window *creation* only — an already-open Settings window is
 focused, not re-routed (accepted limitation).
 
-## Amendment: Add Provider or Model (Settings → Keys)
-
-A second entry point beside the keyed-model list: a "+ Add Provider or Model" button reveals a
-form for registering an endpoint that isn't in config yet at all — the seam's `config add-model`
-verb (WF-ADR-0044 amendment), not `config set`. Deliberately open-ended, not a fixed provider
-enum ("anything OpenAI-compatible," per the maintainer): five quick-picks (Anthropic, OpenAI,
-Google Gemini, Ollama, LM Studio) prefill base URL and, for the cloud three, the conventional
-`$ENV_VAR` name; **Custom** starts blank for everything else (a HuggingFace-hosted endpoint, a
-personal proxy, anything). No provider icons — names only, per the maintainer's steer.
-
-The **name field is a freely-editable slug**, not tied to the provider identity — picking
-Anthropic twice with different names (e.g. `anthropic`, `anthropic-fast`) and different Model
-IDs registers two independent `[gateway.models.*]` entries, since the same provider can back
-several models a user wants to compare or fall back between. Client-side validation mirrors the
-CLI's own name pattern (`^[a-z][a-z0-9_-]{0,63}$`) so a bad name fails fast in the form rather
-than round-tripping to the CLI first; the real validation (schema, collision, re-parse) still
-happens in the gateway CLI per the seam's rule of one validator.
-
-Local runners get a second assist: a narrow Rust-side loopback probe (`detect_local_providers`,
-checking 127.0.0.1:11434 and :1234 — Ollama and LM Studio's default ports) runs when the form
-opens and marks whichever quick-pick is actually live with a "•" and a caption, so the common
-case (Ollama already running) needs no typing at all beyond the Model field. This runs in Rust,
-not the webview, so the CSP's `connect-src` stays untouched (WF-ADR-0042).
-
-Add shells `add_model` (base_url, model, and — only if the field is non-empty — an
-`api_key_env`, which also implies `--keychain` on the CLI side); success closes the form and
-refreshes the Keys list the same way Save/Remove already do. The new entry appears as an
-ordinary `KeyRow` if it's keyed — no separate code path for entering its key, same
-Keychain-via-stdin flow as every other model. **Registering an endpoint is not the same as
-routing to it**: `config add-model` never touches `[[routing.tiers]]`, so a freshly added model
-is keyable and usable by direct name or as a same-tier fallback, but won't receive
-auto-routed traffic until a human places it in a tier by hand — the form doesn't claim otherwise.
-
 ## Privacy (Settings → Privacy — the verify-lite panel)
 
 Static Form rows stating exactly what WF-ADR-0042 §8 allows, nothing more: the decision is
@@ -149,13 +110,11 @@ hand shows up on the next poll exactly the same way. The old per-turn
 ## Verification & known limits
 
 jsdom coverage: preset pick → scaffold arg, busy/error, Add-key row visibility + deep-link,
-Keys list/save/remove/unreachable, Add Provider or Model (preset fill, freeform name reuse,
-custom/keyless, client-side name validation, seam-rejection surfacing, detected-local-runner
-badge, Cancel), Privacy claims (and the banned overclaim's absence), shortcut persist/rollback,
-plus Rust unit tables for the keychain script builder (escaping + rejection), the shortcut
-whitelist, and the install argv. **Not coverable in CI (Linux): the real `/usr/bin/security -i`
-round-trip and the launchd uninstall→install flow — a real-Mac smoke test is a required
-pre-release step (WF-ROADMAP-0009 Phase 5).**
+Keys list/save/remove/unreachable, Privacy claims (and the banned overclaim's absence),
+shortcut persist/rollback, plus Rust unit tables for the keychain script builder (escaping +
+rejection), the shortcut whitelist, and the install argv. **Not coverable in CI (Linux): the
+real `/usr/bin/security -i` round-trip and the launchd uninstall→install flow — a real-Mac
+smoke test is a required pre-release step (WF-ROADMAP-0009 Phase 5).**
 
 ## Related
 

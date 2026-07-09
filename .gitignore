@@ -15,3 +15,8 @@ clients/desktop/src-tauri/target/
 clients/desktop/src-tauri/gen/
 clients/desktop/src-tauri/binaries/
 *.tsbuildinfo
+.DS_Store
+
+# SwiftPM/macOS local outputs and embedded local checkouts
+macos/WayfinderMac/.build/
+macos/WayfinderMac/rac-core/

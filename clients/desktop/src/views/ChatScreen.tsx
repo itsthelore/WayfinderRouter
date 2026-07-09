@@ -9,7 +9,7 @@
 // reply — and each send carries the recent history so the gateway sees a conversation, not a
 // bag of one-offs. In-memory only; quitting the app is the clear affordance. The full decision
 // hero (score bar, why rows) stays reserved for the live turn.
-import { useMemo } from "react";
+import { useEffect, useMemo, useRef } from "react";
 import { routeGlyph, routeLabel } from "@wayfinder/shared/decision";
 import {
   historyFromTranscript,
@@ -19,21 +19,14 @@ import {
   type SettledTurn,
 } from "@/lib/appState";
 import type { UseTurn } from "@/hooks/useTurn";
+import { useReducedMotion } from "@/hooks/useReducedMotion";
 import { openSettings } from "@/lib/ipc";
 import { DecisionSummary } from "@/components/DecisionSummary";
 import { StreamingMessage } from "@/components/StreamingMessage";
 import { OnboardingCard } from "@/components/OnboardingCard";
 import { Composer } from "@/components/Composer";
 import type { SlashCommand } from "@/components/SlashMenu";
-import { Marker, MarkerContent, MarkerIcon } from "@/components/ui/marker";
-import {
-  MessageScroller,
-  MessageScrollerButton,
-  MessageScrollerContent,
-  MessageScrollerItem,
-  MessageScrollerProvider,
-  MessageScrollerViewport,
-} from "@/components/ui/message-scroller";
+import { ScrollArea } from "@/components/ui/scroll-area";
 
 /** The user's message, in scrollback and above the live hero alike: dark, with a muted
  *  prompt marker — the flat list's answer to a chat bubble. */
@@ -55,13 +48,9 @@ function TranscriptTurn({ turn }: { turn: SettledTurn }) {
     <div className="flex flex-col border-b border-border pb-3.5">
       <PromptLine prompt={turn.prompt} />
       {turn.decision && (
-        <div className="px-5 pt-1">
-          <Marker className="text-[11px]">
-            <MarkerIcon aria-hidden>{routeGlyph(turn.decision)}</MarkerIcon>
-            <MarkerContent>
-              {routeLabel(turn.decision)} <span className="font-mono">{turn.decision.model}</span>
-            </MarkerContent>
-          </Marker>
+        <div className="px-5 pt-1 text-[11px] text-muted-foreground">
+          <span aria-hidden>{routeGlyph(turn.decision)}</span> {routeLabel(turn.decision)}{" "}
+          <span className="font-mono">{turn.decision.model}</span>
         </div>
       )}
       {turn.reply ? (
@@ -91,7 +80,8 @@ export function ChatScreen({
   offlinePending?: boolean;
 }) {
   const offline = showOfflineChip(gw);
-  const hasLiveTurn = !!turn.decision || turn.phase === "streaming";
+  const reducedMotion = useReducedMotion();
+  const bottomRef = useRef<HTMLDivElement | null>(null);
 
   // Slash commands (WF-DESIGN-0014 amendment): a small, curated set — this stays a
   // routing-inspection surface, not a general command palette.
@@ -112,6 +102,12 @@ export function ChatScreen({
     return list;
   }, [turn, onOfflineToggle, offlinePending, gw.offlineConfig]);
 
+  // Auto-follow: keep the newest content in view as turns settle and tokens stream. jsdom has
+  // no scrollIntoView; real WebKit does — hence the optional call.
+  useEffect(() => {
+    bottomRef.current?.scrollIntoView?.({ behavior: reducedMotion ? "instant" : "smooth" });
+  }, [turn.transcript.length, turn.reply.length, reducedMotion]);
+
   // One polite announcement on completion (WF-DESIGN-0012) — never a live region on the token
   // stream. Empty while streaming/idle so only the settled result speaks.
   const announcement =
@@ -130,68 +126,39 @@ export function ChatScreen({
         </div>
       )}
 
-      {/* message-scroller (WF-DESIGN-0014) drives auto-follow itself — the live turn is the
-          scrollAnchor, so it keeps pace as tokens stream in without a manual scrollIntoView
-          effect. The scroll-to-bottom button only shows once you've scrolled away from it. */}
-      <MessageScrollerProvider autoScroll>
-        <MessageScroller className="min-h-0 flex-1">
-          <MessageScrollerViewport>
-            <MessageScrollerContent className="gap-0 px-0">
-              {offline && (
-                <div className="px-5 pt-2 text-[11px] text-muted-foreground">
-                  offline — routing to the cheapest tier
+      <ScrollArea className="min-h-0 flex-1">
+        <div className="flex flex-col">
+          {offline && (
+            <div className="px-5 pt-2 text-[11px] text-muted-foreground">
+              offline — routing to the cheapest tier
+            </div>
+          )}
+          {turn.transcript.map((settled, i) => (
+            <TranscriptTurn key={i} turn={settled} />
+          ))}
+          {turn.decision ? (
+            <>
+              <PromptLine prompt={turn.prompt} />
+              <DecisionSummary decision={turn.decision} enriched={turn.enriched} offline={offline} />
+              {turn.decision.decisionOnly ? (
+                <OnboardingCard />
+              ) : turn.reply || turn.phase === "streaming" ? (
+                <StreamingMessage reply={turn.reply} streaming={turn.phase === "streaming"} />
+              ) : null}
+              {turn.phase === "error" && turn.error !== "stopped" && (
+                <div className="px-5 py-2 text-[11px]" style={{ color: "var(--destructive)" }}>
+                  reply failed: {turn.error} — the decision above still stands
                 </div>
               )}
-              {turn.transcript.map((settled, i) => (
-                <MessageScrollerItem key={i}>
-                  <TranscriptTurn turn={settled} />
-                </MessageScrollerItem>
-              ))}
-              {hasLiveTurn ? (
-                <MessageScrollerItem scrollAnchor>
-                  {turn.decision ? (
-                    <>
-                      <PromptLine prompt={turn.prompt} />
-                      <DecisionSummary decision={turn.decision} enriched={turn.enriched} offline={offline} />
-                      {turn.decision.decisionOnly ? (
-                        <OnboardingCard />
-                      ) : turn.reply || turn.phase === "streaming" ? (
-                        <StreamingMessage reply={turn.reply} streaming={turn.phase === "streaming"} />
-                      ) : null}
-                      {turn.phase === "error" && turn.error !== "stopped" && (
-                        <div className="px-5 py-2 text-[11px]" style={{ color: "var(--destructive)" }}>
-                          reply failed: {turn.error} — the decision above still stands
-                        </div>
-                      )}
-                    </>
-                  ) : (
-                    // Headers (and so `turn.decision`) usually land with the first byte of the
-                    // reply — this only shows for that brief gap, but it's a real gap: without
-                    // it, submitting a second turn in an existing conversation left nothing
-                    // rendered below the scrollback until the decision painted.
-                    <>
-                      <PromptLine prompt={turn.prompt} />
-                      <div className="px-5 pt-1">
-                        <Marker className="text-[11px]">
-                          <MarkerIcon aria-hidden>
-                            <span className="block size-1.5 animate-pulse rounded-full bg-muted-foreground" />
-                          </MarkerIcon>
-                          <MarkerContent>Routing…</MarkerContent>
-                        </Marker>
-                      </div>
-                    </>
-                  )}
-                </MessageScrollerItem>
-              ) : turn.transcript.length === 0 ? (
-                <p className="px-5 py-2.5 text-[13px] leading-[1.45] text-muted-foreground">
-                  Send a message — Wayfinder routes it and shows the score.
-                </p>
-              ) : null}
-            </MessageScrollerContent>
-          </MessageScrollerViewport>
-          <MessageScrollerButton />
-        </MessageScroller>
-      </MessageScrollerProvider>
+            </>
+          ) : turn.transcript.length === 0 ? (
+            <p className="px-5 py-2.5 text-[13px] leading-[1.45] text-muted-foreground">
+              Send a message — Wayfinder routes it and shows the score.
+            </p>
+          ) : null}
+          <div ref={bottomRef} aria-hidden />
+        </div>
+      </ScrollArea>
 
       <div className="flex flex-col gap-2 border-t border-border bg-background p-5">
         <Composer

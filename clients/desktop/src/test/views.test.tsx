@@ -75,7 +75,7 @@ describe("scorerPreview — parity-gated local mirror", () => {
 describe("MenuHeader — bold name, neutral health text, freshness subtext (mirrors clawrouter-usage.png)", () => {
   it("renders the name and a neutral health label", () => {
     render(<MenuHeader gw={gwState()} updatedText="Updated just now" />);
-    expect(screen.getByRole("img", { name: "Wayfinder" })).toBeInTheDocument();
+    expect(screen.getByText("Wayfinder")).toBeInTheDocument();
     expect(screen.getByText("Running")).toBeInTheDocument();
     expect(screen.getByText("Updated just now")).toBeInTheDocument();
   });
@@ -192,14 +192,6 @@ describe("ChatScreen — adornments + decision summary + reply swap", () => {
     const live = document.querySelector('[aria-live="polite"]')!;
     expect(live).toHaveTextContent("reply finished, routed locally");
   });
-  it("streaming with no decision yet: a Routing… marker fills the gap instead of nothing", () => {
-    render(
-      <ChatScreen gw={gwState()} turn={turnStub({ phase: "streaming", prompt: "a fresh prompt", decision: null })} />,
-    );
-    expect(screen.getByText("a fresh prompt")).toBeInTheDocument();
-    expect(screen.getByText("Routing…")).toBeInTheDocument();
-  });
-
   it("decision-only: OnboardingCard replaces the reply", () => {
     render(
       <ChatScreen gw={gwState()} turn={turnStub({ decision: { ...local, decisionOnly: true }, enriched: true, phase: "done" })} />,
@@ -352,7 +344,7 @@ describe("PopoverRoot — the reachable/unreachable/first-run switch, driven by 
     await waitFor(() => expect(screen.getByText("Running")).toBeInTheDocument());
     expect(screen.getByTestId("usage")).toBeInTheDocument();
     expect(screen.queryByRole("textbox", { name: "message" })).not.toBeInTheDocument();
-    await user.click(screen.getByRole("button", { name: "Wayfinder Chat" }));
+    await user.click(screen.getByRole("button", { name: "Chat" }));
     expect(screen.getByRole("textbox", { name: "message" })).toBeInTheDocument();
   });
 
@@ -380,8 +372,8 @@ describe("PopoverRoot — the reachable/unreachable/first-run switch, driven by 
     globalThis.fetch = routedFetch(async () => new Response(fixture("healthz-degraded.json"), { status: 200 })) as unknown as typeof fetch;
     const user = userEvent.setup();
     render(<PopoverRoot />);
-    await waitFor(() => expect(screen.getByRole("button", { name: "Wayfinder Chat" })).toBeInTheDocument());
-    await user.click(screen.getByRole("button", { name: "Wayfinder Chat" }));
+    await waitFor(() => expect(screen.getByRole("button", { name: "Chat" })).toBeInTheDocument());
+    await user.click(screen.getByRole("button", { name: "Chat" }));
     await waitFor(() => expect(screen.getByRole("alert")).toBeInTheDocument());
   });
 

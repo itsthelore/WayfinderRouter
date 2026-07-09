@@ -11,7 +11,6 @@ import type { GatewayState } from "@/lib/appState";
 import { HelpTip } from "@/components/menu/HelpTip";
 import { Switch } from "@/components/ui/switch";
 import { cn } from "@/lib/utils";
-import wordmark from "@/assets/wayfinder-wordmark.png";
 
 const HEALTH_LABEL: Record<GatewayState["health"], string> = {
   ok: "Running",
@@ -56,7 +55,7 @@ export function MenuHeader({
   const missing = gw.health === "degraded" && gw.missingKeys.length > 0;
   return (
     <header className={cn("flex flex-col gap-1 bg-background px-5 py-5", className)}>
-      <img src={wordmark} alt="Wayfinder" className="h-[18px] w-auto self-start" />
+      <span className="text-[19px] font-bold leading-tight">Wayfinder</span>
       <div className="flex items-center justify-between gap-3">
         {missing && onAddKey ? (
           <button
@@ -103,7 +102,7 @@ export function ChatHeader({ onBack }: { onBack: () => void }) {
       >
         ‹
       </button>
-      <span className="text-[19px] font-bold">Wayfinder Chat</span>
+      <span className="text-[19px] font-bold">Chat</span>
     </header>
   );
 }

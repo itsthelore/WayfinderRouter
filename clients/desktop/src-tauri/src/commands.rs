@@ -124,19 +124,6 @@ pub fn quit_app(app: AppHandle) {
     app.exit(0);
 }
 
-/// Does this `wayfinder-router` support `init --keychain`? A capability probe, not a version
-/// check — `--keychain` (WF-ADR-0044) postdates the currently *published* release, and the
-/// unreleased worktree that added it hasn't bumped `__version__` yet, so no version number
-/// reliably means "has the flag" (a version check would even misjudge a from-source `pip
-/// install -e .` of this exact checkout). Cheap: `init --help` has no side effects.
-fn supports_keychain_init(wf: &str) -> bool {
-    Command::new(wf)
-        .args(["init", "--help"])
-        .output()
-        .map(|out| String::from_utf8_lossy(&out.stdout).contains("--keychain"))
-        .unwrap_or(false)
-}
-
 /// First-run scaffold (WF-ADR-0044 / WF-DESIGN-0015): shell the gateway's own `init --preset
 /// <p> --keychain --path <shared config>` — the app authors zero TOML — then (re)install the
 /// service so the unit carries `--config <shared config>`. The uninstall step is load-bearing:
@@ -154,14 +141,6 @@ pub fn scaffold_config(preset: String) -> Result<String, String> {
         "couldn't find `wayfinder-router` — install the gateway first (pip install wayfinder-router)"
             .to_string()
     })?;
-    if !supports_keychain_init(&wf) {
-        return Err(
-            "your installed wayfinder-router doesn't support Keychain-backed keys yet — update \
-             with `pip install --upgrade wayfinder-router` (or `pip install -e .` from a source \
-             checkout), then try again"
-                .to_string(),
-        );
-    }
     let config = service::desktop_config_path(&home);
     if let Some(dir) = std::path::Path::new(&config).parent() {
         std::fs::create_dir_all(dir).map_err(|e| format!("cannot create {}: {e}", dir.display()))?;
@@ -236,99 +215,6 @@ pub fn set_offline(on: bool) -> Result<String, String> {
         let stderr = String::from_utf8_lossy(&out.stderr);
         Err(format!("config set failed: {}", stderr.trim()))
     }
-}
-
-/// Register a brand-new `[gateway.models.*]` endpoint by shelling the seam's `config add-model`
-/// verb (WF-ADR-0044) — any OpenAI-compatible provider, not a fixed list (Anthropic, OpenAI,
-/// Gemini, a HuggingFace Inference Endpoint, a local Ollama/LM Studio server, ...). Whenever a
-/// key-env is given, `--keychain` rides along unconditionally so the new entry's `api_key_cmd`
-/// points at the Keychain like every other model this app manages — the existing per-row Save
-/// button then works unchanged for it. Registers the endpoint only: it is never placed into a
-/// routing tier (that's a real ranking decision, not this verb's job), so a restart makes the
-/// gateway load it (models, unlike `gateway.offline`, are read at startup only) but it won't
-/// receive automatically-scored traffic until a tier references it.
-#[tauri::command]
-pub fn add_model(
-    name: String,
-    base_url: String,
-    model: String,
-    api_key_env: Option<String>,
-) -> Result<String, String> {
-    let home = std::env::var("HOME").unwrap_or_default();
-    let path = std::env::var("PATH").unwrap_or_default();
-    let wf = service::resolve_wayfinder(&home, &path).ok_or_else(|| {
-        "couldn't find `wayfinder-router` — install the gateway first (pip install wayfinder-router)"
-            .to_string()
-    })?;
-    let config = service::desktop_config_path(&home);
-    let mut args = vec![
-        "config".to_string(),
-        "add-model".to_string(),
-        "--name".to_string(),
-        name.clone(),
-        "--base-url".to_string(),
-        base_url,
-        "--model".to_string(),
-        model,
-    ];
-    if let Some(env) = &api_key_env {
-        args.push("--api-key-env".to_string());
-        args.push(env.clone());
-        args.push("--keychain".to_string());
-    }
-    args.push("--path".to_string());
-    args.push(config);
-    let out = Command::new(&wf).args(&args).output().map_err(|e| format!("{wf}: {e}"))?;
-    if !out.status.success() {
-        let stderr = String::from_utf8_lossy(&out.stderr);
-        return Err(format!("config add-model failed: {}", stderr.trim()));
-    }
-    service::run(service::ServiceAction::Start)?; // models load at gateway startup only
-    Ok(format!("added {name} — restarted the gateway to load it"))
-}
-
-/// A local runner the "add a model" form can offer as a one-click suggestion, alongside its
-/// prefillable base URL.
-#[derive(serde::Serialize)]
-pub struct DetectedProvider {
-    pub id: String,
-    pub base_url: String,
-}
-
-/// Fixed local-runner probes only — a narrow, read-only exception to "the webview reaches the
-/// gateway directly, Rust doesn't proxy HTTP" (WF-ADR-0042 §3): this is for OTHER local dev
-/// servers (Ollama, LM Studio), not the gateway, and the webview's CSP has no route to
-/// arbitrary localhost ports — only Rust can probe them without loosening it. `reqwest` was
-/// already a dependency (unused, like `tauri-plugin-positioner` before the popover-position
-/// fix) — this is what it was sitting there for.
-const LOCAL_PROBES: &[(&str, &str, &str)] = &[
-    ("ollama", "http://127.0.0.1:11434/v1/models", "http://127.0.0.1:11434/v1"),
-    ("lmstudio", "http://127.0.0.1:1234/v1/models", "http://127.0.0.1:1234/v1"),
-];
-
-async fn probe(client: &reqwest::Client, url: &str) -> bool {
-    client.get(url).send().await.map(|r| r.status().is_success()).unwrap_or(false)
-}
-
-/// Which local runners actually answer right now — informational only, never gates the "add a
-/// model" form: an undetected runner is still addable by hand (it might be on a nonstandard
-/// port, or simply not running yet). Short timeout so a missing runner never stalls the form.
-#[tauri::command]
-pub async fn detect_local_providers() -> Vec<DetectedProvider> {
-    let client = reqwest::Client::builder()
-        .timeout(std::time::Duration::from_millis(400))
-        .build()
-        .unwrap_or_default();
-    let (ollama, lmstudio) = tokio::join!(
-        probe(&client, LOCAL_PROBES[0].1),
-        probe(&client, LOCAL_PROBES[1].1),
-    );
-    [ollama, lmstudio]
-        .into_iter()
-        .zip(LOCAL_PROBES)
-        .filter(|(found, _)| *found)
-        .map(|(_, (id, _, base_url))| DetectedProvider { id: id.to_string(), base_url: base_url.to_string() })
-        .collect()
 }
 
 /// A transition-edge notification (WF-DESIGN-0012: edge-only, off by default — the webview's
@@ -429,41 +315,5 @@ mod tests {
         for px in img.rgba().chunks_exact(4) {
             assert_eq!(&px[..3], &[0, 0, 0]);
         }
-    }
-
-    fn stub_wayfinder_router(dir: &std::path::Path, help_text: &str) -> String {
-        std::fs::create_dir_all(dir).unwrap();
-        let bin = dir.join("wayfinder-router");
-        std::fs::write(&bin, format!("#!/bin/sh\ncat <<'EOF'\n{help_text}\nEOF\n")).unwrap();
-        std::fs::set_permissions(&bin, std::os::unix::fs::PermissionsExt::from_mode(0o755))
-            .unwrap();
-        bin.to_string_lossy().into_owned()
-    }
-
-    #[test]
-    fn supports_keychain_init_true_when_help_lists_the_flag() {
-        let dir = std::env::temp_dir().join(format!("wf-keychain-yes-{}", unsafe { libc::getpid() }));
-        let bin = stub_wayfinder_router(
-            &dir,
-            "usage: wayfinder-router init [-h] [--preset PRESET] [--keychain] [--path PATH]",
-        );
-        assert!(supports_keychain_init(&bin));
-        std::fs::remove_dir_all(&dir).ok();
-    }
-
-    #[test]
-    fn supports_keychain_init_false_on_an_older_cli() {
-        let dir = std::env::temp_dir().join(format!("wf-keychain-no-{}", unsafe { libc::getpid() }));
-        let bin = stub_wayfinder_router(
-            &dir,
-            "usage: wayfinder-router init [-h] [--preset PRESET] [--path PATH]",
-        );
-        assert!(!supports_keychain_init(&bin));
-        std::fs::remove_dir_all(&dir).ok();
-    }
-
-    #[test]
-    fn supports_keychain_init_false_when_the_binary_is_missing() {
-        assert!(!supports_keychain_init("/nonexistent/wayfinder-router"));
     }
 }

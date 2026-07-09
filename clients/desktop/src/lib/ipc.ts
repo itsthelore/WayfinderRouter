@@ -82,43 +82,6 @@ export async function deleteProviderKey(envVar: string): Promise<string> {
   return invoke<string>("delete_provider_key", { envVar });
 }
 
-/** Register a brand-new `[gateway.models.*]` endpoint via the config seam's `config add-model`
- *  (WF-ADR-0044) — any OpenAI-compatible provider, not a fixed list. `apiKeyEnv` omitted means a
- *  keyless local endpoint (Ollama, LM Studio); given, the key still goes through the Keychain,
- *  never through this call or JS state. Only registers the endpoint — it won't receive
- *  automatically-routed traffic until placed in a routing tier by hand. Rejects with the CLI's
- *  reason (e.g. a name collision) on failure. */
-export async function addModel(
-  name: string,
-  baseUrl: string,
-  model: string,
-  apiKeyEnv?: string,
-): Promise<string> {
-  if (!inTauri()) throw new Error("adding a model needs the desktop app");
-  return invoke<string>("add_model", {
-    name,
-    baseUrl,
-    model,
-    apiKeyEnv: apiKeyEnv ?? null,
-  });
-}
-
-export type DetectedProvider = { id: string; baseUrl: string };
-
-/** Best-effort loopback probe (WF-ADR-0042: narrow Rust-side exception, keeps the CSP's
- *  connect-src untouched) for local runners already up on this Mac — Ollama and LM Studio.
- *  Returns an empty list outside the desktop app or when neither is running. */
-export async function detectLocalProviders(): Promise<DetectedProvider[]> {
-  if (!inTauri()) return [];
-  try {
-    const found = await invoke<{ id: string; base_url: string }[]>("detect_local_providers");
-    return found.map((p) => ({ id: p.id, baseUrl: p.base_url }));
-  } catch (err) {
-    console.warn("detect_local_providers failed", err);
-    return [];
-  }
-}
-
 /** Rebind the popover toggle (WF-DESIGN-0015). Rejects on unknown ids or when the combo can't
  *  register (already claimed) so the Settings select can roll back. */
 export async function setShortcut(id: string): Promise<void> {

@@ -391,7 +391,6 @@ class GatewayModel:
     cost_per_1k: float | None = None  # optional cost metadata (WF-ADR-0017), informational
     fallbacks: tuple[str, ...] = ()  # same-tier endpoints to try if this one fails (WF-ADR-0031)
     context_window: int | None = None  # optional token limit for the pre-call check (WF-ADR-0031)
-    enabled: bool = True  # delivery-time only — never filters the scored decision (WF-ADR-0001)
 
 
 @dataclass(frozen=True)
@@ -758,9 +757,6 @@ def gateway_config_from_toml(text: str, where: str = "wayfinder-router.toml") ->
             raise WayfinderConfigError(
                 f"{where}: 'gateway.models.{name}.context_window' must be a positive integer"
             )
-        enabled = entry.get("enabled", True)
-        if not isinstance(enabled, bool):
-            raise WayfinderConfigError(f"{where}: 'gateway.models.{name}.enabled' must be a boolean")
         models[name] = GatewayModel(
             base_url=base_url,
             model=model,
@@ -769,7 +765,6 @@ def gateway_config_from_toml(text: str, where: str = "wayfinder-router.toml") ->
             cost_per_1k=float(cost_per_1k) if cost_per_1k is not None else None,
             fallbacks=tuple(raw_fallbacks),
             context_window=context_window,
-            enabled=enabled,
         )
     for name, gm in models.items():  # fallbacks must name other configured models
         for fb in gm.fallbacks:
@@ -900,8 +895,6 @@ def dump_gateway_toml(gateway: GatewayConfig) -> str:
             lines.append(f"fallbacks = [{rendered}]")
         if model.context_window is not None:
             lines.append(f"context_window = {model.context_window}")
-        if not model.enabled:
-            lines.append("enabled = false")
         blocks.append("\n".join(lines))
     return "\n\n".join(blocks)
 
@@ -1735,17 +1728,7 @@ def build_app(
         for entry in items:
             by_model[entry["model"]] = by_model.get(entry["model"], 0) + 1
         clamped = max(1, min(limit, _RECENT_MAX))
-        # p50 over whatever's still in the bounded ring (WF-ADR-0044 amendment) — decision
-        # latency, never the upstream model's own response time (that's a separate histogram,
-        # `wayfinder_router_upstream_latency_seconds`, on /metrics).
-        durations = sorted(e["decision_ms"] for e in items if "decision_ms" in e)
-        p50_decision_ms = durations[len(durations) // 2] if durations else None
-        return {
-            "total": len(items),
-            "by_model": by_model,
-            "recent": items[-clamped:][::-1],
-            "p50_decision_ms": p50_decision_ms,
-        }
+        return {"total": len(items), "by_model": by_model, "recent": items[-clamped:][::-1]}
 
     @app.get("/router", response_class=HTMLResponse)
     def router_dashboard() -> str:
@@ -1778,8 +1761,6 @@ def build_app(
                 "model": m.model,
                 "api_key_env": m.api_key_env,
                 "key_ok": m.api_key_env is None or bool(os.environ.get(m.api_key_env)),
-                "context_window": m.context_window,
-                "enabled": m.enabled,
             }
             for name, m in gw.models.items()
         ]
@@ -2077,7 +2058,6 @@ def build_app(
             "score": round(decision.score, 2),
             "mode": mode,
             "ts": time.time(),
-            "decision_ms": round(decision_seconds * 1000, 3),
         }
         if key_id is not None:  # attribution: which virtual key this turn belongs to (WF-ADR-0035)
             entry["key"] = key_id
@@ -2228,13 +2208,9 @@ def build_app(
         # open or that fail the pre-call check. The scored decision is unchanged either way.
         prompt_estimate = pricing.estimate_tokens(prompt_all)
 
-        def _precall_ok(name: str) -> bool:  # skip a disabled target or one whose window can't fit
+        def _precall_ok(name: str) -> bool:  # skip a target whose window can't fit the prompt
             model = gw.models.get(name)
-            if model is None:
-                return True
-            if not model.enabled:
-                return False
-            return reliability.precheck_ok(prompt_estimate, model.context_window)
+            return model is None or reliability.precheck_ok(prompt_estimate, model.context_window)
 
         if offline and ladder:
             # Offline-first (WF-ADR-0039): deliver to the cheapest tier only (`deliver_from`,

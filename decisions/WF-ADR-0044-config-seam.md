@@ -21,46 +21,6 @@ Accepted
 > and the edited text must re-parse through the real config parsers before anything is written.
 > A running gateway hot-reloads the change on its next request; no restart. The whitelist grows
 > key by key — this is still not a general TOML editor.
->
-> Amendment: `config add-model` — a second verb, a different shape. The desktop's Keys UI
-> needed to register a brand-new `[gateway.models.*]` endpoint, not just flip an existing
-> scalar, and the maintainer was explicit that the provider set is open-ended — "anything
-> OpenAI-compatible," not a fixed enum. `wayfinder-router config add-model --name --base-url
-> --model [--api-key-env] [--cost-per-1k] [--keychain] [--path]` (`config.add_model_table`, the
-> insert-a-table sibling of `set_toml_bool`) validates each field, refuses a name collision,
-> and re-parses through the real parsers exactly like `config set` — but it only *registers*
-> the endpoint. It never touches `[[routing.tiers]]`: placing a new model into the scored
-> routing ladder is a real decision (where does it rank in complexity?) the seam does not
-> guess at. A registered model is immediately visible via `/router/models`, keyable through the
-> existing Keychain flow, and usable as a same-tier `fallback` or by direct name — but it won't
-> receive automatically-routed traffic until a human puts it in a tier.
->
-> Amendment: `config set-model` and `config set-threshold` — the seam grows two more verbs for
-> a desktop Providers pane modeled on a maintainer-supplied product mockup, which wants a real
-> enable/disable toggle, a fallback picker, and a routing-threshold slider per provider, not
-> just registration. `config set-model --name [--enabled true|false] [--fallback <model>|
-> --no-fallback]` edits fields that ALREADY existed on `GatewayModel` before this amendment
-> (`fallbacks`, and the new `enabled`) — `--enabled` reuses `set_toml_bool` directly (it already
-> generalizes to any named `[table]`, including `[gateway.models.<name>]`, not just top-level
-> `[gateway]`); `--fallback` needed one new sibling primitive, `set_toml_string_list`, since
-> `fallbacks` is list-typed (the verb only ever manages one entry, matching the one dropdown it
-> serves — not a general list editor). Critically, **`enabled` is delivery-time only, never a
-> decision input** (WF-ADR-0001's purity holds exactly as before): a disabled model still gets
-> chosen by the scorer if its tier's band matches, and the *scored decision* — the response's
-> `x-wayfinder-router-model` header — is unchanged. Only delivery adapts: `_precall_ok`, the
-> existing pre-call filter that already skipped a target whose context window couldn't fit the
-> prompt (WF-ADR-0031), now also skips a disabled target, cascading to its `fallbacks` or the
-> tier's failover policy exactly like a live outage would — no new delivery logic, reusing
-> `reliability.delivery_plan`'s existing `allow` hook.
->
-> `config set-threshold --model --min-score` is the one genuinely new primitive,
-> `config.set_tier_min_score` — editing an *existing* `[[routing.tiers]]` entry, an
-> array-of-tables matched by which tier's `model =` line matches, not by a table name
-> `set_toml_bool` could already handle. Unlike `set-model`'s fields, this **is** a real
-> routing-decision change (WF-ADR-0002) — moving a tier boundary changes which prompts route
-> where — so the edit is rejected up front if re-parsing it through `routing_config_from_toml`
-> would break tier monotonicity (ascending, first = 0.0), the same belt-and-braces pattern every
-> seam verb already follows, just enforced on a structural property instead of a single value.
 
 ## Category
 
