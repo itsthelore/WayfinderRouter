@@ -9,7 +9,7 @@ public struct WayfinderPopoverView: View {
     private let onQuit: () -> Void
 
     public static let contentWidth: CGFloat = 400
-    public static let contentHeight: CGFloat = 460
+    public static let contentHeight: CGFloat = 550
 
     public init(
         onOpenChat: @escaping () -> Void,
@@ -26,31 +26,49 @@ public struct WayfinderPopoverView: View {
             header
             hairline
             VStack(spacing: 0) {
-                RoutingSummarySection(stats: appState.routingStats)
+                StatusRow(
+                    symbolName: "server.rack",
+                    title: "Gateway",
+                    detail: appState.gatewayOverview.gateway.detail,
+                    status: appState.gatewayOverview.gateway.title,
+                    tint: gatewayTint
+                )
+                rowDivider
+                StatusRow(
+                    symbolName: "cloud",
+                    title: "Hosted",
+                    detail: appState.gatewayOverview.hosted.detail,
+                    status: appState.gatewayOverview.hosted.title,
+                    tint: hostedTint
+                )
                 hairline
-                ModelStatusSection(stats: appState.routingStats)
+                RoutingSummarySection(stats: appState.routingStats)
                 hairline
                 SavedSummarySection(stats: appState.routingStats)
                 hairline
-                actionRows
+                PopoverActionRow(
+                    symbolName: "message",
+                    title: "Chat",
+                    trailing: "chevron.right",
+                    action: onOpenChat
+                )
+                hairline
+                footerRows
             }
-            .padding(.horizontal, 16)
-            .padding(.top, 6)
-            .padding(.bottom, 6)
+            .padding(.top, 4)
             Spacer(minLength: 0)
         }
         .frame(width: Self.contentWidth, height: Self.contentHeight, alignment: .top)
         .background {
             Rectangle()
                 .fill(.regularMaterial)
-            Color.white.opacity(0.28)
+            Color(nsColor: .windowBackgroundColor).opacity(0.18)
         }
         .overlay(alignment: .top) {
             Rectangle()
-                .fill(Color.white.opacity(0.38))
+                .fill(Color(nsColor: .separatorColor).opacity(0.35))
                 .frame(height: 1)
         }
-        .preferredColorScheme(.light)
         .onAppear {
             appState.refreshStats()
         }
@@ -59,26 +77,25 @@ public struct WayfinderPopoverView: View {
     private var header: some View {
         HStack(alignment: .center, spacing: 12) {
             Text("Wayfinder")
-                .font(.system(size: 20, weight: .semibold))
+                .font(.system(size: 19, weight: .semibold))
 
             Spacer()
 
-            GatewayStateReadout(isRunning: appState.routingStats.isRunning)
+            VStack(alignment: .trailing, spacing: 2) {
+                Text(appState.gatewayOverview.gateway.title)
+                    .font(.system(size: 13, weight: .medium))
+                    .foregroundStyle(.secondary)
+                Text(appState.gatewayOverview.updatedAt.relativeUpdateText)
+                    .font(.system(size: 12, weight: .regular))
+                    .foregroundStyle(.tertiary)
+            }
         }
-        .frame(height: 56)
-        .padding(.horizontal, 16)
+        .frame(height: 54)
+        .padding(.horizontal, 20)
     }
 
-    private var actionRows: some View {
+    private var footerRows: some View {
         VStack(spacing: 0) {
-            PopoverActionRow(
-                symbolName: "message",
-                title: "Launch Chat (Coming Soon)",
-                trailing: "chevron.right",
-                isEnabled: false,
-                action: {}
-            )
-            rowDivider
             PopoverActionRow(
                 symbolName: "arrow.clockwise",
                 title: "Refresh",
@@ -102,33 +119,89 @@ public struct WayfinderPopoverView: View {
         }
     }
 
+    private var gatewayTint: Color {
+        switch appState.gatewayOverview.gateway {
+        case .running, .offline:
+            return WayfinderTheme.local
+        case .degraded:
+            return WayfinderTheme.cloud
+        case .stopped, .unreachable, .notInstalled:
+            return Color.secondary.opacity(0.58)
+        }
+    }
+
+    private var hostedTint: Color {
+        switch appState.gatewayOverview.hosted {
+        case .ready:
+            return WayfinderTheme.local
+        case .checkKeys:
+            return WayfinderTheme.cloud
+        case .disabled, .noModels, .unavailable:
+            return Color.secondary.opacity(0.58)
+        }
+    }
+
     private var hairline: some View {
         Rectangle()
-            .fill(Color.primary.opacity(0.12))
+            .fill(Color(nsColor: .separatorColor).opacity(0.55))
             .frame(height: 1)
-            .padding(.horizontal, 16)
+            .padding(.horizontal, 20)
     }
 
     private var rowDivider: some View {
         Rectangle()
-            .fill(Color.primary.opacity(0.10))
+            .fill(Color(nsColor: .separatorColor).opacity(0.36))
             .frame(height: 1)
+            .padding(.leading, 50)
+            .padding(.trailing, 20)
     }
 }
 
-private struct GatewayStateReadout: View {
-    let isRunning: Bool
+private struct StatusRow: View {
+    let symbolName: String
+    let title: String
+    let detail: String
+    let status: String
+    let tint: Color
 
     var body: some View {
-        HStack(spacing: 6) {
-            Circle()
-                .fill(isRunning ? WayfinderTheme.local : Color.secondary.opacity(0.55))
-                .frame(width: 7, height: 7)
-            Text(isRunning ? "Gateway Running" : "Gateway Stopped")
-                .font(.system(size: 12, weight: .semibold))
+        HStack(spacing: 10) {
+            Image(systemName: symbolName)
+                .font(.system(size: 13, weight: .medium))
+                .foregroundStyle(tint)
+                .frame(width: 20)
+
+            VStack(alignment: .leading, spacing: 1) {
+                Text(title)
+                    .font(.system(size: 14, weight: .medium))
+                    .foregroundStyle(.primary)
+                Text(detail)
+                    .font(.system(size: 12, weight: .regular))
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+            }
+
+            Spacer()
+
+            Text(status)
+                .font(.system(size: 12, weight: .regular))
                 .foregroundStyle(.secondary)
         }
-        .accessibilityLabel(isRunning ? "Gateway running" : "Gateway stopped")
+        .frame(height: 42)
+        .padding(.horizontal, 20)
+        .accessibilityLabel("\(title), \(status), \(detail)")
         .accessibilityAddTraits(.isStaticText)
+    }
+}
+
+private extension Date {
+    var relativeUpdateText: String {
+        let delta = max(0, Int(Date().timeIntervalSince(self)))
+        if delta < 10 { return "Updated just now" }
+        if delta < 60 { return "Updated \(delta)s ago" }
+        let minutes = delta / 60
+        if minutes < 60 { return "Updated \(minutes)m ago" }
+        return "Updated \(minutes / 60)h ago"
     }
 }

@@ -11,51 +11,51 @@ public struct RoutingSummarySection: View {
         VStack(alignment: .leading, spacing: 8) {
             HStack(alignment: .firstTextBaseline, spacing: 10) {
                 Label("Routing", systemImage: "arrow.left.arrow.right")
-                    .font(.system(size: 15, weight: .semibold))
+                    .font(.system(size: 16, weight: .semibold))
                     .foregroundStyle(.primary)
 
                 Spacer()
 
-                HStack(spacing: 10) {
-                    RouteMetric(
-                        symbolName: "desktopcomputer",
-                        value: stats.localPercent.percentText,
-                        color: WayfinderTheme.local
-                    )
-                    RouteMetric(
-                        symbolName: "cloud",
-                        value: stats.cloudPercent.percentText,
-                        color: WayfinderTheme.cloud
-                    )
-                }
+                Text(totalText)
+                    .font(.system(size: 13, weight: .regular).monospacedDigit())
+                    .foregroundStyle(.secondary)
             }
 
             SplitRouteBar(localPercent: stats.localPercent)
 
-            Text("Local \(stats.localPercent.percentText) · Cloud \(stats.cloudPercent.percentText)")
-                .font(.system(size: 12, weight: .regular))
+            Text(routeMixText)
+                .font(.system(size: 14, weight: .regular))
+                .foregroundStyle(.primary)
+
+            Text(routeCountText)
+                .font(.system(size: 13, weight: .regular))
                 .foregroundStyle(.secondary)
         }
-        .padding(.vertical, 10)
+        .padding(.horizontal, 20)
+        .padding(.vertical, 12)
         .accessibilityElement(children: .combine)
-        .accessibilityLabel("Routing, local \(stats.localPercent.percentText), cloud \(stats.cloudPercent.percentText)")
+        .accessibilityLabel("Routing, \(routeMixText), \(routeCountText)")
     }
-}
 
-private struct RouteMetric: View {
-    let symbolName: String
-    let value: String
-    let color: Color
-
-    var body: some View {
-        HStack(spacing: 4) {
-            Image(systemName: symbolName)
-                .font(.system(size: 11, weight: .semibold))
-                .foregroundStyle(color)
-            Text(value)
-                .font(.system(size: 12, weight: .semibold).monospacedDigit())
-                .foregroundStyle(.secondary)
+    private var totalText: String {
+        guard let total = stats.totalTurns, total > 0 else {
+            return "No turns"
         }
+        return "\(total) turn\(total == 1 ? "" : "s")"
+    }
+
+    private var routeMixText: String {
+        guard let total = stats.totalTurns, total > 0 else {
+            return "No recent routing decisions"
+        }
+        return "Local \(stats.localPercent.percentText) · Cloud \(stats.cloudPercent.percentText)"
+    }
+
+    private var routeCountText: String {
+        guard let local = stats.localRouteCount, let cloud = stats.cloudRouteCount else {
+            return "Routed: not yet available"
+        }
+        return "Routed: local: \(local) · cloud: \(cloud)"
     }
 }
 

@@ -56,7 +56,16 @@ final class PopoverController {
             self?.close()
         }
         hostingController.view.wantsLayer = true
-        hostingController.view.layer?.cornerRadius = 18
+        hostingController.onCommandR = { appState.refreshStats() }
+        hostingController.onCommandComma = { [weak self] in
+            self?.close()
+            onOpenSettings()
+        }
+        hostingController.onCommandQ = { [weak self] in
+            self?.close()
+            onQuit()
+        }
+        hostingController.view.layer?.cornerRadius = 12
         hostingController.view.layer?.masksToBounds = true
 
         panel.contentViewController = hostingController
@@ -168,11 +177,29 @@ private final class AnchoredPopoverPanel: NSPanel {
 
 private final class EscapeHostingController<Content: View>: NSHostingController<Content> {
     var onEscape: (() -> Void)?
+    var onCommandR: (() -> Void)?
+    var onCommandComma: (() -> Void)?
+    var onCommandQ: (() -> Void)?
 
     override func keyDown(with event: NSEvent) {
         if event.keyCode == 53 {
             onEscape?()
             return
+        }
+        if event.modifierFlags.intersection(.deviceIndependentFlagsMask).contains(.command) {
+            switch event.charactersIgnoringModifiers?.lowercased() {
+            case "r":
+                onCommandR?()
+                return
+            case ",":
+                onCommandComma?()
+                return
+            case "q":
+                onCommandQ?()
+                return
+            default:
+                break
+            }
         }
         super.keyDown(with: event)
     }

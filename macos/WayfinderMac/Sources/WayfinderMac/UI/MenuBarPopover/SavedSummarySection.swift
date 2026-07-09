@@ -11,25 +11,26 @@ public struct SavedSummarySection: View {
         VStack(alignment: .leading, spacing: 4) {
             HStack(alignment: .firstTextBaseline, spacing: 10) {
                 Label("Saved", systemImage: "chart.bar")
-                    .font(.system(size: 15, weight: .semibold))
+                    .font(.system(size: 16, weight: .semibold))
                     .foregroundStyle(.primary)
 
                 Spacer()
 
-                Text(stats.savedToday.currencyText)
-                    .font(.system(size: 13, weight: .semibold).monospacedDigit())
+                Text(stats.hasSavings ? stats.savedToday.currencyText : "—")
+                    .font(.system(size: 13, weight: .regular).monospacedDigit())
                     .foregroundStyle(.primary)
             }
 
-            Text("Today: \(stats.savedToday.currencyText) · \(stats.percentVsAlwaysCloud.percentText) vs always-cloud")
-                .font(.system(size: 12, weight: .regular))
-                .foregroundStyle(.secondary)
+            Text(stats.savedTodayDisplay)
+                .font(.system(size: 14, weight: .regular))
+                .foregroundStyle(.primary)
 
-            Text("Last 30 days: \(stats.savedLast30Days.currencyText)")
-                .font(.system(size: 12, weight: .regular))
-                .foregroundStyle(.secondary)
+            Text(stats.savedLast30DaysDisplay)
+                .font(.system(size: 14, weight: .regular))
+                .foregroundStyle(.primary)
         }
-        .padding(.vertical, 10)
+        .padding(.horizontal, 20)
+        .padding(.vertical, 12)
         .accessibilityElement(children: .combine)
     }
 }
