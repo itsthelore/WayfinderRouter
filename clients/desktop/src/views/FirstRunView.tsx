@@ -10,7 +10,6 @@ import type { Preset } from "@/lib/ipc";
 import { Button } from "@/components/ui/button";
 import { LocalMirror } from "@/components/LocalMirror";
 import { cn } from "@/lib/utils";
-import wordmark from "@/assets/wayfinder-wordmark.png";
 
 const PRESETS: Array<{ id: Preset; label: string; summary: string }> = [
   { id: "hybrid", label: "Hybrid (recommended)", summary: "keyless local Ollama → Anthropic cloud" },
@@ -43,7 +42,7 @@ export function FirstRunView({
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-4 p-5">
       <div className="flex flex-col items-center gap-1.5 pt-2 text-center">
-        <img src={wordmark} alt="Wayfinder" className="h-6 w-auto" />
+        <div className="text-[19px] font-bold">Wayfinder</div>
         <p className="text-[13px] leading-[1.45] text-muted-foreground">
           Deterministic LLM routing — local vs cloud, decided on-device.
         </p>

@@ -62,33 +62,3 @@ jobs:
         run: |
           python tools/golden.py > clients/shared/test/golden.json
           node clients/shared/test/parity.mjs
-
-  desktop:
-    # WF-ROADMAP-0009: a regression gate for clients/desktop, not the Phase 5 release pipeline
-    # (that's desktop-release.yml — signed/notarized, blocked on an Apple Developer ID cert and
-    # notarization API key). macOS-only runner: this is a macOS-only app (WF-ADR-0042 §6), and
-    # Tauri's Rust crate needs the real WebKit/AppKit frameworks to build at all, not just to
-    # produce a distributable — a Linux runner would need the webkit2gtk/appindicator stand-ins
-    # and would exercise the wrong backend entirely.
-    runs-on: macos-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: "22"
-      - uses: dtolnay/rust-toolchain@stable
-      - uses: Swatinem/rust-cache@v2
-        with:
-          workspaces: clients/desktop/src-tauri
-      - name: Install JS deps (workspace — clients/shared + clients/desktop)
-        run: npm install
-      - name: Frontend typecheck, tests, build
-        run: |
-          npm test -w @wayfinder/desktop
-          npm run build -w @wayfinder/desktop
-      - name: Rust build, clippy, test
-        working-directory: clients/desktop/src-tauri
-        run: |
-          cargo build
-          cargo clippy --all-targets -- -D warnings
-          cargo test

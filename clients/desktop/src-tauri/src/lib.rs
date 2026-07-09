@@ -1,21 +1,20 @@
 //! Wayfinder Desktop — the Tauri v2 macOS menu-bar shell (WF-ADR-0042).
 //!
-//! A no-Dock accessory app: the signpost tray icon and the ⌥W hotkey both summon one
-//! borderless, vibrant popover anchored under the tray icon — an ordinary macOS menu extra,
-//! not a launcher (hide-on-blur, state preserved). The webview talks to the gateway directly
-//! over loopback HTTP (not Rust IPC); Rust only drives the window, the tray, the
-//! service-first lifecycle (WF-ROADMAP-0009 Phase 3), and the separate Settings window
-//! (WF-DESIGN-0014). The gateway process is owned by the WF-ADR-0038 launchd agent — this app
-//! never spawns it, only detects/attaches and offers service control.
+//! A no-Dock accessory app: the three-state W template tray icon and the ⌥W hotkey both summon
+//! one borderless, vibrant popover at the bottom-center of the active display, launcher-style
+//! (hide-on-blur, state preserved). The webview talks to the gateway directly over loopback
+//! HTTP (not Rust IPC); Rust only drives the window, the tray, the service-first lifecycle
+//! (WF-ROADMAP-0009 Phase 3), and the separate Settings window (WF-DESIGN-0014). The gateway
+//! process is owned by the WF-ADR-0038 launchd agent — this app never spawns it, only
+//! detects/attaches and offers service control.
 
 mod commands;
 mod keychain;
 mod service;
 mod tray;
 
-use tauri::{App, AppHandle, Manager, WindowEvent};
+use tauri::{App, AppHandle, Manager, PhysicalPosition, WebviewWindow, WindowEvent};
 use tauri_plugin_global_shortcut::{Code, GlobalShortcutExt, Modifiers, Shortcut, ShortcutState};
-use tauri_plugin_positioner::{Position, WindowExt};
 
 const POPOVER: &str = "popover";
 
@@ -47,8 +46,6 @@ pub fn run() {
             commands::delete_provider_key,
             commands::set_shortcut,
             commands::set_offline,
-            commands::add_model,
-            commands::detect_local_providers,
         ])
         .setup(|app| {
             setup(app)?;
@@ -144,14 +141,33 @@ pub(crate) fn toggle_popover(app: &AppHandle) {
 
 fn show_popover(app: &AppHandle) {
     if let Some(win) = app.get_webview_window(POPOVER) {
-        // Anchored under the tray icon, centred on it horizontally — an ordinary macOS menu
-        // extra. tauri-plugin-positioner tracks the icon's rect via on_tray_event (tray.rs);
-        // best-effort, same as the window it replaces: a bad read just leaves the window
-        // wherever it last was.
-        let _ = win.move_window(Position::TrayBottomCenter);
+        position_bottom_center(app, &win);
         let _ = win.show();
         let _ = win.set_focus();
     }
+}
+
+/// Summon launcher-style (amends WF-ADR-0042 §3): bottom-center of the display the cursor is
+/// on — falling back to the window's current display, then the primary — lifted clear of the
+/// Dock. Best-effort: if no monitor is resolvable the window shows wherever it last was.
+fn position_bottom_center(app: &AppHandle, win: &WebviewWindow) {
+    let monitor = app
+        .cursor_position()
+        .ok()
+        .and_then(|p| app.monitor_from_point(p.x, p.y).ok().flatten())
+        .or_else(|| win.current_monitor().ok().flatten())
+        .or_else(|| win.primary_monitor().ok().flatten());
+    let (Some(monitor), Ok(size)) = (monitor, win.outer_size()) else {
+        return;
+    };
+    // 96 logical px above the bottom edge clears the default Dock and reads deliberately
+    // "floating" when the Dock is hidden.
+    let lift = (96.0 * monitor.scale_factor()) as i32;
+    let mpos = monitor.position();
+    let msize = monitor.size();
+    let x = mpos.x + (msize.width as i32 - size.width as i32) / 2;
+    let y = mpos.y + msize.height as i32 - size.height as i32 - lift;
+    let _ = win.set_position(PhysicalPosition::new(x, y));
 }
 
 #[cfg(test)]

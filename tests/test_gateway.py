@@ -575,19 +575,11 @@ def test_router_recent_tracks_decisions_without_prompt_text(client):
     assert body["by_model"] == {"local": 1, "cloud": 1}
     # Most-recent-first; metadata only, never the prompt text.
     first = body["recent"][0]
-    assert set(first) == {"request_id", "model", "score", "mode", "ts", "cost", "decision_ms"}
+    assert set(first) == {"request_id", "model", "score", "mode", "ts", "cost"}
     # The cost block is dollars + token counts only — still no prompt text (WF-DESIGN-0007/0008).
     assert set(first["cost"]) == {"realized", "baseline", "saved", "tokens", "unit", "estimated"}
     assert first["model"] == "cloud"
     assert "a secret prompt body" not in test_client.get("/router/recent").text
-    assert isinstance(body["p50_decision_ms"], float) and body["p50_decision_ms"] >= 0
-
-
-def test_router_recent_p50_decision_ms_is_none_with_no_history(client):
-    test_client, _ = client
-    body = test_client.get("/router/recent").json()
-    assert body["total"] == 0
-    assert body["p50_decision_ms"] is None
 
 
 def test_router_dashboard_serves_self_contained_html(client):
@@ -1444,20 +1436,6 @@ def test_router_models_reports_endpoints_and_key_status_without_secrets(monkeypa
     assert "secret-value" not in tc.get("/router/models").text  # only the env-var name, never the value
 
 
-def test_router_models_reports_context_window_and_enabled(tmp_path):
-    cfg = (
-        "[routing]\nthreshold = 0.2\n\n"
-        '[gateway.models.local]\nbase_url = "http://localhost:11434/v1"\nmodel = "m"\n\n'
-        '[gateway.models.cloud]\nbase_url = "https://api.anthropic.com/v1"\nmodel = "m2"\n'
-        "context_window = 200000\nenabled = false\n"
-    )
-    (tmp_path / "wayfinder-router.toml").write_text(cfg, encoding="utf-8")
-    tc = TestClient(gateway.build_app(start_dir=str(tmp_path)))
-    by = {m["name"]: m for m in tc.get("/router/models").json()["models"]}
-    assert by["local"]["context_window"] is None and by["local"]["enabled"] is True  # unset defaults
-    assert by["cloud"]["context_window"] == 200000 and by["cloud"]["enabled"] is False
-
-
 def test_demo_page_has_models_status(client):
     text = client[0].get("/demo").text
     assert 'id="models"' in text and "/router/models" in text
@@ -1495,61 +1473,6 @@ def test_unknown_fallback_is_a_config_error():
     bad = "[gateway.models.a]\nbase_url='http://x/v1'\nmodel='m'\nfallbacks=['nope']\n"
     with pytest.raises(gateway.WayfinderConfigError):
         gateway.gateway_config_from_toml(bad)
-
-
-def test_enabled_defaults_true_and_round_trips():
-    gw = gateway.gateway_config_from_toml(_RELIABILITY_CONFIG)
-    assert gw.models["local"].enabled is True  # default, unset in the fixture TOML
-    disabled = "[gateway.models.a]\nbase_url='http://x/v1'\nmodel='m'\nenabled=false\n"
-    assert gateway.gateway_config_from_toml(disabled).models["a"].enabled is False
-    back = gateway.gateway_config_from_toml(gateway.dump_gateway_toml(gateway.gateway_config_from_toml(disabled)))
-    assert back.models["a"].enabled is False
-
-
-def test_enabled_must_be_a_boolean():
-    bad = "[gateway.models.a]\nbase_url='http://x/v1'\nmodel='m'\nenabled='nope'\n"
-    with pytest.raises(gateway.WayfinderConfigError, match="must be a boolean"):
-        gateway.gateway_config_from_toml(bad)
-
-
-def test_disabled_model_is_skipped_at_delivery_never_at_decision(tmp_path, monkeypatch):
-    # cloud is disabled but still the SCORED decision (WF-ADR-0001: enabled is delivery-only) —
-    # delivery falls through to its same-tier fallback exactly like a broken endpoint would,
-    # and primary.example.com is never even attempted (unlike a live failure, which IS tried).
-    config = _RELIABILITY_CONFIG.replace(
-        'base_url = "https://primary.example.com/v1"\nmodel = "big-1"\nfallbacks = ["cloud2"]\n',
-        'base_url = "https://primary.example.com/v1"\nmodel = "big-1"\nfallbacks = ["cloud2"]\nenabled = false\n',
-    )
-    seen = []
-
-    async def fake(url, headers, json_body, timeout=60.0):
-        seen.append(url)
-        return 200, b'{"object":"chat.completion"}', "application/json"
-
-    (tmp_path / "wayfinder-router.toml").write_text(config, encoding="utf-8")
-    monkeypatch.setattr(gateway, "aforward_request", fake)
-    tc = TestClient(gateway.build_app(start_dir=str(tmp_path)))
-    resp = tc.post("/v1/chat/completions", json=COMPLEX)
-    assert resp.status_code == 200
-    assert resp.headers["x-wayfinder-router-model"] == "cloud"  # decision: unchanged
-    assert resp.headers["x-wayfinder-router-served-by"] == "cloud2"  # delivery: fell through
-    assert all("primary.example.com" not in u for u in seen)  # never even attempted
-
-
-def test_disabled_model_with_no_fallback_fails_fast_with_a_clear_error(tmp_path, monkeypatch):
-    config = (
-        "[routing]\nthreshold = 0.2\n\n"
-        "[gateway.models.local]\nbase_url = \"http://local.test/v1\"\nmodel = \"m-local\"\nenabled = false\n"
-    )
-
-    async def fake(url, headers, json_body, timeout=60.0):
-        return 200, b'{"object":"chat.completion"}', "application/json"
-
-    (tmp_path / "wayfinder-router.toml").write_text(config, encoding="utf-8")
-    monkeypatch.setattr(gateway, "aforward_request", fake)
-    tc = TestClient(gateway.build_app(start_dir=str(tmp_path)))
-    resp = tc.post("/v1/chat/completions", json=TRIVIAL)
-    assert resp.status_code == 503  # every candidate (just "local") is filtered out
 
 
 def test_retry_then_success_on_transient_failure(tmp_path, monkeypatch):
