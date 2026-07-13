@@ -8,6 +8,13 @@ details, release history over commit history.
 
 ### Added
 
+- **Apple Foundation Models availability contract** (WF-DESIGN-0017). The native macOS package now
+  capability-detects `SystemLanguageModel.default` on macOS 26 and distinguishes available,
+  device-ineligible, Apple Intelligence disabled, model-not-ready, unsupported, and sanitized
+  unavailable states through a bounded versioned protocol. This is contract groundwork only: it
+  does not yet add model delivery or change the preferred local provider, and existing Ollama/manual
+  local configuration remains unchanged.
+
 - **Decision-only replies when no model is configured** (WF-ADR-0042). A running gateway with no
   `[gateway.models]` now answers `/v1/chat/completions` with the routing **decision** (HTTP 200,
   `{"wayfinder": {…}}` and an `x-wayfinder-router-decision-only: true` header) instead of a `500` — so
