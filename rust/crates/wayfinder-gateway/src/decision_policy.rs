@@ -499,7 +499,7 @@ fn tier_rank(model: &str, tiers: &[Tier]) -> Option<usize> {
 #[cfg(test)]
 mod tests {
     use serde_json::json;
-    use wayfinder_config::gateway::{GatewayModel, gateway_config_from_toml};
+    use wayfinder_config::gateway::{GatewayModel, ProviderKind, gateway_config_from_toml};
 
     use super::*;
 
@@ -755,8 +755,10 @@ model = "large"
     #[test]
     fn configured_gateway_model_type_remains_constructible() {
         let model = GatewayModel {
-            base_url: "http://local/v1".to_owned(),
+            provider: ProviderKind::OpenAiCompatible,
+            base_url: Some("http://local/v1".to_owned()),
             model: "m".to_owned(),
+            tier: None,
             api_key_env: None,
             api_key_cmd: None,
             cost_per_1k: None,

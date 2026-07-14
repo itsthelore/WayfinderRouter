@@ -265,7 +265,7 @@ def key_status(models: Mapping[str, GatewayModel]) -> list[KeyStatus]:
             KeyStatus(
                 name=name,
                 model=model.model,
-                base_url=model.base_url,
+                base_url=model.base_url or model.provider.value,
                 env_var=env_var,
                 ok=ok,
                 cmd=getattr(model, "api_key_cmd", None),

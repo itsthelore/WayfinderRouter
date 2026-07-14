@@ -77,6 +77,7 @@ import uuid
 from collections import deque
 from collections.abc import AsyncIterator, Callable, Iterable, Iterator
 from dataclasses import dataclass, field, replace
+from enum import Enum
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -380,12 +381,27 @@ class UpstreamError(Exception):
     """An upstream call failed at the transport level (timeout, connection)."""
 
 
+class ProviderKind(str, Enum):
+    """Stable delivery identity for a configured gateway model."""
+
+    OPENAI_COMPATIBLE = "openai-compatible"
+    APPLE_FOUNDATION_MODELS = "apple-foundation-models"
+
+
+class ProviderTier(str, Enum):
+    """Explicit locality asserted by a provider-specific configuration."""
+
+    LOCAL = "local"
+
+
 @dataclass(frozen=True)
 class GatewayModel:
-    """An upstream endpoint a recommended model name maps to."""
+    """A typed provider target a recommended model name maps to."""
 
-    base_url: str  # OpenAI-compatible base, e.g. http://localhost:11434/v1
+    base_url: str | None  # OpenAI-compatible base; absent for native providers
     model: str  # the upstream model id to send in the forwarded request
+    provider: ProviderKind = ProviderKind.OPENAI_COMPATIBLE
+    tier: ProviderTier | None = None
     api_key_env: str | None = None  # env var holding the key, or None for no auth
     api_key_cmd: str | None = None  # command that fills api_key_env when unset (WF-DESIGN-0006)
     cost_per_1k: float | None = None  # optional cost metadata (WF-ADR-0017), informational
@@ -709,13 +725,24 @@ def gateway_config_from_toml(text: str, where: str = "wayfinder-router.toml") ->
     for name, entry in raw_models.items():
         if not isinstance(entry, dict):
             raise WayfinderConfigError(f"{where}: '[gateway.models.{name}]' must be a table")
+        raw_provider = entry.get("provider", ProviderKind.OPENAI_COMPATIBLE.value)
+        try:
+            provider = ProviderKind(raw_provider)
+        except (TypeError, ValueError):
+            raise WayfinderConfigError(
+                f"{where}: 'gateway.models.{name}.provider' must be one of "
+                f"{', '.join(kind.value for kind in ProviderKind)}"
+            ) from None
+        raw_tier = entry.get("tier")
+        try:
+            tier = ProviderTier(raw_tier) if raw_tier is not None else None
+        except (TypeError, ValueError):
+            raise WayfinderConfigError(
+                f"{where}: 'gateway.models.{name}.tier' must be local"
+            ) from None
         base_url = entry.get("base_url")
         model = entry.get("model")
         api_key_env = entry.get("api_key_env")
-        if not isinstance(base_url, str) or not base_url:
-            raise WayfinderConfigError(
-                f"{where}: 'gateway.models.{name}.base_url' must be a string"
-            )
         if not isinstance(model, str) or not model:
             raise WayfinderConfigError(f"{where}: 'gateway.models.{name}.model' must be a string")
         if api_key_env is not None and (not isinstance(api_key_env, str) or not api_key_env):
@@ -733,6 +760,36 @@ def gateway_config_from_toml(text: str, where: str = "wayfinder-router.toml") ->
                 f"{where}: 'gateway.models.{name}.api_key_cmd' needs 'api_key_env' to name "
                 "the variable it fills"
             )
+        if provider is ProviderKind.OPENAI_COMPATIBLE:
+            if not isinstance(base_url, str) or not base_url:
+                raise WayfinderConfigError(
+                    f"{where}: 'gateway.models.{name}.base_url' must be a string"
+                )
+            if tier is not None:
+                raise WayfinderConfigError(
+                    f"{where}: 'gateway.models.{name}.tier' is only valid for native providers"
+                )
+        else:
+            if base_url is not None:
+                raise WayfinderConfigError(
+                    f"{where}: 'gateway.models.{name}.base_url' is not valid for "
+                    "apple-foundation-models"
+                )
+            if api_key_env is not None or api_key_cmd is not None:
+                raise WayfinderConfigError(
+                    f"{where}: 'gateway.models.{name}' cannot configure credentials for "
+                    "apple-foundation-models"
+                )
+            if model != "system-default":
+                raise WayfinderConfigError(
+                    f"{where}: 'gateway.models.{name}.model' must be system-default for "
+                    "apple-foundation-models"
+                )
+            if tier is not ProviderTier.LOCAL:
+                raise WayfinderConfigError(
+                    f"{where}: 'gateway.models.{name}.tier' must be local for "
+                    "apple-foundation-models"
+                )
         cost_per_1k = entry.get("cost_per_1k")
         if cost_per_1k is not None and (
             isinstance(cost_per_1k, bool)
@@ -760,6 +817,8 @@ def gateway_config_from_toml(text: str, where: str = "wayfinder-router.toml") ->
         models[name] = GatewayModel(
             base_url=base_url,
             model=model,
+            provider=provider,
+            tier=tier,
             api_key_env=api_key_env,
             api_key_cmd=api_key_cmd,
             cost_per_1k=float(cost_per_1k) if cost_per_1k is not None else None,
@@ -879,11 +938,14 @@ def dump_gateway_toml(gateway: GatewayConfig) -> str:
                 rlines.append(f"window = {round(rlk.window, 6)!r}")
             blocks.append("\n".join(rlines))
     for name, model in gateway.models.items():
-        lines = [
-            f"[gateway.models.{name}]",
-            f'base_url = "{model.base_url}"',
-            f'model = "{model.model}"',
-        ]
+        lines = [f"[gateway.models.{name}]"]
+        if model.provider is not ProviderKind.OPENAI_COMPATIBLE:
+            lines.append(f'provider = "{model.provider.value}"')
+        if model.base_url is not None:
+            lines.append(f'base_url = "{model.base_url}"')
+        lines.append(f'model = "{model.model}"')
+        if model.tier is not None:
+            lines.append(f'tier = "{model.tier.value}"')
         if model.api_key_env:
             lines.append(f'api_key_env = "{model.api_key_env}"')
         if model.api_key_cmd:  # a command/reference, not a secret — safe to round-trip
@@ -1306,7 +1368,7 @@ def invoke_messages(
         if key:
             headers["Authorization"] = f"Bearer {key}"
     body = {"model": model.model, "messages": list(messages)}
-    url = model.base_url.rstrip("/") + "/chat/completions"
+    url = (model.base_url or "").rstrip("/") + "/chat/completions"
     status, content, _ = forward_request(url, headers, body, timeout)
     if status >= 400:
         raise RuntimeError(f"{model.model} upstream returned {status}: {content[:200]!r}")
@@ -1373,7 +1435,7 @@ def stream_messages(
         if key:
             headers["Authorization"] = f"Bearer {key}"
     body = {"model": model.model, "messages": list(messages), "stream": True}
-    url = model.base_url.rstrip("/") + "/chat/completions"
+    url = (model.base_url or "").rstrip("/") + "/chat/completions"
     try:
         with httpx.stream("POST", url, headers=headers, json=body, timeout=timeout) as response:
             if response.status_code >= 400:
@@ -1603,7 +1665,7 @@ def build_app(
             model = gw.models[name]
             headers = _auth_headers(model)
             forward_body = {**body, "model": model.model}
-            url = model.base_url.rstrip("/") + "/chat/completions"
+            url = (model.base_url or "").rstrip("/") + "/chat/completions"
             delays = reliability.retry_delays(gw.retries)
             for attempt in range(gw.retries + 1):
                 started = time.perf_counter()
@@ -2249,7 +2311,7 @@ def build_app(
             smodel = gw.models[served]
             headers = _auth_headers(smodel)
             forward_body = {**body, "model": smodel.model}
-            url = smodel.base_url.rstrip("/") + "/chat/completions"
+            url = (smodel.base_url or "").rstrip("/") + "/chat/completions"
 
             async def sse() -> AsyncIterator[bytes]:
                 upstream_started = time.perf_counter()

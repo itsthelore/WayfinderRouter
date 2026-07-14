@@ -42,7 +42,7 @@ use serde_json::{Value, json};
 use tower::ServiceExt;
 use uuid::Uuid;
 use wayfinder_config::dump_routing_toml;
-use wayfinder_config::gateway::GatewayModel;
+use wayfinder_config::gateway::{GatewayModel, ProviderKind, ProviderTier};
 use wayfinder_core::profiles::{LexiconProfile, profiles};
 use wayfinder_core::{
     ComplexityScore, FeatureContribution, Features, RoutingConfig, Tier, explain_score,
@@ -115,6 +115,8 @@ pub struct ConfiguredModel {
     name: String,
     endpoint: String,
     provider_model: String,
+    provider: ProviderKind,
+    tier: Option<ProviderTier>,
     api_key_env: Option<String>,
     key_ready: bool,
     cost_per_1k: Option<f64>,
@@ -136,6 +138,8 @@ impl ConfiguredModel {
             name: name.into(),
             endpoint: endpoint.into(),
             provider_model: provider_model.into(),
+            provider: ProviderKind::OpenAiCompatible,
+            tier: None,
             key_ready: api_key_env.is_none() || key_ready,
             api_key_env,
             cost_per_1k: None,
@@ -165,6 +169,18 @@ impl ConfiguredModel {
         self
     }
 
+    /// Attach parsed provider identity without selecting a delivery implementation.
+    #[must_use]
+    pub const fn with_provider(
+        mut self,
+        provider: ProviderKind,
+        tier: Option<ProviderTier>,
+    ) -> Self {
+        self.provider = provider;
+        self.tier = tier;
+        self
+    }
+
     /// Copy the safe display metadata from parsed gateway configuration.
     ///
     /// Key readiness is supplied by the caller so this crate never reads the
@@ -177,7 +193,7 @@ impl ConfiguredModel {
     ) -> Self {
         Self::new(
             name,
-            model.base_url.clone(),
+            model.base_url.clone().unwrap_or_default(),
             model.model.clone(),
             model.api_key_env.clone(),
             key_ready,
@@ -185,6 +201,7 @@ impl ConfiguredModel {
         .with_cost_per_1k(model.cost_per_1k)
         .with_fallbacks(model.fallbacks.clone())
         .with_context_window(model.context_window)
+        .with_provider(model.provider, model.tier)
     }
 
     /// Configured routing name.
@@ -203,6 +220,18 @@ impl ConfiguredModel {
     #[must_use]
     pub fn provider_model(&self) -> &str {
         &self.provider_model
+    }
+
+    /// Typed provider delivery identity.
+    #[must_use]
+    pub const fn provider(&self) -> ProviderKind {
+        self.provider
+    }
+
+    /// Explicit native-provider locality.
+    #[must_use]
+    pub const fn tier(&self) -> Option<ProviderTier> {
+        self.tier
     }
 
     /// Name of the key environment variable, never its value.

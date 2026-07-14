@@ -1584,7 +1584,9 @@ def _build_chat_app() -> type:
                         )
             except (GatewayUnavailable, UpstreamError, RuntimeError) as exc:
                 self.call_from_thread(
-                    self._finalize_error, live, _friendly_error(str(exc), model.base_url)
+                    self._finalize_error,
+                    live,
+                    _friendly_error(str(exc), model.base_url or model.provider.value),
                 )
             finally:
                 self.call_from_thread(self._set_note, None)
