@@ -8,7 +8,8 @@ let package = Package(
         .macOS(.v13)
     ],
     products: [
-        .executable(name: "WayfinderMac", targets: ["WayfinderMacApp"])
+        .executable(name: "WayfinderMac", targets: ["WayfinderMacApp"]),
+        .executable(name: "WayfinderFoundationModelBroker", targets: ["WayfinderFoundationModelBroker"])
     ],
     targets: [
         .target(
@@ -19,6 +20,11 @@ let package = Package(
             name: "WayfinderMacApp",
             dependencies: ["WayfinderMacCore"],
             path: "Sources/WayfinderMacApp"
+        ),
+        .executableTarget(
+            name: "WayfinderFoundationModelBroker",
+            dependencies: ["WayfinderMacCore"],
+            path: "Sources/WayfinderFoundationModelBroker"
         ),
         .testTarget(
             name: "WayfinderMacTests",
