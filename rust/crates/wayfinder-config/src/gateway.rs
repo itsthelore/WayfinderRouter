@@ -29,7 +29,45 @@ pub const DEFAULT_CACHE_MAX_BYTES: u64 = 64 * 1_024 * 1_024;
 /// Default rate-limit window, in seconds.
 pub const DEFAULT_RATE_LIMIT_WINDOW: f64 = 60.0;
 
-/// An OpenAI-compatible upstream endpoint.
+/// Stable delivery identity for a configured gateway model.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum ProviderKind {
+    /// An HTTP endpoint implementing the OpenAI chat-completions contract.
+    #[default]
+    OpenAiCompatible,
+    /// Apple's native on-device system language model.
+    AppleFoundationModels,
+}
+
+impl ProviderKind {
+    /// Stable TOML spelling.
+    #[must_use]
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::OpenAiCompatible => "openai-compatible",
+            Self::AppleFoundationModels => "apple-foundation-models",
+        }
+    }
+}
+
+/// Explicit locality asserted by a provider-specific configuration.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ProviderTier {
+    /// Delivery remains on the local device.
+    Local,
+}
+
+impl ProviderTier {
+    /// Stable TOML spelling.
+    #[must_use]
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Local => "local",
+        }
+    }
+}
+
+/// A typed provider target.
 ///
 /// `api_key_env` names an environment variable. `api_key_cmd` is the legacy
 /// command reference used to populate that variable when absent. Both fields
@@ -37,10 +75,14 @@ pub const DEFAULT_RATE_LIMIT_WINDOW: f64 = 60.0;
 /// produced by this parser.
 #[derive(Clone, Debug, PartialEq)]
 pub struct GatewayModel {
-    /// OpenAI-compatible API base URL.
-    pub base_url: String,
+    /// Provider delivery kind. Omitted TOML defaults to OpenAI-compatible.
+    pub provider: ProviderKind,
+    /// OpenAI-compatible API base URL; absent for native providers.
+    pub base_url: Option<String>,
     /// Provider model identifier sent upstream.
     pub model: String,
+    /// Explicit native-provider locality, when required by that provider.
+    pub tier: Option<ProviderTier>,
     /// Optional environment-variable name holding the provider key.
     pub api_key_env: Option<String>,
     /// Optional legacy command reference used by a separate secret resolver.
@@ -389,11 +431,20 @@ fn render_gateway_toml(gateway: &GatewayConfig) -> String {
     }
 
     for (name, model) in &gateway.models {
-        let mut lines = vec![
-            format!("[gateway.models.{}]", quote_toml_key_segment(name)),
-            format!("base_url = {}", quote_toml_string(&model.base_url)),
-            format!("model = {}", quote_toml_string(&model.model)),
-        ];
+        let mut lines = vec![format!("[gateway.models.{}]", quote_toml_key_segment(name))];
+        if model.provider != ProviderKind::OpenAiCompatible {
+            lines.push(format!(
+                "provider = {}",
+                quote_toml_string(model.provider.as_str())
+            ));
+        }
+        if let Some(base_url) = &model.base_url {
+            lines.push(format!("base_url = {}", quote_toml_string(base_url)));
+        }
+        lines.push(format!("model = {}", quote_toml_string(&model.model)));
+        if let Some(tier) = model.tier {
+            lines.push(format!("tier = {}", quote_toml_string(tier.as_str())));
+        }
         if let Some(api_key_env) = &model.api_key_env {
             lines.push(format!("api_key_env = {}", quote_toml_string(api_key_env)));
         }
@@ -641,11 +692,38 @@ fn parse_models(
         let entry = value
             .as_table()
             .ok_or_else(|| invalid(where_, format!("'[gateway.models.{name}]' must be a table")))?;
-        let base_url = required_non_empty_string(
+        let provider = match entry.get("provider") {
+            None => ProviderKind::OpenAiCompatible,
+            Some(Value::String(value)) if value == "openai-compatible" => {
+                ProviderKind::OpenAiCompatible
+            }
+            Some(Value::String(value)) if value == "apple-foundation-models" => {
+                ProviderKind::AppleFoundationModels
+            }
+            Some(_) => {
+                return Err(invalid(
+                    where_,
+                    format!(
+                        "'gateway.models.{name}.provider' must be one of openai-compatible, \
+                         apple-foundation-models"
+                    ),
+                ));
+            }
+        };
+        let tier = match entry.get("tier") {
+            None => None,
+            Some(Value::String(value)) if value == "local" => Some(ProviderTier::Local),
+            Some(_) => {
+                return Err(invalid(
+                    where_,
+                    format!("'gateway.models.{name}.tier' must be local"),
+                ));
+            }
+        };
+        let base_url = optional_non_empty_string(
             entry.get("base_url"),
             where_,
             &format!("gateway.models.{name}.base_url"),
-            "a string",
         )?;
         let model = required_non_empty_string(
             entry.get("model"),
@@ -672,6 +750,60 @@ fn parse_models(
                 ),
             ));
         }
+        match provider {
+            ProviderKind::OpenAiCompatible => {
+                if base_url.is_none() {
+                    return Err(invalid(
+                        where_,
+                        format!("'gateway.models.{name}.base_url' must be a string"),
+                    ));
+                }
+                if tier.is_some() {
+                    return Err(invalid(
+                        where_,
+                        format!("'gateway.models.{name}.tier' is only valid for native providers"),
+                    ));
+                }
+            }
+            ProviderKind::AppleFoundationModels => {
+                if base_url.is_some() {
+                    return Err(invalid(
+                        where_,
+                        format!(
+                            "'gateway.models.{name}.base_url' is not valid for \
+                             apple-foundation-models"
+                        ),
+                    ));
+                }
+                if api_key_env.is_some() || api_key_cmd.is_some() {
+                    return Err(invalid(
+                        where_,
+                        format!(
+                            "'gateway.models.{name}' cannot configure credentials for \
+                             apple-foundation-models"
+                        ),
+                    ));
+                }
+                if model != "system-default" {
+                    return Err(invalid(
+                        where_,
+                        format!(
+                            "'gateway.models.{name}.model' must be system-default for \
+                             apple-foundation-models"
+                        ),
+                    ));
+                }
+                if tier != Some(ProviderTier::Local) {
+                    return Err(invalid(
+                        where_,
+                        format!(
+                            "'gateway.models.{name}.tier' must be local for \
+                             apple-foundation-models"
+                        ),
+                    ));
+                }
+            }
+        }
         let cost_per_1k = optional_non_negative_finite_number(
             entry.get("cost_per_1k"),
             where_,
@@ -691,8 +823,10 @@ fn parse_models(
         models.insert(
             name.clone(),
             GatewayModel {
+                provider,
                 base_url,
                 model,
+                tier,
                 api_key_env,
                 api_key_cmd,
                 cost_per_1k,
@@ -1196,8 +1330,10 @@ cost_per_1k = 0.0"#;
         config.models.insert(
             "local.prod".to_owned(),
             GatewayModel {
-                base_url: "http://localhost:11434/a path\n/v1".to_owned(),
+                provider: ProviderKind::OpenAiCompatible,
+                base_url: Some("http://localhost:11434/a path\n/v1".to_owned()),
                 model: "model-\"quoted\"".to_owned(),
+                tier: None,
                 api_key_env: Some("WAYFINDER_\"KEY".to_owned()),
                 api_key_cmd: Some("credential helper\nread".to_owned()),
                 cost_per_1k: Some(0.0),
@@ -1222,6 +1358,28 @@ cost_per_1k = 0.0"#;
         assert!(dumped.contains("model = 'model-\"quoted\"'"));
         assert!(dumped.contains("api_key_cmd = \"\"\""));
         assert_eq!(gateway_config_from_toml(&dumped, "round-trip")?, config);
+        Ok(())
+    }
+
+    #[test]
+    fn apple_foundation_models_is_typed_keyless_local_and_round_trips() -> Result<(), ConfigError> {
+        let text = concat!(
+            "[gateway.models.apple-local]\n",
+            "provider = \"apple-foundation-models\"\n",
+            "model = \"system-default\"\n",
+            "tier = \"local\"\n",
+            "context_window = 4096"
+        );
+        let config = gateway_config_from_toml(text, "test")?;
+        let model = config
+            .models
+            .get("apple-local")
+            .ok_or_else(|| invalid("test", "missing apple model"))?;
+        assert_eq!(model.provider, ProviderKind::AppleFoundationModels);
+        assert_eq!(model.tier, Some(ProviderTier::Local));
+        assert_eq!(model.base_url, None);
+        assert_eq!(model.api_key_env, None);
+        assert_eq!(dump_gateway_toml(&config)?, text);
         Ok(())
     }
 
