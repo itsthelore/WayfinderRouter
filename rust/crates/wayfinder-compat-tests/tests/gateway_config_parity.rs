@@ -38,7 +38,7 @@ fn gateway_config_matches_python_semantics_and_annotated_hardening() -> Result<(
     let mut exact_invalid = 0_usize;
     let mut nonfinite_hardening = 0_usize;
 
-    assert_eq!(cases.len(), 74, "gateway compatibility fixture count");
+    assert_eq!(cases.len(), 80, "gateway compatibility fixture count");
     for case in &cases {
         let parsed = gateway_config_from_toml(&case.toml, WHERE);
         match (case.compatibility, &case.outcome, parsed) {
@@ -122,8 +122,8 @@ fn gateway_config_matches_python_semantics_and_annotated_hardening() -> Result<(
         }
     }
 
-    assert_eq!(exact_valid, 13);
-    assert_eq!(exact_invalid, 56);
+    assert_eq!(exact_valid, 14);
+    assert_eq!(exact_invalid, 61);
     assert_eq!(nonfinite_hardening, 5);
     Ok(())
 }
@@ -157,8 +157,10 @@ fn summarize_config(config: &GatewayConfig) -> Value {
         .map(|(name, model)| {
             json!({
                 "name": name,
+                "provider": model.provider.as_str(),
                 "base_url": &model.base_url,
                 "model": &model.model,
+                "tier": model.tier.map(|tier| tier.as_str()),
                 "credential_reference": {
                     "api_key_env": &model.api_key_env,
                     "api_key_cmd": &model.api_key_cmd,
