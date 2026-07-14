@@ -104,8 +104,10 @@ def summarize(config: GatewayConfig) -> dict[str, Any]:
         "models": [
             {
                 "name": name,
+                "provider": model.provider.value,
                 "base_url": model.base_url,
                 "model": model.model,
+                "tier": model.tier.value if model.tier is not None else None,
                 # These are inert config references, never resolved values.
                 "credential_reference": {
                     "api_key_env": model.api_key_env,
@@ -271,6 +273,16 @@ CASES: tuple[dict[str, str], ...] = (
         ),
     },
     {
+        "name": "apple_foundation_models_typed_local_provider",
+        "toml": (
+            "[gateway.models.apple-local]\n"
+            "provider = \"apple-foundation-models\"\n"
+            "model = \"system-default\"\n"
+            "tier = \"local\"\n"
+            "context_window = 4096\n"
+        ),
+    },
+    {
         "name": "all_route_scope_with_tpm_only",
         "toml": (
             "[gateway]\nroute_on = \"all\"\n\n"
@@ -328,6 +340,39 @@ CASES: tuple[dict[str, str], ...] = (
     {"name": "truthy_models_array", "toml": "[gateway]\nmodels = [0]\n"},
     {"name": "model_entry_scalar", "toml": "[gateway.models]\nlocal = 1\n"},
     {"name": "model_missing_base_url", "toml": "[gateway.models.local]\nmodel = \"m\"\n"},
+    {
+        "name": "model_unknown_provider",
+        "toml": ONE_MODEL + "provider = \"future-provider\"\n",
+    },
+    {
+        "name": "apple_provider_requires_system_default",
+        "toml": (
+            "[gateway.models.apple-local]\nprovider = \"apple-foundation-models\"\n"
+            "model = \"internal-version\"\ntier = \"local\"\n"
+        ),
+    },
+    {
+        "name": "apple_provider_requires_local_tier",
+        "toml": (
+            "[gateway.models.apple-local]\nprovider = \"apple-foundation-models\"\n"
+            "model = \"system-default\"\n"
+        ),
+    },
+    {
+        "name": "apple_provider_rejects_url",
+        "toml": (
+            "[gateway.models.apple-local]\nprovider = \"apple-foundation-models\"\n"
+            "base_url = \"http://localhost/v1\"\nmodel = \"system-default\"\n"
+            "tier = \"local\"\n"
+        ),
+    },
+    {
+        "name": "apple_provider_rejects_credentials",
+        "toml": (
+            "[gateway.models.apple-local]\nprovider = \"apple-foundation-models\"\n"
+            "model = \"system-default\"\ntier = \"local\"\napi_key_env = \"APPLE_KEY\"\n"
+        ),
+    },
     {"name": "model_empty_base_url", "toml": "[gateway.models.local]\nbase_url = \"\"\nmodel = \"m\"\n"},
     {"name": "model_missing_model", "toml": "[gateway.models.local]\nbase_url = \"http://x/v1\"\n"},
     {

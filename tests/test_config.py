@@ -312,6 +312,19 @@ def test_set_toml_bool_inserts_under_an_existing_header():
     assert '[gateway.models.local]\nbase_url = "http://x"\nmodel = "m"\n' in out
 
 
+def test_gateway_edit_preserves_typed_apple_provider_block_byte_for_byte():
+    from wayfinder_router.config import set_toml_bool
+
+    apple = (
+        "[gateway.models.apple-local]\n"
+        'provider = "apple-foundation-models" # native, not HTTP\n'
+        'model = "system-default"\n'
+        'tier = "local"\n'
+    )
+    out = set_toml_bool(apple, "gateway", "offline", True)
+    assert apple in out
+
+
 def test_set_toml_bool_appends_a_missing_section_and_still_parses():
     from wayfinder_router import bootstrap
     from wayfinder_router.config import routing_config_from_toml, set_toml_bool

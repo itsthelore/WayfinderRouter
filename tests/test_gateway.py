@@ -477,6 +477,38 @@ def test_api_key_cmd_requires_api_key_env():
         gateway.gateway_config_from_toml(body)
 
 
+def test_apple_foundation_models_is_a_typed_keyless_local_provider():
+    body = (
+        "[gateway.models.apple-local]\n"
+        'provider = "apple-foundation-models"\n'
+        'model = "system-default"\n'
+        'tier = "local"\n'
+        "context_window = 4096\n"
+    )
+    config = gateway.gateway_config_from_toml(body)
+    model = config.models["apple-local"]
+    assert model.provider is gateway.ProviderKind.APPLE_FOUNDATION_MODELS
+    assert model.tier is gateway.ProviderTier.LOCAL
+    assert model.base_url is None
+    assert model.api_key_env is None
+    assert gateway.dump_gateway_toml(config) == body.rstrip()
+
+
+@pytest.mark.parametrize(
+    "extra, message",
+    [
+        ('model = "internal-version"\ntier = "local"\n', "system-default"),
+        ('model = "system-default"\n', "tier"),
+        ('base_url = "http://localhost/v1"\nmodel = "system-default"\ntier = "local"\n', "base_url"),
+        ('model = "system-default"\ntier = "local"\napi_key_env = "APPLE_KEY"\n', "credentials"),
+    ],
+)
+def test_apple_foundation_models_rejects_incompatible_fields(extra, message):
+    body = "[gateway.models.apple-local]\nprovider = \"apple-foundation-models\"\n" + extra
+    with pytest.raises(gateway.WayfinderConfigError, match=message):
+        gateway.gateway_config_from_toml(body)
+
+
 def test_empty_api_key_cmd_is_rejected():
     body = (
         "[gateway.models.cloud]\n"

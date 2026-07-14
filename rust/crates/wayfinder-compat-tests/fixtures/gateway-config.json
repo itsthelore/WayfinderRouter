@@ -152,8 +152,10 @@
     "models": [
      {
       "name": "local",
+      "provider": "openai-compatible",
       "base_url": "http://127.0.0.1:11434/v1",
       "model": "qwen-local",
+      "tier": null,
       "credential_reference": {
        "api_key_env": null,
        "api_key_cmd": null
@@ -164,8 +166,10 @@
      },
      {
       "name": "cloud",
+      "provider": "openai-compatible",
       "base_url": "https://api.example.test/v1",
       "model": "cloud-primary",
+      "tier": null,
       "credential_reference": {
        "api_key_env": "EXAMPLE_API_KEY",
        "api_key_cmd": "security find-generic-password -s wayfinder-cloud -w"
@@ -178,8 +182,10 @@
      },
      {
       "name": "cloud.backup",
+      "provider": "openai-compatible",
       "base_url": "https://backup.example.test/v1",
       "model": "cloud-backup",
+      "tier": null,
       "credential_reference": {
        "api_key_env": "EXAMPLE_BACKUP_API_KEY",
        "api_key_cmd": null
@@ -228,8 +234,10 @@
     "models": [
      {
       "name": "local",
+      "provider": "openai-compatible",
       "base_url": "http://127.0.0.1:11434/v1",
       "model": "local-model",
+      "tier": null,
       "credential_reference": {
        "api_key_env": null,
        "api_key_cmd": null
@@ -409,8 +417,10 @@
     "models": [
      {
       "name": "zero",
+      "provider": "openai-compatible",
       "base_url": "http://zero.test/v1",
       "model": "zero",
+      "tier": null,
       "credential_reference": {
        "api_key_env": null,
        "api_key_cmd": null
@@ -418,6 +428,45 @@
       "cost_per_1k": 0.0,
       "fallbacks": [],
       "context_window": null
+     }
+    ]
+   }
+  }
+ },
+ {
+  "name": "apple_foundation_models_typed_local_provider",
+  "compatibility": "exact",
+  "toml": "[gateway.models.apple-local]\nprovider = \"apple-foundation-models\"\nmodel = \"system-default\"\ntier = \"local\"\ncontext_window = 4096\n",
+  "outcome": {
+   "status": "valid",
+   "summary": {
+    "route_on": "turn",
+    "sticky": false,
+    "sticky_cooldown": 0,
+    "slash_directives": false,
+    "offline": false,
+    "retries": 2,
+    "breaker_threshold": 5,
+    "breaker_cooldown": 30.0,
+    "failover": "same-tier",
+    "budget": null,
+    "cache": null,
+    "rate_limit": null,
+    "keys": [],
+    "models": [
+     {
+      "name": "apple-local",
+      "provider": "apple-foundation-models",
+      "base_url": null,
+      "model": "system-default",
+      "tier": "local",
+      "credential_reference": {
+       "api_key_env": null,
+       "api_key_cmd": null
+      },
+      "cost_per_1k": null,
+      "fallbacks": [],
+      "context_window": 4096
      }
     ]
    }
@@ -450,8 +499,10 @@
     "models": [
      {
       "name": "local",
+      "provider": "openai-compatible",
       "base_url": "http://127.0.0.1:11434/v1",
       "model": "local-model",
+      "tier": null,
       "credential_reference": {
        "api_key_env": null,
        "api_key_cmd": null
@@ -870,6 +921,51 @@
   }
  },
  {
+  "name": "model_unknown_provider",
+  "compatibility": "exact",
+  "toml": "[gateway.models.local]\nbase_url = \"http://127.0.0.1:11434/v1\"\nmodel = \"local-model\"\nprovider = \"future-provider\"\n",
+  "outcome": {
+   "status": "invalid",
+   "python_error": "gateway-compat-vector: 'gateway.models.local.provider' must be one of openai-compatible, apple-foundation-models"
+  }
+ },
+ {
+  "name": "apple_provider_requires_system_default",
+  "compatibility": "exact",
+  "toml": "[gateway.models.apple-local]\nprovider = \"apple-foundation-models\"\nmodel = \"internal-version\"\ntier = \"local\"\n",
+  "outcome": {
+   "status": "invalid",
+   "python_error": "gateway-compat-vector: 'gateway.models.apple-local.model' must be system-default for apple-foundation-models"
+  }
+ },
+ {
+  "name": "apple_provider_requires_local_tier",
+  "compatibility": "exact",
+  "toml": "[gateway.models.apple-local]\nprovider = \"apple-foundation-models\"\nmodel = \"system-default\"\n",
+  "outcome": {
+   "status": "invalid",
+   "python_error": "gateway-compat-vector: 'gateway.models.apple-local.tier' must be local for apple-foundation-models"
+  }
+ },
+ {
+  "name": "apple_provider_rejects_url",
+  "compatibility": "exact",
+  "toml": "[gateway.models.apple-local]\nprovider = \"apple-foundation-models\"\nbase_url = \"http://localhost/v1\"\nmodel = \"system-default\"\ntier = \"local\"\n",
+  "outcome": {
+   "status": "invalid",
+   "python_error": "gateway-compat-vector: 'gateway.models.apple-local.base_url' is not valid for apple-foundation-models"
+  }
+ },
+ {
+  "name": "apple_provider_rejects_credentials",
+  "compatibility": "exact",
+  "toml": "[gateway.models.apple-local]\nprovider = \"apple-foundation-models\"\nmodel = \"system-default\"\ntier = \"local\"\napi_key_env = \"APPLE_KEY\"\n",
+  "outcome": {
+   "status": "invalid",
+   "python_error": "gateway-compat-vector: 'gateway.models.apple-local' cannot configure credentials for apple-foundation-models"
+  }
+ },
+ {
   "name": "model_empty_base_url",
   "compatibility": "exact",
   "toml": "[gateway.models.local]\nbase_url = \"\"\nmodel = \"m\"\n",
@@ -1108,8 +1204,10 @@
     "models": [
      {
       "name": "local",
+      "provider": "openai-compatible",
       "base_url": "http://127.0.0.1:11434/v1",
       "model": "local-model",
+      "tier": null,
       "credential_reference": {
        "api_key_env": null,
        "api_key_cmd": null
