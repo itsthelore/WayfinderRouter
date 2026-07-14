@@ -1692,6 +1692,8 @@ version = "2026.7.0"
 dependencies = [
  "serde_json",
  "tokio",
+ "uuid",
+ "wayfinder-apple-foundation-xpc",
  "wayfinder-config",
  "wayfinder-core",
  "wayfinder-gateway",
@@ -1760,6 +1762,7 @@ dependencies = [
  "tower-http",
  "tracing",
  "uuid",
+ "wayfinder-apple-foundation-xpc",
  "wayfinder-config",
  "wayfinder-core",
  "wayfinder-providers",

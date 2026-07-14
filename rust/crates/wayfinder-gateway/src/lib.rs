@@ -1465,7 +1465,7 @@ async fn chat_completions(
             routing_headers,
         );
     };
-    if offline && !endpoint_is_literal_loopback(target.endpoint()) {
+    if offline && !model_is_proven_local(target) {
         return error_response(
             StatusCode::SERVICE_UNAVAILABLE,
             "wayfinder_router_offline_unavailable",
@@ -1601,7 +1601,7 @@ async fn chat_completions(
                 .iter()
                 .find(|model| model.name() == name)
                 .is_some_and(|model| {
-                    (!offline || endpoint_is_literal_loopback(model.endpoint()))
+                    (!offline || model_is_proven_local(model))
                         && precheck_ok(prompt_estimate, model.context_window())
                         && allowed_models
                             .is_none_or(|allowed| allowed.iter().any(|allowed| allowed == name))
@@ -2259,8 +2259,30 @@ fn fatal_delivery_status(error: &DeliveryError) -> (StatusCode, &'static str) {
             StatusCode::SERVICE_UNAVAILABLE,
             "wayfinder_router_not_ready",
         ),
+        DeliveryError::Apple(
+            delivery::AppleDeliveryError::Unsupported
+            | delivery::AppleDeliveryError::NotReady
+            | delivery::AppleDeliveryError::Unavailable,
+        ) => (
+            StatusCode::SERVICE_UNAVAILABLE,
+            "wayfinder_router_not_ready",
+        ),
+        DeliveryError::Apple(delivery::AppleDeliveryError::InvalidRequest) => (
+            StatusCode::BAD_REQUEST,
+            "wayfinder_router_unsupported_request",
+        ),
+        DeliveryError::Apple(delivery::AppleDeliveryError::InvalidResponse) => {
+            (StatusCode::BAD_GATEWAY, "wayfinder_router_upstream_error")
+        }
         DeliveryError::Provider(_) => (StatusCode::BAD_GATEWAY, "wayfinder_router_upstream_error"),
     }
+}
+
+fn model_is_proven_local(model: &ConfiguredModel) -> bool {
+    (model.provider() == ProviderKind::AppleFoundationModels
+        && model.tier() == Some(ProviderTier::Local))
+        || (model.provider() == ProviderKind::OpenAiCompatible
+            && endpoint_is_literal_loopback(model.endpoint()))
 }
 
 fn parse_chat_body(bytes: &[u8]) -> Result<serde_json::Map<String, Value>, Box<Response>> {
@@ -2892,14 +2914,14 @@ mod tests {
     use serde_json::{Value, json};
     use tower::ServiceExt;
     use wayfinder_config::gateway::{
-        Budget as GatewayBudget, GatewayConfig, RateLimit, VirtualKey,
+        Budget as GatewayBudget, GatewayConfig, ProviderKind, ProviderTier, RateLimit, VirtualKey,
     };
     use wayfinder_core::{ClassifierModel, RoutingConfig};
     use wayfinder_service::pricing::{SavingsLedger, UtcDate, turn_cost};
 
     use super::{
         AppState, ConfiguredModel, RouteOn, build_reloadable_router, build_router,
-        utc_date_from_unix_days, utc_today,
+        model_is_proven_local, utc_date_from_unix_days, utc_today,
     };
     use crate::delivery::{
         BufferedDelivery, BufferedDeliveryResponse, DeliveryError, DeliveryFuture,
@@ -5329,6 +5351,37 @@ mod tests {
             "wayfinder_router_upstream_error"
         );
         Ok(())
+    }
+
+    #[test]
+    fn offline_locality_accepts_only_loopback_http_or_typed_apple_local() {
+        let loopback = ConfiguredModel::new(
+            "local-http",
+            "http://127.0.0.1:11434/v1",
+            "local",
+            None,
+            true,
+        );
+        let remote = ConfiguredModel::new(
+            "remote-http",
+            "https://api.example.test/v1",
+            "remote",
+            None,
+            true,
+        );
+        let apple = ConfiguredModel::new("apple-local", "", "system-default", None, true)
+            .with_provider(
+                ProviderKind::AppleFoundationModels,
+                Some(ProviderTier::Local),
+            );
+        let unproven_apple =
+            ConfiguredModel::new("apple-unproven", "", "system-default", None, true)
+                .with_provider(ProviderKind::AppleFoundationModels, None);
+
+        assert!(model_is_proven_local(&loopback));
+        assert!(!model_is_proven_local(&remote));
+        assert!(model_is_proven_local(&apple));
+        assert!(!model_is_proven_local(&unproven_apple));
     }
 
     fn access_key(secret: &str) -> VirtualKey {

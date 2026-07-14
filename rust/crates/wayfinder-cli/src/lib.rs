@@ -16,6 +16,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use serde_json::json;
+use wayfinder_apple_foundation_xpc::FoundationModelsClient;
 use wayfinder_config::gateway::{GatewayConfig, gateway_config_from_toml};
 use wayfinder_config::{
     CONFIG_PATH_ENV, THRESHOLD_ENV, TierOrderPolicy, find_config_file, load_routing_config,
@@ -25,7 +26,10 @@ use wayfinder_core::{
     ComplexityScore, FEATURE_ORDER, Lexicon, RoutingConfig, RoutingMode, Weights, binary_tiers,
     explain_score, score_complexity,
 };
-use wayfinder_gateway::delivery::{CredentialError, CredentialSource, OpenAiCompatibleDelivery};
+use wayfinder_gateway::delivery::{
+    AppleFoundationModelDelivery, BufferedProviderDelivery, CredentialError, CredentialSource,
+    OpenAiCompatibleDelivery,
+};
 use wayfinder_gateway::reload::{LastGood, ReloadOutcome};
 use wayfinder_gateway::server::{DEFAULT_DRAIN_TIMEOUT, serve_with_shutdown, shutdown_signal};
 use wayfinder_gateway::{AppState, ConfiguredModel, RouteOn, build_reloadable_router};
@@ -507,8 +511,27 @@ async fn build_serve_state<W: Write>(
             ..ProviderClientConfig::default()
         })
         .map_err(|error| error.to_string())?;
+        let openai = Arc::new(OpenAiCompatibleDelivery::new(client, credentials));
+        let apple_timeout = Duration::from_millis(
+            u64::try_from(
+                request_timeout
+                    .min(wayfinder_apple_foundation_xpc::MAX_TIMEOUT)
+                    .as_millis()
+                    .max(1),
+            )
+            .map_err(|_| "provider timeout is outside the supported duration range".to_owned())?,
+        );
+        let apple = AppleFoundationModelDelivery::new(
+            Arc::new(FoundationModelsClient::default()),
+            apple_timeout,
+            || uuid::Uuid::new_v4().to_string(),
+        );
         state = state
-            .with_provider_delivery(Arc::new(OpenAiCompatibleDelivery::new(client, credentials)));
+            .with_delivery(Arc::new(BufferedProviderDelivery::new(
+                openai.clone(),
+                apple,
+            )))
+            .with_streaming_delivery(openai);
     }
     Ok(state)
 }
