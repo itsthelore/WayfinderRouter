@@ -392,6 +392,7 @@ fn decode<'a, T: Deserialize<'a>>(bytes: &'a [u8]) -> Result<T, FoundationModels
     serde_json::from_slice(bytes).map_err(|_| FoundationModelsXpcError::MalformedResponse)
 }
 
+#[cfg(target_os = "macos")]
 fn map_native_status(status: i32) -> Result<(), FoundationModelsXpcError> {
     match status {
         0 => Ok(()),

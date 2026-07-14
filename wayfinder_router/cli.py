@@ -475,7 +475,6 @@ def _cmd_config(args: argparse.Namespace) -> int:
     from .config import (
         WayfinderConfigError,
         find_config_file,
-        replace_routing_toml,
         routing_config_from_toml,
         set_toml_bool,
     )
