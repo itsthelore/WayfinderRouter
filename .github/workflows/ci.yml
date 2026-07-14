@@ -34,6 +34,29 @@ jobs:
       - name: Pytest
         run: pytest -q
 
+  rust:
+    # Additive migration gate: Python remains the shipping implementation until the
+    # separately reviewed parity/default gates in WF-ADR-0045 are satisfied.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install the Rust toolchain and required components
+        run: rustup toolchain install stable --profile minimal --component rustfmt,clippy
+      - name: Rust formatting
+        run: cargo +stable fmt --manifest-path rust/Cargo.toml --all -- --check
+      - name: Rust workspace tests
+        run: cargo +stable test --manifest-path rust/Cargo.toml --workspace --all-features --locked
+      - name: Seeded Python-Rust routing differential
+        run: |
+          cargo +stable build --manifest-path rust/Cargo.toml -p wayfinder-cli --bin wayfinder-router --locked
+          python3 rust/crates/wayfinder-compat-tests/differential_route_fuzz.py --cases 200
+      - name: Rust documentation tests
+        run: cargo +stable test --manifest-path rust/Cargo.toml --doc --workspace --locked
+      - name: Rust warning-denied Clippy
+        run: >-
+          cargo +stable clippy --manifest-path rust/Cargo.toml --workspace --all-targets
+          --all-features --locked -- -D warnings
+
   docker:
     runs-on: ubuntu-latest
     steps:
@@ -57,8 +80,16 @@ jobs:
       - name: Install the package (for the real Python scorer)
         run: |
           python -m pip install --upgrade pip
-          pip install -e .
+          pip install -e ".[gateway]"
       - name: JS-Python decision-core parity
         run: |
-          python tools/golden.py > clients/shared/test/golden.json
+          python tools/golden.py | diff -u clients/shared/test/golden.json -
           node clients/shared/test/parity.mjs
+      - name: Rust-Python fixture provenance
+        run: |
+          python tools/golden.py | diff -u rust/crates/wayfinder-compat-tests/fixtures/python-golden.json -
+          python rust/crates/wayfinder-compat-tests/generate_routing_vectors.py | diff -u rust/crates/wayfinder-compat-tests/fixtures/routing-boundaries.json -
+          python rust/crates/wayfinder-compat-tests/generate_config_vectors.py | diff -u rust/crates/wayfinder-compat-tests/fixtures/routing-config.json -
+          python rust/crates/wayfinder-compat-tests/generate_gateway_config_vectors.py | diff -u rust/crates/wayfinder-compat-tests/fixtures/gateway-config.json -
+          python rust/crates/wayfinder-compat-tests/generate_gateway_http_vectors.py | diff -u rust/crates/wayfinder-compat-tests/fixtures/gateway-http.json -
+          python rust/crates/wayfinder-compat-tests/generate_service_unit_vectors.py | diff -u rust/crates/wayfinder-compat-tests/fixtures/service-units.json -
