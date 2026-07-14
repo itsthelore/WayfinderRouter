@@ -111,6 +111,31 @@ def set_toml_bool(text: str, table: str, key: str, value: bool) -> str:
     return f"{text}{tail}\n[{table}]\n{key} = {rendered}\n"
 
 
+def replace_routing_toml(text: str, routing_fragment: str) -> str:
+    """Replace routing-owned TOML tables while preserving unrelated sections.
+
+    This is the write half for native Settings routing controls. It intentionally
+    owns the complete ``[routing]`` family (``[routing]``, sub-tables, and tier
+    arrays), while leaving gateway tables and comments elsewhere untouched.
+    """
+    kept: list[str] = []
+    in_routing = False
+    for line in text.splitlines(keepends=True):
+        stripped = line.strip()
+        if stripped.startswith("[") and stripped.endswith("]"):
+            header = stripped.strip("[]").strip()
+            in_routing = header == "routing" or header.startswith("routing.")
+        if not in_routing:
+            kept.append(line)
+    base = "".join(kept).rstrip()
+    fragment = routing_fragment.strip()
+    if not fragment:
+        return base + ("\n" if base else "")
+    if base:
+        return base + "\n\n" + fragment + "\n"
+    return fragment + "\n"
+
+
 def routing_config_from_toml(text: str, where: str = CONFIG_FILE) -> RoutingConfig:
     """Parse a :class:`RoutingConfig` from ``wayfinder-router.toml`` text.
 
@@ -236,7 +261,6 @@ def _parse_tiers(where: str, value: object) -> tuple[Tier, ...]:
         ):
             raise WayfinderConfigError(f"{where}: tier 'cost' must be a non-negative number")
         tiers.append(Tier(float(min_score), model, float(cost) if cost is not None else None))
-    tiers.sort(key=lambda t: t.min_score)
     if tiers[0].min_score != 0.0:
         raise WayfinderConfigError(f"{where}: the first tier must have min_score = 0.0")
     for earlier, later in zip(tiers, tiers[1:], strict=False):

@@ -101,16 +101,14 @@ def test_wayfinder_config_unset_uses_walk_up(tmp_path):
 # --- tiers ------------------------------------------------------------------
 
 
-def test_tiers_are_parsed_and_sorted(tmp_path):
+def test_tiers_must_be_declared_in_ascending_order(tmp_path):
     body = (
         "[[routing.tiers]]\nmin_score = 0.6\nmodel = \"large\"\n\n"
         "[[routing.tiers]]\nmin_score = 0.0\nmodel = \"small\"\n\n"
         "[[routing.tiers]]\nmin_score = 0.3\nmodel = \"medium\"\n"
     )
-    config = load_routing_config(_write(tmp_path, body))
-    assert config.classifier is None
-    assert [t.model for t in config.tiers] == ["small", "medium", "large"]
-    assert [t.min_score for t in config.tiers] == [0.0, 0.3, 0.6]
+    with pytest.raises(WayfinderConfigError, match="first tier must have min_score = 0.0"):
+        load_routing_config(_write(tmp_path, body))
 
 
 @pytest.mark.parametrize(

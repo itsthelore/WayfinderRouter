@@ -23,6 +23,8 @@ from . import __version__
 from .calibrate import CalibrationError, calibrate, load_dataset
 from .complexity import (
     ComplexityScore,
+    DEFAULT_WEIGHTS,
+    FEATURE_ORDER,
     RoutingConfig,
     binary_tiers,
     explain_score,
@@ -388,6 +390,7 @@ def _cmd_init(args: argparse.Namespace) -> int:
         )
         return EXIT_USAGE
     try:
+        target.parent.mkdir(parents=True, exist_ok=True)
         target.write_text(config_text, encoding="utf-8")
     except OSError as exc:
         print(f"wayfinder-router: cannot write {target}: {exc}", file=sys.stderr)
@@ -472,10 +475,19 @@ def _cmd_config(args: argparse.Namespace) -> int:
     from .config import (
         WayfinderConfigError,
         find_config_file,
+        replace_routing_toml,
         routing_config_from_toml,
         set_toml_bool,
     )
     from .gateway import gateway_config_from_toml
+
+    if args.action == "read-routing":
+        return _cmd_config_read_routing(args)
+    if args.action == "apply-routing":
+        return _cmd_config_apply_routing(args)
+    if args.key is None or args.value is None:
+        print("wayfinder-router: config set needs <key> <value>", file=sys.stderr)
+        return EXIT_USAGE
 
     entry = _CONFIG_BOOLS.get(args.key)
     if entry is None:
@@ -513,6 +525,127 @@ def _cmd_config(args: argparse.Namespace) -> int:
     print(
         f"wayfinder-router: set {args.key} = {args.value} in {path} "
         "(a running gateway hot-reloads this on its next request)",
+        file=sys.stderr,
+    )
+    return EXIT_OK
+
+
+def _routing_mode_payload(config: RoutingConfig) -> dict:
+    weights = [
+        {
+            "id": name,
+            "label": name.replace("_", " ").title(),
+            "value": config.weights.get(name, DEFAULT_WEIGHTS[name]),
+            "default": DEFAULT_WEIGHTS[name],
+        }
+        for name in FEATURE_ORDER
+    ]
+    if config.classifier is not None:
+        return {
+            "mode": "classifier",
+            "models": list(config.classifier.models),
+            "weights": weights,
+        }
+    tiers = [
+        {"min_score": tier.min_score, "model": tier.model}
+        | ({"cost": tier.cost} if tier.cost is not None else {})
+        for tier in config.tiers
+    ]
+    if (
+        len(config.tiers) == 2
+        and config.tiers[0].min_score == 0.0
+        and config.tiers[0].model == "local"
+        and config.tiers[1].model == "cloud"
+    ):
+        return {
+            "mode": "binary",
+            "threshold": config.tiers[1].min_score,
+            "tiers": tiers,
+            "weights": weights,
+        }
+    return {"mode": "tiered", "tiers": tiers, "weights": weights}
+
+
+def _cmd_config_read_routing(args: argparse.Namespace) -> int:
+    from .config import WayfinderConfigError, find_config_file, routing_config_from_toml
+
+    path = Path(args.path) if args.path else find_config_file(".")
+    if path is None or not path.is_file():
+        where = args.path or "wayfinder-router.toml"
+        print(
+            f"wayfinder-router: no config at {where} — run `wayfinder-router init` to create one",
+            file=sys.stderr,
+        )
+        return EXIT_USAGE
+    try:
+        config = routing_config_from_toml(path.read_text(encoding="utf-8"), where=str(path))
+    except WayfinderConfigError as exc:
+        print(f"wayfinder-router: {exc}", file=sys.stderr)
+        return EXIT_CONFIG
+    print(json.dumps(_routing_mode_payload(config), indent=2))
+    return EXIT_OK
+
+
+def _validate_routing_apply_fragment(fragment: str, where: str) -> RoutingConfig:
+    import tomllib
+
+    from .config import routing_config_from_toml
+
+    try:
+        data = tomllib.loads(fragment)
+    except tomllib.TOMLDecodeError as exc:
+        raise WayfinderConfigError(f"{where}: invalid TOML: {exc}") from exc
+    unknown_top = set(data) - {"routing"}
+    if unknown_top:
+        raise WayfinderConfigError(
+            f"{where}: routing apply may only include [routing] tables, not "
+            f"{', '.join(sorted(unknown_top))}"
+        )
+    routing = data.get("routing")
+    if not isinstance(routing, dict):
+        raise WayfinderConfigError(f"{where}: routing apply needs a [routing] table")
+    unknown_routing = set(routing) - {"threshold", "weights", "tiers"}
+    if unknown_routing:
+        raise WayfinderConfigError(
+            f"{where}: routing apply cannot edit {', '.join(sorted(unknown_routing))}"
+        )
+    return routing_config_from_toml(fragment, where=where)
+
+
+def _cmd_config_apply_routing(args: argparse.Namespace) -> int:
+    from .config import (
+        WayfinderConfigError,
+        find_config_file,
+        replace_routing_toml,
+        routing_config_from_toml,
+    )
+    from .gateway import gateway_config_from_toml
+
+    path = Path(args.path) if args.path else find_config_file(".")
+    if path is None or not path.is_file():
+        where = args.path or "wayfinder-router.toml"
+        print(
+            f"wayfinder-router: no config at {where} — run `wayfinder-router init` to create one",
+            file=sys.stderr,
+        )
+        return EXIT_USAGE
+    fragment = sys.stdin.read()
+    try:
+        desired = _validate_routing_apply_fragment(fragment, "stdin")
+        original = path.read_text(encoding="utf-8")
+        updated = replace_routing_toml(original, fragment)
+        gateway_config_from_toml(updated, where=str(path))
+        actual = routing_config_from_toml(updated, where=str(path))
+    except WayfinderConfigError as exc:
+        print(f"wayfinder-router: refusing to write — {exc}", file=sys.stderr)
+        return EXIT_CONFIG
+    if actual != desired:
+        print("wayfinder-router: refusing to write — routing edit did not take effect", file=sys.stderr)
+        return EXIT_CONFIG
+    path.write_text(updated, encoding="utf-8")
+    print(
+        f"wayfinder-router: applied routing config in {path} "
+        "(restart the gateway from Gateway settings if behavior does not update immediately)",
         file=sys.stderr,
     )
     return EXIT_OK
@@ -1294,9 +1427,21 @@ def build_parser() -> argparse.ArgumentParser:
         help="Set a whitelisted config value in wayfinder-router.toml (WF-ADR-0044): "
              "line-preserving, schema-validated, hot-reloaded by a running gateway.",
     )
-    p_config.add_argument("action", choices=["set"], help="Action to perform (currently: set).")
-    p_config.add_argument("key", help="Dotted config key (currently: gateway.offline).")
-    p_config.add_argument("value", help="New value ('true' or 'false' for boolean keys).")
+    p_config.add_argument(
+        "action",
+        choices=["set", "read-routing", "apply-routing"],
+        help="Action to perform.",
+    )
+    p_config.add_argument(
+        "key",
+        nargs="?",
+        help="Dotted config key for `set` (currently: gateway.offline).",
+    )
+    p_config.add_argument(
+        "value",
+        nargs="?",
+        help="New value for `set` ('true' or 'false' for boolean keys).",
+    )
     p_config.add_argument(
         "--path", default=None,
         help="Explicit config file (default: WAYFINDER_CONFIG, else the cwd walk-up).",
