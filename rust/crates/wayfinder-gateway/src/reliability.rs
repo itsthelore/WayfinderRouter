@@ -1,0 +1,248 @@
+//! Shared buffered-delivery reliability state.
+//!
+//! Routing selects a logical model once. This module only controls how that
+//! decision is delivered: bounded retries, per-target circuit state, and the
+//! configured cross-tier fallback direction.
+
+use std::fmt;
+use std::sync::{Arc, Mutex};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
+
+use thiserror::Error;
+use wayfinder_config::gateway::GatewayConfig;
+use wayfinder_providers::reliability::{
+    CircuitBreaker, FailoverPolicy, delivery_plan, retry_delays_with,
+};
+
+/// Python-compatible initial full-jitter backoff slot.
+pub const RETRY_BASE_SECONDS: f64 = 0.2;
+/// Python-compatible maximum full-jitter backoff slot.
+pub const RETRY_CAP_SECONDS: f64 = 5.0;
+
+type Clock = Arc<dyn Fn() -> f64 + Send + Sync>;
+type Jitter = Arc<dyn Fn() -> f64 + Send + Sync>;
+
+/// Invalid reliability configuration or synchronized state.
+#[derive(Debug, Error, PartialEq)]
+pub enum ReliabilityError {
+    /// Retry or breaker bounds do not fit this platform.
+    #[error("gateway reliability bounds exceed the supported platform size")]
+    InvalidBounds,
+    /// Failover policy was not one of the validated values.
+    #[error("gateway failover policy is invalid")]
+    InvalidPolicy,
+    /// Monotonic time was not finite and non-negative.
+    #[error("gateway reliability clock is invalid")]
+    InvalidTime,
+    /// Circuit state could not be synchronized.
+    #[error("gateway circuit-breaker state is unavailable")]
+    LockPoisoned,
+}
+
+/// Process-local reliability configuration plus shared circuit state.
+pub struct ReliabilityPolicy {
+    retries: usize,
+    failover: FailoverPolicy,
+    breaker: Mutex<CircuitBreaker>,
+    clock: Clock,
+    jitter: Jitter,
+}
+
+impl ReliabilityPolicy {
+    /// Build from validated gateway configuration with process-local sources.
+    pub fn from_gateway_config(config: &GatewayConfig) -> Result<Self, ReliabilityError> {
+        let started = Instant::now();
+        Self::from_gateway_config_with_sources(
+            config,
+            move || started.elapsed().as_secs_f64(),
+            system_jitter,
+        )
+    }
+
+    /// Build with injected monotonic time and jitter for deterministic tests.
+    pub fn from_gateway_config_with_sources(
+        config: &GatewayConfig,
+        clock: impl Fn() -> f64 + Send + Sync + 'static,
+        jitter: impl Fn() -> f64 + Send + Sync + 'static,
+    ) -> Result<Self, ReliabilityError> {
+        let retries =
+            usize::try_from(config.retries).map_err(|_| ReliabilityError::InvalidBounds)?;
+        let threshold = usize::try_from(config.breaker_threshold)
+            .map_err(|_| ReliabilityError::InvalidBounds)?;
+        let failover = parse_failover(&config.failover).ok_or(ReliabilityError::InvalidPolicy)?;
+        Ok(Self {
+            retries,
+            failover,
+            breaker: Mutex::new(CircuitBreaker::new(threshold, config.breaker_cooldown)),
+            clock: Arc::new(clock),
+            jitter: Arc::new(jitter),
+        })
+    }
+
+    /// Number of retry attempts after the initial call.
+    #[must_use]
+    pub const fn retries(&self) -> usize {
+        self.retries
+    }
+
+    /// Configured policy, overridden only by a recognized request header.
+    #[must_use]
+    pub fn effective_failover(&self, header: Option<&str>) -> FailoverPolicy {
+        header.and_then(parse_failover).unwrap_or(self.failover)
+    }
+
+    /// Return one full-jitter delay per configured retry.
+    #[must_use]
+    pub fn retry_delays(&self) -> Vec<f64> {
+        retry_delays_with(self.retries, RETRY_BASE_SECONDS, RETRY_CAP_SECONDS, || {
+            (self.jitter)()
+        })
+    }
+
+    /// Filter the primary and ordered candidates through current circuit state.
+    pub fn delivery_plan(
+        &self,
+        primary: &str,
+        candidates: &[String],
+        allow: impl FnMut(&str) -> bool,
+    ) -> Result<Vec<String>, ReliabilityError> {
+        let breaker = self
+            .breaker
+            .lock()
+            .map_err(|_| ReliabilityError::LockPoisoned)?;
+        let now = self.now()?;
+        Ok(delivery_plan(
+            primary,
+            candidates.iter().map(String::as_str),
+            Some((&breaker, now)),
+            allow,
+        ))
+    }
+
+    /// Fold one target-level outcome into the shared breaker.
+    pub fn record(&self, target: &str, succeeded: bool) -> Result<(), ReliabilityError> {
+        let mut breaker = self
+            .breaker
+            .lock()
+            .map_err(|_| ReliabilityError::LockPoisoned)?;
+        let now = self.now()?;
+        breaker.record_at(target, succeeded, now);
+        Ok(())
+    }
+
+    fn now(&self) -> Result<f64, ReliabilityError> {
+        let now = (self.clock)();
+        (now.is_finite() && now >= 0.0)
+            .then_some(now)
+            .ok_or(ReliabilityError::InvalidTime)
+    }
+}
+
+impl fmt::Debug for ReliabilityPolicy {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("ReliabilityPolicy")
+            .field("retries", &self.retries)
+            .field("failover", &self.failover)
+            .field("breaker", &self.breaker)
+            .field("clock", &"<monotonic>")
+            .field("jitter", &"<bounded source>")
+            .finish()
+    }
+}
+
+impl Default for ReliabilityPolicy {
+    fn default() -> Self {
+        let started = Instant::now();
+        Self {
+            retries: 2,
+            failover: FailoverPolicy::SameTier,
+            breaker: Mutex::new(CircuitBreaker::default()),
+            clock: Arc::new(move || started.elapsed().as_secs_f64()),
+            jitter: Arc::new(system_jitter),
+        }
+    }
+}
+
+/// Sleep for a validated retry delay without blocking an executor worker.
+pub async fn sleep_retry(seconds: f64) {
+    let Ok(duration) = Duration::try_from_secs_f64(seconds) else {
+        return;
+    };
+    if !duration.is_zero() {
+        tokio::time::sleep(duration).await;
+    }
+}
+
+/// Parse one configuration/header failover value.
+#[must_use]
+pub fn parse_failover(value: &str) -> Option<FailoverPolicy> {
+    match value {
+        "same-tier" => Some(FailoverPolicy::SameTier),
+        "degrade" => Some(FailoverPolicy::Degrade),
+        "escalate" => Some(FailoverPolicy::Escalate),
+        _ => None,
+    }
+}
+
+fn system_jitter() -> f64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map_or(0.0, |duration| {
+            f64::from(duration.subsec_nanos()) / 1_000_000_000.0
+        })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn configuration_header_and_shared_breaker_are_deterministic() -> Result<(), ReliabilityError> {
+        let config = GatewayConfig {
+            retries: 2,
+            breaker_threshold: 1,
+            breaker_cooldown: 30.0,
+            failover: "degrade".to_owned(),
+            ..GatewayConfig::default()
+        };
+        let policy = ReliabilityPolicy::from_gateway_config_with_sources(&config, || 10.0, || 0.5)?;
+        assert_eq!(policy.retry_delays(), [0.1, 0.2]);
+        assert_eq!(
+            policy.effective_failover(Some("escalate")),
+            FailoverPolicy::Escalate
+        );
+        assert_eq!(
+            policy.effective_failover(Some("invalid")),
+            FailoverPolicy::Degrade
+        );
+        assert_eq!(
+            policy.delivery_plan("cloud", &["local".to_owned()], |_| true)?,
+            ["cloud", "local"]
+        );
+        policy.record("cloud", false)?;
+        assert_eq!(
+            policy.delivery_plan("cloud", &["local".to_owned()], |_| true)?,
+            ["local"]
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn malformed_clock_fails_closed() -> Result<(), ReliabilityError> {
+        let policy = ReliabilityPolicy::from_gateway_config_with_sources(
+            &GatewayConfig::default(),
+            || f64::NAN,
+            || 0.0,
+        )?;
+        assert_eq!(
+            policy.delivery_plan("local", &[], |_| true),
+            Err(ReliabilityError::InvalidTime)
+        );
+        assert_eq!(
+            policy.record("local", true),
+            Err(ReliabilityError::InvalidTime)
+        );
+        Ok(())
+    }
+}

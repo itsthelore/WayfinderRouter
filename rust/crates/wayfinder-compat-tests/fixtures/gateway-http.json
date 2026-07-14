@@ -1,0 +1,1406 @@
+{
+  "schema": 1,
+  "authority": "wayfinder_router.gateway.build_app/FastAPI TestClient",
+  "version": "2026.7.0",
+  "normalization": [
+    "request_id values preserve correlation through numbered markers",
+    "recent-entry ts values become <timestamp>",
+    "post-decision finite latency buckets and latency sum become markers"
+  ],
+  "known_rust_mismatches": [],
+  "header_contract": [
+    "allow",
+    "content-type",
+    "x-wayfinder-router-decision-only",
+    "x-wayfinder-router-mode",
+    "x-wayfinder-router-model",
+    "x-wayfinder-router-offline",
+    "x-wayfinder-router-request-id",
+    "x-wayfinder-router-score"
+  ],
+  "cases": [
+    {
+      "name": "health_configured",
+      "state": "configured_dry_run",
+      "request": {
+        "method": "GET",
+        "path": "/healthz"
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "content-type": "application/json"
+        },
+        "body": {
+          "kind": "json",
+          "value": {
+            "status": "degraded",
+            "models": [
+              "cloud",
+              "local"
+            ],
+            "offline": true,
+            "missing_keys": [
+              "cloud"
+            ]
+          }
+        }
+      }
+    },
+    {
+      "name": "metrics_initial",
+      "state": "configured_dry_run",
+      "request": {
+        "method": "GET",
+        "path": "/metrics"
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "content-type": "text/plain; version=0.0.4; charset=utf-8"
+        },
+        "body": {
+          "kind": "text",
+          "value": "# HELP wayfinder_router_build_info Build information.\n# TYPE wayfinder_router_build_info gauge\nwayfinder_router_build_info{version=\"2026.7.0\"} 1\n# HELP wayfinder_router_requests_total Routed requests by model and mode.\n# TYPE wayfinder_router_requests_total counter\n# HELP wayfinder_router_upstream_errors_total Upstream transport failures by model.\n# TYPE wayfinder_router_upstream_errors_total counter\n# HELP wayfinder_router_cache_hits_total Exact-match response cache hits (WF-ADR-0033).\n# TYPE wayfinder_router_cache_hits_total counter\nwayfinder_router_cache_hits_total 0\n# HELP wayfinder_router_cache_misses_total Cacheable requests that missed the cache.\n# TYPE wayfinder_router_cache_misses_total counter\nwayfinder_router_cache_misses_total 0\n# HELP wayfinder_router_cache_avoided_cost_total Upstream cost avoided by cache hits (chosen-tier cost; distinct from routing savings vs always-frontier).\n# TYPE wayfinder_router_cache_avoided_cost_total counter\nwayfinder_router_cache_avoided_cost_total 0\n# HELP wayfinder_router_rate_limited_total Requests rejected with 429 by limit (WF-ADR-0034).\n# TYPE wayfinder_router_rate_limited_total counter\n# HELP wayfinder_router_config_reload_failures_total Config reloads that failed and kept the last-good config.\n# TYPE wayfinder_router_config_reload_failures_total counter\nwayfinder_router_config_reload_failures_total 0\n# HELP wayfinder_router_realized_cost_total Cumulative realized spend on the chosen tier (USD, or relative units when no cost_per_1k is configured; WF-DESIGN-0007).\n# TYPE wayfinder_router_realized_cost_total counter\nwayfinder_router_realized_cost_total 0\n# HELP wayfinder_router_baseline_cost_total Cumulative cost had every request gone to the dearest tier (the always-frontier counterfactual).\n# TYPE wayfinder_router_baseline_cost_total counter\nwayfinder_router_baseline_cost_total 0\n# HELP wayfinder_router_savings_cost_total Cumulative savings vs always-frontier (baseline minus realized).\n# TYPE wayfinder_router_savings_cost_total counter\nwayfinder_router_savings_cost_total 0\n# HELP wayfinder_router_decision_latency_seconds Time to score a prompt and pick a model (no model call).\n# TYPE wayfinder_router_decision_latency_seconds histogram\nwayfinder_router_decision_latency_seconds_bucket{le=\"0.0001\"} 0\nwayfinder_router_decision_latency_seconds_bucket{le=\"0.00025\"} 0\nwayfinder_router_decision_latency_seconds_bucket{le=\"0.0005\"} 0\nwayfinder_router_decision_latency_seconds_bucket{le=\"0.001\"} 0\nwayfinder_router_decision_latency_seconds_bucket{le=\"0.0025\"} 0\nwayfinder_router_decision_latency_seconds_bucket{le=\"0.005\"} 0\nwayfinder_router_decision_latency_seconds_bucket{le=\"0.01\"} 0\nwayfinder_router_decision_latency_seconds_bucket{le=\"0.025\"} 0\nwayfinder_router_decision_latency_seconds_bucket{le=\"0.05\"} 0\nwayfinder_router_decision_latency_seconds_bucket{le=\"+Inf\"} 0\nwayfinder_router_decision_latency_seconds_sum 0\nwayfinder_router_decision_latency_seconds_count 0\n# HELP wayfinder_router_upstream_latency_seconds Upstream model round-trip time by model.\n# TYPE wayfinder_router_upstream_latency_seconds histogram\n"
+        }
+      }
+    },
+    {
+      "name": "models_v1",
+      "state": "configured_dry_run",
+      "request": {
+        "method": "GET",
+        "path": "/v1/models"
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "content-type": "application/json"
+        },
+        "body": {
+          "kind": "json",
+          "value": {
+            "object": "list",
+            "data": [
+              {
+                "id": "auto",
+                "object": "model",
+                "created": 0,
+                "owned_by": "wayfinder"
+              },
+              {
+                "id": "prefer-local",
+                "object": "model",
+                "created": 0,
+                "owned_by": "wayfinder"
+              },
+              {
+                "id": "prefer-hosted",
+                "object": "model",
+                "created": 0,
+                "owned_by": "wayfinder"
+              },
+              {
+                "id": "local",
+                "object": "model",
+                "created": 0,
+                "owned_by": "wayfinder"
+              },
+              {
+                "id": "cloud",
+                "object": "model",
+                "created": 0,
+                "owned_by": "wayfinder"
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "name": "models_alias",
+      "state": "configured_dry_run",
+      "request": {
+        "method": "GET",
+        "path": "/models"
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "content-type": "application/json"
+        },
+        "body": {
+          "kind": "json",
+          "value": {
+            "object": "list",
+            "data": [
+              {
+                "id": "auto",
+                "object": "model",
+                "created": 0,
+                "owned_by": "wayfinder"
+              },
+              {
+                "id": "prefer-local",
+                "object": "model",
+                "created": 0,
+                "owned_by": "wayfinder"
+              },
+              {
+                "id": "prefer-hosted",
+                "object": "model",
+                "created": 0,
+                "owned_by": "wayfinder"
+              },
+              {
+                "id": "local",
+                "object": "model",
+                "created": 0,
+                "owned_by": "wayfinder"
+              },
+              {
+                "id": "cloud",
+                "object": "model",
+                "created": 0,
+                "owned_by": "wayfinder"
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "name": "router_models",
+      "state": "configured_dry_run",
+      "request": {
+        "method": "GET",
+        "path": "/router/models"
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "content-type": "application/json"
+        },
+        "body": {
+          "kind": "json",
+          "value": {
+            "models": [
+              {
+                "name": "local",
+                "endpoint": "http://127.0.0.1:11434/v1",
+                "model": "provider-local",
+                "api_key_env": null,
+                "key_ok": true
+              },
+              {
+                "name": "cloud",
+                "endpoint": "https://cloud.example/v1",
+                "model": "provider-cloud",
+                "api_key_env": "WAYFINDER_HTTP_CORPUS_MISSING_KEY",
+                "key_ok": false
+              }
+            ],
+            "dry_run": true
+          }
+        }
+      }
+    },
+    {
+      "name": "router_profiles",
+      "state": "configured_dry_run",
+      "request": {
+        "method": "GET",
+        "path": "/router/profiles"
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "content-type": "application/json"
+        },
+        "body": {
+          "kind": "json",
+          "value": {
+            "profiles": [
+              {
+                "id": "proofs-math",
+                "name": "Proofs & mathematics",
+                "source": "curated",
+                "reasoning_terms": [
+                  "prove",
+                  "proof",
+                  "proofs",
+                  "theorem",
+                  "lemma",
+                  "corollary",
+                  "axiom",
+                  "conjecture",
+                  "induction",
+                  "contradiction",
+                  "qed",
+                  "derive",
+                  "derivation",
+                  "integral",
+                  "derivative",
+                  "eigenvalue",
+                  "asymptotic",
+                  "bijection",
+                  "isomorphism",
+                  "modulo",
+                  "recurrence",
+                  "polynomial",
+                  "monotonic",
+                  "invariant",
+                  "optimal",
+                  "optimality"
+                ],
+                "constraint_terms": [
+                  "exactly",
+                  "minimize",
+                  "maximize",
+                  "subject"
+                ],
+                "note": "Hand-authored maths/CS reasoning vocabulary (close to the built-in default)."
+              },
+              {
+                "id": "law-compliance",
+                "name": "Law & compliance",
+                "source": "curated",
+                "reasoning_terms": [
+                  "liable",
+                  "liability",
+                  "indemnify",
+                  "indemnification",
+                  "pursuant",
+                  "herein",
+                  "hereto",
+                  "whereas",
+                  "statute",
+                  "statutory",
+                  "jurisdiction",
+                  "plaintiff",
+                  "defendant",
+                  "tort",
+                  "breach",
+                  "covenant",
+                  "waiver",
+                  "arbitration",
+                  "negligence",
+                  "damages",
+                  "contractual"
+                ],
+                "constraint_terms": [
+                  "shall",
+                  "must",
+                  "prohibited",
+                  "required",
+                  "notwithstanding",
+                  "provided"
+                ],
+                "note": "Hand-authored legal/compliance vocabulary."
+              },
+              {
+                "id": "code-infra",
+                "name": "Code & infrastructure",
+                "source": "curated",
+                "reasoning_terms": [
+                  "concurrency",
+                  "concurrent",
+                  "deadlock",
+                  "mutex",
+                  "idempotent",
+                  "idempotency",
+                  "latency",
+                  "throughput",
+                  "distributed",
+                  "consensus",
+                  "replication",
+                  "sharding",
+                  "rollback",
+                  "migration",
+                  "schema",
+                  "consistency",
+                  "atomicity",
+                  "serializable",
+                  "partition",
+                  "race",
+                  "lock"
+                ],
+                "constraint_terms": [],
+                "note": "Hand-authored systems/infrastructure vocabulary."
+              },
+              {
+                "id": "science-medicine",
+                "name": "Science & medicine",
+                "source": "curated",
+                "reasoning_terms": [
+                  "hypothesis",
+                  "pathogenesis",
+                  "etiology",
+                  "diagnosis",
+                  "prognosis",
+                  "cardiac",
+                  "hepatic",
+                  "renal",
+                  "membrane",
+                  "enzyme",
+                  "mitochondria",
+                  "pyruvate",
+                  "catalysis",
+                  "molecule",
+                  "atom",
+                  "orbital",
+                  "electron",
+                  "isotope",
+                  "contraindication",
+                  "dosage",
+                  "pharmacokinetics"
+                ],
+                "constraint_terms": [],
+                "note": "Hand-authored science/medicine vocabulary."
+              },
+              {
+                "id": "mined-science",
+                "name": "Science (RouterBench)",
+                "source": "mined",
+                "reasoning_terms": [
+                  "hypertension",
+                  "center",
+                  "learning",
+                  "objects",
+                  "cardiac",
+                  "pyruvate",
+                  "mild",
+                  "parents",
+                  "phase",
+                  "region",
+                  "products",
+                  "membrane",
+                  "anterior",
+                  "element",
+                  "orbit",
+                  "chain",
+                  "atoms",
+                  "neck",
+                  "rapid",
+                  "potential"
+                ],
+                "constraint_terms": [],
+                "note": "Mined from RouterBench: real subject-matter vocabulary; still calibrate on your traffic."
+              },
+              {
+                "id": "mined-general",
+                "name": "General knowledge (RouterBench)",
+                "source": "mined",
+                "reasoning_terms": [
+                  "committee",
+                  "planning",
+                  "taxes",
+                  "measure",
+                  "identity",
+                  "punishment",
+                  "procedures",
+                  "cultural",
+                  "industry",
+                  "areas",
+                  "ethics",
+                  "organization",
+                  "share",
+                  "falls",
+                  "local",
+                  "skills",
+                  "curve",
+                  "identify",
+                  "unemployment",
+                  "spending"
+                ],
+                "constraint_terms": [],
+                "note": "Mined from RouterBench: real subject-matter vocabulary; still calibrate on your traffic."
+              },
+              {
+                "id": "mined-humanities",
+                "name": "Humanities (RouterBench)",
+                "source": "mined",
+                "reasoning_terms": [
+                  "classes",
+                  "function",
+                  "expression",
+                  "extension",
+                  "latin",
+                  "russia",
+                  "yard",
+                  "facilities",
+                  "famous",
+                  "republics",
+                  "settlement",
+                  "socialist",
+                  "materials",
+                  "morality",
+                  "western",
+                  "colonial",
+                  "fallacy",
+                  "consequences",
+                  "cultural",
+                  "nations"
+                ],
+                "constraint_terms": [],
+                "note": "Mined from RouterBench: real subject-matter vocabulary; still calibrate on your traffic."
+              },
+              {
+                "id": "mined-commonsense",
+                "name": "Commonsense (RouterBench)",
+                "source": "mined",
+                "reasoning_terms": [
+                  "carry",
+                  "sheet",
+                  "morally",
+                  "scenarios",
+                  "scenario",
+                  "standards",
+                  "moral",
+                  "character",
+                  "ordinary",
+                  "wrong",
+                  "buying",
+                  "wedding",
+                  "oven",
+                  "major",
+                  "adjust",
+                  "growth"
+                ],
+                "constraint_terms": [],
+                "note": "Mined from RouterBench word-problem tasks: task-surface vocabulary, NOT difficulty — a cautionary example, not a recommendation."
+              },
+              {
+                "id": "mined-math",
+                "name": "Math word-problems (RouterBench)",
+                "source": "mined",
+                "reasoning_terms": [
+                  "candy",
+                  "sunday",
+                  "mother",
+                  "saturday",
+                  "mile",
+                  "weighs",
+                  "cards",
+                  "birthday"
+                ],
+                "constraint_terms": [],
+                "note": "Mined from RouterBench word-problem tasks: task-surface vocabulary, NOT difficulty — a cautionary example, not a recommendation."
+              },
+              {
+                "id": "mined-multilingual",
+                "name": "Multilingual (RouterBench)",
+                "source": "mined",
+                "reasoning_terms": [
+                  "dragon",
+                  "animal",
+                  "approximate",
+                  "birth",
+                  "digit",
+                  "estimated",
+                  "exact",
+                  "guesses",
+                  "sentences",
+                  "subject's",
+                  "wishing",
+                  "without",
+                  "year",
+                  "zodiac",
+                  "zones",
+                  "monkey",
+                  "chinese",
+                  "other",
+                  "translate",
+                  "snake"
+                ],
+                "constraint_terms": [],
+                "note": "Mined from RouterBench word-problem tasks: task-surface vocabulary, NOT difficulty — a cautionary example, not a recommendation."
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "name": "chat_dry_run_v1",
+      "state": "configured_dry_run",
+      "request": {
+        "method": "POST",
+        "path": "/v1/chat/completions",
+        "json": {
+          "model": "auto",
+          "messages": [
+            {
+              "role": "user",
+              "content": "hi"
+            }
+          ]
+        }
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "content-type": "application/json",
+          "x-wayfinder-router-mode": "scored",
+          "x-wayfinder-router-model": "local",
+          "x-wayfinder-router-offline": "true",
+          "x-wayfinder-router-request-id": "<request_id:1>",
+          "x-wayfinder-router-score": "0.00"
+        },
+        "body": {
+          "kind": "json",
+          "value": {
+            "wayfinder": {
+              "model": "local",
+              "score": 0.0,
+              "mode": "scored",
+              "offline": true,
+              "request_id": "<request_id:1>",
+              "features": {
+                "word_count": 1,
+                "heading_count": 0,
+                "max_heading_depth": 0,
+                "list_item_count": 0,
+                "link_count": 0,
+                "code_block_count": 0,
+                "table_row_count": 0,
+                "reasoning_term_count": 0,
+                "math_symbol_count": 0,
+                "constraint_term_count": 0,
+                "question_count": 0
+              },
+              "contributions": [
+                {
+                  "name": "word_count",
+                  "value": 1,
+                  "normalized": 0.0025,
+                  "weight": 3.0,
+                  "contribution": 0.0007
+                },
+                {
+                  "name": "heading_count",
+                  "value": 0,
+                  "normalized": 0.0,
+                  "weight": 1.5,
+                  "contribution": 0.0
+                },
+                {
+                  "name": "max_heading_depth",
+                  "value": 0,
+                  "normalized": 0.0,
+                  "weight": 1.0,
+                  "contribution": 0.0
+                },
+                {
+                  "name": "list_item_count",
+                  "value": 0,
+                  "normalized": 0.0,
+                  "weight": 2.0,
+                  "contribution": 0.0
+                },
+                {
+                  "name": "link_count",
+                  "value": 0,
+                  "normalized": 0.0,
+                  "weight": 1.0,
+                  "contribution": 0.0
+                },
+                {
+                  "name": "code_block_count",
+                  "value": 0,
+                  "normalized": 0.0,
+                  "weight": 1.5,
+                  "contribution": 0.0
+                },
+                {
+                  "name": "table_row_count",
+                  "value": 0,
+                  "normalized": 0.0,
+                  "weight": 1.0,
+                  "contribution": 0.0
+                },
+                {
+                  "name": "reasoning_term_count",
+                  "value": 0,
+                  "normalized": 0.0,
+                  "weight": 0.0,
+                  "contribution": 0.0
+                },
+                {
+                  "name": "math_symbol_count",
+                  "value": 0,
+                  "normalized": 0.0,
+                  "weight": 0.0,
+                  "contribution": 0.0
+                },
+                {
+                  "name": "constraint_term_count",
+                  "value": 0,
+                  "normalized": 0.0,
+                  "weight": 0.0,
+                  "contribution": 0.0
+                },
+                {
+                  "name": "question_count",
+                  "value": 0,
+                  "normalized": 0.0,
+                  "weight": 0.0,
+                  "contribution": 0.0
+                }
+              ],
+              "tiers": [
+                {
+                  "min_score": 0.0,
+                  "model": "local"
+                },
+                {
+                  "min_score": 0.5,
+                  "model": "cloud"
+                }
+              ],
+              "cost": {
+                "per_call": 0.0002,
+                "baseline": 0.001,
+                "saved": 0.0008,
+                "unit": "relative units / 1k words",
+                "estimated": true,
+                "word_count": 1
+              },
+              "dry_run": true
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "metrics_after_one_dry_run",
+      "state": "configured_dry_run",
+      "request": {
+        "method": "GET",
+        "path": "/metrics"
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "content-type": "text/plain; version=0.0.4; charset=utf-8"
+        },
+        "body": {
+          "kind": "text",
+          "value": "# HELP wayfinder_router_build_info Build information.\n# TYPE wayfinder_router_build_info gauge\nwayfinder_router_build_info{version=\"2026.7.0\"} 1\n# HELP wayfinder_router_requests_total Routed requests by model and mode.\n# TYPE wayfinder_router_requests_total counter\nwayfinder_router_requests_total{model=\"local\",mode=\"scored\"} 1\n# HELP wayfinder_router_upstream_errors_total Upstream transport failures by model.\n# TYPE wayfinder_router_upstream_errors_total counter\n# HELP wayfinder_router_cache_hits_total Exact-match response cache hits (WF-ADR-0033).\n# TYPE wayfinder_router_cache_hits_total counter\nwayfinder_router_cache_hits_total 0\n# HELP wayfinder_router_cache_misses_total Cacheable requests that missed the cache.\n# TYPE wayfinder_router_cache_misses_total counter\nwayfinder_router_cache_misses_total 0\n# HELP wayfinder_router_cache_avoided_cost_total Upstream cost avoided by cache hits (chosen-tier cost; distinct from routing savings vs always-frontier).\n# TYPE wayfinder_router_cache_avoided_cost_total counter\nwayfinder_router_cache_avoided_cost_total 0\n# HELP wayfinder_router_rate_limited_total Requests rejected with 429 by limit (WF-ADR-0034).\n# TYPE wayfinder_router_rate_limited_total counter\n# HELP wayfinder_router_config_reload_failures_total Config reloads that failed and kept the last-good config.\n# TYPE wayfinder_router_config_reload_failures_total counter\nwayfinder_router_config_reload_failures_total 0\n# HELP wayfinder_router_realized_cost_total Cumulative realized spend on the chosen tier (USD, or relative units when no cost_per_1k is configured; WF-DESIGN-0007).\n# TYPE wayfinder_router_realized_cost_total counter\nwayfinder_router_realized_cost_total 0\n# HELP wayfinder_router_baseline_cost_total Cumulative cost had every request gone to the dearest tier (the always-frontier counterfactual).\n# TYPE wayfinder_router_baseline_cost_total counter\nwayfinder_router_baseline_cost_total 0\n# HELP wayfinder_router_savings_cost_total Cumulative savings vs always-frontier (baseline minus realized).\n# TYPE wayfinder_router_savings_cost_total counter\nwayfinder_router_savings_cost_total 0\n# HELP wayfinder_router_decision_latency_seconds Time to score a prompt and pick a model (no model call).\n# TYPE wayfinder_router_decision_latency_seconds histogram\nwayfinder_router_decision_latency_seconds_bucket{le=\"0.0001\"} <latency-bucket>\nwayfinder_router_decision_latency_seconds_bucket{le=\"0.00025\"} <latency-bucket>\nwayfinder_router_decision_latency_seconds_bucket{le=\"0.0005\"} <latency-bucket>\nwayfinder_router_decision_latency_seconds_bucket{le=\"0.001\"} <latency-bucket>\nwayfinder_router_decision_latency_seconds_bucket{le=\"0.0025\"} <latency-bucket>\nwayfinder_router_decision_latency_seconds_bucket{le=\"0.005\"} <latency-bucket>\nwayfinder_router_decision_latency_seconds_bucket{le=\"0.01\"} <latency-bucket>\nwayfinder_router_decision_latency_seconds_bucket{le=\"0.025\"} <latency-bucket>\nwayfinder_router_decision_latency_seconds_bucket{le=\"0.05\"} <latency-bucket>\nwayfinder_router_decision_latency_seconds_bucket{le=\"+Inf\"} 1\nwayfinder_router_decision_latency_seconds_sum <latency-sum>\nwayfinder_router_decision_latency_seconds_count 1\n# HELP wayfinder_router_upstream_latency_seconds Upstream model round-trip time by model.\n# TYPE wayfinder_router_upstream_latency_seconds histogram\n"
+        }
+      }
+    },
+    {
+      "name": "chat_dry_run_alias_pinned",
+      "state": "configured_dry_run",
+      "request": {
+        "method": "POST",
+        "path": "/chat/completions",
+        "json": {
+          "model": "cloud",
+          "messages": [
+            {
+              "role": "user",
+              "content": "hello"
+            }
+          ]
+        }
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "content-type": "application/json",
+          "x-wayfinder-router-mode": "pinned",
+          "x-wayfinder-router-model": "cloud",
+          "x-wayfinder-router-offline": "true",
+          "x-wayfinder-router-request-id": "<request_id:2>",
+          "x-wayfinder-router-score": "0.00"
+        },
+        "body": {
+          "kind": "json",
+          "value": {
+            "wayfinder": {
+              "model": "cloud",
+              "score": 0.0,
+              "mode": "pinned",
+              "offline": true,
+              "request_id": "<request_id:2>",
+              "features": {
+                "word_count": 1,
+                "heading_count": 0,
+                "max_heading_depth": 0,
+                "list_item_count": 0,
+                "link_count": 0,
+                "code_block_count": 0,
+                "table_row_count": 0,
+                "reasoning_term_count": 0,
+                "math_symbol_count": 0,
+                "constraint_term_count": 0,
+                "question_count": 0
+              },
+              "contributions": [
+                {
+                  "name": "word_count",
+                  "value": 1,
+                  "normalized": 0.0025,
+                  "weight": 3.0,
+                  "contribution": 0.0007
+                },
+                {
+                  "name": "heading_count",
+                  "value": 0,
+                  "normalized": 0.0,
+                  "weight": 1.5,
+                  "contribution": 0.0
+                },
+                {
+                  "name": "max_heading_depth",
+                  "value": 0,
+                  "normalized": 0.0,
+                  "weight": 1.0,
+                  "contribution": 0.0
+                },
+                {
+                  "name": "list_item_count",
+                  "value": 0,
+                  "normalized": 0.0,
+                  "weight": 2.0,
+                  "contribution": 0.0
+                },
+                {
+                  "name": "link_count",
+                  "value": 0,
+                  "normalized": 0.0,
+                  "weight": 1.0,
+                  "contribution": 0.0
+                },
+                {
+                  "name": "code_block_count",
+                  "value": 0,
+                  "normalized": 0.0,
+                  "weight": 1.5,
+                  "contribution": 0.0
+                },
+                {
+                  "name": "table_row_count",
+                  "value": 0,
+                  "normalized": 0.0,
+                  "weight": 1.0,
+                  "contribution": 0.0
+                },
+                {
+                  "name": "reasoning_term_count",
+                  "value": 0,
+                  "normalized": 0.0,
+                  "weight": 0.0,
+                  "contribution": 0.0
+                },
+                {
+                  "name": "math_symbol_count",
+                  "value": 0,
+                  "normalized": 0.0,
+                  "weight": 0.0,
+                  "contribution": 0.0
+                },
+                {
+                  "name": "constraint_term_count",
+                  "value": 0,
+                  "normalized": 0.0,
+                  "weight": 0.0,
+                  "contribution": 0.0
+                },
+                {
+                  "name": "question_count",
+                  "value": 0,
+                  "normalized": 0.0,
+                  "weight": 0.0,
+                  "contribution": 0.0
+                }
+              ],
+              "tiers": [
+                {
+                  "min_score": 0.0,
+                  "model": "local"
+                },
+                {
+                  "min_score": 0.5,
+                  "model": "cloud"
+                }
+              ],
+              "cost": {
+                "per_call": 0.001,
+                "baseline": 0.001,
+                "saved": 0.0,
+                "unit": "relative units / 1k words",
+                "estimated": true,
+                "word_count": 1
+              },
+              "dry_run": true
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "recent_after_two_limit_one",
+      "state": "configured_dry_run",
+      "request": {
+        "method": "GET",
+        "path": "/router/recent?limit=1"
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "content-type": "application/json"
+        },
+        "body": {
+          "kind": "json",
+          "value": {
+            "total": 2,
+            "by_model": {
+              "local": 1,
+              "cloud": 1
+            },
+            "recent": [
+              {
+                "request_id": "<request_id:2>",
+                "model": "cloud",
+                "score": 0.0,
+                "mode": "pinned",
+                "ts": "<timestamp>"
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "name": "recent_after_two_default",
+      "state": "configured_dry_run",
+      "request": {
+        "method": "GET",
+        "path": "/router/recent"
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "content-type": "application/json"
+        },
+        "body": {
+          "kind": "json",
+          "value": {
+            "total": 2,
+            "by_model": {
+              "local": 1,
+              "cloud": 1
+            },
+            "recent": [
+              {
+                "request_id": "<request_id:2>",
+                "model": "cloud",
+                "score": 0.0,
+                "mode": "pinned",
+                "ts": "<timestamp>"
+              },
+              {
+                "request_id": "<request_id:1>",
+                "model": "local",
+                "score": 0.0,
+                "mode": "scored",
+                "ts": "<timestamp>"
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "name": "recent_invalid_limit",
+      "state": "configured_dry_run",
+      "request": {
+        "method": "GET",
+        "path": "/router/recent?limit=abc"
+      },
+      "response": {
+        "status": 422,
+        "headers": {
+          "content-type": "application/json"
+        },
+        "body": {
+          "kind": "json",
+          "value": {
+            "detail": [
+              {
+                "type": "int_parsing",
+                "loc": [
+                  "query",
+                  "limit"
+                ],
+                "msg": "Input should be a valid integer, unable to parse string as an integer",
+                "input": "abc"
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "name": "chat_empty_body",
+      "state": "configured_dry_run",
+      "request": {
+        "method": "POST",
+        "path": "/v1/chat/completions",
+        "raw_body": ""
+      },
+      "response": {
+        "status": 422,
+        "headers": {
+          "content-type": "application/json"
+        },
+        "body": {
+          "kind": "json",
+          "value": {
+            "detail": [
+              {
+                "type": "missing",
+                "loc": [
+                  "body"
+                ],
+                "msg": "Field required",
+                "input": null
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "name": "chat_wrong_shape",
+      "state": "configured_dry_run",
+      "request": {
+        "method": "POST",
+        "path": "/v1/chat/completions",
+        "json": []
+      },
+      "response": {
+        "status": 422,
+        "headers": {
+          "content-type": "application/json"
+        },
+        "body": {
+          "kind": "json",
+          "value": {
+            "detail": [
+              {
+                "type": "dict_type",
+                "loc": [
+                  "body"
+                ],
+                "msg": "Input should be a valid dictionary",
+                "input": []
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "name": "chat_malformed_json",
+      "state": "configured_dry_run",
+      "request": {
+        "method": "POST",
+        "path": "/v1/chat/completions",
+        "raw_body": "{"
+      },
+      "response": {
+        "status": 422,
+        "headers": {
+          "content-type": "application/json"
+        },
+        "body": {
+          "kind": "json",
+          "value": {
+            "detail": [
+              {
+                "type": "json_invalid",
+                "loc": [
+                  "body",
+                  1
+                ],
+                "msg": "JSON decode error",
+                "input": {},
+                "ctx": {
+                  "error": "Expecting property name enclosed in double quotes"
+                }
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "name": "not_found",
+      "state": "configured_dry_run",
+      "request": {
+        "method": "GET",
+        "path": "/not-a-route"
+      },
+      "response": {
+        "status": 404,
+        "headers": {
+          "content-type": "application/json"
+        },
+        "body": {
+          "kind": "json",
+          "value": {
+            "detail": "Not Found"
+          }
+        }
+      }
+    },
+    {
+      "name": "health_method_not_allowed",
+      "state": "configured_dry_run",
+      "request": {
+        "method": "POST",
+        "path": "/healthz"
+      },
+      "response": {
+        "status": 405,
+        "headers": {
+          "allow": "GET",
+          "content-type": "application/json"
+        },
+        "body": {
+          "kind": "json",
+          "value": {
+            "detail": "Method Not Allowed"
+          }
+        }
+      }
+    },
+    {
+      "name": "chat_method_not_allowed",
+      "state": "configured_dry_run",
+      "request": {
+        "method": "GET",
+        "path": "/v1/chat/completions"
+      },
+      "response": {
+        "status": 405,
+        "headers": {
+          "allow": "POST",
+          "content-type": "application/json"
+        },
+        "body": {
+          "kind": "json",
+          "value": {
+            "detail": "Method Not Allowed"
+          }
+        }
+      }
+    },
+    {
+      "name": "chat_decision_only_v1",
+      "state": "decision_only",
+      "request": {
+        "method": "POST",
+        "path": "/v1/chat/completions",
+        "json": {
+          "model": "auto",
+          "messages": [
+            {
+              "role": "user",
+              "content": "hi"
+            }
+          ]
+        }
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "content-type": "application/json",
+          "x-wayfinder-router-decision-only": "true",
+          "x-wayfinder-router-mode": "scored",
+          "x-wayfinder-router-model": "local",
+          "x-wayfinder-router-request-id": "<request_id:3>",
+          "x-wayfinder-router-score": "0.00"
+        },
+        "body": {
+          "kind": "json",
+          "value": {
+            "wayfinder": {
+              "model": "local",
+              "score": 0.0,
+              "mode": "scored",
+              "offline": false,
+              "request_id": "<request_id:3>",
+              "features": {
+                "word_count": 1,
+                "heading_count": 0,
+                "max_heading_depth": 0,
+                "list_item_count": 0,
+                "link_count": 0,
+                "code_block_count": 0,
+                "table_row_count": 0,
+                "reasoning_term_count": 0,
+                "math_symbol_count": 0,
+                "constraint_term_count": 0,
+                "question_count": 0
+              },
+              "contributions": [
+                {
+                  "name": "word_count",
+                  "value": 1,
+                  "normalized": 0.0025,
+                  "weight": 3.0,
+                  "contribution": 0.0007
+                },
+                {
+                  "name": "heading_count",
+                  "value": 0,
+                  "normalized": 0.0,
+                  "weight": 1.5,
+                  "contribution": 0.0
+                },
+                {
+                  "name": "max_heading_depth",
+                  "value": 0,
+                  "normalized": 0.0,
+                  "weight": 1.0,
+                  "contribution": 0.0
+                },
+                {
+                  "name": "list_item_count",
+                  "value": 0,
+                  "normalized": 0.0,
+                  "weight": 2.0,
+                  "contribution": 0.0
+                },
+                {
+                  "name": "link_count",
+                  "value": 0,
+                  "normalized": 0.0,
+                  "weight": 1.0,
+                  "contribution": 0.0
+                },
+                {
+                  "name": "code_block_count",
+                  "value": 0,
+                  "normalized": 0.0,
+                  "weight": 1.5,
+                  "contribution": 0.0
+                },
+                {
+                  "name": "table_row_count",
+                  "value": 0,
+                  "normalized": 0.0,
+                  "weight": 1.0,
+                  "contribution": 0.0
+                },
+                {
+                  "name": "reasoning_term_count",
+                  "value": 0,
+                  "normalized": 0.0,
+                  "weight": 0.0,
+                  "contribution": 0.0
+                },
+                {
+                  "name": "math_symbol_count",
+                  "value": 0,
+                  "normalized": 0.0,
+                  "weight": 0.0,
+                  "contribution": 0.0
+                },
+                {
+                  "name": "constraint_term_count",
+                  "value": 0,
+                  "normalized": 0.0,
+                  "weight": 0.0,
+                  "contribution": 0.0
+                },
+                {
+                  "name": "question_count",
+                  "value": 0,
+                  "normalized": 0.0,
+                  "weight": 0.0,
+                  "contribution": 0.0
+                }
+              ],
+              "tiers": [
+                {
+                  "min_score": 0.0,
+                  "model": "local"
+                },
+                {
+                  "min_score": 0.5,
+                  "model": "cloud"
+                }
+              ],
+              "cost": {
+                "per_call": 0.0002,
+                "baseline": 0.001,
+                "saved": 0.0008,
+                "unit": "relative units / 1k words",
+                "estimated": true,
+                "word_count": 1
+              },
+              "decision_only": true
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "chat_decision_only_alias",
+      "state": "decision_only",
+      "request": {
+        "method": "POST",
+        "path": "/chat/completions",
+        "json": {
+          "model": "auto",
+          "messages": [
+            {
+              "role": "user",
+              "content": "hi"
+            }
+          ]
+        }
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "content-type": "application/json",
+          "x-wayfinder-router-decision-only": "true",
+          "x-wayfinder-router-mode": "scored",
+          "x-wayfinder-router-model": "local",
+          "x-wayfinder-router-request-id": "<request_id:4>",
+          "x-wayfinder-router-score": "0.00"
+        },
+        "body": {
+          "kind": "json",
+          "value": {
+            "wayfinder": {
+              "model": "local",
+              "score": 0.0,
+              "mode": "scored",
+              "offline": false,
+              "request_id": "<request_id:4>",
+              "features": {
+                "word_count": 1,
+                "heading_count": 0,
+                "max_heading_depth": 0,
+                "list_item_count": 0,
+                "link_count": 0,
+                "code_block_count": 0,
+                "table_row_count": 0,
+                "reasoning_term_count": 0,
+                "math_symbol_count": 0,
+                "constraint_term_count": 0,
+                "question_count": 0
+              },
+              "contributions": [
+                {
+                  "name": "word_count",
+                  "value": 1,
+                  "normalized": 0.0025,
+                  "weight": 3.0,
+                  "contribution": 0.0007
+                },
+                {
+                  "name": "heading_count",
+                  "value": 0,
+                  "normalized": 0.0,
+                  "weight": 1.5,
+                  "contribution": 0.0
+                },
+                {
+                  "name": "max_heading_depth",
+                  "value": 0,
+                  "normalized": 0.0,
+                  "weight": 1.0,
+                  "contribution": 0.0
+                },
+                {
+                  "name": "list_item_count",
+                  "value": 0,
+                  "normalized": 0.0,
+                  "weight": 2.0,
+                  "contribution": 0.0
+                },
+                {
+                  "name": "link_count",
+                  "value": 0,
+                  "normalized": 0.0,
+                  "weight": 1.0,
+                  "contribution": 0.0
+                },
+                {
+                  "name": "code_block_count",
+                  "value": 0,
+                  "normalized": 0.0,
+                  "weight": 1.5,
+                  "contribution": 0.0
+                },
+                {
+                  "name": "table_row_count",
+                  "value": 0,
+                  "normalized": 0.0,
+                  "weight": 1.0,
+                  "contribution": 0.0
+                },
+                {
+                  "name": "reasoning_term_count",
+                  "value": 0,
+                  "normalized": 0.0,
+                  "weight": 0.0,
+                  "contribution": 0.0
+                },
+                {
+                  "name": "math_symbol_count",
+                  "value": 0,
+                  "normalized": 0.0,
+                  "weight": 0.0,
+                  "contribution": 0.0
+                },
+                {
+                  "name": "constraint_term_count",
+                  "value": 0,
+                  "normalized": 0.0,
+                  "weight": 0.0,
+                  "contribution": 0.0
+                },
+                {
+                  "name": "question_count",
+                  "value": 0,
+                  "normalized": 0.0,
+                  "weight": 0.0,
+                  "contribution": 0.0
+                }
+              ],
+              "tiers": [
+                {
+                  "min_score": 0.0,
+                  "model": "local"
+                },
+                {
+                  "min_score": 0.5,
+                  "model": "cloud"
+                }
+              ],
+              "cost": {
+                "per_call": 0.0002,
+                "baseline": 0.001,
+                "saved": 0.0008,
+                "unit": "relative units / 1k words",
+                "estimated": true,
+                "word_count": 1
+              },
+              "decision_only": true
+            }
+          }
+        }
+      }
+    }
+  ]
+}

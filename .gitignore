@@ -20,3 +20,6 @@ clients/desktop/src-tauri/binaries/
 # SwiftPM/macOS local outputs and embedded local checkouts
 macos/WayfinderMac/.build/
 macos/WayfinderMac/rac-core/
+
+# Rust migration workspace build output
+rust/target/

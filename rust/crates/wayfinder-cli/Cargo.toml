@@ -1,0 +1,27 @@
+[package]
+name = "wayfinder-cli"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[[bin]]
+name = "wayfinder-router"
+path = "src/main.rs"
+
+[dependencies]
+serde_json.workspace = true
+tokio.workspace = true
+wayfinder-config = { path = "../wayfinder-config" }
+wayfinder-core = { path = "../wayfinder-core" }
+wayfinder-gateway = { path = "../wayfinder-gateway" }
+wayfinder-providers = { path = "../wayfinder-providers" }
+wayfinder-service = { path = "../wayfinder-service" }
+
+[target.'cfg(target_os = "macos")'.dependencies]
+wayfinder-macos-xpc = { path = "../wayfinder-macos-xpc" }
+
+[lints]
+workspace = true

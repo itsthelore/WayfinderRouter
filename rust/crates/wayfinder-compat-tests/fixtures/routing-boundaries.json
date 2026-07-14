@@ -1,0 +1,248 @@
+[
+ {
+  "name": "binary_zero_is_inclusive",
+  "text": "",
+  "config": {
+   "mode": "binary",
+   "threshold": 0.0
+  },
+  "score": 0.0,
+  "recommendation": "cloud",
+  "features": {
+   "word_count": 0,
+   "heading_count": 0,
+   "max_heading_depth": 0,
+   "list_item_count": 0,
+   "link_count": 0,
+   "code_block_count": 0,
+   "table_row_count": 0,
+   "reasoning_term_count": 0,
+   "math_symbol_count": 0,
+   "constraint_term_count": 0,
+   "question_count": 0
+  }
+ },
+ {
+  "name": "binary_score_equality_is_inclusive",
+  "text": "# Plan\n\n## Steps\n- one\n- two\n- three\n1. first\n2. second",
+  "config": {
+   "mode": "binary",
+   "threshold": 0.15
+  },
+  "score": 0.15,
+  "recommendation": "cloud",
+  "features": {
+   "word_count": 14,
+   "heading_count": 2,
+   "max_heading_depth": 2,
+   "list_item_count": 5,
+   "link_count": 0,
+   "code_block_count": 0,
+   "table_row_count": 0,
+   "reasoning_term_count": 0,
+   "math_symbol_count": 0,
+   "constraint_term_count": 0,
+   "question_count": 0
+  }
+ },
+ {
+  "name": "binary_cut_above_score_stays_lower",
+  "text": "# Plan\n\n## Steps\n- one\n- two\n- three\n1. first\n2. second",
+  "config": {
+   "mode": "binary",
+   "threshold": 0.1500001
+  },
+  "score": 0.15,
+  "recommendation": "local",
+  "features": {
+   "word_count": 14,
+   "heading_count": 2,
+   "max_heading_depth": 2,
+   "list_item_count": 5,
+   "link_count": 0,
+   "code_block_count": 0,
+   "table_row_count": 0,
+   "reasoning_term_count": 0,
+   "math_symbol_count": 0,
+   "constraint_term_count": 0,
+   "question_count": 0
+  }
+ },
+ {
+  "name": "three_tier_score_equality_uses_higher_band",
+  "text": "# Plan\n\n## Steps\n- one\n- two\n- three\n1. first\n2. second",
+  "config": {
+   "mode": "tiers",
+   "tiers": [
+    {
+     "min_score": 0.0,
+     "model": "small"
+    },
+    {
+     "min_score": 0.15,
+     "model": "medium"
+    },
+    {
+     "min_score": 0.6,
+     "model": "large"
+    }
+   ]
+  },
+  "score": 0.15,
+  "recommendation": "medium",
+  "features": {
+   "word_count": 14,
+   "heading_count": 2,
+   "max_heading_depth": 2,
+   "list_item_count": 5,
+   "link_count": 0,
+   "code_block_count": 0,
+   "table_row_count": 0,
+   "reasoning_term_count": 0,
+   "math_symbol_count": 0,
+   "constraint_term_count": 0,
+   "question_count": 0
+  }
+ },
+ {
+  "name": "classifier_equal_logits_use_first_model",
+  "text": "Say hello.",
+  "config": {
+   "mode": "classifier",
+   "models": [
+    "first",
+    "second",
+    "third"
+   ],
+   "intercepts": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "weights": {}
+  },
+  "score": 0.0,
+  "recommendation": "first",
+  "features": {
+   "word_count": 2,
+   "heading_count": 0,
+   "max_heading_depth": 0,
+   "list_item_count": 0,
+   "link_count": 0,
+   "code_block_count": 0,
+   "table_row_count": 0,
+   "reasoning_term_count": 0,
+   "math_symbol_count": 0,
+   "constraint_term_count": 0,
+   "question_count": 0
+  }
+ },
+ {
+  "name": "classifier_feature_boundary_tie_uses_first_model",
+  "text": "word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word",
+  "config": {
+   "mode": "classifier",
+   "models": [
+    "small",
+    "big"
+   ],
+   "intercepts": [
+    1.0,
+    0.0
+   ],
+   "weights": {
+    "word_count": [
+     0.0,
+     5.0
+    ]
+   }
+  },
+  "score": 0.05,
+  "recommendation": "small",
+  "features": {
+   "word_count": 80,
+   "heading_count": 0,
+   "max_heading_depth": 0,
+   "list_item_count": 0,
+   "link_count": 0,
+   "code_block_count": 0,
+   "table_row_count": 0,
+   "reasoning_term_count": 0,
+   "math_symbol_count": 0,
+   "constraint_term_count": 0,
+   "question_count": 0
+  }
+ },
+ {
+  "name": "classifier_feature_above_boundary_uses_second_model",
+  "text": "word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word",
+  "config": {
+   "mode": "classifier",
+   "models": [
+    "small",
+    "big"
+   ],
+   "intercepts": [
+    1.0,
+    0.0
+   ],
+   "weights": {
+    "word_count": [
+     0.0,
+     5.0
+    ]
+   }
+  },
+  "score": 0.06,
+  "recommendation": "big",
+  "features": {
+   "word_count": 81,
+   "heading_count": 0,
+   "max_heading_depth": 0,
+   "list_item_count": 0,
+   "link_count": 0,
+   "code_block_count": 0,
+   "table_row_count": 0,
+   "reasoning_term_count": 0,
+   "math_symbol_count": 0,
+   "constraint_term_count": 0,
+   "question_count": 0
+  }
+ },
+ {
+  "name": "classifier_normalization_saturates",
+  "text": "word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word",
+  "config": {
+   "mode": "classifier",
+   "models": [
+    "small",
+    "big"
+   ],
+   "intercepts": [
+    1.0,
+    0.0
+   ],
+   "weights": {
+    "word_count": [
+     0.0,
+     5.0
+    ]
+   }
+  },
+  "score": 0.27,
+  "recommendation": "big",
+  "features": {
+   "word_count": 450,
+   "heading_count": 0,
+   "max_heading_depth": 0,
+   "list_item_count": 0,
+   "link_count": 0,
+   "code_block_count": 0,
+   "table_row_count": 0,
+   "reasoning_term_count": 0,
+   "math_symbol_count": 0,
+   "constraint_term_count": 0,
+   "question_count": 0
+  }
+ }
+]

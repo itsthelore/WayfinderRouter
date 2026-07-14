@@ -1,0 +1,1494 @@
+[
+ {
+  "name": "defaults_with_threshold_and_environment_omitted",
+  "toml": "",
+  "threshold_environment": null,
+  "outcome": {
+   "status": "valid",
+   "summary": {
+    "mode": "tiered",
+    "weights": {
+     "word_count": 3.0,
+     "heading_count": 1.5,
+     "max_heading_depth": 1.0,
+     "list_item_count": 2.0,
+     "link_count": 1.0,
+     "code_block_count": 1.5,
+     "table_row_count": 1.0,
+     "reasoning_term_count": 0.0,
+     "math_symbol_count": 0.0,
+     "constraint_term_count": 0.0,
+     "question_count": 0.0
+    },
+    "lexicon": {
+     "reasoning_terms": [
+      "asymptotic",
+      "axiom",
+      "axioms",
+      "bijection",
+      "combinatorial",
+      "complexity",
+      "concurrency",
+      "concurrent",
+      "contradiction",
+      "corollary",
+      "deadlock",
+      "decidable",
+      "derivation",
+      "derivative",
+      "derive",
+      "derives",
+      "eigenvalue",
+      "eigenvalues",
+      "halting",
+      "induction",
+      "infinitely",
+      "injective",
+      "integral",
+      "invariant",
+      "invariants",
+      "irrational",
+      "isomorphism",
+      "lemma",
+      "lemmas",
+      "maximise",
+      "maximize",
+      "minimise",
+      "minimize",
+      "modulo",
+      "monotonic",
+      "optimal",
+      "optimality",
+      "optimise",
+      "optimize",
+      "polynomial",
+      "prime",
+      "primes",
+      "proof",
+      "proofs",
+      "prove",
+      "proven",
+      "recurrence",
+      "surjective",
+      "theorem",
+      "theorems",
+      "undecidability",
+      "undecidable"
+     ],
+     "constraint_terms": [
+      "constraint",
+      "constraints",
+      "ensure",
+      "exactly",
+      "guarantee",
+      "must",
+      "only",
+      "preserve",
+      "preserving",
+      "subject",
+      "without"
+     ]
+    },
+    "tiers": [
+     {
+      "min_score": 0.0,
+      "model": "local",
+      "cost": null
+     },
+     {
+      "min_score": 0.5,
+      "model": "cloud",
+      "cost": null
+     }
+    ],
+    "classifier": null,
+    "decisions": [
+     {
+      "name": "empty",
+      "score": 0.0,
+      "recommendation": "local",
+      "mode": "tiered"
+     },
+     {
+      "name": "headings_lists",
+      "score": 0.15,
+      "recommendation": "local",
+      "mode": "tiered"
+     },
+     {
+      "name": "lexicon",
+      "score": 0.0,
+      "recommendation": "local",
+      "mode": "tiered"
+     },
+     {
+      "name": "classifier_tie",
+      "score": 0.05,
+      "recommendation": "local",
+      "mode": "tiered"
+     },
+     {
+      "name": "classifier_above",
+      "score": 0.06,
+      "recommendation": "local",
+      "mode": "tiered"
+     }
+    ]
+   }
+  }
+ },
+ {
+  "name": "explicit_threshold_with_environment_omitted",
+  "toml": "[routing]\nthreshold = 0.8\n",
+  "threshold_environment": null,
+  "outcome": {
+   "status": "valid",
+   "summary": {
+    "mode": "tiered",
+    "weights": {
+     "word_count": 3.0,
+     "heading_count": 1.5,
+     "max_heading_depth": 1.0,
+     "list_item_count": 2.0,
+     "link_count": 1.0,
+     "code_block_count": 1.5,
+     "table_row_count": 1.0,
+     "reasoning_term_count": 0.0,
+     "math_symbol_count": 0.0,
+     "constraint_term_count": 0.0,
+     "question_count": 0.0
+    },
+    "lexicon": {
+     "reasoning_terms": [
+      "asymptotic",
+      "axiom",
+      "axioms",
+      "bijection",
+      "combinatorial",
+      "complexity",
+      "concurrency",
+      "concurrent",
+      "contradiction",
+      "corollary",
+      "deadlock",
+      "decidable",
+      "derivation",
+      "derivative",
+      "derive",
+      "derives",
+      "eigenvalue",
+      "eigenvalues",
+      "halting",
+      "induction",
+      "infinitely",
+      "injective",
+      "integral",
+      "invariant",
+      "invariants",
+      "irrational",
+      "isomorphism",
+      "lemma",
+      "lemmas",
+      "maximise",
+      "maximize",
+      "minimise",
+      "minimize",
+      "modulo",
+      "monotonic",
+      "optimal",
+      "optimality",
+      "optimise",
+      "optimize",
+      "polynomial",
+      "prime",
+      "primes",
+      "proof",
+      "proofs",
+      "prove",
+      "proven",
+      "recurrence",
+      "surjective",
+      "theorem",
+      "theorems",
+      "undecidability",
+      "undecidable"
+     ],
+     "constraint_terms": [
+      "constraint",
+      "constraints",
+      "ensure",
+      "exactly",
+      "guarantee",
+      "must",
+      "only",
+      "preserve",
+      "preserving",
+      "subject",
+      "without"
+     ]
+    },
+    "tiers": [
+     {
+      "min_score": 0.0,
+      "model": "local",
+      "cost": null
+     },
+     {
+      "min_score": 0.8,
+      "model": "cloud",
+      "cost": null
+     }
+    ],
+    "classifier": null,
+    "decisions": [
+     {
+      "name": "empty",
+      "score": 0.0,
+      "recommendation": "local",
+      "mode": "tiered"
+     },
+     {
+      "name": "headings_lists",
+      "score": 0.15,
+      "recommendation": "local",
+      "mode": "tiered"
+     },
+     {
+      "name": "lexicon",
+      "score": 0.0,
+      "recommendation": "local",
+      "mode": "tiered"
+     },
+     {
+      "name": "classifier_tie",
+      "score": 0.05,
+      "recommendation": "local",
+      "mode": "tiered"
+     },
+     {
+      "name": "classifier_above",
+      "score": 0.06,
+      "recommendation": "local",
+      "mode": "tiered"
+     }
+    ]
+   }
+  }
+ },
+ {
+  "name": "environment_overrides_configured_threshold",
+  "toml": "[routing]\nthreshold = 0.8\n",
+  "threshold_environment": "0.2",
+  "outcome": {
+   "status": "valid",
+   "summary": {
+    "mode": "tiered",
+    "weights": {
+     "word_count": 3.0,
+     "heading_count": 1.5,
+     "max_heading_depth": 1.0,
+     "list_item_count": 2.0,
+     "link_count": 1.0,
+     "code_block_count": 1.5,
+     "table_row_count": 1.0,
+     "reasoning_term_count": 0.0,
+     "math_symbol_count": 0.0,
+     "constraint_term_count": 0.0,
+     "question_count": 0.0
+    },
+    "lexicon": {
+     "reasoning_terms": [
+      "asymptotic",
+      "axiom",
+      "axioms",
+      "bijection",
+      "combinatorial",
+      "complexity",
+      "concurrency",
+      "concurrent",
+      "contradiction",
+      "corollary",
+      "deadlock",
+      "decidable",
+      "derivation",
+      "derivative",
+      "derive",
+      "derives",
+      "eigenvalue",
+      "eigenvalues",
+      "halting",
+      "induction",
+      "infinitely",
+      "injective",
+      "integral",
+      "invariant",
+      "invariants",
+      "irrational",
+      "isomorphism",
+      "lemma",
+      "lemmas",
+      "maximise",
+      "maximize",
+      "minimise",
+      "minimize",
+      "modulo",
+      "monotonic",
+      "optimal",
+      "optimality",
+      "optimise",
+      "optimize",
+      "polynomial",
+      "prime",
+      "primes",
+      "proof",
+      "proofs",
+      "prove",
+      "proven",
+      "recurrence",
+      "surjective",
+      "theorem",
+      "theorems",
+      "undecidability",
+      "undecidable"
+     ],
+     "constraint_terms": [
+      "constraint",
+      "constraints",
+      "ensure",
+      "exactly",
+      "guarantee",
+      "must",
+      "only",
+      "preserve",
+      "preserving",
+      "subject",
+      "without"
+     ]
+    },
+    "tiers": [
+     {
+      "min_score": 0.0,
+      "model": "local",
+      "cost": null
+     },
+     {
+      "min_score": 0.2,
+      "model": "cloud",
+      "cost": null
+     }
+    ],
+    "classifier": null,
+    "decisions": [
+     {
+      "name": "empty",
+      "score": 0.0,
+      "recommendation": "local",
+      "mode": "tiered"
+     },
+     {
+      "name": "headings_lists",
+      "score": 0.15,
+      "recommendation": "local",
+      "mode": "tiered"
+     },
+     {
+      "name": "lexicon",
+      "score": 0.0,
+      "recommendation": "local",
+      "mode": "tiered"
+     },
+     {
+      "name": "classifier_tie",
+      "score": 0.05,
+      "recommendation": "local",
+      "mode": "tiered"
+     },
+     {
+      "name": "classifier_above",
+      "score": 0.06,
+      "recommendation": "local",
+      "mode": "tiered"
+     }
+    ]
+   }
+  }
+ },
+ {
+  "name": "empty_environment_keeps_configured_threshold",
+  "toml": "[routing]\nthreshold = 0.8\n",
+  "threshold_environment": "",
+  "outcome": {
+   "status": "valid",
+   "summary": {
+    "mode": "tiered",
+    "weights": {
+     "word_count": 3.0,
+     "heading_count": 1.5,
+     "max_heading_depth": 1.0,
+     "list_item_count": 2.0,
+     "link_count": 1.0,
+     "code_block_count": 1.5,
+     "table_row_count": 1.0,
+     "reasoning_term_count": 0.0,
+     "math_symbol_count": 0.0,
+     "constraint_term_count": 0.0,
+     "question_count": 0.0
+    },
+    "lexicon": {
+     "reasoning_terms": [
+      "asymptotic",
+      "axiom",
+      "axioms",
+      "bijection",
+      "combinatorial",
+      "complexity",
+      "concurrency",
+      "concurrent",
+      "contradiction",
+      "corollary",
+      "deadlock",
+      "decidable",
+      "derivation",
+      "derivative",
+      "derive",
+      "derives",
+      "eigenvalue",
+      "eigenvalues",
+      "halting",
+      "induction",
+      "infinitely",
+      "injective",
+      "integral",
+      "invariant",
+      "invariants",
+      "irrational",
+      "isomorphism",
+      "lemma",
+      "lemmas",
+      "maximise",
+      "maximize",
+      "minimise",
+      "minimize",
+      "modulo",
+      "monotonic",
+      "optimal",
+      "optimality",
+      "optimise",
+      "optimize",
+      "polynomial",
+      "prime",
+      "primes",
+      "proof",
+      "proofs",
+      "prove",
+      "proven",
+      "recurrence",
+      "surjective",
+      "theorem",
+      "theorems",
+      "undecidability",
+      "undecidable"
+     ],
+     "constraint_terms": [
+      "constraint",
+      "constraints",
+      "ensure",
+      "exactly",
+      "guarantee",
+      "must",
+      "only",
+      "preserve",
+      "preserving",
+      "subject",
+      "without"
+     ]
+    },
+    "tiers": [
+     {
+      "min_score": 0.0,
+      "model": "local",
+      "cost": null
+     },
+     {
+      "min_score": 0.8,
+      "model": "cloud",
+      "cost": null
+     }
+    ],
+    "classifier": null,
+    "decisions": [
+     {
+      "name": "empty",
+      "score": 0.0,
+      "recommendation": "local",
+      "mode": "tiered"
+     },
+     {
+      "name": "headings_lists",
+      "score": 0.15,
+      "recommendation": "local",
+      "mode": "tiered"
+     },
+     {
+      "name": "lexicon",
+      "score": 0.0,
+      "recommendation": "local",
+      "mode": "tiered"
+     },
+     {
+      "name": "classifier_tie",
+      "score": 0.05,
+      "recommendation": "local",
+      "mode": "tiered"
+     },
+     {
+      "name": "classifier_above",
+      "score": 0.06,
+      "recommendation": "local",
+      "mode": "tiered"
+     }
+    ]
+   }
+  }
+ },
+ {
+  "name": "weights_merge_over_defaults",
+  "toml": "[routing]\nthreshold = 0.1\nweights = { word_count = 9.0, reasoning_term_count = 5.0 }\n",
+  "threshold_environment": null,
+  "outcome": {
+   "status": "valid",
+   "summary": {
+    "mode": "tiered",
+    "weights": {
+     "word_count": 9.0,
+     "heading_count": 1.5,
+     "max_heading_depth": 1.0,
+     "list_item_count": 2.0,
+     "link_count": 1.0,
+     "code_block_count": 1.5,
+     "table_row_count": 1.0,
+     "reasoning_term_count": 5.0,
+     "math_symbol_count": 0.0,
+     "constraint_term_count": 0.0,
+     "question_count": 0.0
+    },
+    "lexicon": {
+     "reasoning_terms": [
+      "asymptotic",
+      "axiom",
+      "axioms",
+      "bijection",
+      "combinatorial",
+      "complexity",
+      "concurrency",
+      "concurrent",
+      "contradiction",
+      "corollary",
+      "deadlock",
+      "decidable",
+      "derivation",
+      "derivative",
+      "derive",
+      "derives",
+      "eigenvalue",
+      "eigenvalues",
+      "halting",
+      "induction",
+      "infinitely",
+      "injective",
+      "integral",
+      "invariant",
+      "invariants",
+      "irrational",
+      "isomorphism",
+      "lemma",
+      "lemmas",
+      "maximise",
+      "maximize",
+      "minimise",
+      "minimize",
+      "modulo",
+      "monotonic",
+      "optimal",
+      "optimality",
+      "optimise",
+      "optimize",
+      "polynomial",
+      "prime",
+      "primes",
+      "proof",
+      "proofs",
+      "prove",
+      "proven",
+      "recurrence",
+      "surjective",
+      "theorem",
+      "theorems",
+      "undecidability",
+      "undecidable"
+     ],
+     "constraint_terms": [
+      "constraint",
+      "constraints",
+      "ensure",
+      "exactly",
+      "guarantee",
+      "must",
+      "only",
+      "preserve",
+      "preserving",
+      "subject",
+      "without"
+     ]
+    },
+    "tiers": [
+     {
+      "min_score": 0.0,
+      "model": "local",
+      "cost": null
+     },
+     {
+      "min_score": 0.1,
+      "model": "cloud",
+      "cost": null
+     }
+    ],
+    "classifier": null,
+    "decisions": [
+     {
+      "name": "empty",
+      "score": 0.0,
+      "recommendation": "local",
+      "mode": "tiered"
+     },
+     {
+      "name": "headings_lists",
+      "score": 0.08,
+      "recommendation": "local",
+      "mode": "tiered"
+     },
+     {
+      "name": "lexicon",
+      "score": 0.01,
+      "recommendation": "local",
+      "mode": "tiered"
+     },
+     {
+      "name": "classifier_tie",
+      "score": 0.08,
+      "recommendation": "local",
+      "mode": "tiered"
+     },
+     {
+      "name": "classifier_above",
+      "score": 0.08,
+      "recommendation": "local",
+      "mode": "tiered"
+     }
+    ]
+   }
+  }
+ },
+ {
+  "name": "partial_lexicon_override_is_lowercased",
+  "toml": "[routing]\nthreshold = 0.1\nweights = { reasoning_term_count = 8.0 }\n\n[routing.lexicon]\nreasoning_terms = [\"Differential\", \"contraindication\"]\n",
+  "threshold_environment": null,
+  "outcome": {
+   "status": "valid",
+   "summary": {
+    "mode": "tiered",
+    "weights": {
+     "word_count": 3.0,
+     "heading_count": 1.5,
+     "max_heading_depth": 1.0,
+     "list_item_count": 2.0,
+     "link_count": 1.0,
+     "code_block_count": 1.5,
+     "table_row_count": 1.0,
+     "reasoning_term_count": 8.0,
+     "math_symbol_count": 0.0,
+     "constraint_term_count": 0.0,
+     "question_count": 0.0
+    },
+    "lexicon": {
+     "reasoning_terms": [
+      "contraindication",
+      "differential"
+     ],
+     "constraint_terms": [
+      "constraint",
+      "constraints",
+      "ensure",
+      "exactly",
+      "guarantee",
+      "must",
+      "only",
+      "preserve",
+      "preserving",
+      "subject",
+      "without"
+     ]
+    },
+    "tiers": [
+     {
+      "min_score": 0.0,
+      "model": "local",
+      "cost": null
+     },
+     {
+      "min_score": 0.1,
+      "model": "cloud",
+      "cost": null
+     }
+    ],
+    "classifier": null,
+    "decisions": [
+     {
+      "name": "empty",
+      "score": 0.0,
+      "recommendation": "local",
+      "mode": "tiered"
+     },
+     {
+      "name": "headings_lists",
+      "score": 0.09,
+      "recommendation": "local",
+      "mode": "tiered"
+     },
+     {
+      "name": "lexicon",
+      "score": 0.21,
+      "recommendation": "cloud",
+      "mode": "tiered"
+     },
+     {
+      "name": "classifier_tie",
+      "score": 0.03,
+      "recommendation": "local",
+      "mode": "tiered"
+     },
+     {
+      "name": "classifier_above",
+      "score": 0.03,
+      "recommendation": "local",
+      "mode": "tiered"
+     }
+    ]
+   }
+  }
+ },
+ {
+  "name": "ordered_tiers_with_optional_cost",
+  "toml": "[[routing.tiers]]\nmin_score = 0.0\nmodel = \"small\"\ncost = 0.2\n\n[[routing.tiers]]\nmin_score = 0.15\nmodel = \"medium\"\n\n[[routing.tiers]]\nmin_score = 0.6\nmodel = \"large\"\ncost = 1.0\n",
+  "threshold_environment": null,
+  "outcome": {
+   "status": "valid",
+   "summary": {
+    "mode": "tiered",
+    "weights": {
+     "word_count": 3.0,
+     "heading_count": 1.5,
+     "max_heading_depth": 1.0,
+     "list_item_count": 2.0,
+     "link_count": 1.0,
+     "code_block_count": 1.5,
+     "table_row_count": 1.0,
+     "reasoning_term_count": 0.0,
+     "math_symbol_count": 0.0,
+     "constraint_term_count": 0.0,
+     "question_count": 0.0
+    },
+    "lexicon": {
+     "reasoning_terms": [
+      "asymptotic",
+      "axiom",
+      "axioms",
+      "bijection",
+      "combinatorial",
+      "complexity",
+      "concurrency",
+      "concurrent",
+      "contradiction",
+      "corollary",
+      "deadlock",
+      "decidable",
+      "derivation",
+      "derivative",
+      "derive",
+      "derives",
+      "eigenvalue",
+      "eigenvalues",
+      "halting",
+      "induction",
+      "infinitely",
+      "injective",
+      "integral",
+      "invariant",
+      "invariants",
+      "irrational",
+      "isomorphism",
+      "lemma",
+      "lemmas",
+      "maximise",
+      "maximize",
+      "minimise",
+      "minimize",
+      "modulo",
+      "monotonic",
+      "optimal",
+      "optimality",
+      "optimise",
+      "optimize",
+      "polynomial",
+      "prime",
+      "primes",
+      "proof",
+      "proofs",
+      "prove",
+      "proven",
+      "recurrence",
+      "surjective",
+      "theorem",
+      "theorems",
+      "undecidability",
+      "undecidable"
+     ],
+     "constraint_terms": [
+      "constraint",
+      "constraints",
+      "ensure",
+      "exactly",
+      "guarantee",
+      "must",
+      "only",
+      "preserve",
+      "preserving",
+      "subject",
+      "without"
+     ]
+    },
+    "tiers": [
+     {
+      "min_score": 0.0,
+      "model": "small",
+      "cost": 0.2
+     },
+     {
+      "min_score": 0.15,
+      "model": "medium",
+      "cost": null
+     },
+     {
+      "min_score": 0.6,
+      "model": "large",
+      "cost": 1.0
+     }
+    ],
+    "classifier": null,
+    "decisions": [
+     {
+      "name": "empty",
+      "score": 0.0,
+      "recommendation": "small",
+      "mode": "tiered"
+     },
+     {
+      "name": "headings_lists",
+      "score": 0.15,
+      "recommendation": "medium",
+      "mode": "tiered"
+     },
+     {
+      "name": "lexicon",
+      "score": 0.0,
+      "recommendation": "small",
+      "mode": "tiered"
+     },
+     {
+      "name": "classifier_tie",
+      "score": 0.05,
+      "recommendation": "small",
+      "mode": "tiered"
+     },
+     {
+      "name": "classifier_above",
+      "score": 0.06,
+      "recommendation": "small",
+      "mode": "tiered"
+     }
+    ]
+   }
+  }
+ },
+ {
+  "name": "sparse_classifier_weights_default_to_zero",
+  "toml": "[routing.classifier]\nmodels = [\"small\", \"big\"]\nintercepts = [1.0, 0.0]\n\n[routing.classifier.weights]\nword_count = [0.0, 5.0]\n",
+  "threshold_environment": null,
+  "outcome": {
+   "status": "valid",
+   "summary": {
+    "mode": "classifier",
+    "weights": {
+     "word_count": 3.0,
+     "heading_count": 1.5,
+     "max_heading_depth": 1.0,
+     "list_item_count": 2.0,
+     "link_count": 1.0,
+     "code_block_count": 1.5,
+     "table_row_count": 1.0,
+     "reasoning_term_count": 0.0,
+     "math_symbol_count": 0.0,
+     "constraint_term_count": 0.0,
+     "question_count": 0.0
+    },
+    "lexicon": {
+     "reasoning_terms": [
+      "asymptotic",
+      "axiom",
+      "axioms",
+      "bijection",
+      "combinatorial",
+      "complexity",
+      "concurrency",
+      "concurrent",
+      "contradiction",
+      "corollary",
+      "deadlock",
+      "decidable",
+      "derivation",
+      "derivative",
+      "derive",
+      "derives",
+      "eigenvalue",
+      "eigenvalues",
+      "halting",
+      "induction",
+      "infinitely",
+      "injective",
+      "integral",
+      "invariant",
+      "invariants",
+      "irrational",
+      "isomorphism",
+      "lemma",
+      "lemmas",
+      "maximise",
+      "maximize",
+      "minimise",
+      "minimize",
+      "modulo",
+      "monotonic",
+      "optimal",
+      "optimality",
+      "optimise",
+      "optimize",
+      "polynomial",
+      "prime",
+      "primes",
+      "proof",
+      "proofs",
+      "prove",
+      "proven",
+      "recurrence",
+      "surjective",
+      "theorem",
+      "theorems",
+      "undecidability",
+      "undecidable"
+     ],
+     "constraint_terms": [
+      "constraint",
+      "constraints",
+      "ensure",
+      "exactly",
+      "guarantee",
+      "must",
+      "only",
+      "preserve",
+      "preserving",
+      "subject",
+      "without"
+     ]
+    },
+    "tiers": null,
+    "classifier": {
+     "models": [
+      "small",
+      "big"
+     ],
+     "intercepts": [
+      1.0,
+      0.0
+     ],
+     "weights": {
+      "word_count": [
+       0.0,
+       5.0
+      ],
+      "heading_count": [
+       0.0,
+       0.0
+      ],
+      "max_heading_depth": [
+       0.0,
+       0.0
+      ],
+      "list_item_count": [
+       0.0,
+       0.0
+      ],
+      "link_count": [
+       0.0,
+       0.0
+      ],
+      "code_block_count": [
+       0.0,
+       0.0
+      ],
+      "table_row_count": [
+       0.0,
+       0.0
+      ],
+      "reasoning_term_count": [
+       0.0,
+       0.0
+      ],
+      "math_symbol_count": [
+       0.0,
+       0.0
+      ],
+      "constraint_term_count": [
+       0.0,
+       0.0
+      ],
+      "question_count": [
+       0.0,
+       0.0
+      ]
+     }
+    },
+    "decisions": [
+     {
+      "name": "empty",
+      "score": 0.0,
+      "recommendation": "small",
+      "mode": "classifier"
+     },
+     {
+      "name": "headings_lists",
+      "score": 0.15,
+      "recommendation": "small",
+      "mode": "classifier"
+     },
+     {
+      "name": "lexicon",
+      "score": 0.0,
+      "recommendation": "small",
+      "mode": "classifier"
+     },
+     {
+      "name": "classifier_tie",
+      "score": 0.05,
+      "recommendation": "small",
+      "mode": "classifier"
+     },
+     {
+      "name": "classifier_above",
+      "score": 0.06,
+      "recommendation": "big",
+      "mode": "classifier"
+     }
+    ]
+   }
+  }
+ },
+ {
+  "name": "classifier_takes_precedence_over_tiers",
+  "toml": "[[routing.tiers]]\nmin_score = 0.0\nmodel = \"unused\"\n\n[routing.classifier]\nmodels = [\"first\", \"second\"]\nintercepts = [0.0, 0.0]\n\n[routing.classifier.weights]\n",
+  "threshold_environment": null,
+  "outcome": {
+   "status": "valid",
+   "summary": {
+    "mode": "classifier",
+    "weights": {
+     "word_count": 3.0,
+     "heading_count": 1.5,
+     "max_heading_depth": 1.0,
+     "list_item_count": 2.0,
+     "link_count": 1.0,
+     "code_block_count": 1.5,
+     "table_row_count": 1.0,
+     "reasoning_term_count": 0.0,
+     "math_symbol_count": 0.0,
+     "constraint_term_count": 0.0,
+     "question_count": 0.0
+    },
+    "lexicon": {
+     "reasoning_terms": [
+      "asymptotic",
+      "axiom",
+      "axioms",
+      "bijection",
+      "combinatorial",
+      "complexity",
+      "concurrency",
+      "concurrent",
+      "contradiction",
+      "corollary",
+      "deadlock",
+      "decidable",
+      "derivation",
+      "derivative",
+      "derive",
+      "derives",
+      "eigenvalue",
+      "eigenvalues",
+      "halting",
+      "induction",
+      "infinitely",
+      "injective",
+      "integral",
+      "invariant",
+      "invariants",
+      "irrational",
+      "isomorphism",
+      "lemma",
+      "lemmas",
+      "maximise",
+      "maximize",
+      "minimise",
+      "minimize",
+      "modulo",
+      "monotonic",
+      "optimal",
+      "optimality",
+      "optimise",
+      "optimize",
+      "polynomial",
+      "prime",
+      "primes",
+      "proof",
+      "proofs",
+      "prove",
+      "proven",
+      "recurrence",
+      "surjective",
+      "theorem",
+      "theorems",
+      "undecidability",
+      "undecidable"
+     ],
+     "constraint_terms": [
+      "constraint",
+      "constraints",
+      "ensure",
+      "exactly",
+      "guarantee",
+      "must",
+      "only",
+      "preserve",
+      "preserving",
+      "subject",
+      "without"
+     ]
+    },
+    "tiers": null,
+    "classifier": {
+     "models": [
+      "first",
+      "second"
+     ],
+     "intercepts": [
+      0.0,
+      0.0
+     ],
+     "weights": {
+      "word_count": [
+       0.0,
+       0.0
+      ],
+      "heading_count": [
+       0.0,
+       0.0
+      ],
+      "max_heading_depth": [
+       0.0,
+       0.0
+      ],
+      "list_item_count": [
+       0.0,
+       0.0
+      ],
+      "link_count": [
+       0.0,
+       0.0
+      ],
+      "code_block_count": [
+       0.0,
+       0.0
+      ],
+      "table_row_count": [
+       0.0,
+       0.0
+      ],
+      "reasoning_term_count": [
+       0.0,
+       0.0
+      ],
+      "math_symbol_count": [
+       0.0,
+       0.0
+      ],
+      "constraint_term_count": [
+       0.0,
+       0.0
+      ],
+      "question_count": [
+       0.0,
+       0.0
+      ]
+     }
+    },
+    "decisions": [
+     {
+      "name": "empty",
+      "score": 0.0,
+      "recommendation": "first",
+      "mode": "classifier"
+     },
+     {
+      "name": "headings_lists",
+      "score": 0.15,
+      "recommendation": "first",
+      "mode": "classifier"
+     },
+     {
+      "name": "lexicon",
+      "score": 0.0,
+      "recommendation": "first",
+      "mode": "classifier"
+     },
+     {
+      "name": "classifier_tie",
+      "score": 0.05,
+      "recommendation": "first",
+      "mode": "classifier"
+     },
+     {
+      "name": "classifier_above",
+      "score": 0.06,
+      "recommendation": "first",
+      "mode": "classifier"
+     }
+    ]
+   }
+  }
+ },
+ {
+  "name": "malformed_toml_is_rejected",
+  "toml": "[routing\nthreshold = 0.2\n",
+  "threshold_environment": null,
+  "outcome": {
+   "status": "invalid",
+   "python_error": "compat-vector: invalid TOML: Expected ']' at the end of a table declaration (at line 1, column 9)"
+  }
+ },
+ {
+  "name": "routing_scalar_is_rejected",
+  "toml": "routing = 1\n",
+  "threshold_environment": null,
+  "outcome": {
+   "status": "invalid",
+   "python_error": "compat-vector: '[routing]' must be a table"
+  }
+ },
+ {
+  "name": "boolean_threshold_is_rejected",
+  "toml": "[routing]\nthreshold = true\n",
+  "threshold_environment": null,
+  "outcome": {
+   "status": "invalid",
+   "python_error": "compat-vector: 'routing.threshold' must be a number in 0.0-1.0"
+  }
+ },
+ {
+  "name": "out_of_range_threshold_is_rejected",
+  "toml": "[routing]\nthreshold = 1.1\n",
+  "threshold_environment": null,
+  "outcome": {
+   "status": "invalid",
+   "python_error": "compat-vector: 'routing.threshold' must be a number in 0.0-1.0"
+  }
+ },
+ {
+  "name": "invalid_environment_threshold_is_rejected",
+  "toml": "[routing]\nthreshold = 0.8\n",
+  "threshold_environment": "not-a-number",
+  "outcome": {
+   "status": "invalid",
+   "python_error": "WAYFINDER_ROUTER_THRESHOLD must be a number, got 'not-a-number'"
+  }
+ },
+ {
+  "name": "weights_scalar_is_rejected",
+  "toml": "[routing]\nweights = 1\n",
+  "threshold_environment": null,
+  "outcome": {
+   "status": "invalid",
+   "python_error": "compat-vector: 'routing.weights' must be a table"
+  }
+ },
+ {
+  "name": "unknown_weight_is_rejected",
+  "toml": "[routing]\nweights = { surprise = 1.0 }\n",
+  "threshold_environment": null,
+  "outcome": {
+   "status": "invalid",
+   "python_error": "compat-vector: 'routing.weights.surprise' is not a known feature (one of word_count, heading_count, max_heading_depth, list_item_count, link_count, code_block_count, table_row_count, reasoning_term_count, math_symbol_count, constraint_term_count, question_count)"
+  }
+ },
+ {
+  "name": "negative_weight_is_rejected",
+  "toml": "[routing]\nweights = { word_count = -1.0 }\n",
+  "threshold_environment": null,
+  "outcome": {
+   "status": "invalid",
+   "python_error": "compat-vector: 'routing.weights.word_count' must be a non-negative number"
+  }
+ },
+ {
+  "name": "lexicon_scalar_is_rejected",
+  "toml": "[routing]\nlexicon = 1\n",
+  "threshold_environment": null,
+  "outcome": {
+   "status": "invalid",
+   "python_error": "compat-vector: '[routing.lexicon]' must be a table"
+  }
+ },
+ {
+  "name": "unknown_lexicon_family_is_rejected",
+  "toml": "[routing.lexicon]\nunknown_family = [\"x\"]\n",
+  "threshold_environment": null,
+  "outcome": {
+   "status": "invalid",
+   "python_error": "compat-vector: unknown 'routing.lexicon' keys: unknown_family (known: constraint_terms, reasoning_terms)"
+  }
+ },
+ {
+  "name": "empty_lexicon_term_is_rejected",
+  "toml": "[routing.lexicon]\nreasoning_terms = [\"ok\", \"\"]\n",
+  "threshold_environment": null,
+  "outcome": {
+   "status": "invalid",
+   "python_error": "compat-vector: 'routing.lexicon.reasoning_terms' must be a list of non-empty strings"
+  }
+ },
+ {
+  "name": "empty_tiers_are_rejected",
+  "toml": "[routing]\ntiers = []\n",
+  "threshold_environment": null,
+  "outcome": {
+   "status": "invalid",
+   "python_error": "compat-vector: 'routing.tiers' must be a non-empty array of tables"
+  }
+ },
+ {
+  "name": "tier_without_zero_start_is_rejected",
+  "toml": "[[routing.tiers]]\nmin_score = 0.3\nmodel = \"medium\"\n",
+  "threshold_environment": null,
+  "outcome": {
+   "status": "invalid",
+   "python_error": "compat-vector: the first tier must have min_score = 0.0"
+  }
+ },
+ {
+  "name": "duplicate_tier_boundaries_are_rejected",
+  "toml": "[[routing.tiers]]\nmin_score = 0.0\nmodel = \"one\"\n\n[[routing.tiers]]\nmin_score = 0.0\nmodel = \"two\"\n",
+  "threshold_environment": null,
+  "outcome": {
+   "status": "invalid",
+   "python_error": "compat-vector: tier 'min_score' values must be strictly ascending"
+  }
+ },
+ {
+  "name": "descending_tiers_are_rejected_by_current_python",
+  "toml": "[[routing.tiers]]\nmin_score = 0.6\nmodel = \"large\"\n\n[[routing.tiers]]\nmin_score = 0.0\nmodel = \"small\"\n\n[[routing.tiers]]\nmin_score = 0.3\nmodel = \"medium\"\n",
+  "threshold_environment": null,
+  "outcome": {
+   "status": "invalid",
+   "python_error": "compat-vector: the first tier must have min_score = 0.0"
+  }
+ },
+ {
+  "name": "empty_tier_model_is_rejected",
+  "toml": "[[routing.tiers]]\nmin_score = 0.0\nmodel = \"\"\n",
+  "threshold_environment": null,
+  "outcome": {
+   "status": "invalid",
+   "python_error": "compat-vector: tier 'model' must be a non-empty string"
+  }
+ },
+ {
+  "name": "negative_tier_cost_is_rejected",
+  "toml": "[[routing.tiers]]\nmin_score = 0.0\nmodel = \"small\"\ncost = -1.0\n",
+  "threshold_environment": null,
+  "outcome": {
+   "status": "invalid",
+   "python_error": "compat-vector: tier 'cost' must be a non-negative number"
+  }
+ },
+ {
+  "name": "classifier_scalar_is_rejected",
+  "toml": "[routing]\nclassifier = 1\n",
+  "threshold_environment": null,
+  "outcome": {
+   "status": "invalid",
+   "python_error": "compat-vector: '[routing.classifier]' must be a table"
+  }
+ },
+ {
+  "name": "duplicate_classifier_models_are_rejected",
+  "toml": "[routing.classifier]\nmodels = [\"same\", \"same\"]\nintercepts = [0.0, 0.0]\n\n[routing.classifier.weights]\n",
+  "threshold_environment": null,
+  "outcome": {
+   "status": "invalid",
+   "python_error": "compat-vector: 'routing.classifier.models' must be 2+ unique non-empty strings"
+  }
+ },
+ {
+  "name": "classifier_intercept_shape_is_rejected",
+  "toml": "[routing.classifier]\nmodels = [\"one\", \"two\"]\nintercepts = [0.0]\n\n[routing.classifier.weights]\n",
+  "threshold_environment": null,
+  "outcome": {
+   "status": "invalid",
+   "python_error": "compat-vector: 'routing.classifier.intercepts' must be a list of 2 numbers"
+  }
+ },
+ {
+  "name": "classifier_weights_table_is_required",
+  "toml": "[routing.classifier]\nmodels = [\"one\", \"two\"]\nintercepts = [0.0, 0.0]\n",
+  "threshold_environment": null,
+  "outcome": {
+   "status": "invalid",
+   "python_error": "compat-vector: '[routing.classifier.weights]' must be a table"
+  }
+ },
+ {
+  "name": "unknown_classifier_feature_is_rejected",
+  "toml": "[routing.classifier]\nmodels = [\"one\", \"two\"]\nintercepts = [0.0, 0.0]\n\n[routing.classifier.weights]\nsurprise = [0.0, 1.0]\n",
+  "threshold_environment": null,
+  "outcome": {
+   "status": "invalid",
+   "python_error": "compat-vector: 'routing.classifier.weights.surprise' is not a known feature"
+  }
+ },
+ {
+  "name": "classifier_weight_shape_is_rejected",
+  "toml": "[routing.classifier]\nmodels = [\"one\", \"two\"]\nintercepts = [0.0, 0.0]\n\n[routing.classifier.weights]\nword_count = [1.0]\n",
+  "threshold_environment": null,
+  "outcome": {
+   "status": "invalid",
+   "python_error": "compat-vector: 'routing.classifier.weights.word_count' must be a list of 2 numbers"
+  }
+ }
+]

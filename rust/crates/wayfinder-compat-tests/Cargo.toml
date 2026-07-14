@@ -1,0 +1,24 @@
+[package]
+name = "wayfinder-compat-tests"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+publish = false
+
+[dependencies]
+axum.workspace = true
+http.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+tokio.workspace = true
+tower.workspace = true
+wayfinder-config = { path = "../wayfinder-config" }
+wayfinder-core = { path = "../wayfinder-core" }
+wayfinder-gateway = { path = "../wayfinder-gateway" }
+wayfinder-service = { path = "../wayfinder-service" }
+
+[lints]
+workspace = true
