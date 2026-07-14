@@ -1,0 +1,34 @@
+[package]
+name = "wayfinder-gateway"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+axum.workspace = true
+bytes.workspace = true
+futures-util.workspace = true
+http.workspace = true
+http-body-util.workspace = true
+indexmap.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+sha2.workspace = true
+subtle.workspace = true
+thiserror.workspace = true
+tokio.workspace = true
+tokio-util.workspace = true
+tower.workspace = true
+tower-http.workspace = true
+tracing.workspace = true
+uuid.workspace = true
+wayfinder-config = { path = "../wayfinder-config" }
+wayfinder-core = { path = "../wayfinder-core" }
+wayfinder-providers = { path = "../wayfinder-providers" }
+wayfinder-service = { path = "../wayfinder-service" }
+
+[lints]
+workspace = true

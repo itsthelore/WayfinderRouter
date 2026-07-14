@@ -1,0 +1,401 @@
+[
+ {
+  "name": "empty",
+  "text": "",
+  "score": 0.0,
+  "recommendation": "local",
+  "features": {
+   "word_count": 0,
+   "heading_count": 0,
+   "max_heading_depth": 0,
+   "list_item_count": 0,
+   "link_count": 0,
+   "code_block_count": 0,
+   "table_row_count": 0,
+   "reasoning_term_count": 0,
+   "math_symbol_count": 0,
+   "constraint_term_count": 0,
+   "question_count": 0
+  }
+ },
+ {
+  "name": "blank_whitespace",
+  "text": "   \n\t  ",
+  "score": 0.0,
+  "recommendation": "local",
+  "features": {
+   "word_count": 0,
+   "heading_count": 0,
+   "max_heading_depth": 0,
+   "list_item_count": 0,
+   "link_count": 0,
+   "code_block_count": 0,
+   "table_row_count": 0,
+   "reasoning_term_count": 0,
+   "math_symbol_count": 0,
+   "constraint_term_count": 0,
+   "question_count": 0
+  }
+ },
+ {
+  "name": "short_easy",
+  "text": "fix my typo please",
+  "score": 0.0,
+  "recommendation": "local",
+  "features": {
+   "word_count": 4,
+   "heading_count": 0,
+   "max_heading_depth": 0,
+   "list_item_count": 0,
+   "link_count": 0,
+   "code_block_count": 0,
+   "table_row_count": 0,
+   "reasoning_term_count": 0,
+   "math_symbol_count": 0,
+   "constraint_term_count": 0,
+   "question_count": 0
+  }
+ },
+ {
+  "name": "question",
+  "text": "what is the 100th prime number?",
+  "score": 0.0,
+  "recommendation": "local",
+  "features": {
+   "word_count": 6,
+   "heading_count": 0,
+   "max_heading_depth": 0,
+   "list_item_count": 0,
+   "link_count": 0,
+   "code_block_count": 0,
+   "table_row_count": 0,
+   "reasoning_term_count": 1,
+   "math_symbol_count": 0,
+   "constraint_term_count": 0,
+   "question_count": 1
+  }
+ },
+ {
+  "name": "headings_lists",
+  "text": "# Plan\n\n## Steps\n- one\n- two\n- three\n1. first\n2. second",
+  "score": 0.15,
+  "recommendation": "local",
+  "features": {
+   "word_count": 14,
+   "heading_count": 2,
+   "max_heading_depth": 2,
+   "list_item_count": 5,
+   "link_count": 0,
+   "code_block_count": 0,
+   "table_row_count": 0,
+   "reasoning_term_count": 0,
+   "math_symbol_count": 0,
+   "constraint_term_count": 0,
+   "question_count": 0
+  }
+ },
+ {
+  "name": "code_fence",
+  "text": "Here is code:\n```python\n# a comment that looks like a heading\n- not a list\nx = 1\n```\ndone",
+  "score": 0.05,
+  "recommendation": "local",
+  "features": {
+   "word_count": 21,
+   "heading_count": 0,
+   "max_heading_depth": 0,
+   "list_item_count": 0,
+   "link_count": 0,
+   "code_block_count": 1,
+   "table_row_count": 0,
+   "reasoning_term_count": 0,
+   "math_symbol_count": 0,
+   "constraint_term_count": 0,
+   "question_count": 0
+  }
+ },
+ {
+  "name": "unterminated_fence",
+  "text": "start\n```\nstuff\n- still in fence\n# also in fence",
+  "score": 0.04,
+  "recommendation": "local",
+  "features": {
+   "word_count": 11,
+   "heading_count": 0,
+   "max_heading_depth": 0,
+   "list_item_count": 0,
+   "link_count": 0,
+   "code_block_count": 1,
+   "table_row_count": 0,
+   "reasoning_term_count": 0,
+   "math_symbol_count": 0,
+   "constraint_term_count": 0,
+   "question_count": 0
+  }
+ },
+ {
+  "name": "tilde_fence",
+  "text": "~~~\ncode\n~~~\nafter",
+  "score": 0.04,
+  "recommendation": "local",
+  "features": {
+   "word_count": 4,
+   "heading_count": 0,
+   "max_heading_depth": 0,
+   "list_item_count": 0,
+   "link_count": 0,
+   "code_block_count": 1,
+   "table_row_count": 0,
+   "reasoning_term_count": 0,
+   "math_symbol_count": 0,
+   "constraint_term_count": 0,
+   "question_count": 0
+  }
+ },
+ {
+  "name": "table",
+  "text": "| a | b |\n| - | - |\n| 1 | 2 |\n| 3 | 4 |",
+  "score": 0.04,
+  "recommendation": "local",
+  "features": {
+   "word_count": 20,
+   "heading_count": 0,
+   "max_heading_depth": 0,
+   "list_item_count": 0,
+   "link_count": 0,
+   "code_block_count": 0,
+   "table_row_count": 4,
+   "reasoning_term_count": 0,
+   "math_symbol_count": 0,
+   "constraint_term_count": 0,
+   "question_count": 0
+  }
+ },
+ {
+  "name": "links",
+  "text": "see [docs](http://x) and [more](http://y) plus [z](http://z)",
+  "score": 0.03,
+  "recommendation": "local",
+  "features": {
+   "word_count": 6,
+   "heading_count": 0,
+   "max_heading_depth": 0,
+   "list_item_count": 0,
+   "link_count": 3,
+   "code_block_count": 0,
+   "table_row_count": 0,
+   "reasoning_term_count": 0,
+   "math_symbol_count": 0,
+   "constraint_term_count": 0,
+   "question_count": 0
+  }
+ },
+ {
+  "name": "math_symbols",
+  "text": "show that ∑ x ≤ ∞ and ∫ f dx ≥ 0 using \\alpha and \\beta",
+  "score": 0.01,
+  "recommendation": "local",
+  "features": {
+   "word_count": 16,
+   "heading_count": 0,
+   "max_heading_depth": 0,
+   "list_item_count": 0,
+   "link_count": 0,
+   "code_block_count": 0,
+   "table_row_count": 0,
+   "reasoning_term_count": 0,
+   "math_symbol_count": 7,
+   "constraint_term_count": 0,
+   "question_count": 0
+  }
+ },
+ {
+  "name": "reasoning_terms",
+  "text": "prove the theorem by induction and derive the recurrence",
+  "score": 0.01,
+  "recommendation": "local",
+  "features": {
+   "word_count": 9,
+   "heading_count": 0,
+   "max_heading_depth": 0,
+   "list_item_count": 0,
+   "link_count": 0,
+   "code_block_count": 0,
+   "table_row_count": 0,
+   "reasoning_term_count": 5,
+   "math_symbol_count": 0,
+   "constraint_term_count": 0,
+   "question_count": 0
+  }
+ },
+ {
+  "name": "constraints",
+  "text": "you must do it without loops, only using exactly one pass",
+  "score": 0.01,
+  "recommendation": "local",
+  "features": {
+   "word_count": 11,
+   "heading_count": 0,
+   "max_heading_depth": 0,
+   "list_item_count": 0,
+   "link_count": 0,
+   "code_block_count": 0,
+   "table_row_count": 0,
+   "reasoning_term_count": 0,
+   "math_symbol_count": 0,
+   "constraint_term_count": 4,
+   "question_count": 0
+  }
+ },
+ {
+  "name": "frontmatter",
+  "text": "---\ntitle: x\ntags: [a,b]\n---\n# Real Heading\nbody text here",
+  "score": 0.04,
+  "recommendation": "local",
+  "features": {
+   "word_count": 6,
+   "heading_count": 1,
+   "max_heading_depth": 1,
+   "list_item_count": 0,
+   "link_count": 0,
+   "code_block_count": 0,
+   "table_row_count": 0,
+   "reasoning_term_count": 0,
+   "math_symbol_count": 0,
+   "constraint_term_count": 0,
+   "question_count": 0
+  }
+ },
+ {
+  "name": "crlf_endings",
+  "text": "# H1\r\n- item one\r\n- item two\r\n| a | b |\r\n",
+  "score": 0.08,
+  "recommendation": "local",
+  "features": {
+   "word_count": 13,
+   "heading_count": 1,
+   "max_heading_depth": 1,
+   "list_item_count": 2,
+   "link_count": 0,
+   "code_block_count": 0,
+   "table_row_count": 1,
+   "reasoning_term_count": 0,
+   "math_symbol_count": 0,
+   "constraint_term_count": 0,
+   "question_count": 0
+  }
+ },
+ {
+  "name": "long_400plus",
+  "text": "word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word",
+  "score": 0.27,
+  "recommendation": "local",
+  "features": {
+   "word_count": 450,
+   "heading_count": 0,
+   "max_heading_depth": 0,
+   "list_item_count": 0,
+   "link_count": 0,
+   "code_block_count": 0,
+   "table_row_count": 0,
+   "reasoning_term_count": 0,
+   "math_symbol_count": 0,
+   "constraint_term_count": 0,
+   "question_count": 0
+  }
+ },
+ {
+  "name": "emoji_cjk",
+  "text": "请证明这个定理 🙏 prove it with 日本語 mixed 😀 text and more words here",
+  "score": 0.01,
+  "recommendation": "local",
+  "features": {
+   "word_count": 13,
+   "heading_count": 0,
+   "max_heading_depth": 0,
+   "list_item_count": 0,
+   "link_count": 0,
+   "code_block_count": 0,
+   "table_row_count": 0,
+   "reasoning_term_count": 1,
+   "math_symbol_count": 0,
+   "constraint_term_count": 0,
+   "question_count": 0
+  }
+ },
+ {
+  "name": "rounding_a",
+  "text": "alpha beta gamma alpha beta gamma alpha beta gamma alpha beta gamma alpha beta gamma alpha beta gamma alpha beta gamma ",
+  "score": 0.01,
+  "recommendation": "local",
+  "features": {
+   "word_count": 21,
+   "heading_count": 0,
+   "max_heading_depth": 0,
+   "list_item_count": 0,
+   "link_count": 0,
+   "code_block_count": 0,
+   "table_row_count": 0,
+   "reasoning_term_count": 0,
+   "math_symbol_count": 0,
+   "constraint_term_count": 0,
+   "question_count": 0
+  }
+ },
+ {
+  "name": "rounding_b",
+  "text": "# h\n- a\n- b\n- c\ncode block follows\n```\nx\n```\nand a [l](u)",
+  "score": 0.13,
+  "recommendation": "local",
+  "features": {
+   "word_count": 17,
+   "heading_count": 1,
+   "max_heading_depth": 1,
+   "list_item_count": 3,
+   "link_count": 1,
+   "code_block_count": 1,
+   "table_row_count": 0,
+   "reasoning_term_count": 0,
+   "math_symbol_count": 0,
+   "constraint_term_count": 0,
+   "question_count": 0
+  }
+ },
+ {
+  "name": "rtl_arabic",
+  "text": "أثبت النظرية prove the theorem باستخدام الاستقراء induction",
+  "score": 0.01,
+  "recommendation": "local",
+  "features": {
+   "word_count": 8,
+   "heading_count": 0,
+   "max_heading_depth": 0,
+   "list_item_count": 0,
+   "link_count": 0,
+   "code_block_count": 0,
+   "table_row_count": 0,
+   "reasoning_term_count": 3,
+   "math_symbol_count": 0,
+   "constraint_term_count": 0,
+   "question_count": 0
+  }
+ },
+ {
+  "name": "nbsp_whitespace",
+  "text": "word word word line para tab\tend",
+  "score": 0.0,
+  "recommendation": "local",
+  "features": {
+   "word_count": 7,
+   "heading_count": 0,
+   "max_heading_depth": 0,
+   "list_item_count": 0,
+   "link_count": 0,
+   "code_block_count": 0,
+   "table_row_count": 0,
+   "reasoning_term_count": 0,
+   "math_symbol_count": 0,
+   "constraint_term_count": 0,
+   "question_count": 0
+  }
+ }
+]

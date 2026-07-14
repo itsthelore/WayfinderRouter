@@ -1,0 +1,81 @@
+{
+  "home": "/Users/compat-user",
+  "launchd": [
+    {
+      "args": [
+        "/usr/local/bin/wayfinder-router",
+        "serve",
+        "--port",
+        "8088"
+      ],
+      "label": null,
+      "log_dir": null,
+      "name": "default",
+      "output": "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<!DOCTYPE plist PUBLIC \"-//Apple//DTD PLIST 1.0//EN\" \"http://www.apple.com/DTDs/PropertyList-1.0.dtd\">\n<plist version=\"1.0\">\n<dict>\n  <key>Label</key>\n  <string>com.wayfinder-router.gateway</string>\n  <key>ProgramArguments</key>\n  <array>\n      <string>/usr/local/bin/wayfinder-router</string>\n      <string>serve</string>\n      <string>--port</string>\n      <string>8088</string>\n  </array>\n  <key>RunAtLoad</key>\n  <true/>\n  <key>KeepAlive</key>\n  <true/>\n  <key>StandardOutPath</key>\n  <string>/Users/compat-user/Library/Logs/wayfinder-router.log</string>\n  <key>StandardErrorPath</key>\n  <string>/Users/compat-user/Library/Logs/wayfinder-router.err.log</string>\n</dict>\n</plist>\n"
+    },
+    {
+      "args": [
+        "/opt/router & <helper>",
+        "serve",
+        "--config",
+        "/tmp/a & b.toml"
+      ],
+      "label": "com.example.compat",
+      "log_dir": "/tmp/wayfinder-logs/",
+      "name": "escaping-and-custom-log",
+      "output": "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<!DOCTYPE plist PUBLIC \"-//Apple//DTD PLIST 1.0//EN\" \"http://www.apple.com/DTDs/PropertyList-1.0.dtd\">\n<plist version=\"1.0\">\n<dict>\n  <key>Label</key>\n  <string>com.example.compat</string>\n  <key>ProgramArguments</key>\n  <array>\n      <string>/opt/router &amp; &lt;helper&gt;</string>\n      <string>serve</string>\n      <string>--config</string>\n      <string>/tmp/a &amp; b.toml</string>\n  </array>\n  <key>RunAtLoad</key>\n  <true/>\n  <key>KeepAlive</key>\n  <true/>\n  <key>StandardOutPath</key>\n  <string>/tmp/wayfinder-logs/wayfinder-router.log</string>\n  <key>StandardErrorPath</key>\n  <string>/tmp/wayfinder-logs/wayfinder-router.err.log</string>\n</dict>\n</plist>\n"
+    },
+    {
+      "args": [],
+      "label": null,
+      "log_dir": "~",
+      "name": "empty-program-arguments",
+      "output": "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<!DOCTYPE plist PUBLIC \"-//Apple//DTD PLIST 1.0//EN\" \"http://www.apple.com/DTDs/PropertyList-1.0.dtd\">\n<plist version=\"1.0\">\n<dict>\n  <key>Label</key>\n  <string>com.wayfinder-router.gateway</string>\n  <key>ProgramArguments</key>\n  <array>\n\n  </array>\n  <key>RunAtLoad</key>\n  <true/>\n  <key>KeepAlive</key>\n  <true/>\n  <key>StandardOutPath</key>\n  <string>/Users/compat-user/wayfinder-router.log</string>\n  <key>StandardErrorPath</key>\n  <string>/Users/compat-user/wayfinder-router.err.log</string>\n</dict>\n</plist>\n"
+    }
+  ],
+  "paths": {
+    "launchd": "/Users/compat-user/Library/LaunchAgents/com.wayfinder-router.gateway.plist",
+    "systemd": "/Users/compat-user/.config/systemd/user/wayfinder-router.service"
+  },
+  "platforms": {
+    "darwin": "macos",
+    "freebsd": "other",
+    "linux": "linux",
+    "linux2": "linux",
+    "win32": "other"
+  },
+  "schema_version": "1",
+  "systemd": [
+    {
+      "args": [
+        "/usr/bin/wayfinder-router",
+        "serve",
+        "--port",
+        "8088"
+      ],
+      "description": null,
+      "name": "safe",
+      "output": "[Unit]\nDescription=Wayfinder router gateway\nAfter=network-online.target\n\n[Service]\nExecStart=/usr/bin/wayfinder-router serve --port 8088\nRestart=on-failure\nRestartSec=2\n\n[Install]\nWantedBy=default.target\n"
+    },
+    {
+      "args": [
+        "/opt/my router/wayfinder-router",
+        "serve",
+        "it's-ready",
+        ""
+      ],
+      "description": "Wayfinder custom gateway",
+      "name": "shell-quoting",
+      "output": "[Unit]\nDescription=Wayfinder custom gateway\nAfter=network-online.target\n\n[Service]\nExecStart='/opt/my router/wayfinder-router' serve 'it'\"'\"'s-ready' ''\nRestart=on-failure\nRestartSec=2\n\n[Install]\nWantedBy=default.target\n"
+    },
+    {
+      "args": [
+        "/usr/bin/wayfinder-router",
+        "café"
+      ],
+      "description": null,
+      "name": "unicode-is-quoted",
+      "output": "[Unit]\nDescription=Wayfinder router gateway\nAfter=network-online.target\n\n[Service]\nExecStart=/usr/bin/wayfinder-router 'café'\nRestart=on-failure\nRestartSec=2\n\n[Install]\nWantedBy=default.target\n"
+    }
+  ]
+}

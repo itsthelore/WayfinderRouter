@@ -1,0 +1,1127 @@
+[
+ {
+  "name": "document_without_gateway_uses_defaults",
+  "compatibility": "exact",
+  "toml": "",
+  "outcome": {
+   "status": "valid",
+   "summary": {
+    "route_on": "turn",
+    "sticky": false,
+    "sticky_cooldown": 0,
+    "slash_directives": false,
+    "offline": false,
+    "retries": 2,
+    "breaker_threshold": 5,
+    "breaker_cooldown": 30.0,
+    "failover": "same-tier",
+    "budget": null,
+    "cache": null,
+    "rate_limit": null,
+    "keys": [],
+    "models": []
+   }
+  }
+ },
+ {
+  "name": "empty_gateway_table_uses_defaults",
+  "compatibility": "exact",
+  "toml": "[gateway]\n",
+  "outcome": {
+   "status": "valid",
+   "summary": {
+    "route_on": "turn",
+    "sticky": false,
+    "sticky_cooldown": 0,
+    "slash_directives": false,
+    "offline": false,
+    "retries": 2,
+    "breaker_threshold": 5,
+    "breaker_cooldown": 30.0,
+    "failover": "same-tier",
+    "budget": null,
+    "cache": null,
+    "rate_limit": null,
+    "keys": [],
+    "models": []
+   }
+  }
+ },
+ {
+  "name": "explicit_defaults_and_unknown_fields",
+  "compatibility": "exact",
+  "toml": "[routing]\nthreshold = 0.4\n\n[gateway]\nroute_on = \"turn\"\nsticky = false\nsticky_cooldown = 0\nslash_directives = false\noffline = false\nretries = 2\nbreaker_threshold = 5\nbreaker_cooldown = 30\nfailover = \"same-tier\"\nunknown = { nested = true }\n",
+  "outcome": {
+   "status": "valid",
+   "summary": {
+    "route_on": "turn",
+    "sticky": false,
+    "sticky_cooldown": 0,
+    "slash_directives": false,
+    "offline": false,
+    "retries": 2,
+    "breaker_threshold": 5,
+    "breaker_cooldown": 30.0,
+    "failover": "same-tier",
+    "budget": null,
+    "cache": null,
+    "rate_limit": null,
+    "keys": [],
+    "models": []
+   }
+  }
+ },
+ {
+  "name": "full_schema_preserves_key_and_model_order",
+  "compatibility": "exact",
+  "toml": "[gateway]\nroute_on = \"user\"\nsticky = true\nsticky_cooldown = 3\nslash_directives = true\noffline = true\nretries = 4\nbreaker_threshold = 7\nbreaker_cooldown = 12.5\nfailover = \"escalate\"\nfuture_flag = \"ignored\"\n\n[gateway.budget]\nlimit = 25\nwindow = \"month\"\non_breach = \"block\"\nfuture_budget_field = true\n\n[gateway.cache]\nenabled = true\nttl = 600\nmax_entries = 2048\nmax_bytes = 134217728\n\n[gateway.rate_limit]\nrpm = 60\ntpm = 100000\nwindow = 30\n\n[gateway.keys.\"team z\"]\nhash = \"ABCDEF01ABCDEF01ABCDEF01ABCDEF01ABCDEF01ABCDEF01ABCDEF01ABCDEF01\"\ntags = [\"production\", \"z-first\"]\nmodels = [\"local\", \"cloud\"]\n\n[gateway.keys.\"team z\".budget]\nlimit = 2.5\nwindow = \"all\"\non_breach = \"block\"\n\n[gateway.keys.\"team z\".rate_limit]\nrpm = 5\nwindow = 10\n\n[gateway.keys.alpha]\nhash = \"0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef\"\ntags = []\nmodels = []\n\n[gateway.keys.alpha.rate_limit]\ntpm = 5000\n\n[gateway.models.local]\nbase_url = \"http://127.0.0.1:11434/v1\"\nmodel = \"qwen-local\"\ncost_per_1k = 0\nfallbacks = []\ncontext_window = 8192\n\n[gateway.models.cloud]\nbase_url = \"https://api.example.test/v1\"\nmodel = \"cloud-primary\"\napi_key_env = \"EXAMPLE_API_KEY\"\napi_key_cmd = \"security find-generic-password -s wayfinder-cloud -w\"\ncost_per_1k = 1.25\nfallbacks = [\"cloud.backup\"]\ncontext_window = 128000\nfuture_model_field = 9\n\n[gateway.models.\"cloud.backup\"]\nbase_url = \"https://backup.example.test/v1\"\nmodel = \"cloud-backup\"\napi_key_env = \"EXAMPLE_BACKUP_API_KEY\"\ncost_per_1k = 1.5\n",
+  "outcome": {
+   "status": "valid",
+   "summary": {
+    "route_on": "user",
+    "sticky": true,
+    "sticky_cooldown": 3,
+    "slash_directives": true,
+    "offline": true,
+    "retries": 4,
+    "breaker_threshold": 7,
+    "breaker_cooldown": 12.5,
+    "failover": "escalate",
+    "budget": {
+     "limit": 25.0,
+     "window": "month",
+     "on_breach": "block"
+    },
+    "cache": {
+     "enabled": true,
+     "ttl": 600.0,
+     "max_entries": 2048,
+     "max_bytes": 134217728
+    },
+    "rate_limit": {
+     "rpm": 60,
+     "tpm": 100000,
+     "window": 30.0
+    },
+    "keys": [
+     {
+      "name": "team z",
+      "credential_digest": {
+       "algorithm": "sha256",
+       "value": "<redacted>",
+       "length": 64,
+       "normalized_lowercase": true
+      },
+      "tags": [
+       "production",
+       "z-first"
+      ],
+      "budget": {
+       "limit": 2.5,
+       "window": "all",
+       "on_breach": "block"
+      },
+      "rate_limit": {
+       "rpm": 5,
+       "tpm": null,
+       "window": 10.0
+      },
+      "models": [
+       "local",
+       "cloud"
+      ]
+     },
+     {
+      "name": "alpha",
+      "credential_digest": {
+       "algorithm": "sha256",
+       "value": "<redacted>",
+       "length": 64,
+       "normalized_lowercase": true
+      },
+      "tags": [],
+      "budget": null,
+      "rate_limit": {
+       "rpm": null,
+       "tpm": 5000,
+       "window": 60.0
+      },
+      "models": []
+     }
+    ],
+    "models": [
+     {
+      "name": "local",
+      "base_url": "http://127.0.0.1:11434/v1",
+      "model": "qwen-local",
+      "credential_reference": {
+       "api_key_env": null,
+       "api_key_cmd": null
+      },
+      "cost_per_1k": 0.0,
+      "fallbacks": [],
+      "context_window": 8192
+     },
+     {
+      "name": "cloud",
+      "base_url": "https://api.example.test/v1",
+      "model": "cloud-primary",
+      "credential_reference": {
+       "api_key_env": "EXAMPLE_API_KEY",
+       "api_key_cmd": "security find-generic-password -s wayfinder-cloud -w"
+      },
+      "cost_per_1k": 1.25,
+      "fallbacks": [
+       "cloud.backup"
+      ],
+      "context_window": 128000
+     },
+     {
+      "name": "cloud.backup",
+      "base_url": "https://backup.example.test/v1",
+      "model": "cloud-backup",
+      "credential_reference": {
+       "api_key_env": "EXAMPLE_BACKUP_API_KEY",
+       "api_key_cmd": null
+      },
+      "cost_per_1k": 1.5,
+      "fallbacks": [],
+      "context_window": null
+     }
+    ]
+   }
+  }
+ },
+ {
+  "name": "nested_blocks_apply_defaults",
+  "compatibility": "exact",
+  "toml": "[gateway.budget]\nlimit = 5\n\n[gateway.cache]\n\n[gateway.rate_limit]\nrpm = 10\n\n[gateway.models.local]\nbase_url = \"http://127.0.0.1:11434/v1\"\nmodel = \"local-model\"\n",
+  "outcome": {
+   "status": "valid",
+   "summary": {
+    "route_on": "turn",
+    "sticky": false,
+    "sticky_cooldown": 0,
+    "slash_directives": false,
+    "offline": false,
+    "retries": 2,
+    "breaker_threshold": 5,
+    "breaker_cooldown": 30.0,
+    "failover": "same-tier",
+    "budget": {
+     "limit": 5.0,
+     "window": "day",
+     "on_breach": "degrade"
+    },
+    "cache": {
+     "enabled": false,
+     "ttl": 300.0,
+     "max_entries": 1024,
+     "max_bytes": 67108864
+    },
+    "rate_limit": {
+     "rpm": 10,
+     "tpm": null,
+     "window": 60.0
+    },
+    "keys": [],
+    "models": [
+     {
+      "name": "local",
+      "base_url": "http://127.0.0.1:11434/v1",
+      "model": "local-model",
+      "credential_reference": {
+       "api_key_env": null,
+       "api_key_cmd": null
+      },
+      "cost_per_1k": null,
+      "fallbacks": [],
+      "context_window": null
+     }
+    ]
+   }
+  }
+ },
+ {
+  "name": "falsey_models_boolean",
+  "compatibility": "exact",
+  "toml": "[gateway]\nmodels = false\n",
+  "outcome": {
+   "status": "valid",
+   "summary": {
+    "route_on": "turn",
+    "sticky": false,
+    "sticky_cooldown": 0,
+    "slash_directives": false,
+    "offline": false,
+    "retries": 2,
+    "breaker_threshold": 5,
+    "breaker_cooldown": 30.0,
+    "failover": "same-tier",
+    "budget": null,
+    "cache": null,
+    "rate_limit": null,
+    "keys": [],
+    "models": []
+   }
+  }
+ },
+ {
+  "name": "falsey_models_integer",
+  "compatibility": "exact",
+  "toml": "[gateway]\nmodels = 0\n",
+  "outcome": {
+   "status": "valid",
+   "summary": {
+    "route_on": "turn",
+    "sticky": false,
+    "sticky_cooldown": 0,
+    "slash_directives": false,
+    "offline": false,
+    "retries": 2,
+    "breaker_threshold": 5,
+    "breaker_cooldown": 30.0,
+    "failover": "same-tier",
+    "budget": null,
+    "cache": null,
+    "rate_limit": null,
+    "keys": [],
+    "models": []
+   }
+  }
+ },
+ {
+  "name": "falsey_models_float",
+  "compatibility": "exact",
+  "toml": "[gateway]\nmodels = 0.0\n",
+  "outcome": {
+   "status": "valid",
+   "summary": {
+    "route_on": "turn",
+    "sticky": false,
+    "sticky_cooldown": 0,
+    "slash_directives": false,
+    "offline": false,
+    "retries": 2,
+    "breaker_threshold": 5,
+    "breaker_cooldown": 30.0,
+    "failover": "same-tier",
+    "budget": null,
+    "cache": null,
+    "rate_limit": null,
+    "keys": [],
+    "models": []
+   }
+  }
+ },
+ {
+  "name": "falsey_models_string",
+  "compatibility": "exact",
+  "toml": "[gateway]\nmodels = \"\"\n",
+  "outcome": {
+   "status": "valid",
+   "summary": {
+    "route_on": "turn",
+    "sticky": false,
+    "sticky_cooldown": 0,
+    "slash_directives": false,
+    "offline": false,
+    "retries": 2,
+    "breaker_threshold": 5,
+    "breaker_cooldown": 30.0,
+    "failover": "same-tier",
+    "budget": null,
+    "cache": null,
+    "rate_limit": null,
+    "keys": [],
+    "models": []
+   }
+  }
+ },
+ {
+  "name": "falsey_models_array",
+  "compatibility": "exact",
+  "toml": "[gateway]\nmodels = []\n",
+  "outcome": {
+   "status": "valid",
+   "summary": {
+    "route_on": "turn",
+    "sticky": false,
+    "sticky_cooldown": 0,
+    "slash_directives": false,
+    "offline": false,
+    "retries": 2,
+    "breaker_threshold": 5,
+    "breaker_cooldown": 30.0,
+    "failover": "same-tier",
+    "budget": null,
+    "cache": null,
+    "rate_limit": null,
+    "keys": [],
+    "models": []
+   }
+  }
+ },
+ {
+  "name": "falsey_models_inline_table",
+  "compatibility": "exact",
+  "toml": "[gateway]\nmodels = {}\n",
+  "outcome": {
+   "status": "valid",
+   "summary": {
+    "route_on": "turn",
+    "sticky": false,
+    "sticky_cooldown": 0,
+    "slash_directives": false,
+    "offline": false,
+    "retries": 2,
+    "breaker_threshold": 5,
+    "breaker_cooldown": 30.0,
+    "failover": "same-tier",
+    "budget": null,
+    "cache": null,
+    "rate_limit": null,
+    "keys": [],
+    "models": []
+   }
+  }
+ },
+ {
+  "name": "zero_cost_and_empty_optional_lists",
+  "compatibility": "exact",
+  "toml": "[gateway.models.zero]\nbase_url = \"http://zero.test/v1\"\nmodel = \"zero\"\ncost_per_1k = 0.0\nfallbacks = []\n",
+  "outcome": {
+   "status": "valid",
+   "summary": {
+    "route_on": "turn",
+    "sticky": false,
+    "sticky_cooldown": 0,
+    "slash_directives": false,
+    "offline": false,
+    "retries": 2,
+    "breaker_threshold": 5,
+    "breaker_cooldown": 30.0,
+    "failover": "same-tier",
+    "budget": null,
+    "cache": null,
+    "rate_limit": null,
+    "keys": [],
+    "models": [
+     {
+      "name": "zero",
+      "base_url": "http://zero.test/v1",
+      "model": "zero",
+      "credential_reference": {
+       "api_key_env": null,
+       "api_key_cmd": null
+      },
+      "cost_per_1k": 0.0,
+      "fallbacks": [],
+      "context_window": null
+     }
+    ]
+   }
+  }
+ },
+ {
+  "name": "all_route_scope_with_tpm_only",
+  "compatibility": "exact",
+  "toml": "[gateway]\nroute_on = \"all\"\n\n[gateway.rate_limit]\ntpm = 1\nwindow = 0.5\n\n[gateway.models.local]\nbase_url = \"http://127.0.0.1:11434/v1\"\nmodel = \"local-model\"\n",
+  "outcome": {
+   "status": "valid",
+   "summary": {
+    "route_on": "all",
+    "sticky": false,
+    "sticky_cooldown": 0,
+    "slash_directives": false,
+    "offline": false,
+    "retries": 2,
+    "breaker_threshold": 5,
+    "breaker_cooldown": 30.0,
+    "failover": "same-tier",
+    "budget": null,
+    "cache": null,
+    "rate_limit": {
+     "rpm": null,
+     "tpm": 1,
+     "window": 0.5
+    },
+    "keys": [],
+    "models": [
+     {
+      "name": "local",
+      "base_url": "http://127.0.0.1:11434/v1",
+      "model": "local-model",
+      "credential_reference": {
+       "api_key_env": null,
+       "api_key_cmd": null
+      },
+      "cost_per_1k": null,
+      "fallbacks": [],
+      "context_window": null
+     }
+    ]
+   }
+  }
+ },
+ {
+  "name": "malformed_toml",
+  "compatibility": "exact",
+  "toml": "[gateway\noffline = true\n",
+  "outcome": {
+   "status": "invalid",
+   "python_error": "gateway-compat-vector: invalid TOML: Expected ']' at the end of a table declaration (at line 1, column 9)"
+  }
+ },
+ {
+  "name": "gateway_scalar",
+  "compatibility": "exact",
+  "toml": "gateway = 1\n",
+  "outcome": {
+   "status": "invalid",
+   "python_error": "gateway-compat-vector: '[gateway]' must be a table"
+  }
+ },
+ {
+  "name": "invalid_route_scope",
+  "compatibility": "exact",
+  "toml": "[gateway]\nroute_on = \"latest\"\n",
+  "outcome": {
+   "status": "invalid",
+   "python_error": "gateway-compat-vector: 'gateway.route_on' must be one of turn, last_user, user, all"
+  }
+ },
+ {
+  "name": "route_scope_wrong_type",
+  "compatibility": "exact",
+  "toml": "[gateway]\nroute_on = false\n",
+  "outcome": {
+   "status": "invalid",
+   "python_error": "gateway-compat-vector: 'gateway.route_on' must be one of turn, last_user, user, all"
+  }
+ },
+ {
+  "name": "sticky_wrong_type",
+  "compatibility": "exact",
+  "toml": "[gateway]\nsticky = 1\n",
+  "outcome": {
+   "status": "invalid",
+   "python_error": "gateway-compat-vector: 'gateway.sticky' must be a boolean"
+  }
+ },
+ {
+  "name": "sticky_cooldown_negative",
+  "compatibility": "exact",
+  "toml": "[gateway]\nsticky_cooldown = -1\n",
+  "outcome": {
+   "status": "invalid",
+   "python_error": "gateway-compat-vector: 'gateway.sticky_cooldown' must be a non-negative integer"
+  }
+ },
+ {
+  "name": "sticky_cooldown_boolean",
+  "compatibility": "exact",
+  "toml": "[gateway]\nsticky_cooldown = true\n",
+  "outcome": {
+   "status": "invalid",
+   "python_error": "gateway-compat-vector: 'gateway.sticky_cooldown' must be a non-negative integer"
+  }
+ },
+ {
+  "name": "sticky_cooldown_float",
+  "compatibility": "exact",
+  "toml": "[gateway]\nsticky_cooldown = 1.0\n",
+  "outcome": {
+   "status": "invalid",
+   "python_error": "gateway-compat-vector: 'gateway.sticky_cooldown' must be a non-negative integer"
+  }
+ },
+ {
+  "name": "slash_directives_wrong_type",
+  "compatibility": "exact",
+  "toml": "[gateway]\nslash_directives = \"yes\"\n",
+  "outcome": {
+   "status": "invalid",
+   "python_error": "gateway-compat-vector: 'gateway.slash_directives' must be a boolean"
+  }
+ },
+ {
+  "name": "offline_wrong_type",
+  "compatibility": "exact",
+  "toml": "[gateway]\noffline = 1\n",
+  "outcome": {
+   "status": "invalid",
+   "python_error": "gateway-compat-vector: 'gateway.offline' must be a boolean"
+  }
+ },
+ {
+  "name": "retries_negative",
+  "compatibility": "exact",
+  "toml": "[gateway]\nretries = -1\n",
+  "outcome": {
+   "status": "invalid",
+   "python_error": "gateway-compat-vector: 'gateway.retries' must be a non-negative integer"
+  }
+ },
+ {
+  "name": "retries_boolean",
+  "compatibility": "exact",
+  "toml": "[gateway]\nretries = true\n",
+  "outcome": {
+   "status": "invalid",
+   "python_error": "gateway-compat-vector: 'gateway.retries' must be a non-negative integer"
+  }
+ },
+ {
+  "name": "breaker_threshold_zero",
+  "compatibility": "exact",
+  "toml": "[gateway]\nbreaker_threshold = 0\n",
+  "outcome": {
+   "status": "invalid",
+   "python_error": "gateway-compat-vector: 'gateway.breaker_threshold' must be a positive integer"
+  }
+ },
+ {
+  "name": "breaker_threshold_float",
+  "compatibility": "exact",
+  "toml": "[gateway]\nbreaker_threshold = 1.0\n",
+  "outcome": {
+   "status": "invalid",
+   "python_error": "gateway-compat-vector: 'gateway.breaker_threshold' must be a positive integer"
+  }
+ },
+ {
+  "name": "breaker_cooldown_negative",
+  "compatibility": "exact",
+  "toml": "[gateway]\nbreaker_cooldown = -0.1\n",
+  "outcome": {
+   "status": "invalid",
+   "python_error": "gateway-compat-vector: 'gateway.breaker_cooldown' must be a non-negative number"
+  }
+ },
+ {
+  "name": "breaker_cooldown_boolean",
+  "compatibility": "exact",
+  "toml": "[gateway]\nbreaker_cooldown = true\n",
+  "outcome": {
+   "status": "invalid",
+   "python_error": "gateway-compat-vector: 'gateway.breaker_cooldown' must be a non-negative number"
+  }
+ },
+ {
+  "name": "invalid_failover",
+  "compatibility": "exact",
+  "toml": "[gateway]\nfailover = \"random\"\n",
+  "outcome": {
+   "status": "invalid",
+   "python_error": "gateway-compat-vector: 'gateway.failover' must be one of same-tier, degrade, escalate"
+  }
+ },
+ {
+  "name": "budget_scalar",
+  "compatibility": "exact",
+  "toml": "[gateway]\nbudget = 5\n",
+  "outcome": {
+   "status": "invalid",
+   "python_error": "gateway-compat-vector: '[gateway.budget]' must be a table"
+  }
+ },
+ {
+  "name": "budget_missing_limit",
+  "compatibility": "exact",
+  "toml": "[gateway.budget]\nwindow = \"day\"\n",
+  "outcome": {
+   "status": "invalid",
+   "python_error": "gateway-compat-vector: 'gateway.budget.limit' must be a positive number"
+  }
+ },
+ {
+  "name": "budget_zero",
+  "compatibility": "exact",
+  "toml": "[gateway.budget]\nlimit = 0\n",
+  "outcome": {
+   "status": "invalid",
+   "python_error": "gateway-compat-vector: 'gateway.budget.limit' must be a positive number"
+  }
+ },
+ {
+  "name": "budget_boolean",
+  "compatibility": "exact",
+  "toml": "[gateway.budget]\nlimit = true\n",
+  "outcome": {
+   "status": "invalid",
+   "python_error": "gateway-compat-vector: 'gateway.budget.limit' must be a positive number"
+  }
+ },
+ {
+  "name": "budget_invalid_window",
+  "compatibility": "exact",
+  "toml": "[gateway.budget]\nlimit = 1\nwindow = \"year\"\n",
+  "outcome": {
+   "status": "invalid",
+   "python_error": "gateway-compat-vector: 'gateway.budget.window' must be one of day, month, all"
+  }
+ },
+ {
+  "name": "budget_invalid_breach",
+  "compatibility": "exact",
+  "toml": "[gateway.budget]\nlimit = 1\non_breach = \"panic\"\n",
+  "outcome": {
+   "status": "invalid",
+   "python_error": "gateway-compat-vector: 'gateway.budget.on_breach' must be one of degrade, block"
+  }
+ },
+ {
+  "name": "cache_scalar",
+  "compatibility": "exact",
+  "toml": "[gateway]\ncache = 5\n",
+  "outcome": {
+   "status": "invalid",
+   "python_error": "gateway-compat-vector: '[gateway.cache]' must be a table"
+  }
+ },
+ {
+  "name": "cache_enabled_wrong_type",
+  "compatibility": "exact",
+  "toml": "[gateway.cache]\nenabled = \"yes\"\n",
+  "outcome": {
+   "status": "invalid",
+   "python_error": "gateway-compat-vector: 'gateway.cache.enabled' must be a boolean"
+  }
+ },
+ {
+  "name": "cache_negative_ttl",
+  "compatibility": "exact",
+  "toml": "[gateway.cache]\nttl = -1\n",
+  "outcome": {
+   "status": "invalid",
+   "python_error": "gateway-compat-vector: 'gateway.cache.ttl' must be a non-negative number"
+  }
+ },
+ {
+  "name": "cache_zero_entries",
+  "compatibility": "exact",
+  "toml": "[gateway.cache]\nmax_entries = 0\n",
+  "outcome": {
+   "status": "invalid",
+   "python_error": "gateway-compat-vector: 'gateway.cache.max_entries' must be a positive integer"
+  }
+ },
+ {
+  "name": "cache_boolean_bytes",
+  "compatibility": "exact",
+  "toml": "[gateway.cache]\nmax_bytes = true\n",
+  "outcome": {
+   "status": "invalid",
+   "python_error": "gateway-compat-vector: 'gateway.cache.max_bytes' must be a positive integer"
+  }
+ },
+ {
+  "name": "rate_limit_scalar",
+  "compatibility": "exact",
+  "toml": "[gateway]\nrate_limit = 5\n",
+  "outcome": {
+   "status": "invalid",
+   "python_error": "gateway-compat-vector: '[gateway.rate_limit]' must be a table"
+  }
+ },
+ {
+  "name": "rate_limit_empty",
+  "compatibility": "exact",
+  "toml": "[gateway.rate_limit]\n",
+  "outcome": {
+   "status": "invalid",
+   "python_error": "gateway-compat-vector: '[gateway.rate_limit]' must set 'rpm' and/or 'tpm'"
+  }
+ },
+ {
+  "name": "rate_limit_zero_rpm",
+  "compatibility": "exact",
+  "toml": "[gateway.rate_limit]\nrpm = 0\n",
+  "outcome": {
+   "status": "invalid",
+   "python_error": "gateway-compat-vector: 'gateway.rate_limit.rpm' must be a positive integer"
+  }
+ },
+ {
+  "name": "rate_limit_boolean_tpm",
+  "compatibility": "exact",
+  "toml": "[gateway.rate_limit]\ntpm = true\n",
+  "outcome": {
+   "status": "invalid",
+   "python_error": "gateway-compat-vector: 'gateway.rate_limit.tpm' must be a positive integer"
+  }
+ },
+ {
+  "name": "rate_limit_zero_window",
+  "compatibility": "exact",
+  "toml": "[gateway.rate_limit]\nrpm = 1\nwindow = 0\n",
+  "outcome": {
+   "status": "invalid",
+   "python_error": "gateway-compat-vector: 'gateway.rate_limit.window' must be a positive number"
+  }
+ },
+ {
+  "name": "keys_scalar",
+  "compatibility": "exact",
+  "toml": "[gateway]\nkeys = 5\n",
+  "outcome": {
+   "status": "invalid",
+   "python_error": "gateway-compat-vector: '[gateway.keys]' must be a table"
+  }
+ },
+ {
+  "name": "key_entry_scalar",
+  "compatibility": "exact",
+  "toml": "[gateway.keys]\nteam = 5\n",
+  "outcome": {
+   "status": "invalid",
+   "python_error": "gateway-compat-vector: '[gateway.keys.team]' must be a table"
+  }
+ },
+ {
+  "name": "key_missing_hash",
+  "compatibility": "exact",
+  "toml": "[gateway.keys.team]\ntags = [\"x\"]\n",
+  "outcome": {
+   "status": "invalid",
+   "python_error": "gateway-compat-vector: 'gateway.keys.team.hash' must be a 64-char SHA-256 hex digest (mint a key with `wayfinder-router keys new`)"
+  }
+ },
+ {
+  "name": "key_bad_hash",
+  "compatibility": "exact",
+  "toml": "[gateway.keys.team]\nhash = \"not-a-digest\"\n",
+  "outcome": {
+   "status": "invalid",
+   "python_error": "gateway-compat-vector: 'gateway.keys.team.hash' must be a 64-char SHA-256 hex digest (mint a key with `wayfinder-router keys new`)"
+  }
+ },
+ {
+  "name": "key_empty_tag",
+  "compatibility": "exact",
+  "toml": "[gateway.keys.team]\nhash = \"0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef\"\ntags = [\"ok\", \"\"]\n",
+  "outcome": {
+   "status": "invalid",
+   "python_error": "gateway-compat-vector: 'gateway.keys.team.tags' must be a list of strings"
+  }
+ },
+ {
+  "name": "key_models_wrong_type",
+  "compatibility": "exact",
+  "toml": "[gateway.keys.team]\nhash = \"0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef\"\nmodels = \"local\"\n",
+  "outcome": {
+   "status": "invalid",
+   "python_error": "gateway-compat-vector: 'gateway.keys.team.models' must be a list of model names"
+  }
+ },
+ {
+  "name": "truthy_models_boolean",
+  "compatibility": "exact",
+  "toml": "[gateway]\nmodels = true\n",
+  "outcome": {
+   "status": "invalid",
+   "python_error": "gateway-compat-vector: '[gateway.models]' must be a table"
+  }
+ },
+ {
+  "name": "truthy_models_integer",
+  "compatibility": "exact",
+  "toml": "[gateway]\nmodels = 1\n",
+  "outcome": {
+   "status": "invalid",
+   "python_error": "gateway-compat-vector: '[gateway.models]' must be a table"
+  }
+ },
+ {
+  "name": "truthy_models_string",
+  "compatibility": "exact",
+  "toml": "[gateway]\nmodels = \"configured\"\n",
+  "outcome": {
+   "status": "invalid",
+   "python_error": "gateway-compat-vector: '[gateway.models]' must be a table"
+  }
+ },
+ {
+  "name": "truthy_models_array",
+  "compatibility": "exact",
+  "toml": "[gateway]\nmodels = [0]\n",
+  "outcome": {
+   "status": "invalid",
+   "python_error": "gateway-compat-vector: '[gateway.models]' must be a table"
+  }
+ },
+ {
+  "name": "model_entry_scalar",
+  "compatibility": "exact",
+  "toml": "[gateway.models]\nlocal = 1\n",
+  "outcome": {
+   "status": "invalid",
+   "python_error": "gateway-compat-vector: '[gateway.models.local]' must be a table"
+  }
+ },
+ {
+  "name": "model_missing_base_url",
+  "compatibility": "exact",
+  "toml": "[gateway.models.local]\nmodel = \"m\"\n",
+  "outcome": {
+   "status": "invalid",
+   "python_error": "gateway-compat-vector: 'gateway.models.local.base_url' must be a string"
+  }
+ },
+ {
+  "name": "model_empty_base_url",
+  "compatibility": "exact",
+  "toml": "[gateway.models.local]\nbase_url = \"\"\nmodel = \"m\"\n",
+  "outcome": {
+   "status": "invalid",
+   "python_error": "gateway-compat-vector: 'gateway.models.local.base_url' must be a string"
+  }
+ },
+ {
+  "name": "model_missing_model",
+  "compatibility": "exact",
+  "toml": "[gateway.models.local]\nbase_url = \"http://x/v1\"\n",
+  "outcome": {
+   "status": "invalid",
+   "python_error": "gateway-compat-vector: 'gateway.models.local.model' must be a string"
+  }
+ },
+ {
+  "name": "model_empty_api_key_env",
+  "compatibility": "exact",
+  "toml": "[gateway.models.local]\nbase_url = \"http://127.0.0.1:11434/v1\"\nmodel = \"local-model\"\napi_key_env = \"\"\n",
+  "outcome": {
+   "status": "invalid",
+   "python_error": "gateway-compat-vector: 'gateway.models.local.api_key_env' must be a non-empty string"
+  }
+ },
+ {
+  "name": "model_command_without_environment",
+  "compatibility": "exact",
+  "toml": "[gateway.models.local]\nbase_url = \"http://127.0.0.1:11434/v1\"\nmodel = \"local-model\"\napi_key_cmd = \"security lookup\"\n",
+  "outcome": {
+   "status": "invalid",
+   "python_error": "gateway-compat-vector: 'gateway.models.local.api_key_cmd' needs 'api_key_env' to name the variable it fills"
+  }
+ },
+ {
+  "name": "model_negative_cost",
+  "compatibility": "exact",
+  "toml": "[gateway.models.local]\nbase_url = \"http://127.0.0.1:11434/v1\"\nmodel = \"local-model\"\ncost_per_1k = -0.01\n",
+  "outcome": {
+   "status": "invalid",
+   "python_error": "gateway-compat-vector: 'gateway.models.local.cost_per_1k' must be a non-negative number"
+  }
+ },
+ {
+  "name": "model_bad_fallback_shape",
+  "compatibility": "exact",
+  "toml": "[gateway.models.local]\nbase_url = \"http://127.0.0.1:11434/v1\"\nmodel = \"local-model\"\nfallbacks = \"backup\"\n",
+  "outcome": {
+   "status": "invalid",
+   "python_error": "gateway-compat-vector: 'gateway.models.local.fallbacks' must be a list of model names"
+  }
+ },
+ {
+  "name": "model_empty_fallback_name",
+  "compatibility": "exact",
+  "toml": "[gateway.models.local]\nbase_url = \"http://127.0.0.1:11434/v1\"\nmodel = \"local-model\"\nfallbacks = [\"\"]\n",
+  "outcome": {
+   "status": "invalid",
+   "python_error": "gateway-compat-vector: 'gateway.models.local.fallbacks' must be a list of model names"
+  }
+ },
+ {
+  "name": "model_bad_context_window",
+  "compatibility": "exact",
+  "toml": "[gateway.models.local]\nbase_url = \"http://127.0.0.1:11434/v1\"\nmodel = \"local-model\"\ncontext_window = 0\n",
+  "outcome": {
+   "status": "invalid",
+   "python_error": "gateway-compat-vector: 'gateway.models.local.context_window' must be a positive integer"
+  }
+ },
+ {
+  "name": "unknown_fallback_cross_reference",
+  "compatibility": "exact",
+  "toml": "[gateway.models.local]\nbase_url = \"http://127.0.0.1:11434/v1\"\nmodel = \"local-model\"\nfallbacks = [\"missing\"]\n",
+  "outcome": {
+   "status": "invalid",
+   "python_error": "gateway-compat-vector: 'gateway.models.local.fallbacks' names unknown model 'missing'"
+  }
+ },
+ {
+  "name": "self_fallback_cross_reference",
+  "compatibility": "exact",
+  "toml": "[gateway.models.local]\nbase_url = \"http://127.0.0.1:11434/v1\"\nmodel = \"local-model\"\nfallbacks = [\"local\"]\n",
+  "outcome": {
+   "status": "invalid",
+   "python_error": "gateway-compat-vector: 'gateway.models.local.fallbacks' cannot include itself"
+  }
+ },
+ {
+  "name": "unknown_key_model_cross_reference",
+  "compatibility": "exact",
+  "toml": "[gateway.keys.team]\nhash = \"0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef\"\nmodels = [\"missing\"]\n\n[gateway.models.local]\nbase_url = \"http://127.0.0.1:11434/v1\"\nmodel = \"local-model\"\n",
+  "outcome": {
+   "status": "invalid",
+   "python_error": "gateway-compat-vector: 'gateway.keys.team.models' names unknown model 'missing'"
+  }
+ },
+ {
+  "name": "nonfinite_breaker_cooldown_is_rust_hardening_boundary",
+  "compatibility": "rust_rejects_nonfinite",
+  "toml": "[gateway]\nbreaker_cooldown = nan\n",
+  "outcome": {
+   "status": "valid",
+   "summary": {
+    "route_on": "turn",
+    "sticky": false,
+    "sticky_cooldown": 0,
+    "slash_directives": false,
+    "offline": false,
+    "retries": 2,
+    "breaker_threshold": 5,
+    "breaker_cooldown": {
+     "nonfinite": "nan"
+    },
+    "failover": "same-tier",
+    "budget": null,
+    "cache": null,
+    "rate_limit": null,
+    "keys": [],
+    "models": []
+   }
+  }
+ },
+ {
+  "name": "nonfinite_budget_is_rust_hardening_boundary",
+  "compatibility": "rust_rejects_nonfinite",
+  "toml": "[gateway.budget]\nlimit = nan\n",
+  "outcome": {
+   "status": "valid",
+   "summary": {
+    "route_on": "turn",
+    "sticky": false,
+    "sticky_cooldown": 0,
+    "slash_directives": false,
+    "offline": false,
+    "retries": 2,
+    "breaker_threshold": 5,
+    "breaker_cooldown": 30.0,
+    "failover": "same-tier",
+    "budget": {
+     "limit": {
+      "nonfinite": "nan"
+     },
+     "window": "day",
+     "on_breach": "degrade"
+    },
+    "cache": null,
+    "rate_limit": null,
+    "keys": [],
+    "models": []
+   }
+  }
+ },
+ {
+  "name": "nonfinite_cache_ttl_is_rust_hardening_boundary",
+  "compatibility": "rust_rejects_nonfinite",
+  "toml": "[gateway.cache]\nttl = nan\n",
+  "outcome": {
+   "status": "valid",
+   "summary": {
+    "route_on": "turn",
+    "sticky": false,
+    "sticky_cooldown": 0,
+    "slash_directives": false,
+    "offline": false,
+    "retries": 2,
+    "breaker_threshold": 5,
+    "breaker_cooldown": 30.0,
+    "failover": "same-tier",
+    "budget": null,
+    "cache": {
+     "enabled": false,
+     "ttl": {
+      "nonfinite": "nan"
+     },
+     "max_entries": 1024,
+     "max_bytes": 67108864
+    },
+    "rate_limit": null,
+    "keys": [],
+    "models": []
+   }
+  }
+ },
+ {
+  "name": "nonfinite_rate_window_is_rust_hardening_boundary",
+  "compatibility": "rust_rejects_nonfinite",
+  "toml": "[gateway.rate_limit]\nrpm = 1\nwindow = inf\n",
+  "outcome": {
+   "status": "valid",
+   "summary": {
+    "route_on": "turn",
+    "sticky": false,
+    "sticky_cooldown": 0,
+    "slash_directives": false,
+    "offline": false,
+    "retries": 2,
+    "breaker_threshold": 5,
+    "breaker_cooldown": 30.0,
+    "failover": "same-tier",
+    "budget": null,
+    "cache": null,
+    "rate_limit": {
+     "rpm": 1,
+     "tpm": null,
+     "window": {
+      "nonfinite": "positive_infinity"
+     }
+    },
+    "keys": [],
+    "models": []
+   }
+  }
+ },
+ {
+  "name": "nonfinite_model_cost_is_rust_hardening_boundary",
+  "compatibility": "rust_rejects_nonfinite",
+  "toml": "[gateway.models.local]\nbase_url = \"http://127.0.0.1:11434/v1\"\nmodel = \"local-model\"\ncost_per_1k = nan\n",
+  "outcome": {
+   "status": "valid",
+   "summary": {
+    "route_on": "turn",
+    "sticky": false,
+    "sticky_cooldown": 0,
+    "slash_directives": false,
+    "offline": false,
+    "retries": 2,
+    "breaker_threshold": 5,
+    "breaker_cooldown": 30.0,
+    "failover": "same-tier",
+    "budget": null,
+    "cache": null,
+    "rate_limit": null,
+    "keys": [],
+    "models": [
+     {
+      "name": "local",
+      "base_url": "http://127.0.0.1:11434/v1",
+      "model": "local-model",
+      "credential_reference": {
+       "api_key_env": null,
+       "api_key_cmd": null
+      },
+      "cost_per_1k": {
+       "nonfinite": "nan"
+      },
+      "fallbacks": [],
+      "context_window": null
+     }
+    ]
+   }
+  }
+ }
+]
