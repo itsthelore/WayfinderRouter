@@ -13,7 +13,7 @@ def test_hybrid_preset_config_round_trips():
     assert set(gw.models) == {"local", "cloud"}
     assert gw.models["local"].base_url == "http://localhost:11434/v1"
     assert gw.models["local"].api_key_env is None  # keyless local arm
-    assert gw.models["cloud"].api_key_env == "ANTHROPIC_API_KEY"
+    assert gw.models["cloud"].api_key_env == "OPENAI_API_KEY"
     # the [routing] threshold shorthand parses to local/cloud tiers
     routing = routing_config_from_toml(text)
     assert [t.model for t in routing.tiers] == ["local", "cloud"]
@@ -53,7 +53,7 @@ def test_gemini_preset_config_round_trips(monkeypatch):
 def test_presets_carry_rough_costs():
     hybrid = gateway_config_from_toml(bootstrap.render_config(bootstrap.PRESETS["hybrid"]))
     assert hybrid.models["local"].cost_per_1k == 0.0  # local is free
-    assert hybrid.models["cloud"].cost_per_1k == 0.009
+    assert hybrid.models["cloud"].cost_per_1k == 0.0075
     openai = gateway_config_from_toml(bootstrap.render_config(bootstrap.PRESETS["openai"]))
     assert openai.models["small"].cost_per_1k and openai.models["large"].cost_per_1k
     assert openai.models["large"].cost_per_1k > openai.models["small"].cost_per_1k
@@ -100,24 +100,24 @@ def test_keychain_false_is_byte_identical():
 
 def test_env_example_lists_names_without_secrets():
     text = bootstrap.render_env_example(bootstrap.PRESETS["hybrid"])
-    assert "ANTHROPIC_API_KEY=" in text
+    assert "OPENAI_API_KEY=" in text
     for line in text.splitlines():
-        if line.startswith("ANTHROPIC_API_KEY"):
-            assert line == "ANTHROPIC_API_KEY="  # the name only — never a value
+        if line.startswith("OPENAI_API_KEY"):
+            assert line == "OPENAI_API_KEY="  # the name only — never a value
 
 
 def test_key_status_flags_keyless_and_missing(monkeypatch):
     gw = gateway_config_from_toml(bootstrap.render_config(bootstrap.PRESETS["hybrid"]))
-    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
     by_name = {s.name: s for s in bootstrap.key_status(gw.models)}
     assert by_name["local"].env_var is None and by_name["local"].ok is True  # keyless
-    assert by_name["cloud"].env_var == "ANTHROPIC_API_KEY" and by_name["cloud"].ok is False
-    assert bootstrap.missing_keys(list(by_name.values())) == ["ANTHROPIC_API_KEY"]
+    assert by_name["cloud"].env_var == "OPENAI_API_KEY" and by_name["cloud"].ok is False
+    assert bootstrap.missing_keys(list(by_name.values())) == ["OPENAI_API_KEY"]
 
 
 def test_key_status_ok_when_key_set(monkeypatch):
     gw = gateway_config_from_toml(bootstrap.render_config(bootstrap.PRESETS["hybrid"]))
-    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-test")
+    monkeypatch.setenv("OPENAI_API_KEY", "sk-test")
     statuses = bootstrap.key_status(gw.models)
     assert all(s.ok for s in statuses)
     assert bootstrap.missing_keys(statuses) == []
@@ -127,9 +127,9 @@ def test_key_status_ok_when_key_set(monkeypatch):
 _CMD_MODEL = (
     "[gateway.models.cloud]\n"
     'base_url = "https://api.anthropic.com/v1"\n'
-    'model = "claude-sonnet-4-6"\n'
-    'api_key_env = "ANTHROPIC_API_KEY"\n'
-    'api_key_cmd = "op read op://Private/Anthropic/credential"\n'
+    'model = "gpt-4o"\n'
+    'api_key_env = "OPENAI_API_KEY"\n'
+    'api_key_cmd = "op read op://Private/OpenAI/credential"\n'
 )
 
 
@@ -148,16 +148,16 @@ def test_resolve_keys_fills_unset_var_in_memory():
 
     errors = bootstrap.resolve_keys(gw.models, environ=env, runner=runner)
     assert errors == {}
-    assert env["ANTHROPIC_API_KEY"] == "sk-from-vault"  # stripped, in memory only
-    assert seen == ["op read op://Private/Anthropic/credential"]
+    assert env["OPENAI_API_KEY"] == "sk-from-vault"  # stripped, in memory only
+    assert seen == ["op read op://Private/OpenAI/credential"]
 
 
 def test_resolve_keys_preset_env_var_wins_and_command_is_not_run():
     gw = gateway_config_from_toml(_CMD_MODEL)
-    env = {"ANTHROPIC_API_KEY": "already-here"}
+    env = {"OPENAI_API_KEY": "already-here"}
     errors = bootstrap.resolve_keys(gw.models, environ=env, runner=_boom)
     assert errors == {}
-    assert env["ANTHROPIC_API_KEY"] == "already-here"
+    assert env["OPENAI_API_KEY"] == "already-here"
 
 
 def test_resolve_keys_reports_command_failure_without_setting_var():
@@ -169,7 +169,7 @@ def test_resolve_keys_reports_command_failure_without_setting_var():
 
     errors = bootstrap.resolve_keys(gw.models, environ=env, runner=runner)
     assert "cloud" in errors and "exited 1" in errors["cloud"]
-    assert "ANTHROPIC_API_KEY" not in env  # nothing leaks in on failure
+    assert "OPENAI_API_KEY" not in env  # nothing leaks in on failure
 
 
 def test_resolve_keys_treats_empty_output_as_failure():
@@ -177,7 +177,7 @@ def test_resolve_keys_treats_empty_output_as_failure():
     env: dict[str, str] = {}
     errors = bootstrap.resolve_keys(gw.models, environ=env, runner=lambda _c: "   \n")
     assert "cloud" in errors and "no output" in errors["cloud"]
-    assert "ANTHROPIC_API_KEY" not in env
+    assert "OPENAI_API_KEY" not in env
 
 
 def test_resolve_keys_noop_for_keyless_and_command_free_models():
@@ -191,12 +191,12 @@ def test_resolve_keys_noop_for_keyless_and_command_free_models():
 def test_suggest_key_commands_lists_one_per_detected_tool():
     found = {"op", "pass"}
     cmds = bootstrap.suggest_key_commands(
-        "ANTHROPIC_API_KEY", which=lambda exe: exe if exe in found else None
+        "OPENAI_API_KEY", which=lambda exe: exe if exe in found else None
     )
     assert len(cmds) == 2
     assert any(c.startswith("op read") for c in cmds)
     assert any(c.startswith("pass show") for c in cmds)
-    assert all("ANTHROPIC_API_KEY" in c for c in cmds)
+    assert all("OPENAI_API_KEY" in c for c in cmds)
 
 
 def test_suggest_key_commands_empty_when_no_tools_installed():
@@ -206,7 +206,7 @@ def test_suggest_key_commands_empty_when_no_tools_installed():
 def test_suggest_key_commands_covers_team_and_cloud_stores():
     tools = {"vault", "aws", "bw", "doppler", "gopass", "gcloud"}
     cmds = bootstrap.suggest_key_commands(
-        "ANTHROPIC_API_KEY", which=lambda exe: exe if exe in tools else None
+        "OPENAI_API_KEY", which=lambda exe: exe if exe in tools else None
     )
     joined = "\n".join(cmds)
     assert "vault kv get" in joined
@@ -215,7 +215,7 @@ def test_suggest_key_commands_covers_team_and_cloud_stores():
     assert "doppler secrets get" in joined
     assert "gopass show" in joined
     assert "gcloud secrets versions access" in joined
-    assert all("ANTHROPIC_API_KEY" in c for c in cmds)
+    assert all("OPENAI_API_KEY" in c for c in cmds)
     assert len(cmds) == len(tools)  # one suggestion per detected tool
 
 
@@ -223,15 +223,15 @@ def test_every_suggested_command_is_a_valid_toml_value():
     # Suggestions are shown as `api_key_cmd = "<cmd>"`; inner quotes must not break it.
     all_tools = {h[0] for h in bootstrap._KEY_HELPERS}
     cmds = bootstrap.suggest_key_commands(
-        "ANTHROPIC_API_KEY", which=lambda exe: exe if exe in all_tools else None
+        "OPENAI_API_KEY", which=lambda exe: exe if exe in all_tools else None
     )
     assert len(cmds) == len(all_tools)
     for cmd in cmds:
         toml = (
             "[gateway.models.cloud]\n"
             'base_url = "https://api.anthropic.com/v1"\n'
-            'model = "claude-sonnet-4-6"\n'
-            'api_key_env = "ANTHROPIC_API_KEY"\n'
+            'model = "gpt-4o"\n'
+            'api_key_env = "OPENAI_API_KEY"\n'
             f'api_key_cmd = "{cmd}"\n'
         )
         assert gateway_config_from_toml(toml).models["cloud"].api_key_cmd == cmd
@@ -242,13 +242,13 @@ def test_resolve_keys_runs_a_real_shell_command_by_default():
     gw = gateway_config_from_toml(
         "[gateway.models.cloud]\n"
         'base_url = "https://api.anthropic.com/v1"\n'
-        'model = "claude-sonnet-4-6"\n'
-        'api_key_env = "ANTHROPIC_API_KEY"\n'
+        'model = "gpt-4o"\n'
+        'api_key_env = "OPENAI_API_KEY"\n'
         'api_key_cmd = "echo sk-live"\n'
     )
     env: dict[str, str] = {}
     assert bootstrap.resolve_keys(gw.models, environ=env) == {}
-    assert env["ANTHROPIC_API_KEY"] == "sk-live"  # trailing newline stripped
+    assert env["OPENAI_API_KEY"] == "sk-live"  # trailing newline stripped
 
 
 def test_resolve_keys_real_command_nonzero_exit_is_reported():
@@ -256,13 +256,13 @@ def test_resolve_keys_real_command_nonzero_exit_is_reported():
         "[gateway.models.cloud]\n"
         'base_url = "https://api.anthropic.com/v1"\n'
         'model = "x"\n'
-        'api_key_env = "ANTHROPIC_API_KEY"\n'
+        'api_key_env = "OPENAI_API_KEY"\n'
         'api_key_cmd = "exit 7"\n'
     )
     env: dict[str, str] = {}
     errors = bootstrap.resolve_keys(gw.models, environ=env)
     assert "cloud" in errors and "exited 7" in errors["cloud"]
-    assert "ANTHROPIC_API_KEY" not in env
+    assert "OPENAI_API_KEY" not in env
 
 
 def _scripted(answers):

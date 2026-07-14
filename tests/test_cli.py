@@ -277,15 +277,15 @@ def test_webchat_nudges_to_init_when_no_models(monkeypatch, gw, fake_browser, tm
 
 def test_init_scaffolds_config_and_env_example(tmp_path, monkeypatch, capsys):
     monkeypatch.chdir(tmp_path)
-    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
     rc = main(["init"])
     out = capsys.readouterr().out
     assert rc == 0
     assert (tmp_path / "wayfinder-router.toml").is_file()
     env_text = (tmp_path / ".env.example").read_text(encoding="utf-8")
-    assert "ANTHROPIC_API_KEY=" in env_text  # the name only
+    assert "OPENAI_API_KEY=" in env_text  # the name only
     assert "✗ not set" in out  # the cloud key check flags the unset var
-    assert 'export ANTHROPIC_API_KEY="..."' in out
+    assert 'export OPENAI_API_KEY="..."' in out
     # the scaffold is loadable
     cfg = (tmp_path / "wayfinder-router.toml").read_text(encoding="utf-8")
     assert "[gateway.models.local]" in cfg and "[gateway.models.cloud]" in cfg
@@ -341,6 +341,20 @@ def test_init_unknown_preset_is_usage_error(tmp_path, monkeypatch, capsys):
     assert "unknown preset" in capsys.readouterr().err
 
 
+def test_init_local_preset_is_offline_and_keyless(tmp_path, monkeypatch, capsys):
+    monkeypatch.chdir(tmp_path)
+    assert main(["init", "--preset", "local"]) == 0
+    text = (tmp_path / "wayfinder-router.toml").read_text()
+    assert "offline = true" in text
+    assert "api_key_env" not in text
+
+
+def test_init_creates_missing_parent_directory(tmp_path, capsys):
+    target = tmp_path / "nested" / "config" / "wayfinder-router.toml"
+    assert main(["init", "--preset", "local", "--path", str(target)]) == 0
+    assert target.exists()
+
+
 def test_init_keychain_reaches_the_output(tmp_path, monkeypatch, capsys):
     """`--keychain` (WF-ADR-0044) threads through to the rendered config, with --print and
     with a real write; without the flag no Keychain reference appears."""
@@ -349,7 +363,7 @@ def test_init_keychain_reaches_the_output(tmp_path, monkeypatch, capsys):
     printed = capsys.readouterr().out
     assert (
         'api_key_cmd = "/usr/bin/security find-generic-password '
-        '-s wayfinder-router -a ANTHROPIC_API_KEY -w"' in printed
+        '-s wayfinder-router -a OPENAI_API_KEY -w"' in printed
     )
     assert main(["init", "--keychain"]) == 0
     cfg = (tmp_path / "wayfinder-router.toml").read_text(encoding="utf-8")
@@ -366,7 +380,7 @@ def test_doctor_without_config_is_usage_error(tmp_path, capsys):
 
 def test_doctor_reports_missing_key(tmp_path, monkeypatch, capsys):
     monkeypatch.chdir(tmp_path)
-    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
     main(["init"])
     capsys.readouterr()  # drop init's output
     rc = main(["doctor", "--dir", str(tmp_path)])
@@ -377,7 +391,7 @@ def test_doctor_reports_missing_key(tmp_path, monkeypatch, capsys):
 
 def test_doctor_ready_when_keys_present(tmp_path, monkeypatch, capsys):
     monkeypatch.chdir(tmp_path)
-    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-test")
+    monkeypatch.setenv("OPENAI_API_KEY", "sk-test")
     main(["init"])
     capsys.readouterr()
     rc = main(["doctor", "--dir", str(tmp_path)])
@@ -398,7 +412,7 @@ def test_init_interactive_print_streams_toml_to_stdout(monkeypatch, capsys):
 
 def test_init_interactive_writes_config_and_reports_keys(tmp_path, monkeypatch, capsys):
     monkeypatch.chdir(tmp_path)
-    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
     # Ollama local + Anthropic cloud (cut 0.08)
     _feed_stdin(monkeypatch, "1\n\n\ny\n3\n\n\n0.08\nn\n")
     rc = main(["init", "-i"])
@@ -475,3 +489,91 @@ def test_config_set_rejects_unknown_key_bad_value_and_missing_file(tmp_path, mon
     assert "unknown config key" in capsys.readouterr().err
     assert main(["config", "set", "gateway.offline", "maybe"]) == 2
     assert "'true' or 'false'" in capsys.readouterr().err
+
+
+def test_config_read_routing_emits_json(tmp_path, monkeypatch, capsys):
+    import json
+
+    monkeypatch.delenv("WAYFINDER_CONFIG", raising=False)
+    target = tmp_path / "wayfinder-router.toml"
+    target.write_text("[routing]\nthreshold = 0.42\n", encoding="utf-8")
+
+    assert main(["config", "read-routing", "--path", str(target)]) == 0
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["mode"] == "binary"
+    assert payload["threshold"] == 0.42
+    assert [row["id"] for row in payload["weights"]] == list(FEATURE_ORDER)
+
+
+def test_config_apply_routing_writes_threshold_and_preserves_gateway(tmp_path, monkeypatch):
+    import io
+
+    monkeypatch.delenv("WAYFINDER_CONFIG", raising=False)
+    target = tmp_path / "wayfinder-router.toml"
+    target.write_text(
+        "[gateway]\noffline = true\n\n"
+        "[gateway.models.local]\nbase_url = \"http://localhost:11434/v1\"\nmodel = \"llama\"\n\n"
+        "[routing]\nthreshold = 0.2\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setattr("sys.stdin", io.StringIO("[routing]\nthreshold = 0.73\n"))
+
+    assert main(["config", "apply-routing", "--path", str(target)]) == 0
+    text = target.read_text(encoding="utf-8")
+    assert "[gateway]\noffline = true" in text
+    assert "[gateway.models.local]" in text
+    assert "threshold = 0.73" in text
+    assert "threshold = 0.2" not in text
+
+
+def test_config_apply_routing_rejects_bad_threshold(tmp_path, monkeypatch, capsys):
+    import io
+
+    target = tmp_path / "wayfinder-router.toml"
+    target.write_text("[routing]\nthreshold = 0.2\n", encoding="utf-8")
+    monkeypatch.setattr("sys.stdin", io.StringIO("[routing]\nthreshold = 2.0\n"))
+
+    assert main(["config", "apply-routing", "--path", str(target)]) == 1
+    assert "threshold" in capsys.readouterr().err
+    assert "threshold = 0.2" in target.read_text(encoding="utf-8")
+
+
+def test_config_apply_routing_rejects_invalid_duplicate_and_descending_tiers(
+    tmp_path, monkeypatch, capsys
+):
+    import io
+
+    target = tmp_path / "wayfinder-router.toml"
+    target.write_text("[routing]\nthreshold = 0.2\n", encoding="utf-8")
+    cases = [
+        "[[routing.tiers]]\nmin_score = 0.3\nmodel = \"local\"\n",
+        (
+            "[[routing.tiers]]\nmin_score = 0.0\nmodel = \"local\"\n\n"
+            "[[routing.tiers]]\nmin_score = 0.0\nmodel = \"cloud\"\n"
+        ),
+        (
+            "[[routing.tiers]]\nmin_score = 0.0\nmodel = \"local\"\n\n"
+            "[[routing.tiers]]\nmin_score = 0.8\nmodel = \"cloud\"\n\n"
+            "[[routing.tiers]]\nmin_score = 0.4\nmodel = \"mid\"\n"
+        ),
+    ]
+    for fragment in cases:
+        monkeypatch.setattr("sys.stdin", io.StringIO(fragment))
+        assert main(["config", "apply-routing", "--path", str(target)]) == 1
+        assert "tier" in capsys.readouterr().err
+    assert "threshold = 0.2" in target.read_text(encoding="utf-8")
+
+
+def test_config_apply_routing_rejects_negative_or_unknown_weights(tmp_path, monkeypatch, capsys):
+    import io
+
+    target = tmp_path / "wayfinder-router.toml"
+    target.write_text("[routing]\nthreshold = 0.2\n", encoding="utf-8")
+    for fragment in (
+        "[routing]\nthreshold = 0.2\nweights = { word_count = -1 }\n",
+        "[routing]\nthreshold = 0.2\nweights = { surprise = 1 }\n",
+    ):
+        monkeypatch.setattr("sys.stdin", io.StringIO(fragment))
+        assert main(["config", "apply-routing", "--path", str(target)]) == 1
+        assert "weights" in capsys.readouterr().err
+    assert "threshold = 0.2" in target.read_text(encoding="utf-8")
