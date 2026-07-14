@@ -166,9 +166,13 @@ fn run_capabilities(arguments: &[String], stdout: &mut dyn Write, stderr: &mut d
         write_error(stderr, "wayfinder-router: capabilities accepts only --json");
         return EXIT_USAGE;
     }
-    let mut credential_mechanisms = vec!["environment-reference", "legacy-command-reference"];
+    let credential_mechanisms = vec!["environment-reference", "legacy-command-reference"];
     #[cfg(target_os = "macos")]
-    credential_mechanisms.push("xpc-credential-broker-v1");
+    let credential_mechanisms = {
+        let mut mechanisms = credential_mechanisms;
+        mechanisms.push("xpc-credential-broker-v1");
+        mechanisms
+    };
     let payload = json!({
         "schema_version": "1",
         "implementation": "rust",
