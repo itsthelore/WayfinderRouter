@@ -5,10 +5,11 @@ import PackageDescription
 let package = Package(
     name: "WayfinderMac",
     platforms: [
-        .macOS(.v13)
+        .macOS(.v14)
     ],
     products: [
         .executable(name: "WayfinderMac", targets: ["WayfinderMacApp"]),
+        .executable(name: "WayfinderCredentialBroker", targets: ["WayfinderCredentialBroker"]),
         .executable(name: "WayfinderFoundationModelBroker", targets: ["WayfinderFoundationModelBroker"])
     ],
     targets: [
@@ -20,6 +21,10 @@ let package = Package(
             name: "WayfinderMacApp",
             dependencies: ["WayfinderMacCore"],
             path: "Sources/WayfinderMacApp"
+        ),
+        .executableTarget(
+            name: "WayfinderCredentialBroker",
+            path: "Sources/WayfinderCredentialBroker"
         ),
         .executableTarget(
             name: "WayfinderFoundationModelBroker",

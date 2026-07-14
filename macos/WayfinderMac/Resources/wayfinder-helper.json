@@ -1,0 +1,10 @@
+{
+  "schema_version": 1,
+  "implementation": "rust",
+  "version": "2026.7.0",
+  "wire_contract_version": 1,
+  "config_schema_minimum": 1,
+  "config_schema_maximum": 1,
+  "required_commands": ["route", "serve", "service", "capabilities"],
+  "credential_mechanisms": ["xpc-credential-broker-v1"]
+}
