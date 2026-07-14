@@ -196,7 +196,14 @@ private func sanitizedCode(_ error: Error) -> String {
 private final class BrokerDelegate: NSObject, NSXPCListenerDelegate {
     func listener(_ listener: NSXPCListener, shouldAcceptNewConnection connection: NSXPCConnection) -> Bool {
         guard validateSigningIdentity(pid: connection.processIdentifier) else { return false }
-        connection.exportedInterface = NSXPCInterface(with: FoundationModelBrokerProtocol.self)
+        let brokerInterface = NSXPCInterface(with: FoundationModelBrokerProtocol.self)
+        brokerInterface.setInterface(
+            NSXPCInterface(with: FoundationModelStreamSink.self),
+            for: NSSelectorFromString("stream:to:"),
+            argumentIndex: 1,
+            ofReply: false
+        )
+        connection.exportedInterface = brokerInterface
         connection.exportedObject = FoundationModelBroker()
         connection.resume()
         return true
