@@ -1801,6 +1801,7 @@ async fn streaming_chat_response(input: StreamingChatInput) -> Response {
     }
     let started = Instant::now();
     let mut last_error = "upstream stream could not be established".to_owned();
+    let mut last_failure = (StatusCode::BAD_GATEWAY, "wayfinder_router_upstream_error");
     let mut established = None;
     for target_name in &plan {
         let Some(target) = state
@@ -1844,18 +1845,14 @@ async fn streaming_chat_response(input: StreamingChatInput) -> Response {
             }
             Err(error) => {
                 last_error = error.to_string();
+                last_failure = fatal_delivery_status(&error);
                 let _ = state.reliability_policy().record(target_name, false);
                 let _ = state.metrics().observe_upstream_error(target_name);
             }
         }
     }
     let Some((served_by, response)) = established else {
-        return error_response(
-            StatusCode::BAD_GATEWAY,
-            "wayfinder_router_upstream_error",
-            last_error,
-            headers,
-        );
+        return error_response(last_failure.0, last_failure.1, last_error, headers);
     };
     if let Err(message) = insert_header(&mut headers, "x-wayfinder-router-served-by", &served_by) {
         return error_response(
@@ -5157,6 +5154,31 @@ mod tests {
         assert_eq!(
             json_body(get(&state, "/v1/savings").await?).await?["requests"],
             0
+        );
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn streaming_precommit_apple_not_ready_is_truthful_503() -> TestResult {
+        let (state, _) = streaming_live_state(
+            &GatewayConfig::default(),
+            BTreeMap::from([(
+                "local".to_owned(),
+                VecDeque::from([ScriptedStreamOutcome::EstablishError(DeliveryError::Apple(
+                    crate::delivery::AppleDeliveryError::NotReady,
+                ))]),
+            )]),
+        )?;
+        let payload = json!({
+            "model": "auto",
+            "stream": true,
+            "messages": [{"role": "user", "content": "hi"}]
+        });
+        let response = post_json(&state, "/v1/chat/completions", &payload, &[]).await?;
+        assert_eq!(response.status(), StatusCode::SERVICE_UNAVAILABLE);
+        assert_eq!(
+            json_body(response).await?["error"]["type"],
+            "wayfinder_router_not_ready"
         );
         Ok(())
     }

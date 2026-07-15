@@ -526,12 +526,8 @@ async fn build_serve_state<W: Write>(
             apple_timeout,
             || uuid::Uuid::new_v4().to_string(),
         );
-        state = state
-            .with_delivery(Arc::new(BufferedProviderDelivery::new(
-                openai.clone(),
-                apple,
-            )))
-            .with_streaming_delivery(openai);
+        state =
+            state.with_provider_delivery(Arc::new(BufferedProviderDelivery::new(openai, apple)));
     }
     Ok(state)
 }
