@@ -11,16 +11,14 @@ public final class AppState: ObservableObject {
     @Published public var chatDraft = ""
     @Published public private(set) var chatMessages: [ChatMessage]
     @Published public private(set) var isSendingMessage = false
-    @Published public var selectedSettingsSection: SettingsSection = .keys
-    @Published public var selectedProvider: ProviderKind = .anthropic
 
     private let client: any WayfinderClient
 
     public init(client: any WayfinderClient) {
         self.client = client
-        self.routingStats = .mock
-        self.gatewayOverview = .mock
-        self.chatMessages = .mockConversation
+        self.routingStats = .empty
+        self.gatewayOverview = .checking
+        self.chatMessages = []
     }
 
     public var canAnalyse: Bool {
@@ -67,12 +65,18 @@ public final class AppState: ObservableObject {
             do {
                 let overview = try await client.loadOverview()
                 await MainActor.run {
-                    self.gatewayOverview = overview
+                    self.gatewayOverview = overview.preservingUnavailableEndpoints(
+                        from: self.gatewayOverview.endpoints
+                    )
                     self.routingStats = overview.routingStats
                     self.isRefreshingStats = false
                 }
             } catch {
                 await MainActor.run {
+                    self.gatewayOverview = GatewayOverview
+                        .unreachable(error.localizedDescription)
+                        .preservingUnavailableEndpoints(from: self.gatewayOverview.endpoints)
+                    self.routingStats = .empty
                     self.isRefreshingStats = false
                 }
             }
@@ -123,7 +127,6 @@ public final class AppState: ObservableObject {
 }
 
 public enum SettingsSection: String, CaseIterable, Identifiable, Sendable {
-    case general = "General"
     case gateway = "Gateway"
     case routing = "Routing"
     case keys = "Keys"
@@ -135,8 +138,6 @@ public enum SettingsSection: String, CaseIterable, Identifiable, Sendable {
 
     public var symbolName: String {
         switch self {
-        case .general:
-            return "slider.horizontal.3"
         case .gateway:
             return "server.rack"
         case .routing:
@@ -165,90 +166,64 @@ public enum ProviderKind: String, CaseIterable, Identifiable, Sendable {
 }
 
 private extension RoutingStats {
-    static var mock: RoutingStats {
+    static var empty: RoutingStats {
         RoutingStats(
-            localPercent: 0.68,
-            cloudPercent: 0.32,
-            localRouteCount: 17,
-            cloudRouteCount: 8,
-            totalTurns: 25,
-            savedToday: Decimal(string: "0.01") ?? 0,
-            savedLast30Days: Decimal(string: "0.01") ?? 0,
-            cloudSpendToday: Decimal(string: "0.00") ?? 0,
-            percentVsAlwaysCloud: 0.29,
-            isPriced: true,
-            hasSavings: true,
-            savedTodayDisplay: "Today: $0.01 · 29% vs always-cloud",
-            savedLast30DaysDisplay: "Last 30 days: $0.01 · 29% vs always-cloud",
-            averageRoutingTimeMilliseconds: 0.82,
+            localPercent: 0,
+            cloudPercent: 0,
+            totalTurns: 0,
+            savedToday: 0,
+            savedLast30Days: 0,
+            cloudSpendToday: 0,
+            percentVsAlwaysCloud: 0,
+            isPriced: false,
+            hasSavings: false,
+            savedTodayDisplay: "Today: Not yet available",
+            savedLast30DaysDisplay: "Last 30 days: Not yet available",
+            averageRoutingTimeMilliseconds: 0,
             updatedAt: Date(),
-            isRunning: true
+            isRunning: false
         )
     }
 }
 
 private extension GatewayOverview {
-    static var mock: GatewayOverview {
+    static var checking: GatewayOverview {
         GatewayOverview(
-            gateway: .running(detail: "2 configured models"),
-            hosted: .checkKeys(detail: "ANTHROPIC_API_KEY"),
-            routingStats: .mock,
+            gateway: .checking(detail: "Checking gateway status"),
+            hosted: .checking(detail: "Checking configured models"),
+            routingStats: .empty,
             updatedAt: Date()
         )
     }
-}
 
-private extension Array where Element == ChatMessage {
-    static var mockConversation: [ChatMessage] {
-        [
-            ChatMessage(
-                role: .user,
-                text: "summarize the wf-adr-0044 config seam",
-                createdAt: Date().addingTimeInterval(-180)
-            ),
-            ChatMessage(
-                role: .router,
-                text: "Routing decisions stay local.",
-                decision: RoutingDecision(
-                    prompt: "summarize the wf-adr-0044 config seam",
-                    route: .local,
-                    provider: "local",
-                    score: 0.18,
-                    mode: "tiered",
-                    explanation: "Routing decisions stay local.",
-                    features: [
-                        RoutingFeature(name: "word_count", value: "6", contribution: 0.04),
-                        RoutingFeature(name: "code_block_count", value: "0", contribution: 0),
-                        RoutingFeature(name: "structured_sections", value: "none", contribution: 0),
-                    ],
-                    createdAt: Date().addingTimeInterval(-175)
-                ),
-                createdAt: Date().addingTimeInterval(-175)
-            ),
-            ChatMessage(
-                role: .user,
-                text: "Design a scalable data pipeline in Python with retries and monitoring. Include code.",
-                createdAt: Date().addingTimeInterval(-80)
-            ),
-            ChatMessage(
-                role: .router,
-                text: "Routed to cloud because the prompt includes code, multiple constraints, and a structured implementation request.",
-                decision: RoutingDecision(
-                    prompt: "Design a scalable data pipeline in Python with retries and monitoring. Include code.",
-                    route: .cloud,
-                    provider: "claude-sonnet-4-6",
-                    score: 0.82,
-                    mode: "tiered",
-                    explanation: "Routed to cloud because the prompt includes code, multiple constraints, and a structured implementation request.",
-                    features: [
-                        RoutingFeature(name: "code_block_count", value: "requested", contribution: 0.35),
-                        RoutingFeature(name: "constraint_term_count", value: "3", contribution: 0.24),
-                        RoutingFeature(name: "list_item_count", value: "multi-step", contribution: 0.18),
-                    ],
-                    createdAt: Date().addingTimeInterval(-76)
-                ),
-                createdAt: Date().addingTimeInterval(-76)
-            ),
-        ]
+    static func unreachable(_ detail: String) -> GatewayOverview {
+        GatewayOverview(
+            gateway: .unreachable(detail: detail),
+            hosted: .unavailable(detail: "Gateway is not reachable"),
+            routingStats: .empty,
+            updatedAt: Date()
+        )
+    }
+
+    func preservingUnavailableEndpoints(
+        from previousEndpoints: [EndpointDisplayStatus]
+    ) -> GatewayOverview {
+        guard endpoints.isEmpty, !gateway.isRunning, !previousEndpoints.isEmpty else {
+            return self
+        }
+        return GatewayOverview(
+            gateway: gateway,
+            hosted: hosted,
+            endpoints: previousEndpoints.map {
+                EndpointDisplayStatus(
+                    name: $0.name,
+                    providerName: $0.providerName,
+                    modelName: $0.modelName,
+                    state: .unavailable
+                )
+            },
+            routingStats: routingStats,
+            updatedAt: updatedAt
+        )
     }
 }

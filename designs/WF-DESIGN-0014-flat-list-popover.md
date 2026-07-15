@@ -23,6 +23,36 @@ Accepted
 > inventory, both below). Credit: CodexBar's layout is mirrored deliberately and disclosedly,
 > per its MIT license — no CodexBar code is vendored, only its arrangement.
 
+> Native Swift v1 amendment (WF-ROADMAP-0012): the fixed **400×550** canvas described below is
+> historical Tauri guidance, not the current native target. The Swift popover targets 340 pt width,
+> intrinsic height, and a 420 pt maximum at the default text size. Chat is post-v1 and is removed
+> from the shipping native component inventory and all interactive routes.
+
+## Native Swift v1 compact-popover grammar
+
+The native app follows the macOS Wi-Fi/System Settings grammar: one terse title/status row, stable
+32–36 pt rows, at most one restrained leading symbol slot, a primary label on the left and compact
+state on the right, hairline separators, system material and typography, and one quiet Settings…
+exit near the bottom. Detail, remediation, and diagnostics belong in Settings. The reference is
+stored at `designs/references/macos-wifi-popover-reference.png`; its provenance is recorded beside
+the asset.
+
+The shipping native v1 component inventory is: compact header/status, Gateway, Routing with a 6 pt
+local/cloud composition bar, Endpoint Status, Settings…, and Quit Wayfinder. Refresh remains
+automatic on open and available through Command-R rather than a permanent row. Chat is not a v1
+destination. At most one non-interactive status row may remain visible: “Chat” with trailing
+“Coming later,” no chevron, and a VoiceOver hint that it is unavailable in this release.
+
+Endpoint Status is one compact disclosure row whose native sibling submenu lists each configured
+provider and model with its route alias as secondary context, a Wayfinder status dot, and trailing
+readiness label. The submenu opens using native
+hover, click, and keyboard semantics, chooses the available side of the popover, and does not count
+against the 340×420 pt primary-panel limit. “Ready” means the gateway reports the endpoint configured
+and its required key present; it is not an active provider-uptime or credential-validity probe.
+
+WAYFINDER-specific semantics remain authoritative: teal means local/interactive, amber means
+cloud/degraded, structure is neutral, and only offline mode guarantees nothing leaves the machine.
+
 ## Context
 
 The maintainer's brief was specific: build the UI CodexBar actually has, with Wayfinder's colors
@@ -147,7 +177,8 @@ treatment.
   the ~6 icons actually imported end up in the bundle), not the unicode glyphs (`↗ ⚙ ▤`) the first
   pass used, and every row has one now, including the Offline mode toggle (`WifiOff`, replaced by
   a checkmark when on) — the first pass left it icon-less, breaking the rows' shared left edge.
-- **The popover grew from 360×480 to 400×550** (WF-ADR-0042 amended). CodexBar's own popover reads
+- **Historical Tauri canvas: 360×480 grew to 400×550** (WF-ADR-0042 amended at the time; superseded
+  for native Swift v1 by the compact-popover amendment above). CodexBar's own popover reads
   spacious at a canvas Wayfinder's original fixed size couldn't match without cramming; widening
   it was a deliberate call (confirmed with the maintainer, since it touches an existing ADR), not
   a silent scope-creep. The height is sized to the measured full menu (~547px) so no action row
@@ -155,7 +186,7 @@ treatment.
   `position_bottom_center` in `lib.rs` reads the window's live size, so only `tauri.conf.json`'s
   two numbers changed.
 
-### Component inventory (replaces WF-DESIGN-0012's card-based list)
+### Historical Tauri component inventory (replaces WF-DESIGN-0012's card-based list)
 
 - **MenuHeader** — line 1: bold name (left) + health text (right, neutral: "Running" /
   "Degraded" / "Offline" / "Unreachable" — never colour, matching CodexBar's "Max" tier badge
@@ -218,7 +249,7 @@ MenuHeader/MetricRow/ActionRow/the Chat sub-screen below. `StreamingMessage`, `C
 `OfflineToggle`, `OnboardingCard`, `StatusDot`, `SavingsGlance`, `LocalMirror` survive as
 components but are restyled flat (no `Card` wrapper, hairlines instead of rounded borders).
 
-### Chat has no CodexBar analogue — here is the disclosed extrapolation
+### Historical Tauri Chat extrapolation — excluded from native Swift v1
 
 CodexBar's tracked tools have no chat surface, so there is nothing to mirror for Wayfinder's
 WF-ADR-0042 §1 chat requirement. Rather than resurrect a tab-strip that only makes sense for
@@ -293,12 +324,13 @@ autostart plugin, and the shortcut row is explicitly display-only until rebindin
 
 ## Later (recorded, not built)
 
-About Wayfinder panel + footer row · a menu-bar-metric picker (only worth building if Wayfinder
-grows a second fill-worthy percentage, e.g. a readable budget-used% once WF-ADR-0032's budget
-has a stable HTTP surface).
+About Wayfinder panel + footer row for product/version credits · a menu-bar-metric picker (only
+worth building if Wayfinder grows a second fill-worthy percentage, e.g. a readable budget-used%
+once WF-ADR-0032's budget has a stable HTTP surface).
 
-> Landed since this document: the Privacy/verify-lite panel, key management, and ⌥W rebinding
-> (this list's former entries) shipped as WF-DESIGN-0015 on WF-ADR-0044's config seam.
+> Landed since this document: the Privacy/verify-lite panel, key management, ⌥W rebinding, and a
+> native Help settings page with the "one gateway, many apps" explainer shipped as WF-DESIGN-0015
+> on WF-ADR-0044's config seam.
 
 ## Related
 

@@ -37,14 +37,29 @@ macos/
       WayfinderMacTests/
 ```
 
-This is a Swift Package executable for the first prototype. It creates a native `NSStatusItem`, opens a transient `NSPopover`, hosts SwiftUI with `NSHostingController`, and opens separate native chat/settings windows through AppKit-owned `NSWindow` instances. A later distribution patch can wrap the same core into an Xcode `.app` target with signing, app bundle metadata, and assets.
+This is a Swift Package executable with a production bundle assembly path. It creates a native `NSStatusItem`,
+opens a transient AppKit panel, hosts SwiftUI with `NSHostingController`, and opens native Settings
+through an AppKit-owned `NSWindow`. Chat window source is retained but blocked by the v1 release
+policy. `script/build_release_bundle.sh` assembles the app, universal Rust helper, credential-broker
+XPC service, signed manifest, hardened-runtime signatures, and optional notarization/stapling.
+`Packaging/RELEASE.md` defines the physical-Mac release and rollback evidence.
 
-## Implemented Native Surfaces
+## Native v1 Surfaces
 
-- Menu-bar popover: routing split, saved summary, running toggle, refresh/settings/chat/quit rows.
-- Wayfinder Chat window: routed conversation examples, compact route cards, why disclosure, bottom composer.
+- Shipping v1: an accessory menu-bar app, routing/gateway and endpoint status, native
+  Settings, service controls, routing configuration, provider-key management through the Keychain
+  boundary, privacy, Help, and About.
+- The v1 popover may show one disabled “Chat” row with trailing “Coming later.” It has no chevron
+  and cannot create or open a window.
 - Settings window: native sidebar, Keys screen, provider picker/form, existing key status row, Keychain info box.
 - Service boundary: `WayfinderClient` supports `route(prompt:)`, `loadStats(range:)`, and `loadOverview()`. The app entrypoint uses `GatewayWayfinderClient` for live status/stat rendering; `MockWayfinderClient` remains available for previews and tests.
+
+## Blocked / Post-v1
+
+The current Chat window and its supporting source remain in-tree for a later milestone, but Chat is
+not a native v1 capability. Release wiring must not instantiate `ChatWindowController` or expose a
+popover action, shortcut, command, deep link, or any other route to it. Do not treat the retained
+Chat source as a shipping surface or a v1 fidelity target; WF-ROADMAP-0012 governs unblocking it.
 
 ## Integration Strategy
 
@@ -77,8 +92,12 @@ The first UI patch ran with `MockWayfinderClient` so the menu-bar, chat, and set
 
 ```bash
 cd macos/WayfinderMac
-swift run WayfinderMac
+./script/build_and_run.sh
 ```
+
+The script builds and stages a local `dist/WayfinderMac.app` bundle before launch. Use
+`--verify` to confirm the process starts, or `--debug`, `--logs`, and `--telemetry` for
+focused diagnostics.
 
 ## Test
 

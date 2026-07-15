@@ -7,13 +7,15 @@ final class StatusItemController: NSObject {
 
     init(
         appState: AppState,
-        onOpenChat: @escaping () -> Void,
+        chatAvailability: FeatureAvailability,
+        onOpenChat: (() -> Void)?,
         onOpenSettings: @escaping () -> Void,
         onQuit: @escaping () -> Void
     ) {
         self.statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
         self.popoverController = PopoverController(
             appState: appState,
+            chatAvailability: chatAvailability,
             onOpenChat: onOpenChat,
             onOpenSettings: onOpenSettings,
             onQuit: onQuit

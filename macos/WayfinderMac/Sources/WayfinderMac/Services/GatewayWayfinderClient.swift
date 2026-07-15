@@ -77,19 +77,47 @@ public struct GatewayWayfinderClient: WayfinderClient {
         return GatewayOverview(
             gateway: gateway,
             hosted: hosted,
+            endpoints: Self.endpointDisplayStatuses(
+                gateway: gateway,
+                models: models?.models ?? []
+            ),
             routingStats: stats,
             updatedAt: updatedAt
         )
     }
 
+    static func endpointDisplayStatuses(
+        gateway: GatewayDisplayState,
+        models: [GatewayModelInfo]
+    ) -> [EndpointDisplayStatus] {
+        models.map { model in
+            let state: EndpointState
+            switch gateway {
+            case .checking, .stopped, .unreachable, .notInstalled:
+                state = .unavailable
+            case .offline:
+                state = model.isLocalEndpoint ? .ready : .disabled
+            case .running, .degraded:
+                state = model.keyOK ? .ready : .checkKey
+            }
+            return EndpointDisplayStatus(
+                name: model.name,
+                providerName: model.providerDisplayName,
+                modelName: model.model,
+                state: state
+            )
+        }
+        .sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
+    }
+
     static func gatewayDisplayState(from status: GatewayServiceStatus) -> GatewayDisplayState {
-        guard status.installed else {
-            return .notInstalled(detail: "Install the launch agent in Settings")
-        }
-        guard status.loaded else {
-            return .stopped(detail: "Launch agent is not loaded")
-        }
         guard let health = status.health else {
+            guard status.installed else {
+                return .notInstalled(detail: "Install the launch agent in Settings")
+            }
+            guard status.loaded else {
+                return .stopped(detail: "Launch agent is not loaded")
+            }
             return .unreachable(detail: status.launchConfiguration.healthURLString)
         }
         if health.offline {
@@ -110,6 +138,8 @@ public struct GatewayWayfinderClient: WayfinderClient {
         models: [GatewayModelInfo]
     ) -> HostedDisplayState {
         switch gateway {
+        case .checking:
+            return .checking(detail: "Checking gateway status")
         case .offline:
             return .disabled(detail: "Gateway offline mode is on")
         case .stopped, .unreachable, .notInstalled:
@@ -323,6 +353,56 @@ struct GatewayModelInfo: Decodable, Equatable, Sendable {
         case model
         case apiKeyEnv = "api_key_env"
         case keyOK = "key_ok"
+    }
+
+    var isLocalEndpoint: Bool {
+        guard let url = URL(string: endpoint), let host = url.host?.lowercased() else {
+            return false
+        }
+        return host == "localhost" || host == "127.0.0.1" || host == "::1" || host == "[::1]"
+    }
+
+    var providerDisplayName: String {
+        let endpointHost = URL(string: endpoint)?.host?.lowercased() ?? ""
+        let hint = [name, endpointHost, apiKeyEnv ?? ""]
+            .joined(separator: " ")
+            .lowercased()
+
+        let knownProviders: [(tokens: [String], displayName: String)] = [
+            (["anthropic"], "Anthropic"),
+            (["openrouter"], "OpenRouter"),
+            (["openai", "azure.com"], "OpenAI"),
+            (["gemini", "googleapis", "generativelanguage", "vertex"], "Google Gemini"),
+            (["mistral"], "Mistral"),
+            (["groq"], "Groq"),
+            (["cohere"], "Cohere"),
+            (["perplexity"], "Perplexity"),
+            (["together"], "Together AI"),
+            (["xai", "grok"], "xAI"),
+        ]
+        if let provider = knownProviders.first(where: { provider in
+            provider.tokens.contains(where: hint.contains)
+        }) {
+            return provider.displayName
+        }
+
+        if isLocalEndpoint {
+            if hint.contains("ollama") || URL(string: endpoint)?.port == 11_434 {
+                return "Ollama"
+            }
+            if hint.contains("lmstudio") || hint.contains("lm-studio")
+                || URL(string: endpoint)?.port == 1_234 {
+                return "LM Studio"
+            }
+            return "Local"
+        }
+
+        if !endpointHost.isEmpty {
+            return endpointHost
+                .replacingOccurrences(of: "api.", with: "", options: .anchored)
+                .replacingOccurrences(of: "www.", with: "", options: .anchored)
+        }
+        return name
     }
 }
 

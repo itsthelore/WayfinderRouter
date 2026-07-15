@@ -20,39 +20,42 @@ public struct RoutingSettingsView: View {
         VStack(alignment: .leading, spacing: 14) {
             header
 
-            ScrollView {
-                VStack(alignment: .leading, spacing: 12) {
-                    VStack(spacing: 0) {
-                        if isLoading {
-                            loadingRow
-                        } else {
+            Form {
+                Section("Routing policy") {
+                    if isLoading {
+                        loadingRow
+                    } else {
                             modeContent
-                            Divider()
+                                .disabled(state.saving)
+                    }
+                }
+
+                if !isLoading {
+                    Section("Preview") {
                             promptPreviewSection
-                            Divider()
+                    }
+
+                    Section("Advanced") {
                             weightsSection
-                            Divider()
+                                .disabled(state.saving)
+                    }
+
+                    Section {
                             actionRow
                             if let statusMessage {
                                 Divider()
                                 inlineMessage(statusMessage)
                             }
-                        }
                     }
-                    .background(WayfinderTheme.panel.opacity(0.62))
-                    .overlay(alignment: .bottom) {
-                        Rectangle()
-                            .fill(WayfinderTheme.hairline)
-                            .frame(height: 1)
-                    }
+                }
 
+                Section {
                     Text("If routing behavior does not update immediately, restart the gateway from Gateway settings.")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(.bottom, 20)
             }
+            .formStyle(.grouped)
         }
         .padding(.horizontal, 28)
         .padding(.top, 28)

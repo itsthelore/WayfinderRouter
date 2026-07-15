@@ -2,10 +2,13 @@ import SwiftUI
 
 public struct ChatConversationView: View {
     let turns: [ChatTurn]
+    let hasHistory: Bool
     @Binding var selectedDecisionID: UUID?
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
-    public init(turns: [ChatTurn], selectedDecisionID: Binding<UUID?>) {
+    public init(turns: [ChatTurn], hasHistory: Bool, selectedDecisionID: Binding<UUID?>) {
         self.turns = turns
+        self.hasHistory = hasHistory
         self._selectedDecisionID = selectedDecisionID
     }
 
@@ -14,7 +17,7 @@ public struct ChatConversationView: View {
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 10) {
                     if turns.isEmpty {
-                        EmptyFilteredHistory()
+                        EmptyFilteredHistory(hasHistory: hasHistory)
                             .padding(.top, 120)
                     } else {
                         HistoryDateDivider()
@@ -35,15 +38,20 @@ public struct ChatConversationView: View {
                 .padding(.vertical, 22)
                 .frame(maxWidth: .infinity, alignment: .center)
             }
-            .onChange(of: turns.count) { _ in
+            .onChange(of: turns.count) {
                 if let last = turns.last {
-                    withAnimation(.easeOut(duration: 0.2)) {
+                    if reduceMotion {
                         proxy.scrollTo(last.id, anchor: .bottom)
+                    } else {
+                        withAnimation(.easeOut(duration: 0.2)) {
+                            proxy.scrollTo(last.id, anchor: .bottom)
+                        }
                     }
                 }
             }
         }
         .background(ChatWorkspaceChrome.canvas)
+        .textSelection(.enabled)
     }
 }
 
@@ -63,14 +71,16 @@ private struct HistoryDateDivider: View {
 }
 
 private struct EmptyFilteredHistory: View {
+    let hasHistory: Bool
+
     var body: some View {
         VStack(spacing: 10) {
             Image(systemName: "line.3.horizontal.decrease.circle")
                 .font(.title2)
                 .foregroundStyle(ChatWorkspaceChrome.secondaryText)
-            Text("No matching routes")
+            Text(hasHistory ? "No matching routes" : "No routed turns yet")
                 .font(.headline)
-            Text("Adjust the search or route filter to show history.")
+            Text(hasHistory ? "Adjust the search or route filter to show history." : "Route a prompt below to inspect the decision.")
                 .font(.callout)
                 .foregroundStyle(.secondary)
         }

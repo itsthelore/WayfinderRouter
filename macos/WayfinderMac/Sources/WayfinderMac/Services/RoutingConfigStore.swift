@@ -41,6 +41,19 @@ public struct RoutingConfigStore: Sendable {
     }
 
     public func save(_ state: RoutingSettingsState) async throws {
+        guard FileManager.default.fileExists(atPath: configURL.path) else {
+            throw RoutingConfigStoreError.missingConfig(configURL.path)
+        }
+        let existing: String
+        do {
+            existing = try String(contentsOf: configURL, encoding: .utf8)
+        } catch {
+            throw RoutingConfigStoreError.parse(error.localizedDescription)
+        }
+        if let field = Self.firstUnsupportedRoutingField(in: existing) {
+            throw RoutingConfigStoreError.unsupportedConfig(field)
+        }
+
         var draft = state
         draft.normalize()
         let result = await runner(
@@ -102,6 +115,40 @@ public struct RoutingConfigStore: Sendable {
             )
         }.value
     }
+
+    private static func firstUnsupportedRoutingField(in text: String) -> String? {
+        var section = ""
+
+        for rawLine in text.split(separator: "\n", omittingEmptySubsequences: false) {
+            let line = rawLine
+                .split(separator: "#", maxSplits: 1, omittingEmptySubsequences: false)
+                .first?
+                .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            guard !line.isEmpty else { continue }
+
+            if line.hasPrefix("["), line.hasSuffix("]") {
+                section = line.trimmingCharacters(in: CharacterSet(charactersIn: "[] "))
+                if section.hasPrefix("routing."), section != "routing.tiers" {
+                    return section
+                }
+                continue
+            }
+
+            guard section == "routing" || section == "routing.tiers",
+                  let separator = line.firstIndex(of: "=") else {
+                continue
+            }
+            let key = line[..<separator].trimmingCharacters(in: .whitespaces)
+            let supported = section == "routing"
+                ? Set(["threshold", "weights"])
+                : Set(["min_score", "model"])
+            if !supported.contains(key) {
+                return "\(section).\(key)"
+            }
+        }
+
+        return nil
+    }
 }
 
 public struct RoutingCommandResult: Sendable {
@@ -122,6 +169,7 @@ public enum RoutingConfigStoreError: LocalizedError, Equatable, Sendable {
     case missingConfig(String)
     case parse(String)
     case cli(String)
+    case unsupportedConfig(String)
 
     public var errorDescription: String? {
         switch self {
@@ -131,6 +179,8 @@ public enum RoutingConfigStoreError: LocalizedError, Equatable, Sendable {
             return "Could not read routing config: \(message)"
         case .cli(let message):
             return message.isEmpty ? "The routing config command failed." : message
+        case .unsupportedConfig(let field):
+            return "Routing settings did not save because the config contains \(field), which this UI cannot preserve yet. Edit the config directly instead."
         }
     }
 }

@@ -12,14 +12,18 @@ final class SettingsWindowController {
         let window = NSWindow(contentViewController: hostingController)
         window.title = "Settings"
         window.styleMask = [.titled, .closable, .miniaturizable, .resizable]
-        window.setContentSize(NSSize(width: 980, height: 700))
-        window.minSize = NSSize(width: 900, height: 620)
+        window.setContentSize(NSSize(width: 700, height: 520))
+        window.contentMinSize = NSSize(width: 620, height: 460)
         window.isReleasedWhenClosed = false
+        let frameName = NSWindow.FrameAutosaveName("Wayfinder.Settings")
+        if !window.setFrameUsingName(frameName) {
+            window.center()
+        }
+        window.setFrameAutosaveName(frameName)
         self.window = window
     }
 
     func show() {
-        window.center()
         window.makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)
     }

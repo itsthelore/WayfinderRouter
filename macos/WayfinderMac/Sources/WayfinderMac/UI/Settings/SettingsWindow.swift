@@ -1,50 +1,55 @@
 import SwiftUI
 
 public struct WayfinderSettingsWindow: View {
-    @EnvironmentObject private var appState: AppState
+    @State private var selectedSection: SettingsSection = .gateway
+    @State private var selectedProvider: ProviderKind = .anthropic
 
     public init() {}
 
     public var body: some View {
-        HStack(spacing: 0) {
-            SettingsSidebar(selected: $appState.selectedSettingsSection)
-            Divider()
+        NavigationSplitView {
+            SettingsSidebar(selected: $selectedSection)
+                .navigationSplitViewColumnWidth(min: 170, ideal: 180, max: 190)
+        } detail: {
             settingsContent
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
                 .background(.regularMaterial)
         }
-        .frame(minWidth: 940, minHeight: 660)
+        .navigationSplitViewStyle(.balanced)
+        .frame(minWidth: 620, minHeight: 460)
     }
 
     @ViewBuilder
     private var settingsContent: some View {
-        switch appState.selectedSettingsSection {
+        switch selectedSection {
         case .gateway:
             GatewaySettingsView()
         case .routing:
             RoutingSettingsView()
         case .keys:
-            KeysSettingsView()
+            KeysSettingsView(selectedProvider: $selectedProvider)
         case .privacy:
             PrivacySettingsView()
         case .help:
             HelpSettingsView()
-        default:
-            PlaceholderSettingsView(section: appState.selectedSettingsSection)
+        case .about:
+            AboutSettingsView()
         }
     }
 }
 
-private struct PlaceholderSettingsView: View {
-    let section: SettingsSection
-
+private struct AboutSettingsView: View {
     var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            Label(section.rawValue, systemImage: section.symbolName)
-                .font(.title2.weight(.semibold))
-            Text("This section will be wired after the native shell and Keys flow are settled.")
+        VStack(alignment: .leading, spacing: 8) {
+            Text("Wayfinder")
+                .font(.title3.weight(.semibold))
+            Text("A native menu-bar client for the local Wayfinder gateway.")
+                .font(.callout)
                 .foregroundStyle(.secondary)
+            Spacer()
         }
-        .padding(32)
+        .padding(.horizontal, 28)
+        .padding(.vertical, 24)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
     }
 }

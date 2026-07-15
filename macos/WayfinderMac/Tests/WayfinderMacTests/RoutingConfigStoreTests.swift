@@ -100,11 +100,52 @@ final class RoutingConfigStoreTests: XCTestCase {
         }
     }
 
-    private func makeConfig() throws -> URL {
+    func testSaveRefusesToDropTierCosts() async throws {
+        let url = try makeConfig("""
+        [[routing.tiers]]
+        min_score = 0.0
+        model = "local"
+        cost = 0.1
+        """)
+        let store = RoutingConfigStore(configURL: url) { _, _ in
+            XCTFail("Unsafe config should not invoke CLI")
+            return RoutingCommandResult(exitCode: 0)
+        }
+
+        do {
+            try await store.save(RoutingSettingsState())
+            XCTFail("Expected unsupported config error")
+        } catch let error as RoutingConfigStoreError {
+            XCTAssertEqual(error, .unsupportedConfig("routing.tiers.cost"))
+        }
+    }
+
+    func testSaveRefusesToDropCustomLexicon() async throws {
+        let url = try makeConfig("""
+        [routing]
+        threshold = 0.5
+
+        [routing.lexicon]
+        reasoning_terms = ["prove"]
+        """)
+        let store = RoutingConfigStore(configURL: url) { _, _ in
+            XCTFail("Unsafe config should not invoke CLI")
+            return RoutingCommandResult(exitCode: 0)
+        }
+
+        do {
+            try await store.save(RoutingSettingsState())
+            XCTFail("Expected unsupported config error")
+        } catch let error as RoutingConfigStoreError {
+            XCTAssertEqual(error, .unsupportedConfig("routing.lexicon"))
+        }
+    }
+
+    private func makeConfig(_ contents: String = "[routing]\nthreshold = 0.5\n") throws -> URL {
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         let url = directory.appendingPathComponent("wayfinder-router.toml")
-        try "[routing]\nthreshold = 0.5\n".write(to: url, atomically: true, encoding: .utf8)
+        try contents.write(to: url, atomically: true, encoding: .utf8)
         return url
     }
 
