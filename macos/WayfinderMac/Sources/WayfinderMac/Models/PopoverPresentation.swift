@@ -4,14 +4,16 @@ struct PopoverPresentation: Equatable {
     let overallStatus: String
     let endpoints: EndpointStatusPresentation
     let routing: RoutingPopoverPresentation
+    let setupIncomplete: Bool
 
-    init(overview: GatewayOverview) {
+    init(overview: GatewayOverview, setupAssessment: SetupAssessment = .healthy) {
         self.overallStatus = Self.overallStatus(
             gateway: overview.gateway,
             hosted: overview.hosted
         )
         self.endpoints = EndpointStatusPresentation(overview: overview)
         self.routing = RoutingPopoverPresentation(stats: overview.routingStats)
+        self.setupIncomplete = setupAssessment.isIncomplete || UserDefaults.standard.bool(forKey: "Wayfinder.Setup.Deferred")
     }
 
     private static func overallStatus(

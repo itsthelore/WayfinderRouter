@@ -35,6 +35,15 @@ public struct GatewaySettingsView: View {
                 gatewayStatusSection
                 }
 
+                Section("Setup") {
+                    Button("Run Setup Assistant…") {
+                        NotificationCenter.default.post(name: .wayfinderRunSetupAssistant, object: nil)
+                    }
+                    Text("Recheck tools, routing configuration, credentials, and the gateway service.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+
                 Section("Use with apps") {
                 GatewayExplainerSection()
                 }

@@ -663,7 +663,7 @@ def render_empty_state(palette: dict[str, str]) -> RenderableType:
     body.append("You're in preview — routing decisions only, no replies yet.\n\n", style=text_c)
     body.append("Add models without leaving the chat:\n", style=muted)
     body.append("  /init", style=accent)
-    body.append("          scaffold the hybrid preset (keyless local Ollama → Anthropic cloud)\n",
+    body.append("          scaffold the hybrid preset (keyless local Ollama → OpenAI cloud)\n",
                 style=muted)
     body.append("  /init openai", style=accent)
     body.append("   two OpenAI tiers (gpt-4o-mini → gpt-4o)\n", style=muted)

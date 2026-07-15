@@ -39,7 +39,7 @@ public struct WayfinderPopoverView: View {
 
     public var body: some View {
         WayfinderPopoverContent(
-            presentation: PopoverPresentation(overview: appState.gatewayOverview),
+            presentation: PopoverPresentation(overview: appState.gatewayOverview, setupAssessment: appState.setupAssessment),
             chatAvailability: chatAvailability,
             onOpenChat: onOpenChat,
             onEndpointAnchorFrameChange: onEndpointAnchorFrameChange,
@@ -83,6 +83,15 @@ struct WayfinderPopoverContent: View {
             chatRow
 
             NativeMenuSeparator()
+            if appSetupNeeded {
+                PopoverActionRow(
+                    symbolName: "wand.and.stars",
+                    title: "Set Up Wayfinder…",
+                    accessibilityHint: "Opens the Setup Assistant.",
+                    action: { NotificationCenter.default.post(name: .wayfinderRunSetupAssistant, object: nil) }
+                )
+                NativeMenuSeparator()
+            }
             PopoverActionRow(
                 symbolName: "gearshape",
                 title: "Settings…",
@@ -122,6 +131,10 @@ struct WayfinderPopoverContent: View {
                 style: .continuous
             )
         )
+    }
+
+    private var appSetupNeeded: Bool {
+        presentation.setupIncomplete
     }
 
     private var header: some View {
