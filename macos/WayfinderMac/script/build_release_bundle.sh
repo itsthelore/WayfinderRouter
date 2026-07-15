@@ -7,10 +7,33 @@ RUST_DIR="$REPO_DIR/rust"
 DIST_DIR="${DIST_DIR:-$ROOT_DIR/dist-release}"
 APP="$DIST_DIR/Wayfinder.app"
 IDENTITY="${CODESIGN_IDENTITY:--}"
+TIMESTAMP_OPTION="${CODESIGN_TIMESTAMP_OPTION:---timestamp}"
 DEPLOYMENT_TARGET="14.0"
+RELEASE_ARCHS="${WAYFINDER_RELEASE_ARCHS:-arm64 x86_64}"
 
 export MACOSX_DEPLOYMENT_TARGET="$DEPLOYMENT_TARGET"
-mkdir -p "$DIST_DIR/thin/arm64" "$DIST_DIR/thin/x86_64"
+
+has_arch() {
+  [[ " $RELEASE_ARCHS " == *" $1 "* ]]
+}
+
+for arch in $RELEASE_ARCHS; do
+  if [[ "$arch" != "arm64" && "$arch" != "x86_64" ]]; then
+    echo "unsupported WAYFINDER_RELEASE_ARCHS value: $arch" >&2
+    exit 2
+  fi
+done
+
+if ! has_arch arm64 && ! has_arch x86_64; then
+  echo "WAYFINDER_RELEASE_ARCHS must include arm64, x86_64, or both" >&2
+  exit 2
+fi
+
+for arch in arm64 x86_64; do
+  if has_arch "$arch"; then
+    mkdir -p "$DIST_DIR/thin/$arch"
+  fi
+done
 
 build_rust_slice() {
   local rust_target="$1"
@@ -29,20 +52,36 @@ build_swift_slice() {
   cp "$bin_path/WayfinderFoundationModelBroker" "$DIST_DIR/thin/$swift_arch/WayfinderFoundationModelBroker"
 }
 
-build_rust_slice aarch64-apple-darwin arm64
-build_rust_slice x86_64-apple-darwin x86_64
-build_swift_slice arm64
-build_swift_slice x86_64
+if has_arch arm64; then
+  build_rust_slice aarch64-apple-darwin arm64
+  build_swift_slice arm64
+fi
+if has_arch x86_64; then
+  build_rust_slice x86_64-apple-darwin x86_64
+  build_swift_slice x86_64
+fi
 
 rm -rf "$APP"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Helpers" "$APP/Contents/Resources"
 mkdir -p "$APP/Contents/XPCServices/com.wayfinder.CredentialBroker.xpc/Contents/MacOS"
 mkdir -p "$APP/Contents/XPCServices/com.wayfinder.FoundationModelBroker.xpc/Contents/MacOS"
 
-lipo -create "$DIST_DIR/thin/arm64/wayfinder-router" "$DIST_DIR/thin/x86_64/wayfinder-router" -output "$APP/Contents/Helpers/wayfinder-router"
-lipo -create "$DIST_DIR/thin/arm64/WayfinderMac" "$DIST_DIR/thin/x86_64/WayfinderMac" -output "$APP/Contents/MacOS/WayfinderMac"
-lipo -create "$DIST_DIR/thin/arm64/WayfinderCredentialBroker" "$DIST_DIR/thin/x86_64/WayfinderCredentialBroker" -output "$APP/Contents/XPCServices/com.wayfinder.CredentialBroker.xpc/Contents/MacOS/WayfinderCredentialBroker"
-lipo -create "$DIST_DIR/thin/arm64/WayfinderFoundationModelBroker" "$DIST_DIR/thin/x86_64/WayfinderFoundationModelBroker" -output "$APP/Contents/XPCServices/com.wayfinder.FoundationModelBroker.xpc/Contents/MacOS/WayfinderFoundationModelBroker"
+assemble_binary() {
+  local name="$1"
+  local output="$2"
+  if has_arch arm64 && has_arch x86_64; then
+    lipo -create "$DIST_DIR/thin/arm64/$name" "$DIST_DIR/thin/x86_64/$name" -output "$output"
+  elif has_arch arm64; then
+    cp "$DIST_DIR/thin/arm64/$name" "$output"
+  else
+    cp "$DIST_DIR/thin/x86_64/$name" "$output"
+  fi
+}
+
+assemble_binary wayfinder-router "$APP/Contents/Helpers/wayfinder-router"
+assemble_binary WayfinderMac "$APP/Contents/MacOS/WayfinderMac"
+assemble_binary WayfinderCredentialBroker "$APP/Contents/XPCServices/com.wayfinder.CredentialBroker.xpc/Contents/MacOS/WayfinderCredentialBroker"
+assemble_binary WayfinderFoundationModelBroker "$APP/Contents/XPCServices/com.wayfinder.FoundationModelBroker.xpc/Contents/MacOS/WayfinderFoundationModelBroker"
 
 cp "$ROOT_DIR/Packaging/App-Info.plist" "$APP/Contents/Info.plist"
 cp "$ROOT_DIR/Packaging/CredentialBroker-Info.plist" "$APP/Contents/XPCServices/com.wayfinder.CredentialBroker.xpc/Contents/Info.plist"
@@ -52,15 +91,20 @@ chmod 755 "$APP/Contents/MacOS/WayfinderMac" "$APP/Contents/Helpers/wayfinder-ro
 chmod 755 "$APP/Contents/XPCServices/com.wayfinder.CredentialBroker.xpc/Contents/MacOS/WayfinderCredentialBroker"
 chmod 755 "$APP/Contents/XPCServices/com.wayfinder.FoundationModelBroker.xpc/Contents/MacOS/WayfinderFoundationModelBroker"
 
-lipo -verify_arch arm64 x86_64 "$APP/Contents/Helpers/wayfinder-router"
-lipo -verify_arch arm64 x86_64 "$APP/Contents/MacOS/WayfinderMac"
-lipo -verify_arch arm64 x86_64 "$APP/Contents/XPCServices/com.wayfinder.CredentialBroker.xpc/Contents/MacOS/WayfinderCredentialBroker"
-lipo -verify_arch arm64 x86_64 "$APP/Contents/XPCServices/com.wayfinder.FoundationModelBroker.xpc/Contents/MacOS/WayfinderFoundationModelBroker"
+for binary in \
+  "$APP/Contents/Helpers/wayfinder-router" \
+  "$APP/Contents/MacOS/WayfinderMac" \
+  "$APP/Contents/XPCServices/com.wayfinder.CredentialBroker.xpc/Contents/MacOS/WayfinderCredentialBroker" \
+  "$APP/Contents/XPCServices/com.wayfinder.FoundationModelBroker.xpc/Contents/MacOS/WayfinderFoundationModelBroker"; do
+  for arch in $RELEASE_ARCHS; do
+    lipo "$binary" -verify_arch "$arch"
+  done
+done
 
-codesign --force --timestamp --options runtime --identifier com.wayfinder.router.helper --entitlements "$ROOT_DIR/Packaging/Helper.entitlements" --sign "$IDENTITY" "$APP/Contents/Helpers/wayfinder-router"
-codesign --force --timestamp --options runtime --entitlements "$ROOT_DIR/Packaging/CredentialBroker.entitlements" --sign "$IDENTITY" "$APP/Contents/XPCServices/com.wayfinder.CredentialBroker.xpc"
-codesign --force --timestamp --options runtime --entitlements "$ROOT_DIR/Packaging/FoundationModelBroker.entitlements" --sign "$IDENTITY" "$APP/Contents/XPCServices/com.wayfinder.FoundationModelBroker.xpc"
-codesign --force --timestamp --options runtime --entitlements "$ROOT_DIR/Packaging/App.entitlements" --sign "$IDENTITY" "$APP"
+codesign --force "$TIMESTAMP_OPTION" --options runtime --identifier com.wayfinder.router.helper --entitlements "$ROOT_DIR/Packaging/Helper.entitlements" --sign "$IDENTITY" "$APP/Contents/Helpers/wayfinder-router"
+codesign --force "$TIMESTAMP_OPTION" --options runtime --entitlements "$ROOT_DIR/Packaging/CredentialBroker.entitlements" --sign "$IDENTITY" "$APP/Contents/XPCServices/com.wayfinder.CredentialBroker.xpc"
+codesign --force "$TIMESTAMP_OPTION" --options runtime --entitlements "$ROOT_DIR/Packaging/FoundationModelBroker.entitlements" --sign "$IDENTITY" "$APP/Contents/XPCServices/com.wayfinder.FoundationModelBroker.xpc"
+codesign --force "$TIMESTAMP_OPTION" --options runtime --entitlements "$ROOT_DIR/Packaging/App.entitlements" --sign "$IDENTITY" "$APP"
 codesign --verify --deep --strict --verbose=2 "$APP"
 
 if [[ -n "${NOTARYTOOL_PROFILE:-}" ]]; then

@@ -20,8 +20,13 @@ import FoundationModels
 
 private actor InferenceTasks {
     private var tasks: [String: Task<Void, Never>] = [:]
+    private var pendingCancellations: Set<String> = []
 
     func insert(_ task: Task<Void, Never>, for requestID: String) {
+        if pendingCancellations.remove(requestID) != nil {
+            task.cancel()
+            return
+        }
         guard tasks.count < AppleFoundationModelsProtocolV1.maximumQueuedChunks else {
             task.cancel()
             return
@@ -31,7 +36,13 @@ private actor InferenceTasks {
     }
 
     func remove(_ requestID: String) { tasks[requestID] = nil }
-    func cancel(_ requestID: String) { tasks.removeValue(forKey: requestID)?.cancel() }
+    func cancel(_ requestID: String) {
+        if let task = tasks.removeValue(forKey: requestID) {
+            task.cancel()
+        } else if pendingCancellations.count < AppleFoundationModelsProtocolV1.maximumQueuedChunks {
+            pendingCancellations.insert(requestID)
+        }
+    }
 }
 
 private final class FoundationModelBroker: NSObject, FoundationModelBrokerProtocol {
@@ -97,6 +108,7 @@ private final class FoundationModelBroker: NSObject, FoundationModelBrokerProtoc
                         sink.receive(try AppleFoundationModelsWireCodec.encode(event))
                         sequence += 1
                     }
+                    try Task.checkCancellation()
                     let terminal = try AppleFoundationModelsStreamEvent(
                         requestID: decoded.requestID,
                         sequence: sequence,
@@ -194,6 +206,8 @@ private func sanitizedCode(_ error: Error) -> String {
 }
 
 private final class BrokerDelegate: NSObject, NSXPCListenerDelegate {
+    private let broker = FoundationModelBroker()
+
     func listener(_ listener: NSXPCListener, shouldAcceptNewConnection connection: NSXPCConnection) -> Bool {
         guard validateSigningIdentity(pid: connection.processIdentifier) else { return false }
         let brokerInterface = NSXPCInterface(with: FoundationModelBrokerProtocol.self)
@@ -204,7 +218,7 @@ private final class BrokerDelegate: NSObject, NSXPCListenerDelegate {
             ofReply: false
         )
         connection.exportedInterface = brokerInterface
-        connection.exportedObject = FoundationModelBroker()
+        connection.exportedObject = broker
         connection.resume()
         return true
     }

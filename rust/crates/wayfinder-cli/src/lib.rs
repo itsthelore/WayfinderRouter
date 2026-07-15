@@ -2,6 +2,7 @@
 
 #![forbid(unsafe_code)]
 
+mod apple_foundation_live;
 mod service_command;
 
 use std::collections::BTreeMap;
@@ -141,6 +142,9 @@ pub fn run(
         "route" => run_route(&arguments[1..], stdin, stdout, stderr),
         "service" => service_command::run_service(&arguments[1..], stdout, stderr),
         "capabilities" => run_capabilities(&arguments[1..], stdout, stderr),
+        "apple-foundation-live-smoke" => {
+            apple_foundation_live::run(&arguments[1..], stdout, stderr)
+        }
         "serve" => {
             write_error(
                 stderr,
