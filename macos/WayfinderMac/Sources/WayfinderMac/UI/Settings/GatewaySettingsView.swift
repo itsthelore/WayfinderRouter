@@ -21,24 +21,30 @@ public struct GatewaySettingsView: View {
     public init() {}
 
     public var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 20) {
-                VStack(alignment: .leading, spacing: 6) {
-                    Text("Gateway")
-                        .font(.title3.weight(.semibold))
-                    Text("Apps connect to this local router. Wayfinder then routes each request to configured providers and local models.")
-                        .font(.callout)
-                        .foregroundStyle(.secondary)
+        VStack(alignment: .leading, spacing: 14) {
+            VStack(alignment: .leading, spacing: 6) {
+                Text("Gateway")
+                    .font(.title3.weight(.semibold))
+                Text("Apps connect to this local router. Wayfinder routes each request to a configured endpoint.")
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+            }
+
+            Form {
+                Section("Status and connections") {
+                gatewayStatusSection
                 }
 
-                gatewayStatusSection
-
+                Section("Use with apps") {
                 GatewayExplainerSection()
+                }
             }
-            .padding(.horizontal, 28)
-            .padding(.vertical, 24)
-            .frame(maxWidth: .infinity, alignment: .leading)
+            .formStyle(.grouped)
         }
+        .padding(.horizontal, 28)
+        .padding(.top, 24)
+        .padding(.bottom, 16)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .task {
             await loadStatus(showSpinner: false)
         }
@@ -125,7 +131,7 @@ public struct GatewaySettingsView: View {
                     }
                     .frame(minWidth: 132)
                 }
-                .disabled(isRestarting)
+                .disabled(isRestarting || isRefreshing)
 
                 Button {
                     refreshStatus()
@@ -139,7 +145,7 @@ public struct GatewaySettingsView: View {
                     }
                     .frame(minWidth: 124)
                 }
-                .disabled(isRefreshing)
+                .disabled(isRefreshing || isRestarting)
 
                 Button {
                     revealConfig()
@@ -156,12 +162,6 @@ public struct GatewaySettingsView: View {
             InlineGatewayMessage(message: message)
                 .padding(.horizontal, 12)
                 .frame(height: 38)
-        }
-        .background(WayfinderTheme.panel.opacity(0.62))
-        .overlay(alignment: .bottom) {
-            Rectangle()
-                .fill(WayfinderTheme.hairline)
-                .frame(height: 1)
         }
     }
 
@@ -451,11 +451,7 @@ private struct GatewayValueRow: View {
 
 private struct GatewayExplainerSection: View {
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text("Use with apps")
-                .font(.callout.weight(.semibold))
-
-            VStack(spacing: 0) {
+        VStack(spacing: 0) {
                 GatewayExplainerRow(
                     title: "Connect",
                     value: "Point each app at the URL matching its API shape.",
@@ -476,13 +472,6 @@ private struct GatewayExplainerSection: View {
                     value: "One gateway can serve many apps without running separate services.",
                     symbolName: "point.3.connected.trianglepath.dotted"
                 )
-            }
-            .background(WayfinderTheme.panel.opacity(0.62))
-            .overlay(alignment: .bottom) {
-                Rectangle()
-                    .fill(WayfinderTheme.hairline)
-                    .frame(height: 1)
-            }
         }
     }
 }

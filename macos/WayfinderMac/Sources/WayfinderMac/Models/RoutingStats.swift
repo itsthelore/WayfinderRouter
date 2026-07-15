@@ -66,23 +66,82 @@ public struct RoutingStats: Codable, Equatable, Sendable {
 public struct GatewayOverview: Equatable, Sendable {
     public let gateway: GatewayDisplayState
     public let hosted: HostedDisplayState
+    public let endpoints: [EndpointDisplayStatus]
     public let routingStats: RoutingStats
     public let updatedAt: Date
 
     public init(
         gateway: GatewayDisplayState,
         hosted: HostedDisplayState,
+        endpoints: [EndpointDisplayStatus] = [],
         routingStats: RoutingStats,
         updatedAt: Date
     ) {
         self.gateway = gateway
         self.hosted = hosted
+        self.endpoints = endpoints
         self.routingStats = routingStats
         self.updatedAt = updatedAt
     }
 }
 
+public struct EndpointDisplayStatus: Equatable, Identifiable, Sendable {
+    public let name: String
+    public let providerName: String
+    public let modelName: String?
+    public let state: EndpointState
+
+    public var id: String { name }
+
+    public init(
+        name: String,
+        providerName: String? = nil,
+        modelName: String? = nil,
+        state: EndpointState
+    ) {
+        self.name = name
+        self.providerName = providerName ?? name
+        self.modelName = modelName
+        self.state = state
+    }
+
+    public var detailText: String? {
+        let alias = name.caseInsensitiveCompare(providerName) == .orderedSame
+            ? nil
+            : "route: \(name)"
+        return [modelName, alias]
+            .compactMap { $0 }
+            .joined(separator: " · ")
+            .nilIfEmpty
+    }
+}
+
+private extension String {
+    var nilIfEmpty: String? { isEmpty ? nil : self }
+}
+
+public enum EndpointState: Equatable, Sendable {
+    case ready
+    case checkKey
+    case disabled
+    case unavailable
+
+    public var title: String {
+        switch self {
+        case .ready:
+            return "Ready"
+        case .checkKey:
+            return "Check Key"
+        case .disabled:
+            return "Disabled"
+        case .unavailable:
+            return "Unavailable"
+        }
+    }
+}
+
 public enum GatewayDisplayState: Equatable, Sendable {
+    case checking(detail: String)
     case running(detail: String)
     case degraded(detail: String)
     case offline(detail: String)
@@ -92,6 +151,8 @@ public enum GatewayDisplayState: Equatable, Sendable {
 
     public var title: String {
         switch self {
+        case .checking:
+            return "Checking"
         case .running:
             return "Running"
         case .degraded:
@@ -109,7 +170,8 @@ public enum GatewayDisplayState: Equatable, Sendable {
 
     public var detail: String {
         switch self {
-        case .running(let detail),
+        case .checking(let detail),
+             .running(let detail),
              .degraded(let detail),
              .offline(let detail),
              .stopped(let detail),
@@ -123,13 +185,14 @@ public enum GatewayDisplayState: Equatable, Sendable {
         switch self {
         case .running, .degraded, .offline:
             return true
-        case .stopped, .unreachable, .notInstalled:
+        case .checking, .stopped, .unreachable, .notInstalled:
             return false
         }
     }
 }
 
 public enum HostedDisplayState: Equatable, Sendable {
+    case checking(detail: String)
     case ready(detail: String)
     case checkKeys(detail: String)
     case disabled(detail: String)
@@ -138,6 +201,8 @@ public enum HostedDisplayState: Equatable, Sendable {
 
     public var title: String {
         switch self {
+        case .checking:
+            return "Checking"
         case .ready:
             return "Ready"
         case .checkKeys:
@@ -153,7 +218,8 @@ public enum HostedDisplayState: Equatable, Sendable {
 
     public var detail: String {
         switch self {
-        case .ready(let detail),
+        case .checking(let detail),
+             .ready(let detail),
              .checkKeys(let detail),
              .disabled(let detail),
              .noModels(let detail),

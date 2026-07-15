@@ -1,0 +1,4 @@
+interface:
+  display_name: "WAYFINDER Codex UX Review"
+  short_description: "Review WAYFINDER native UX against Codex"
+  default_prompt: "Use $wayfinder-codex-ux-review to review the Swift macOS WAYFINDER UI against Codex-style UX patterns."

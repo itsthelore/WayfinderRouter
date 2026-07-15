@@ -7,6 +7,8 @@ public struct ProviderFormView: View {
     @State private var status: CredentialStatus = .unknown
     @State private var isWorking = false
     @State private var message: SettingsActionMessage?
+    @State private var keyPendingRemoval: String?
+    @State private var isShowingKeyRemovalConfirmation = false
 
     private let keychain = KeychainCredentialStore()
     private let gatewayService = GatewayServiceController()
@@ -79,7 +81,24 @@ public struct ProviderFormView: View {
         .task(id: provider) {
             keyValue = ""
             message = nil
+            keyPendingRemoval = nil
+            isShowingKeyRemovalConfirmation = false
             await refreshStatus()
+        }
+        .alert(
+            "Remove \(detail.displayName) Key?",
+            isPresented: $isShowingKeyRemovalConfirmation
+        ) {
+            Button("Cancel", role: .cancel) {
+                keyPendingRemoval = nil
+            }
+            Button("Remove Key", role: .destructive) {
+                guard let envVar = keyPendingRemoval else { return }
+                keyPendingRemoval = nil
+                removeKey(envVar: envVar)
+            }
+        } message: {
+            Text("This permanently removes \(keyPendingRemoval ?? "this credential") from the macOS Keychain. Apps using it may stop working.")
         }
     }
 
@@ -119,7 +138,8 @@ public struct ProviderFormView: View {
 
                 if status == .keyPresent {
                     Button(role: .destructive) {
-                        removeKey(envVar: envVar)
+                        keyPendingRemoval = envVar
+                        isShowingKeyRemovalConfirmation = true
                     } label: {
                         Text("Remove")
                     }

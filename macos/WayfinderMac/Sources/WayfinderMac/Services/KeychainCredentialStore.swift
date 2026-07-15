@@ -32,7 +32,6 @@ public struct KeychainCredentialStore: Sendable {
             "find-generic-password",
             "-s", Self.serviceName,
             "-a", envVar,
-            "-w",
         ]).isSuccess
     }
 

@@ -3,22 +3,32 @@ import AppKit
 @MainActor
 public final class AppDelegate: NSObject, NSApplicationDelegate {
     private let appState: AppState
+    private let featurePolicy: ReleaseFeaturePolicy
     private var statusItemController: StatusItemController?
-    private var chatWindowController: ChatWindowController?
+    private var chatFeatureCoordinator: ChatFeatureCoordinator?
     private var settingsWindowController: SettingsWindowController?
 
-    public init(client: any WayfinderClient) {
+    public init(
+        client: any WayfinderClient,
+        featurePolicy: ReleaseFeaturePolicy = .current
+    ) {
         self.appState = AppState(client: client)
+        self.featurePolicy = featurePolicy
         super.init()
     }
 
     public func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.accessory)
-        chatWindowController = ChatWindowController(appState: appState)
+        let chatFeatureCoordinator = ChatFeatureCoordinator(
+            policy: featurePolicy,
+            appState: appState
+        )
+        self.chatFeatureCoordinator = chatFeatureCoordinator
         settingsWindowController = SettingsWindowController(appState: appState)
         statusItemController = StatusItemController(
             appState: appState,
-            onOpenChat: { [weak self] in self?.showChatWindow() },
+            chatAvailability: chatFeatureCoordinator.availability,
+            onOpenChat: chatFeatureCoordinator.openAction,
             onOpenSettings: { [weak self] in self?.showSettingsWindow() },
             onQuit: { NSApp.terminate(nil) }
         )
@@ -26,10 +36,6 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
 
     public func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
         false
-    }
-
-    private func showChatWindow() {
-        chatWindowController?.show()
     }
 
     private func showSettingsWindow() {

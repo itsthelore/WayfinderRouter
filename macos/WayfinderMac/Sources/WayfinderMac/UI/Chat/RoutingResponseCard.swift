@@ -101,20 +101,13 @@ private struct ScoreRail: View {
             GeometryReader { proxy in
                 ZStack(alignment: .leading) {
                     Capsule()
-                        .fill(Color.white.opacity(0.08))
+                        .fill(Color.primary.opacity(0.10))
                     Capsule()
                         .fill(decision.route.accentColor)
                         .frame(width: max(6, proxy.size.width * min(max(decision.score, 0), 1)))
-                    Rectangle()
-                        .fill(Color.white.opacity(0.34))
-                        .frame(width: 1)
-                        .offset(x: proxy.size.width * 0.45)
                 }
             }
             .frame(height: 6)
-            Text(decision.route == .local ? "< 0.45" : ">= 0.45")
-                .font(.caption2.monospacedDigit())
-                .foregroundStyle(ChatWorkspaceChrome.tertiaryText)
         }
     }
 }

@@ -48,6 +48,7 @@ public struct ChatComposerView: View {
                             .allowsHitTesting(false)
                     }
                 }
+                .frame(height: 68)
 
                 Button(action: onSend) {
                     Image(systemName: isSending ? "hourglass" : "arrow.up")
@@ -59,6 +60,9 @@ public struct ChatComposerView: View {
                 .buttonStyle(.plain)
                 .disabled(!canSend)
                 .keyboardShortcut(.return, modifiers: .command)
+                .accessibilityLabel(isSending ? "Routing prompt" : "Send prompt")
+                .accessibilityHint(isSending ? "Wait for the current route to finish." : "Routes the current prompt.")
+                .help(isSending ? "Routing prompt" : "Send prompt (Command-Return)")
             }
 
             HStack {
@@ -74,5 +78,8 @@ public struct ChatComposerView: View {
         .padding(.horizontal, 18)
         .padding(.vertical, 12)
         .background(.bar)
+        .onAppear {
+            focused = true
+        }
     }
 }
