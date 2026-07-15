@@ -78,6 +78,36 @@ pub struct StreamEvent {
     pub content: Option<String>,
 }
 
+impl StreamEvent {
+    /// Construct one current-protocol chunk for deterministic service adapters and tests.
+    #[must_use]
+    pub fn chunk(
+        request_id: impl Into<String>,
+        sequence: usize,
+        content: impl Into<String>,
+    ) -> Self {
+        Self {
+            protocol_version: PROTOCOL_VERSION,
+            request_id: request_id.into(),
+            sequence,
+            kind: StreamEventKind::Chunk,
+            content: Some(content.into()),
+        }
+    }
+
+    /// Construct one current-protocol terminal marker.
+    #[must_use]
+    pub fn terminal(request_id: impl Into<String>, sequence: usize) -> Self {
+        Self {
+            protocol_version: PROTOCOL_VERSION,
+            request_id: request_id.into(),
+            sequence,
+            kind: StreamEventKind::Terminal,
+            content: None,
+        }
+    }
+}
+
 #[derive(Clone, Copy, Debug, Error, Eq, PartialEq)]
 pub enum FoundationModelsXpcError {
     #[error("Foundation Models XPC is unavailable on this platform")]

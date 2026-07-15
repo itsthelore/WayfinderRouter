@@ -5,6 +5,7 @@ use std::future::Future;
 use std::net::IpAddr;
 use std::pin::Pin;
 use std::sync::Arc;
+use std::task::{Context, Poll};
 use std::time::Duration;
 
 use bytes::Bytes;
@@ -14,7 +15,8 @@ use serde_json::Value;
 use thiserror::Error;
 use wayfinder_apple_foundation_xpc::{
     Availability, FoundationModelsClient, FoundationModelsTransport, FoundationModelsXpcError,
-    GenerateRequest, GenerateResponse, Message, MessageRole,
+    GenerateRequest, GenerateResponse, MAX_QUEUED_CHUNKS, Message, MessageRole, StreamEvent,
+    StreamEventKind,
 };
 use wayfinder_config::gateway::ProviderKind;
 use wayfinder_providers::openai_compat::{
@@ -247,6 +249,14 @@ pub trait AppleFoundationModelsService: Send + Sync {
         &self,
         request: &GenerateRequest,
     ) -> Result<GenerateResponse, FoundationModelsXpcError>;
+    /// Produce one ordered bounded native stream.
+    fn stream(
+        &self,
+        request: &GenerateRequest,
+        on_event: &mut dyn FnMut(StreamEvent) -> Result<(), FoundationModelsXpcError>,
+    ) -> Result<(), FoundationModelsXpcError>;
+    /// Idempotently cancel one native request.
+    fn cancel(&self, request_id: &str) -> Result<(), FoundationModelsXpcError>;
 }
 
 impl<T> AppleFoundationModelsService for FoundationModelsClient<T>
@@ -262,6 +272,18 @@ where
         request: &GenerateRequest,
     ) -> Result<GenerateResponse, FoundationModelsXpcError> {
         self.generate(request)
+    }
+
+    fn stream(
+        &self,
+        request: &GenerateRequest,
+        on_event: &mut dyn FnMut(StreamEvent) -> Result<(), FoundationModelsXpcError>,
+    ) -> Result<(), FoundationModelsXpcError> {
+        self.stream(request, on_event)
+    }
+
+    fn cancel(&self, request_id: &str) -> Result<(), FoundationModelsXpcError> {
+        self.cancel(request_id)
     }
 }
 
@@ -311,7 +333,7 @@ where
             {
                 return Err(DeliveryError::Apple(AppleDeliveryError::InvalidRequest));
             }
-            let request = apple_generate_request(&body, request_id.clone(), timeout)?;
+            let request = apple_generate_request(&body, request_id.clone(), timeout, false)?;
             let generated = tokio::task::spawn_blocking(move || {
                 let availability = service.availability(&request_id).map_err(map_xpc_error)?;
                 map_availability(availability)?;
@@ -335,6 +357,136 @@ where
                 StatusCode::OK,
                 "application/json",
                 Bytes::from(body),
+            ))
+        })
+    }
+}
+
+struct AppleDeliveryStream<S: AppleFoundationModelsService + 'static> {
+    receiver: tokio::sync::mpsc::Receiver<(Result<Bytes, DeliveryError>, bool)>,
+    service: Arc<S>,
+    request_id: String,
+    finished: bool,
+}
+
+impl<S> Stream for AppleDeliveryStream<S>
+where
+    S: AppleFoundationModelsService + 'static,
+{
+    type Item = Result<Bytes, DeliveryError>;
+
+    fn poll_next(mut self: Pin<&mut Self>, context: &mut Context<'_>) -> Poll<Option<Self::Item>> {
+        match self.receiver.poll_recv(context) {
+            Poll::Ready(Some((item, terminal))) => {
+                self.finished = terminal;
+                Poll::Ready(Some(item))
+            }
+            Poll::Ready(None) => {
+                self.finished = true;
+                Poll::Ready(None)
+            }
+            Poll::Pending => Poll::Pending,
+        }
+    }
+}
+
+impl<S> Drop for AppleDeliveryStream<S>
+where
+    S: AppleFoundationModelsService + 'static,
+{
+    fn drop(&mut self) {
+        if self.finished {
+            return;
+        }
+        let service = self.service.clone();
+        let request_id = self.request_id.clone();
+        if let Ok(runtime) = tokio::runtime::Handle::try_current() {
+            runtime.spawn_blocking(move || {
+                let _ = service.cancel(&request_id);
+            });
+        }
+    }
+}
+
+impl<S, I> StreamingDelivery for AppleFoundationModelDelivery<S, I>
+where
+    S: AppleFoundationModelsService + 'static,
+    I: Fn() -> String + Send + Sync,
+{
+    fn send_stream<'a>(
+        &'a self,
+        model: &'a ConfiguredModel,
+        body: Value,
+    ) -> StreamingDeliveryFuture<'a> {
+        let service = self.service.clone();
+        let timeout = self.request_timeout;
+        let request_id = (self.request_ids)();
+        let provider_model = model.provider_model().to_owned();
+        Box::pin(async move {
+            if model.provider() != ProviderKind::AppleFoundationModels
+                || provider_model != "system-default"
+            {
+                return Err(DeliveryError::Apple(AppleDeliveryError::InvalidRequest));
+            }
+            let request = apple_generate_request(&body, request_id.clone(), timeout, true)?;
+            let availability_service = service.clone();
+            let availability_request_id = request_id.clone();
+            tokio::task::spawn_blocking(move || {
+                let availability = availability_service
+                    .availability(&availability_request_id)
+                    .map_err(map_xpc_error)?;
+                map_availability(availability)
+            })
+            .await
+            .map_err(|_| DeliveryError::Apple(AppleDeliveryError::Unavailable))??;
+
+            let (sender, receiver) = tokio::sync::mpsc::channel(MAX_QUEUED_CHUNKS);
+            let worker_service = service.clone();
+            let stream_model = provider_model.clone();
+            tokio::task::spawn_blocking(move || {
+                let mut terminal_event = None;
+                let result = {
+                    let mut on_event = |event: StreamEvent| {
+                        if event.kind == StreamEventKind::Terminal {
+                            terminal_event = Some(event);
+                            return Ok(());
+                        }
+                        let (chunk, _) = apple_stream_chunk(&event, &stream_model)?;
+                        sender
+                            .blocking_send((Ok(chunk), false))
+                            .map_err(|_| FoundationModelsXpcError::Cancelled)
+                    };
+                    worker_service.stream(&request, &mut on_event)
+                };
+                match (result, terminal_event) {
+                    (Ok(()), Some(event)) => match apple_stream_chunk(&event, &stream_model) {
+                        Ok(chunk) => {
+                            let _ = sender.blocking_send((Ok(chunk.0), true));
+                        }
+                        Err(error) => {
+                            let _ = sender.blocking_send((Err(map_xpc_error(error)), true));
+                        }
+                    },
+                    (Ok(()), None) => {
+                        let _ = sender.blocking_send((
+                            Err(DeliveryError::Apple(AppleDeliveryError::InvalidResponse)),
+                            true,
+                        ));
+                    }
+                    (Err(error), _) => {
+                        let _ = sender.blocking_send((Err(map_xpc_error(error)), true));
+                    }
+                }
+            });
+            Ok(StreamingDeliveryResponse::new(
+                StatusCode::OK,
+                "text/event-stream",
+                Box::pin(AppleDeliveryStream {
+                    receiver,
+                    service,
+                    request_id,
+                    finished: false,
+                }),
             ))
         })
     }
@@ -367,15 +519,33 @@ where
     }
 }
 
+impl<O, A> StreamingDelivery for BufferedProviderDelivery<O, A>
+where
+    O: StreamingDelivery,
+    A: StreamingDelivery,
+{
+    fn send_stream<'a>(
+        &'a self,
+        model: &'a ConfiguredModel,
+        body: Value,
+    ) -> StreamingDeliveryFuture<'a> {
+        match model.provider() {
+            ProviderKind::OpenAiCompatible => self.openai.send_stream(model, body),
+            ProviderKind::AppleFoundationModels => self.apple.send_stream(model, body),
+        }
+    }
+}
+
 fn apple_generate_request(
     body: &Value,
     request_id: String,
     timeout: Duration,
+    streaming: bool,
 ) -> Result<GenerateRequest, DeliveryError> {
     let object = body
         .as_object()
         .ok_or(DeliveryError::Apple(AppleDeliveryError::InvalidRequest))?;
-    if object.get("stream").and_then(Value::as_bool) == Some(true)
+    if (object.get("stream").and_then(Value::as_bool) == Some(true)) != streaming
         || ["tools", "tool_choice", "response_format", "logprobs"]
             .iter()
             .any(|field| object.contains_key(*field))
@@ -420,6 +590,45 @@ fn apple_generate_request(
         messages,
         timeout,
     })
+}
+
+fn apple_stream_chunk(
+    event: &StreamEvent,
+    provider_model: &str,
+) -> Result<(Bytes, bool), FoundationModelsXpcError> {
+    let data = match event.kind {
+        StreamEventKind::Chunk => serde_json::json!({
+            "id": event.request_id,
+            "object": "chat.completion.chunk",
+            "created": 0,
+            "model": provider_model,
+            "choices": [{
+                "index": 0,
+                "delta": {"content": event.content.as_deref().unwrap_or_default()},
+                "finish_reason": Value::Null
+            }]
+        }),
+        StreamEventKind::Terminal => serde_json::json!({
+            "id": event.request_id,
+            "object": "chat.completion.chunk",
+            "created": 0,
+            "model": provider_model,
+            "choices": [{
+                "index": 0,
+                "delta": {},
+                "finish_reason": "stop"
+            }]
+        }),
+    };
+    let encoded =
+        serde_json::to_string(&data).map_err(|_| FoundationModelsXpcError::MalformedResponse)?;
+    let terminal = event.kind == StreamEventKind::Terminal;
+    let suffix = if terminal {
+        "\n\ndata: [DONE]\n\n"
+    } else {
+        "\n\n"
+    };
+    Ok((Bytes::from(format!("data: {encoded}{suffix}")), terminal))
 }
 
 fn map_availability(availability: Availability) -> Result<(), DeliveryError> {
@@ -582,7 +791,8 @@ pub fn endpoint_is_literal_loopback(endpoint: &str) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use std::sync::Mutex;
+    use std::collections::VecDeque;
+    use std::sync::{Condvar, Mutex};
 
     use wayfinder_config::gateway::ProviderTier;
 
@@ -594,6 +804,10 @@ mod tests {
         content: String,
         requests: Mutex<Vec<GenerateRequest>>,
         availability_calls: Mutex<Vec<String>>,
+        stream_events: Mutex<VecDeque<Result<StreamEvent, FoundationModelsXpcError>>>,
+        stall_stream: bool,
+        cancelled: (Mutex<bool>, Condvar),
+        cancel_calls: Mutex<Vec<String>>,
     }
 
     impl FakeAppleService {
@@ -603,7 +817,24 @@ mod tests {
                 content: content.to_owned(),
                 requests: Mutex::new(Vec::new()),
                 availability_calls: Mutex::new(Vec::new()),
+                stream_events: Mutex::new(VecDeque::new()),
+                stall_stream: false,
+                cancelled: (Mutex::new(false), Condvar::new()),
+                cancel_calls: Mutex::new(Vec::new()),
             }
+        }
+
+        fn with_stream(
+            mut self,
+            events: impl IntoIterator<Item = Result<StreamEvent, FoundationModelsXpcError>>,
+        ) -> Self {
+            self.stream_events = Mutex::new(events.into_iter().collect());
+            self
+        }
+
+        fn with_stalled_stream(mut self) -> Self {
+            self.stall_stream = true;
+            self
         }
     }
 
@@ -636,6 +867,50 @@ mod tests {
                 request_id: request.request_id.clone(),
                 content: self.content.clone(),
             })
+        }
+
+        fn stream(
+            &self,
+            request: &GenerateRequest,
+            on_event: &mut dyn FnMut(StreamEvent) -> Result<(), FoundationModelsXpcError>,
+        ) -> Result<(), FoundationModelsXpcError> {
+            self.requests
+                .lock()
+                .map_err(|_| FoundationModelsXpcError::Unavailable)?
+                .push(request.clone());
+            if self.stall_stream {
+                let (cancelled, wake) = &self.cancelled;
+                let mut cancelled = cancelled
+                    .lock()
+                    .map_err(|_| FoundationModelsXpcError::Unavailable)?;
+                while !*cancelled {
+                    cancelled = wake
+                        .wait(cancelled)
+                        .map_err(|_| FoundationModelsXpcError::Unavailable)?;
+                }
+                return Err(FoundationModelsXpcError::Cancelled);
+            }
+            let mut events = self
+                .stream_events
+                .lock()
+                .map_err(|_| FoundationModelsXpcError::Unavailable)?;
+            while let Some(event) = events.pop_front() {
+                on_event(event?)?;
+            }
+            Ok(())
+        }
+
+        fn cancel(&self, request_id: &str) -> Result<(), FoundationModelsXpcError> {
+            self.cancel_calls
+                .lock()
+                .map_err(|_| FoundationModelsXpcError::Unavailable)?
+                .push(request_id.to_owned());
+            let (cancelled, wake) = &self.cancelled;
+            *cancelled
+                .lock()
+                .map_err(|_| FoundationModelsXpcError::Unavailable)? = true;
+            wake.notify_all();
+            Ok(())
         }
     }
 
@@ -792,6 +1067,215 @@ mod tests {
                 .lock()
                 .map_err(|_| std::io::Error::other("fake request lock poisoned"))?
                 .is_empty()
+        );
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn apple_streaming_checks_availability_and_translates_ordered_events()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let service = Arc::new(
+            FakeAppleService::new(Availability::Available, "unused").with_stream([
+                Ok(StreamEvent::chunk("request-stream", 0, "Hel")),
+                Ok(StreamEvent::chunk("request-stream", 1, "lo")),
+                Ok(StreamEvent::terminal("request-stream", 2)),
+            ]),
+        );
+        let delivery =
+            AppleFoundationModelDelivery::new(service.clone(), Duration::from_secs(10), || {
+                "request-stream".to_owned()
+            });
+        let response = delivery
+            .send_stream(
+                &apple_model(),
+                serde_json::json!({
+                    "stream": true,
+                    "messages": [{"role": "user", "content": "hello"}]
+                }),
+            )
+            .await?;
+        assert_eq!(response.status(), StatusCode::OK);
+        assert_eq!(response.content_type(), "text/event-stream");
+        let chunks = response.into_stream().collect::<Vec<_>>().await;
+        let bytes = chunks.into_iter().collect::<Result<Vec<_>, _>>()?.concat();
+        let body = String::from_utf8(bytes)?;
+        assert!(body.contains(r#""content":"Hel""#));
+        assert!(body.contains(r#""content":"lo""#));
+        assert!(body.contains(r#""finish_reason":"stop""#));
+        assert!(body.ends_with("data: [DONE]\n\n"));
+        assert_eq!(
+            service
+                .availability_calls
+                .lock()
+                .map_err(|_| std::io::Error::other("fake availability lock poisoned"))?
+                .as_slice(),
+            ["request-stream"]
+        );
+        assert_eq!(
+            service
+                .requests
+                .lock()
+                .map_err(|_| std::io::Error::other("fake request lock poisoned"))?
+                .len(),
+            1
+        );
+        assert!(
+            service
+                .cancel_calls
+                .lock()
+                .map_err(|_| std::io::Error::other("fake cancel lock poisoned"))?
+                .is_empty()
+        );
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn apple_streaming_surfaces_post_chunk_protocol_failure_without_done()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let service = Arc::new(
+            FakeAppleService::new(Availability::Available, "unused").with_stream([
+                Ok(StreamEvent::chunk("request-stream", 0, "partial")),
+                Err(FoundationModelsXpcError::InvalidStream),
+            ]),
+        );
+        let delivery = AppleFoundationModelDelivery::new(service, Duration::from_secs(10), || {
+            "request-stream".to_owned()
+        });
+        let response = delivery
+            .send_stream(
+                &apple_model(),
+                serde_json::json!({
+                    "stream": true,
+                    "messages": [{"role": "user", "content": "hello"}]
+                }),
+            )
+            .await?;
+        let chunks = response.into_stream().collect::<Vec<_>>().await;
+        assert_eq!(chunks.len(), 2);
+        assert!(chunks[0].as_ref().is_ok_and(|chunk| {
+            String::from_utf8_lossy(chunk).contains(r#""content":"partial""#)
+        }));
+        assert_eq!(
+            chunks[1].as_ref().err(),
+            Some(&DeliveryError::Apple(AppleDeliveryError::InvalidResponse))
+        );
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn apple_streaming_rejects_missing_terminal_and_service_crash_without_done()
+    -> Result<(), Box<dyn std::error::Error>> {
+        for (failure, expected) in [
+            (None, AppleDeliveryError::InvalidResponse),
+            (
+                Some(FoundationModelsXpcError::Unavailable),
+                AppleDeliveryError::Unavailable,
+            ),
+        ] {
+            let events = std::iter::once(Ok(StreamEvent::chunk("request-stream", 0, "partial")))
+                .chain(failure.into_iter().map(Err));
+            let service = Arc::new(
+                FakeAppleService::new(Availability::Available, "unused").with_stream(events),
+            );
+            let delivery =
+                AppleFoundationModelDelivery::new(service, Duration::from_secs(10), || {
+                    "request-stream".to_owned()
+                });
+            let response = delivery
+                .send_stream(
+                    &apple_model(),
+                    serde_json::json!({
+                        "stream": true,
+                        "messages": [{"role": "user", "content": "hello"}]
+                    }),
+                )
+                .await?;
+            let chunks = response.into_stream().collect::<Vec<_>>().await;
+            assert_eq!(chunks.len(), 2);
+            assert!(chunks.iter().all(|chunk| match chunk {
+                Ok(bytes) => !String::from_utf8_lossy(bytes).contains("data: [DONE]"),
+                Err(_) => true,
+            }));
+            assert_eq!(
+                chunks[1].as_ref().err(),
+                Some(&DeliveryError::Apple(expected))
+            );
+        }
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn apple_streaming_not_ready_fails_before_starting_session()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let service = Arc::new(FakeAppleService::new(Availability::ModelNotReady, "unused"));
+        let delivery =
+            AppleFoundationModelDelivery::new(service.clone(), Duration::from_secs(10), || {
+                "request-stream".to_owned()
+            });
+        let result = delivery
+            .send_stream(
+                &apple_model(),
+                serde_json::json!({
+                    "stream": true,
+                    "messages": [{"role": "user", "content": "hello"}]
+                }),
+            )
+            .await;
+        let Err(error) = result else {
+            return Err("not-ready must fail before streaming response establishment".into());
+        };
+        assert_eq!(error, DeliveryError::Apple(AppleDeliveryError::NotReady));
+        assert!(
+            service
+                .requests
+                .lock()
+                .map_err(|_| std::io::Error::other("fake request lock poisoned"))?
+                .is_empty()
+        );
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn dropping_apple_stream_cancels_stalled_native_session()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let service = Arc::new(
+            FakeAppleService::new(Availability::Available, "unused").with_stalled_stream(),
+        );
+        let delivery =
+            AppleFoundationModelDelivery::new(service.clone(), Duration::from_secs(10), || {
+                "request-stalled".to_owned()
+            });
+        let response = delivery
+            .send_stream(
+                &apple_model(),
+                serde_json::json!({
+                    "stream": true,
+                    "messages": [{"role": "user", "content": "hello"}]
+                }),
+            )
+            .await?;
+        drop(response);
+        tokio::time::timeout(Duration::from_secs(1), async {
+            loop {
+                if service
+                    .cancel_calls
+                    .lock()
+                    .map(|calls| !calls.is_empty())
+                    .unwrap_or(false)
+                {
+                    break;
+                }
+                tokio::task::yield_now().await;
+            }
+        })
+        .await?;
+        assert_eq!(
+            service
+                .cancel_calls
+                .lock()
+                .map_err(|_| std::io::Error::other("fake cancel lock poisoned"))?
+                .as_slice(),
+            ["request-stalled"]
         );
         Ok(())
     }
