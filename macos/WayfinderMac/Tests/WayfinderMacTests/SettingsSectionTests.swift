@@ -14,6 +14,13 @@ final class SettingsSectionTests: XCTestCase {
         )
     }
 
+    func testOnlyShippedSettingsSectionsAreListed() {
+        XCTAssertEqual(
+            SettingsSection.allCases,
+            [.gateway, .routing, .keys, .privacy, .help, .about]
+        )
+    }
+
     func testHelpSectionUsesExpectedLabelAndSymbol() {
         XCTAssertEqual(SettingsSection.help.rawValue, "Help")
         XCTAssertEqual(SettingsSection.help.symbolName, "questionmark.circle")

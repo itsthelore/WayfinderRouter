@@ -13,6 +13,17 @@ final class GatewayOverviewTests: XCTestCase {
         XCTAssertTrue(state.isRunning)
     }
 
+    func testHealthyManualGatewayTakesPrecedenceOverLaunchAgentInstallation() {
+        let state = GatewayWayfinderClient.gatewayDisplayState(from: serviceStatus(
+            installed: false,
+            loaded: false,
+            health: GatewayHealth(status: "ok", models: ["local"], offline: false)
+        ))
+
+        XCTAssertEqual(state.title, "Running")
+        XCTAssertEqual(state.detail, "1 configured model")
+    }
+
     func testGatewayStateMappingDegradedMissingKeys() {
         let state = GatewayWayfinderClient.gatewayDisplayState(from: serviceStatus(
             health: GatewayHealth(status: "degraded", models: ["local", "cloud"], offline: false, missingKeys: ["cloud"])
@@ -35,7 +46,7 @@ final class GatewayOverviewTests: XCTestCase {
 
     func testGatewayStateMappingStoppedUnreachableAndNotInstalled() {
         XCTAssertEqual(
-            GatewayWayfinderClient.gatewayDisplayState(from: serviceStatus(loaded: false)).title,
+            GatewayWayfinderClient.gatewayDisplayState(from: serviceStatus(loaded: false, health: nil)).title,
             "Stopped"
         )
         XCTAssertEqual(
@@ -43,7 +54,7 @@ final class GatewayOverviewTests: XCTestCase {
             "Unreachable"
         )
         XCTAssertEqual(
-            GatewayWayfinderClient.gatewayDisplayState(from: serviceStatus(installed: false)).title,
+            GatewayWayfinderClient.gatewayDisplayState(from: serviceStatus(installed: false, health: nil)).title,
             "Not Installed"
         )
     }
@@ -84,6 +95,66 @@ final class GatewayOverviewTests: XCTestCase {
             models: [GatewayModelInfo(name: "local", endpoint: "http://localhost", model: "llama", apiKeyEnv: nil, keyOK: true)]
         )
         XCTAssertEqual(ready.title, "Ready")
+    }
+
+    func testEndpointStatesReflectKeysOfflineModeAndGatewayAvailability() {
+        let models = [
+            GatewayModelInfo(name: "local", endpoint: "http://127.0.0.1:11434", model: "llama", apiKeyEnv: nil, keyOK: true),
+            GatewayModelInfo(name: "cloud", endpoint: "https://api.anthropic.com", model: "claude", apiKeyEnv: "ANTHROPIC_API_KEY", keyOK: false),
+        ]
+
+        XCTAssertEqual(
+            GatewayWayfinderClient.endpointDisplayStatuses(gateway: .running(detail: "ready"), models: models),
+            [
+                EndpointDisplayStatus(name: "cloud", providerName: "Anthropic", modelName: "claude", state: .checkKey),
+                EndpointDisplayStatus(name: "local", providerName: "Ollama", modelName: "llama", state: .ready),
+            ]
+        )
+        XCTAssertEqual(
+            GatewayWayfinderClient.endpointDisplayStatuses(gateway: .offline(detail: "offline"), models: models),
+            [
+                EndpointDisplayStatus(name: "cloud", providerName: "Anthropic", modelName: "claude", state: .disabled),
+                EndpointDisplayStatus(name: "local", providerName: "Ollama", modelName: "llama", state: .ready),
+            ]
+        )
+        XCTAssertEqual(
+            GatewayWayfinderClient.endpointDisplayStatuses(gateway: .unreachable(detail: "down"), models: models)
+                .map(\.state),
+            [.unavailable, .unavailable]
+        )
+    }
+
+    func testProviderIdentityUsesEndpointAndKeyMetadataInsteadOfRouteAlias() {
+        XCTAssertEqual(
+            GatewayModelInfo(
+                name: "cloud",
+                endpoint: "https://api.openai.com/v1",
+                model: "gpt-5",
+                apiKeyEnv: "OPENAI_API_KEY",
+                keyOK: true
+            ).providerDisplayName,
+            "OpenAI"
+        )
+        XCTAssertEqual(
+            GatewayModelInfo(
+                name: "fast",
+                endpoint: "http://localhost:1234/v1",
+                model: "qwen",
+                apiKeyEnv: nil,
+                keyOK: true
+            ).providerDisplayName,
+            "LM Studio"
+        )
+        XCTAssertEqual(
+            GatewayModelInfo(
+                name: "custom",
+                endpoint: "https://models.example.net/v1",
+                model: "special",
+                apiKeyEnv: "CUSTOM_KEY",
+                keyOK: true
+            ).providerDisplayName,
+            "models.example.net"
+        )
     }
 
     func testRoutingCountsUseCheapestConfiguredModelAsLocalNumerator() {

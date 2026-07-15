@@ -70,6 +70,40 @@ final class GatewayServiceControllerTests: XCTestCase {
         XCTAssertEqual(config.bindDescription, "Network-exposed bind: :::8088")
     }
 
+    func testIPv6LoopbackFormatsAsAValidBracketedURL() {
+        let config = GatewayLaunchConfiguration(
+            host: "::1",
+            port: 8088,
+            configPath: "/tmp/wayfinder-router.toml"
+        )
+
+        XCTAssertEqual(config.localRouterURL, "http://[::1]:8088")
+        XCTAssertEqual(config.openAIBaseURL, "http://[::1]:8088/v1")
+        XCTAssertEqual(config.healthURLString, "http://[::1]:8088/healthz")
+        XCTAssertNotNil(config.healthURL)
+    }
+
+    func testBracketedIPv6HostIsNormalizedBeforeURLConstruction() {
+        let config = GatewayLaunchConfiguration(
+            host: "[::1]",
+            port: 8088,
+            configPath: "/tmp/wayfinder-router.toml"
+        )
+
+        XCTAssertEqual(config.localRouterURL, "http://[::1]:8088")
+    }
+
+    func testInvalidLaunchAgentPortFallsBackToDefault() {
+        let config = GatewayServiceController.launchConfiguration(fromProgramArguments: [
+            "/usr/local/bin/wayfinder-router",
+            "serve",
+            "--port",
+            "70000",
+        ])
+
+        XCTAssertEqual(config.port, GatewayServiceController.defaultPort)
+    }
+
     func testHealthResponseDecodingOk() throws {
         let health = try decode("""
         {
