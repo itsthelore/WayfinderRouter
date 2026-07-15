@@ -75,9 +75,9 @@ enough to audit.
 Any two OpenAI-compatible endpoints. The gateway maps the two routed tiers (`local` / `cloud`) to
 upstreams in `[gateway.models.*]`, forwards an OpenAI-style request, and sends the key as
 `Authorization: Bearer $<api_key_env>` — so it works with local servers (Ollama, vLLM, LM Studio…)
-and hosted APIs (OpenAI, and **Anthropic via its OpenAI-compatible endpoint**, `https://api.anthropic.com/v1`)
-alike. The tiers don't have to be local-vs-cloud: a cheap **Haiku** local tier and a capable **Sonnet**
-cloud tier (both on `api.anthropic.com`) is a verified two-tier setup. Keys are set as environment
+and hosted APIs that implement OpenAI Chat Completions (including OpenAI and Gemini's documented
+compatibility endpoint) alike. Anthropic's native Messages API is not an OpenAI-compatible endpoint;
+use Wayfinder's incoming Anthropic aliases with a configured OpenAI-compatible upstream. Keys are set as environment
 variables named by `api_key_env` — never written into the config. The two tiers don't even have to be
 two *different* models: pointing both at the same model with reasoning on for the dear tier and off for
 the cheap one (a **think / no-think** split) is a valid two-tier setup — the router just decides which

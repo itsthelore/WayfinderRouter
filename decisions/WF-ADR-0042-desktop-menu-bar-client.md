@@ -16,14 +16,14 @@ Accepted
 > is architecturally forbidden from becoming a second router. This ADR is the constitution for
 > `clients/` — everything in it renders decisions; nothing in it makes them.
 >
-> Amendment (popover size, WF-DESIGN-0014): §3's 360×480 popover is revised to **400×550**. The
-> flat-list mirror of CodexBar's actual layout needs more canvas than the original spec allowed —
-> at 360×480 CodexBar's own spacing/type scale read as cramped and low-contrast next to the
-> reference (verified by rendering both side by side), and the height is sized so the whole menu
-> — header, both metric sections, every action row, the footer — fits with no half-clipped row
-> (the full list measures ~547px). The shell mechanics are unchanged: still one borderless,
-> vibrant, hide-on-blur popover; `position_bottom_center` in `lib.rs` already reads the window's
-> live size rather than a hardcoded constant, so only `tauri.conf.json` moves.
+> Historical Tauri amendment (WF-DESIGN-0014): §3's 360×480 webview popover was revised to
+> **400×550** for that implementation. This is **not** the current native Swift requirement.
+>
+> Native Swift v1 amendment (WF-ROADMAP-0012): the shipping app is a compact routing utility using
+> a 340 pt target width and intrinsic content height, clamped to a 420 pt maximum at the default
+> text size. Chat is post-v1 and technically unreachable; at most, the popover may show one
+> disabled “Chat” row with trailing “Coming later” and no disclosure chevron. The service-first
+> lifecycle, Keychain boundary, semantic route colors, and privacy ruling below are unchanged.
 
 ## Category
 
@@ -64,10 +64,11 @@ honest statement of our posture is an app that *provably does less*.
    blocking in CI) is green. It runs **only** when the gateway is unreachable, and its output is
    always framed as a preview ("local mirror — start the gateway"), never as a routed decision.
 
-3. **Tauri v2, menu-bar accessory shell.** No Dock icon; a template tray icon with three health
-   states; one borderless 360×480 vibrancy popover (hide-on-blur, state preserved); ⌥Space toggle
-   (rebindable); single-instance. The webview reaches the gateway by direct loopback fetch — not
-   Rust IPC — so the Rust command surface and capabilities stay minimal and auditable.
+3. **Tauri v2, menu-bar accessory shell (historical implementation).** No Dock icon; a template
+   tray icon with three health states; one borderless 360×480 vibrancy popover (hide-on-blur, state
+   preserved); ⌥Space toggle (rebindable); single-instance. The webview reaches the gateway by
+   direct loopback fetch — not Rust IPC — so the Rust command surface and capabilities stay minimal
+   and auditable.
 
 4. **Service-first lifecycle — the app never owns the gateway process.** Detect via `/healthz` and
    attach. When nothing is running, the primary CTA is one-click **Install the service**, shelling
@@ -104,14 +105,19 @@ honest statement of our posture is an app that *provably does less*.
    guarantees nothing leaves — and it is a one-click toggle in the popover. No claim of "your data
    never leaves your machine" outside that mode. No telemetry, ever.
 
+9. **The native Swift v1 ships without Chat.** WF-ROADMAP-0012 supersedes the earlier native scope
+   assumption. Release wiring must not create a Chat controller or expose Chat through a popover
+   action, shortcut, command, deep link, or other route. Chat source may remain in-tree for a
+   separately accepted post-v1 milestone.
+
 ## Consequences
 
 ### Positive
 
 - The decision core and key discipline survive contact with a GUI: the app *cannot* drift into a
   second router because it has no scoring path (except the parity-gated mirror) and no key storage.
-- Ambient, glanceable proof that routing works — the product story WF-ROADMAP-0007 wants — with a
-  chat surface good enough for daily use.
+- Ambient, glanceable proof that routing works — the product story WF-ROADMAP-0007 wants — while
+  deferring the unfinished Chat surface beyond native v1.
 - The distribution craft (signing, updater, RC train) is inherited from a studied reference instead
   of discovered by trial and error.
 
