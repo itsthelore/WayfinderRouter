@@ -6,22 +6,19 @@ public struct ChatSidebarView: View {
     @Binding var selectedDecisionID: UUID?
     @Binding var routeFilter: ChatRouteFilter
     @Binding var searchText: String
-    let onNewRoute: () -> Void
 
     public init(
         turns: [ChatTurn],
         visibleTurns: [ChatTurn],
         selectedDecisionID: Binding<UUID?>,
         routeFilter: Binding<ChatRouteFilter>,
-        searchText: Binding<String>,
-        onNewRoute: @escaping () -> Void
+        searchText: Binding<String>
     ) {
         self.turns = turns
         self.visibleTurns = visibleTurns
         self._selectedDecisionID = selectedDecisionID
         self._routeFilter = routeFilter
         self._searchText = searchText
-        self.onNewRoute = onNewRoute
     }
 
     public var body: some View {
@@ -35,10 +32,6 @@ public struct ChatSidebarView: View {
             RouteFilterPicker(selected: $routeFilter, turns: turns)
                 .padding(.horizontal, 16)
                 .padding(.bottom, 16)
-
-            SidebarAction(symbol: "square.and.pencil", title: "New route", action: onNewRoute)
-                .padding(.horizontal, 14)
-                .padding(.bottom, 18)
 
             HStack {
                 Text("History")
@@ -58,7 +51,7 @@ public struct ChatSidebarView: View {
             ScrollView {
                 LazyVStack(spacing: 3) {
                     if visibleTurns.isEmpty {
-                        SidebarEmptyState()
+                        SidebarEmptyState(hasHistory: !turns.isEmpty)
                             .padding(.top, 24)
                     } else {
                         ForEach(visibleTurns) { turn in
@@ -103,7 +96,7 @@ private struct SidebarHeader: View {
                 VStack(alignment: .leading, spacing: 1) {
                     Text("Wayfinder")
                         .font(.headline.weight(.semibold))
-                    Text("Mock route history")
+                    Text("Session route history")
                         .font(.caption)
                         .foregroundStyle(ChatWorkspaceChrome.secondaryText)
                 }
@@ -144,31 +137,6 @@ private struct SidebarMetric: View {
                 .foregroundStyle(ChatWorkspaceChrome.tertiaryText)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
-    }
-}
-
-private struct SidebarAction: View {
-    let symbol: String
-    let title: String
-    let action: () -> Void
-
-    var body: some View {
-        Button(action: action) {
-            HStack(spacing: 12) {
-                Image(systemName: symbol)
-                    .frame(width: 18)
-                Text(title)
-                    .fontWeight(.medium)
-                Spacer()
-            }
-            .padding(.horizontal, 10)
-            .padding(.vertical, 9)
-            .background(ChatWorkspaceChrome.mutedFill, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .font(.callout)
-        .foregroundStyle(Color.white.opacity(0.78))
     }
 }
 
@@ -242,14 +210,6 @@ private struct SidebarStatusFooter: View {
             Divider()
                 .overlay(ChatWorkspaceChrome.border)
             HStack {
-                Label("Mode", systemImage: "switch.2")
-                    .font(.caption)
-                Spacer()
-                Text("Mock data")
-                    .font(.caption2.weight(.semibold))
-                    .foregroundStyle(WayfinderTheme.selection)
-            }
-            HStack {
                 Label("Routing", systemImage: "checkmark.shield")
                     .font(.caption)
                 Spacer()
@@ -308,14 +268,16 @@ private struct SidebarTurnRow: View {
 }
 
 private struct SidebarEmptyState: View {
+    let hasHistory: Bool
+
     var body: some View {
         VStack(spacing: 7) {
             Image(systemName: "magnifyingglass")
                 .font(.callout)
                 .foregroundStyle(ChatWorkspaceChrome.tertiaryText)
-            Text("No routes found")
+            Text(hasHistory ? "No routes found" : "No routes yet")
                 .font(.caption.weight(.medium))
-            Text("Try another search or filter.")
+            Text(hasHistory ? "Try another search or filter." : "Route a prompt to start this session.")
                 .font(.caption2)
                 .foregroundStyle(ChatWorkspaceChrome.tertiaryText)
         }

@@ -18,8 +18,7 @@ public struct WayfinderChatWindow: View {
                 visibleTurns: visibleTurns,
                 selectedDecisionID: $selectedDecisionID,
                 routeFilter: $routeFilter,
-                searchText: $searchText,
-                onNewRoute: startNewRoute
+                searchText: $searchText
             )
 
             Divider()
@@ -35,6 +34,7 @@ public struct WayfinderChatWindow: View {
                 Divider()
                 ChatConversationView(
                     turns: visibleTurns,
+                    hasHistory: !turns.isEmpty,
                     selectedDecisionID: $selectedDecisionID
                 )
                 Divider()
@@ -54,30 +54,24 @@ public struct WayfinderChatWindow: View {
         }
         .frame(minWidth: 1180, minHeight: 740)
         .background(ChatWorkspaceChrome.canvas)
-        .preferredColorScheme(.dark)
         .onAppear {
             selectedDecisionID = selectedDecisionID ?? latestDecision(in: turns)?.id
         }
-        .onChange(of: appState.chatMessages.count) { _ in
+        .onChange(of: appState.chatMessages.count) {
             let updatedTurns = ChatTurn.make(from: appState.chatMessages)
             let visible = updatedTurns.filtered(by: routeFilter, searchText: searchText)
             selectedDecisionID = latestDecision(in: visible)?.id ?? selectedDecisionID
         }
-        .onChange(of: routeFilter) { _ in
+        .onChange(of: routeFilter) {
             selectValidDecision(in: visibleTurns)
         }
-        .onChange(of: searchText) { _ in
+        .onChange(of: searchText) {
             selectValidDecision(in: visibleTurns)
         }
     }
 
     private var routedTurnCount: Int {
         appState.chatMessages.filter { $0.role == .router && $0.decision != nil }.count
-    }
-
-    private func startNewRoute() {
-        appState.chatDraft = ""
-        selectedDecisionID = nil
     }
 
     private func selectLatestDecision(in turns: [ChatTurn]) {
@@ -125,12 +119,6 @@ private struct ChatToolbar: View {
                 HStack(spacing: 8) {
                     Text("Route Preview")
                         .font(.title3.weight(.semibold))
-                    Text("Mock data")
-                        .font(.caption.weight(.semibold))
-                        .foregroundStyle(WayfinderTheme.selection)
-                        .padding(.horizontal, 8)
-                        .padding(.vertical, 3)
-                        .background(WayfinderTheme.selection.opacity(0.12), in: Capsule())
                     if let selectedDecision {
                         Text(selectedDecision.routeSummary)
                             .font(.caption.weight(.semibold))
@@ -145,17 +133,6 @@ private struct ChatToolbar: View {
                     .foregroundStyle(ChatWorkspaceChrome.secondaryText)
             }
             Spacer()
-            HStack(spacing: 6) {
-                Image(systemName: "bolt.horizontal")
-                    .font(.caption)
-                Text("<1 ms")
-                    .font(.caption.monospacedDigit())
-            }
-            .foregroundStyle(.secondary)
-            .padding(.horizontal, 9)
-            .padding(.vertical, 5)
-            .background(ChatWorkspaceChrome.mutedFill, in: Capsule())
-
             Button(action: onSelectLatest) {
                 Label("Latest", systemImage: "clock.arrow.circlepath")
             }
@@ -170,7 +147,7 @@ private struct ChatToolbar: View {
     }
 
     private var subtitle: String {
-        let base = "\(turnCount) preview turns · local mock scorer"
+        let base = "\(turnCount) routed \(turnCount == 1 ? "turn" : "turns")"
         guard routeFilter != .all else {
             return base
         }

@@ -1,16 +1,16 @@
 import SwiftUI
 
 enum ChatWorkspaceChrome {
-    static let sidebar = Color(red: 0.115, green: 0.13, blue: 0.135)
-    static let canvas = Color(red: 0.072, green: 0.076, blue: 0.074)
-    static let panel = Color(red: 0.135, green: 0.14, blue: 0.138)
-    static let panelRaised = Color(red: 0.175, green: 0.178, blue: 0.172)
-    static let border = Color.white.opacity(0.075)
-    static let rowHover = Color.white.opacity(0.06)
-    static let secondaryText = Color.white.opacity(0.58)
-    static let tertiaryText = Color.white.opacity(0.36)
-    static let mutedFill = Color.white.opacity(0.045)
-    static let selectedFill = Color.white.opacity(0.085)
+    static let sidebar = Color(nsColor: .underPageBackgroundColor)
+    static let canvas = Color(nsColor: .windowBackgroundColor)
+    static let panel = Color(nsColor: .controlBackgroundColor)
+    static let panelRaised = Color(nsColor: .unemphasizedSelectedContentBackgroundColor)
+    static let border = Color(nsColor: .separatorColor).opacity(0.7)
+    static let rowHover = Color.primary.opacity(0.06)
+    static let secondaryText = Color(nsColor: .secondaryLabelColor)
+    static let tertiaryText = Color(nsColor: .tertiaryLabelColor)
+    static let mutedFill = Color.primary.opacity(0.045)
+    static let selectedFill = Color(nsColor: .unemphasizedSelectedContentBackgroundColor)
 }
 
 public enum ChatRouteFilter: String, CaseIterable, Identifiable {

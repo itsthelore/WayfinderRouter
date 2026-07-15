@@ -26,12 +26,16 @@ public struct ChatTurnHistoryRow: View {
             VStack(alignment: .leading, spacing: 8) {
                 promptHeader
 
-                if let decision = turn.response?.decision {
-                    RoutingResponseCard(
-                        decision: decision,
-                        isSelected: decision.id == selectedDecisionID,
-                        onSelect: { onSelectDecision(decision) }
-                    )
+                if let response = turn.response {
+                    if let decision = response.decision {
+                        RoutingResponseCard(
+                            decision: decision,
+                            isSelected: decision.id == selectedDecisionID,
+                            onSelect: { onSelectDecision(decision) }
+                        )
+                    } else {
+                        FailedRouteStrip(message: response.text)
+                    }
                 } else {
                     PendingRouteStrip()
                 }
@@ -85,6 +89,30 @@ public struct ChatTurnHistoryRow: View {
         }
         .frame(width: 24)
         .frame(minHeight: 118)
+    }
+}
+
+private struct FailedRouteStrip: View {
+    let message: String
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Label("Routing failed", systemImage: "exclamationmark.triangle.fill")
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(.red)
+            Text(message)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 9)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Color.red.opacity(0.07), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                .stroke(Color.red.opacity(0.22), lineWidth: 1)
+        )
     }
 }
 

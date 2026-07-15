@@ -1,16 +1,27 @@
 import AppKit
+import Combine
 import SwiftUI
 
 @MainActor
 final class PopoverController {
+    private let appState: AppState
     private let panel: AnchoredPopoverPanel
+    private let endpointSubmenuController: EndpointStatusSubmenuController
+    private let endpointSubmenuState: EndpointSubmenuState
+    private var hostingController: NSViewController?
+    private var overviewCancellable: AnyCancellable?
     private weak var anchorButton: NSStatusBarButton?
     private var localEventMonitor: Any?
     private var globalEventMonitor: Any?
+    private var endpointOpenTask: Task<Void, Never>?
+    private var endpointCloseTask: Task<Void, Never>?
+    private var endpointAnchorFrame = NSRect.zero
+    private var isClosing = false
 
     init(
         appState: AppState,
-        onOpenChat: @escaping () -> Void,
+        chatAvailability: FeatureAvailability,
+        onOpenChat: (() -> Void)?,
         onOpenSettings: @escaping () -> Void,
         onQuit: @escaping () -> Void
     ) {
@@ -19,7 +30,7 @@ final class PopoverController {
                 x: 0,
                 y: 0,
                 width: WayfinderPopoverView.contentWidth,
-                height: WayfinderPopoverView.contentHeight
+                height: PopoverPanelSizing.minimumHeight
             ),
             styleMask: [.borderless, .nonactivatingPanel],
             backing: .buffered,
@@ -33,12 +44,38 @@ final class PopoverController {
         panel.level = .popUpMenu
         panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .transient]
 
+        let endpointSubmenuState = EndpointSubmenuState()
+        self.appState = appState
         self.panel = panel
+        self.endpointSubmenuController = EndpointStatusSubmenuController(
+            appState: appState,
+            submenuState: endpointSubmenuState
+        )
+        self.endpointSubmenuState = endpointSubmenuState
+        endpointSubmenuController.onHoverChange = { [weak self] isHovering in
+            self?.handleEndpointSubmenuHover(isHovering)
+        }
+        panel.onResignKey = { [weak self] in
+            self?.close()
+        }
 
         let rootView = WayfinderPopoverView(
-            onOpenChat: { [weak self] in
+            chatAvailability: chatAvailability,
+            onOpenChat: onOpenChat.map { onOpenChat in { [weak self] in
                 self?.close()
                 onOpenChat()
+            } },
+            onEndpointAnchorFrameChange: { [weak self] frame in
+                self?.updateEndpointAnchorFrame(frame)
+            },
+            onEndpointHoverChange: { [weak self] isHovering, frame in
+                self?.handleEndpointRowHover(isHovering, anchorFrame: frame)
+            },
+            onOpenEndpointStatus: { [weak self] frame in
+                self?.openEndpointSubmenu(anchorFrame: frame)
+            },
+            onCloseEndpointStatus: { [weak self] in
+                self?.closeEndpointSubmenu()
             },
             onOpenSettings: { [weak self] in
                 self?.close()
@@ -50,10 +87,16 @@ final class PopoverController {
             }
         )
             .environmentObject(appState)
+            .environmentObject(endpointSubmenuState)
 
         let hostingController = EscapeHostingController(rootView: rootView)
         hostingController.onEscape = { [weak self] in
-            self?.close()
+            guard let self else { return }
+            if self.endpointSubmenuController.isVisible {
+                self.closeEndpointSubmenu()
+            } else {
+                self.close()
+            }
         }
         hostingController.view.wantsLayer = true
         hostingController.onCommandR = { appState.refreshStats() }
@@ -65,10 +108,20 @@ final class PopoverController {
             self?.close()
             onQuit()
         }
-        hostingController.view.layer?.cornerRadius = 20
+        hostingController.view.layer?.cornerRadius = WayfinderPopoverView.contentCornerRadius
         hostingController.view.layer?.masksToBounds = true
 
+        self.hostingController = hostingController
         panel.contentViewController = hostingController
+        overviewCancellable = appState.$gatewayOverview
+            .dropFirst()
+            .sink { [weak self] _ in
+                Task { @MainActor [weak self] in
+                    await Task.yield()
+                    self?.resizeVisiblePanelToFit()
+                    self?.endpointSubmenuController.refreshLayout()
+                }
+            }
     }
 
     func toggle(relativeTo button: NSStatusBarButton) {
@@ -81,33 +134,69 @@ final class PopoverController {
 
     private func show(relativeTo button: NSStatusBarButton) {
         anchorButton = button
-        panel.setFrame(panelFrame(relativeTo: button), display: false)
+        appState.refreshStats()
+        resizePanelToFit(relativeTo: button, display: false)
         panel.orderFrontRegardless()
         panel.makeKey()
         installEventMonitors()
     }
 
     private func close() {
-        panel.orderOut(nil)
+        guard !isClosing else { return }
+        isClosing = true
+        defer { isClosing = false }
+
         anchorButton = nil
+        closeEndpointSubmenu()
         removeEventMonitors()
+        panel.orderOut(nil)
     }
 
-    private func panelFrame(relativeTo button: NSStatusBarButton) -> NSRect {
-        let size = NSSize(
-            width: WayfinderPopoverView.contentWidth,
-            height: WayfinderPopoverView.contentHeight
+    private func resizeVisiblePanelToFit() {
+        guard panel.isVisible, let anchorButton else {
+            return
+        }
+        resizePanelToFit(relativeTo: anchorButton, display: true)
+    }
+
+    private func resizePanelToFit(relativeTo button: NSStatusBarButton, display: Bool) {
+        panel.setFrame(
+            panelFrame(relativeTo: button, size: fittedContentSize()),
+            display: display
         )
+    }
+
+    private func fittedContentSize() -> NSSize {
+        guard let view = hostingController?.view else {
+            return NSSize(
+                width: WayfinderPopoverView.contentWidth,
+                height: PopoverPanelSizing.minimumHeight
+            )
+        }
+
+        view.frame.size.width = WayfinderPopoverView.contentWidth
+        view.needsLayout = true
+        view.layoutSubtreeIfNeeded()
+        return NSSize(
+            width: WayfinderPopoverView.contentWidth,
+            height: PopoverPanelSizing.clampedHeight(view.fittingSize.height)
+        )
+    }
+
+    private func panelFrame(relativeTo button: NSStatusBarButton, size: NSSize) -> NSRect {
         let buttonFrame = screenFrame(for: button)
         let screen = button.window?.screen ?? NSScreen.main
         let visibleFrame = screen?.visibleFrame ?? buttonFrame
         let inset: CGFloat = 8
         let gap: CGFloat = 4
 
-        let proposedX = buttonFrame.midX - (size.width / 2)
-        let minX = visibleFrame.minX + inset
-        let maxX = visibleFrame.maxX - size.width - inset
-        let clampedX = maxX < minX ? minX : min(max(proposedX, minX), maxX)
+        let clampedX = PopoverPanelPlacement.leftAlignedX(
+            anchorMinX: buttonFrame.minX,
+            visibleMinX: visibleFrame.minX,
+            visibleMaxX: visibleFrame.maxX,
+            panelWidth: size.width,
+            inset: inset
+        )
 
         let proposedY = buttonFrame.minY - size.height - gap
         let minY = visibleFrame.minY + inset
@@ -132,6 +221,16 @@ final class PopoverController {
             matching: [.leftMouseDown, .rightMouseDown]
         ) { [weak self] event in
             guard let self else { return event }
+            if self.endpointSubmenuController.contains(event) {
+                self.cancelEndpointClose()
+                return event
+            }
+            if event.window === self.panel,
+               self.endpointSubmenuController.isVisible,
+               let location = self.screenLocation(for: event),
+               !self.endpointAnchorFrame.contains(location) {
+                self.closeEndpointSubmenu()
+            }
             if !self.eventIsInsidePanel(event) {
                 self.close()
             }
@@ -159,7 +258,7 @@ final class PopoverController {
     }
 
     private func eventIsInsidePanel(_ event: NSEvent) -> Bool {
-        if event.window === panel {
+        if event.window === panel || endpointSubmenuController.contains(event) {
             return true
         }
         guard let anchorButton, event.window === anchorButton.window else {
@@ -168,11 +267,94 @@ final class PopoverController {
         let location = anchorButton.convert(event.locationInWindow, from: nil)
         return anchorButton.bounds.contains(location)
     }
+
+    private func screenLocation(for event: NSEvent) -> NSPoint? {
+        guard let window = event.window else { return nil }
+        return window.convertPoint(toScreen: event.locationInWindow)
+    }
+
+    private func updateEndpointAnchorFrame(_ frame: NSRect) {
+        guard !frame.isEmpty else { return }
+        endpointAnchorFrame = frame
+        endpointSubmenuController.updateAnchorFrame(frame)
+    }
+
+    private func handleEndpointRowHover(_ isHovering: Bool, anchorFrame: NSRect) {
+        if !anchorFrame.isEmpty {
+            updateEndpointAnchorFrame(anchorFrame)
+        }
+        if isHovering {
+            cancelEndpointClose()
+            scheduleEndpointOpen()
+        } else {
+            endpointOpenTask?.cancel()
+            endpointOpenTask = nil
+            scheduleEndpointClose()
+        }
+    }
+
+    private func handleEndpointSubmenuHover(_ isHovering: Bool) {
+        if isHovering {
+            cancelEndpointClose()
+        } else {
+            scheduleEndpointClose()
+        }
+    }
+
+    private func scheduleEndpointOpen() {
+        guard !endpointSubmenuController.isVisible, !endpointAnchorFrame.isEmpty else { return }
+        endpointOpenTask?.cancel()
+        endpointOpenTask = Task { @MainActor [weak self] in
+            try? await Task.sleep(for: .milliseconds(150))
+            guard !Task.isCancelled, let self else { return }
+            self.openEndpointSubmenu(anchorFrame: self.endpointAnchorFrame)
+        }
+    }
+
+    private func openEndpointSubmenu(anchorFrame: NSRect) {
+        guard panel.isVisible else { return }
+        endpointOpenTask?.cancel()
+        endpointOpenTask = nil
+        cancelEndpointClose()
+        updateEndpointAnchorFrame(anchorFrame)
+        endpointSubmenuController.show(anchorFrame: endpointAnchorFrame, relativeTo: panel)
+        endpointSubmenuState.present(itemCount: appState.gatewayOverview.endpoints.count)
+    }
+
+    private func scheduleEndpointClose() {
+        guard endpointSubmenuController.isVisible else { return }
+        endpointCloseTask?.cancel()
+        endpointCloseTask = Task { @MainActor [weak self] in
+            try? await Task.sleep(for: .milliseconds(250))
+            guard !Task.isCancelled else { return }
+            self?.closeEndpointSubmenu()
+        }
+    }
+
+    private func cancelEndpointClose() {
+        endpointCloseTask?.cancel()
+        endpointCloseTask = nil
+    }
+
+    private func closeEndpointSubmenu() {
+        endpointOpenTask?.cancel()
+        endpointOpenTask = nil
+        cancelEndpointClose()
+        endpointSubmenuController.close()
+        endpointSubmenuState.dismiss()
+    }
 }
 
 private final class AnchoredPopoverPanel: NSPanel {
+    var onResignKey: (() -> Void)?
+
     override var canBecomeKey: Bool { true }
     override var canBecomeMain: Bool { false }
+
+    override func resignKey() {
+        super.resignKey()
+        onResignKey?()
+    }
 }
 
 private final class EscapeHostingController<Content: View>: NSHostingController<Content> {

@@ -1,9 +1,11 @@
 import SwiftUI
 
 public struct KeysSettingsView: View {
-    @EnvironmentObject private var appState: AppState
+    @Binding private var selectedProvider: ProviderKind
 
-    public init() {}
+    public init(selectedProvider: Binding<ProviderKind>) {
+        self._selectedProvider = selectedProvider
+    }
 
     public var body: some View {
         ScrollView {
@@ -16,9 +18,9 @@ public struct KeysSettingsView: View {
                         .foregroundStyle(.secondary)
                 }
 
-                ProviderTabRow(selected: $appState.selectedProvider)
+                ProviderTabRow(selected: $selectedProvider)
 
-                ProviderFormView(provider: appState.selectedProvider)
+                ProviderFormView(provider: selectedProvider)
 
                 KeychainInfoBox()
             }

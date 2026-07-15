@@ -163,7 +163,7 @@ private struct DecisionScoreSection: View {
                         .font(.system(size: 34, weight: .semibold, design: .rounded).monospacedDigit())
                         .foregroundStyle(decision.route.accentColor)
                     Spacer()
-                    Text(thresholdText)
+                    Text(decision.routeSummary)
                         .font(.caption.monospacedDigit().weight(.semibold))
                         .foregroundStyle(ChatWorkspaceChrome.secondaryText)
                         .padding(.horizontal, 8)
@@ -176,7 +176,7 @@ private struct DecisionScoreSection: View {
                 HStack {
                     Text("0")
                     Spacer()
-                    Text("cloud threshold")
+                    Text("Routing score")
                     Spacer()
                     Text("1")
                 }
@@ -186,9 +186,6 @@ private struct DecisionScoreSection: View {
         }
     }
 
-    private var thresholdText: String {
-        decision.route == .local ? "below 0.45" : "above 0.45"
-    }
 }
 
 private struct ScoreMeter: View {
@@ -198,16 +195,11 @@ private struct ScoreMeter: View {
         GeometryReader { proxy in
             ZStack(alignment: .leading) {
                 Capsule()
-                    .fill(Color.white.opacity(0.08))
+                    .fill(Color.primary.opacity(0.10))
 
                 Capsule()
                     .fill(decision.route.accentColor)
                     .frame(width: max(8, proxy.size.width * min(max(decision.score, 0), 1)))
-
-                Rectangle()
-                    .fill(Color.white.opacity(0.42))
-                    .frame(width: 1)
-                    .offset(x: proxy.size.width * 0.45)
             }
         }
         .frame(height: 8)
@@ -250,7 +242,7 @@ private struct FeatureSignalRow: View {
                 GeometryReader { proxy in
                     ZStack(alignment: .leading) {
                         Capsule()
-                            .fill(Color.white.opacity(0.07))
+                            .fill(Color.primary.opacity(0.09))
                         Capsule()
                             .fill(tint.opacity(0.82))
                             .frame(width: max(4, proxy.size.width * min(max(contribution, 0), 1)))

@@ -26,7 +26,12 @@ public struct GatewayServiceController: Sendable {
     public func status() async -> GatewayServiceStatus {
         let launchConfiguration = readLaunchConfiguration()
         let loaded = await isLoaded()
-        let health = await healthProbe(launchConfiguration.healthURL)
+        let health: GatewayHealth?
+        if let healthURL = launchConfiguration.healthURL {
+            health = await healthProbe(healthURL)
+        } else {
+            health = nil
+        }
         return GatewayServiceStatus(
             installed: FileManager.default.fileExists(atPath: launchAgentURL.path),
             loaded: loaded,
@@ -60,7 +65,10 @@ public struct GatewayServiceController: Sendable {
 
     public static func launchConfiguration(fromProgramArguments arguments: [String]) -> GatewayLaunchConfiguration {
         let host = argumentValue(after: "--host", in: arguments) ?? defaultHost
-        let port = Int(argumentValue(after: "--port", in: arguments) ?? "") ?? defaultPort
+        let port = argumentValue(after: "--port", in: arguments)
+            .flatMap(Int.init)
+            .flatMap { GatewayLaunchConfiguration.validPortRange.contains($0) ? $0 : nil }
+            ?? defaultPort
         let configPath = argumentValue(after: "--config", in: arguments) ?? defaultConfigPath()
         return GatewayLaunchConfiguration(host: host, port: port, configPath: configPath)
     }
@@ -166,6 +174,8 @@ public struct GatewayServiceStatus: Equatable, Sendable {
 }
 
 public struct GatewayLaunchConfiguration: Equatable, Sendable {
+    public static let validPortRange = 1...65_535
+
     public let host: String
     public let port: Int
     public let configPath: String
@@ -175,31 +185,44 @@ public struct GatewayLaunchConfiguration: Equatable, Sendable {
     }
 
     public var openAIBaseURL: String {
-        "\(rootURLString)/v1"
+        endpointURL(path: "/v1")?.absoluteString ?? Self.invalidEndpointDescription
     }
 
     public var localRouterURL: String {
-        rootURLString
+        endpointURL()?.absoluteString ?? Self.invalidEndpointDescription
     }
 
     public var anthropicRootURL: String {
-        rootURLString
+        localRouterURL
     }
 
     public var healthURLString: String {
-        "\(rootURLString)/healthz"
+        healthURL?.absoluteString ?? Self.invalidEndpointDescription
     }
 
-    public var healthURL: URL {
-        URL(string: healthURLString)!
+    public var healthURL: URL? {
+        endpointURL(path: "/healthz")
     }
 
-    private var rootURLString: String {
-        "http://\(pasteableHost):\(port)"
+    private func endpointURL(path: String = "") -> URL? {
+        guard Self.validPortRange.contains(port) else { return nil }
+
+        var components = URLComponents()
+        components.scheme = "http"
+        components.host = urlHost
+        components.port = port
+        components.path = path
+        return components.url
     }
 
     private var pasteableHost: String {
         isNetworkExposedBind ? Self.localLoopbackHost : host
+    }
+
+    private var urlHost: String {
+        let host = pasteableHost
+        guard host.contains(":"), !host.hasPrefix("[") else { return host }
+        return "[\(host)]"
     }
 
     private var isNetworkExposedBind: Bool {
@@ -207,6 +230,7 @@ public struct GatewayLaunchConfiguration: Equatable, Sendable {
     }
 
     private static let localLoopbackHost = "127.0.0.1"
+    private static let invalidEndpointDescription = "Invalid gateway address"
 }
 
 public struct GatewayHealth: Decodable, Equatable, Sendable {

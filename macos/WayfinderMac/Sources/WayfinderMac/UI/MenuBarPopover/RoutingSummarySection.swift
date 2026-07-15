@@ -1,93 +1,82 @@
 import SwiftUI
 
 public struct RoutingSummarySection: View {
-    let stats: RoutingStats
+    private let presentation: RoutingPopoverPresentation
 
     public init(stats: RoutingStats) {
-        self.stats = stats
+        self.presentation = RoutingPopoverPresentation(stats: stats)
+    }
+
+    init(presentation: RoutingPopoverPresentation) {
+        self.presentation = presentation
     }
 
     public var body: some View {
-        HStack(spacing: NativeMenuMetrics.rowSpacing) {
-            NativeMenuIconWell(symbolName: "arrow.left.arrow.right", tint: WayfinderTheme.local)
+        VStack(alignment: .leading, spacing: 5) {
+            HStack(alignment: .firstTextBaseline, spacing: 8) {
+                Text("Routing")
+                    .font(.system(size: 13, weight: .medium))
+                    .foregroundStyle(.primary)
 
-            VStack(alignment: .leading, spacing: 5) {
-                HStack(alignment: .firstTextBaseline) {
-                    Text("Routing")
-                        .font(.system(size: 17, weight: .semibold))
-                        .foregroundStyle(.primary)
-                    Spacer()
+                Spacer(minLength: 8)
+
+                if let totalText = presentation.totalText {
                     Text(totalText)
-                        .font(.system(size: 14, weight: .regular).monospacedDigit())
+                        .font(.system(size: 12, weight: .regular).monospacedDigit())
                         .foregroundStyle(.secondary)
                 }
+            }
 
-                Text(routeMixText)
-                    .font(.system(size: 13, weight: .regular))
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
+            SplitRouteBar(
+                localFraction: presentation.localFraction,
+                hasDecisions: presentation.hasDecisions
+            )
+            .frame(height: 6)
 
-                HStack(spacing: 10) {
-                    SplitRouteBar(localPercent: stats.localPercent)
-                        .frame(width: 118)
-                    Text(routeCountText)
-                        .font(.system(size: 12, weight: .regular))
-                        .foregroundStyle(.tertiary)
-                        .lineLimit(1)
+            HStack(alignment: .firstTextBaseline, spacing: 8) {
+                Text(presentation.localText)
+                Spacer(minLength: 6)
+                if !presentation.cloudText.isEmpty {
+                    Text(presentation.cloudText)
                 }
             }
+            .font(.system(size: 11, weight: .regular).monospacedDigit())
+            .foregroundStyle(.secondary)
+            .lineLimit(1)
         }
-        .frame(height: NativeMenuMetrics.metricRowHeight)
-        .padding(.horizontal, NativeMenuMetrics.horizontalPadding)
-        .accessibilityElement(children: .combine)
-        .accessibilityLabel("Routing, \(routeMixText), \(routeCountText)")
-    }
-
-    private var totalText: String {
-        guard let total = stats.totalTurns, total > 0 else {
-            return "No turns"
-        }
-        return "\(total) turn\(total == 1 ? "" : "s")"
-    }
-
-    private var routeMixText: String {
-        guard let total = stats.totalTurns, total > 0 else {
-            return "No recent routing decisions"
-        }
-        return "Local \(stats.localPercent.percentText) · Cloud \(stats.cloudPercent.percentText)"
-    }
-
-    private var routeCountText: String {
-        guard let local = stats.localRouteCount, let cloud = stats.cloudRouteCount else {
-            return "Not yet available"
-        }
-        return "local: \(local) · cloud: \(cloud)"
+        .frame(height: NativeMenuMetrics.routingRowHeight)
+        .padding(.horizontal, NativeMenuMetrics.sectionHorizontalPadding)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(presentation.accessibilityLabel)
+        .accessibilityAddTraits(.isStaticText)
     }
 }
 
 private struct SplitRouteBar: View {
-    let localPercent: Double
+    let localFraction: Double
+    let hasDecisions: Bool
 
     var body: some View {
         GeometryReader { proxy in
-            let clampedLocal = min(1, max(0, localPercent))
-            let localWidth = max(0, proxy.size.width * CGFloat(clampedLocal))
+            let fraction = min(1, max(0, localFraction))
+            let localWidth = proxy.size.width * CGFloat(fraction)
 
             ZStack(alignment: .leading) {
                 Capsule()
                     .fill(Color.primary.opacity(0.12))
 
-                HStack(spacing: 0) {
-                    Rectangle()
-                        .fill(WayfinderTheme.local.opacity(0.92))
-                        .frame(width: localWidth)
-                    Rectangle()
-                        .fill(WayfinderTheme.cloud.opacity(0.80))
+                if hasDecisions {
+                    HStack(spacing: 0) {
+                        Rectangle()
+                            .fill(WayfinderTheme.local)
+                            .frame(width: localWidth)
+                        Rectangle()
+                            .fill(WayfinderTheme.cloud)
+                    }
+                    .clipShape(Capsule())
                 }
-                .clipShape(Capsule())
             }
         }
-        .frame(height: 7)
         .accessibilityHidden(true)
     }
 }
