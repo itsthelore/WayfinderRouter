@@ -42,4 +42,13 @@ final class SetupTests: XCTestCase {
         state.selectedPresetID = "local"
         XCTAssertTrue(state.requiredCredentials.isEmpty)
     }
+
+    func testHybridPresetRequestsTheCredentialWrittenByBootstrap() throws {
+        let preset = try XCTUnwrap(SetupPreset.approved.first { $0.id == "hybrid" })
+        XCTAssertEqual(
+            preset.credentials,
+            [SetupCredential(provider: "OpenAI", environmentVariable: "OPENAI_API_KEY")]
+        )
+        XCTAssertTrue(preset.requirement.contains("OpenAI"))
+    }
 }

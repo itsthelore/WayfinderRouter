@@ -53,7 +53,7 @@ public struct SetupPreset: Identifiable, Equatable, Sendable {
     public let localRuntimeExecutable: String?
 
     public static let approved: [SetupPreset] = [
-        .init(id: "hybrid", title: "Hybrid — Recommended", summary: "Use a local endpoint with a hosted fallback.", requirement: "Requires Ollama and an Anthropic key.", credentials: [.init(provider: "Anthropic", environmentVariable: "ANTHROPIC_API_KEY")], localRuntimeExecutable: "ollama"),
+        .init(id: "hybrid", title: "Hybrid — Recommended", summary: "Use a local endpoint with a hosted fallback.", requirement: "Requires Ollama and an OpenAI key.", credentials: [.init(provider: "OpenAI", environmentVariable: "OPENAI_API_KEY")], localRuntimeExecutable: "ollama"),
         .init(id: "local", title: "Local only", summary: "Keep delivery local when offline operation is enforced.", requirement: "Requires Ollama; no provider key.", credentials: [], localRuntimeExecutable: "ollama"),
         .init(id: "openai", title: "OpenAI", summary: "Route across hosted OpenAI cost and capability tiers.", requirement: "Requires an OpenAI key.", credentials: [.init(provider: "OpenAI", environmentVariable: "OPENAI_API_KEY")], localRuntimeExecutable: nil),
         .init(id: "gemini", title: "Gemini", summary: "Route across hosted Gemini cost and capability tiers.", requirement: "Requires a Gemini key.", credentials: [.init(provider: "Google Gemini", environmentVariable: "GEMINI_API_KEY")], localRuntimeExecutable: nil),
