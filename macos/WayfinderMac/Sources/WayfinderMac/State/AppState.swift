@@ -11,8 +11,10 @@ public final class AppState: ObservableObject {
     @Published public var chatDraft = ""
     @Published public private(set) var chatMessages: [ChatMessage]
     @Published public private(set) var isSendingMessage = false
+    @Published public private(set) var setupAssessment: SetupAssessment = .checking
 
     private let client: any WayfinderClient
+    private let setupService = SetupService()
 
     public init(client: any WayfinderClient) {
         self.client = client
@@ -80,6 +82,13 @@ public final class AppState: ObservableObject {
                     self.isRefreshingStats = false
                 }
             }
+        }
+    }
+
+    public func refreshSetupAssessment() {
+        Task {
+            let assessment = await setupService.assess()
+            await MainActor.run { self.setupAssessment = assessment }
         }
     }
 

@@ -7,6 +7,8 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
     private var statusItemController: StatusItemController?
     private var chatFeatureCoordinator: ChatFeatureCoordinator?
     private var settingsWindowController: SettingsWindowController?
+    private var setupWindowController: SetupWindowController?
+    private var setupObserver: NSObjectProtocol?
 
     public init(
         client: any WayfinderClient,
@@ -25,6 +27,18 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
         )
         self.chatFeatureCoordinator = chatFeatureCoordinator
         settingsWindowController = SettingsWindowController(appState: appState)
+        let setupWindowController = SetupWindowController()
+        self.setupWindowController = setupWindowController
+        setupObserver = NotificationCenter.default.addObserver(
+            forName: .wayfinderRunSetupAssistant, object: nil, queue: .main
+        ) { [weak setupWindowController] _ in
+            Task { @MainActor in setupWindowController?.show() }
+        }
+        NotificationCenter.default.addObserver(
+            forName: .wayfinderSetupDidChange, object: nil, queue: .main
+        ) { [weak appState] _ in
+            Task { @MainActor in appState?.refreshSetupAssessment(); appState?.refreshStats() }
+        }
         statusItemController = StatusItemController(
             appState: appState,
             chatAvailability: chatFeatureCoordinator.availability,
@@ -32,6 +46,8 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
             onOpenSettings: { [weak self] in self?.showSettingsWindow() },
             onQuit: { NSApp.terminate(nil) }
         )
+        appState.refreshSetupAssessment()
+        setupWindowController.assessAndShowIfNeeded()
     }
 
     public func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
