@@ -1819,8 +1819,10 @@ def build_app(
         models = [
             {
                 "name": name,
-                "endpoint": m.base_url,
+                "endpoint": m.base_url or "",
                 "model": m.model,
+                "provider": m.provider.value,
+                "tier": m.tier.value if m.tier is not None else None,
                 "api_key_env": m.api_key_env,
                 "key_ok": m.api_key_env is None or bool(os.environ.get(m.api_key_env)),
             }
