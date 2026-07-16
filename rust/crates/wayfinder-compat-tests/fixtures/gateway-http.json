@@ -189,6 +189,8 @@
                 "name": "local",
                 "endpoint": "http://127.0.0.1:11434/v1",
                 "model": "provider-local",
+                "provider": "openai-compatible",
+                "tier": null,
                 "api_key_env": null,
                 "key_ok": true
               },
@@ -196,6 +198,8 @@
                 "name": "cloud",
                 "endpoint": "https://cloud.example/v1",
                 "model": "provider-cloud",
+                "provider": "openai-compatible",
+                "tier": null,
                 "api_key_env": "WAYFINDER_HTTP_CORPUS_MISSING_KEY",
                 "key_ok": false
               }
