@@ -100,12 +100,14 @@ final class GatewayOverviewTests: XCTestCase {
     func testEndpointStatesReflectKeysOfflineModeAndGatewayAvailability() {
         let models = [
             GatewayModelInfo(name: "local", endpoint: "http://127.0.0.1:11434", model: "llama", apiKeyEnv: nil, keyOK: true),
+            GatewayModelInfo(name: "apple-local", endpoint: "", model: "system-default", provider: "apple-foundation-models", tier: "local", apiKeyEnv: nil, keyOK: true),
             GatewayModelInfo(name: "cloud", endpoint: "https://api.anthropic.com", model: "claude", apiKeyEnv: "ANTHROPIC_API_KEY", keyOK: false),
         ]
 
         XCTAssertEqual(
             GatewayWayfinderClient.endpointDisplayStatuses(gateway: .running(detail: "ready"), models: models),
             [
+                EndpointDisplayStatus(name: "apple-local", providerName: "Apple Foundation Models", modelName: "system-default", state: .ready),
                 EndpointDisplayStatus(name: "cloud", providerName: "Anthropic", modelName: "claude", state: .checkKey),
                 EndpointDisplayStatus(name: "local", providerName: "Ollama", modelName: "llama", state: .ready),
             ]
@@ -113,6 +115,7 @@ final class GatewayOverviewTests: XCTestCase {
         XCTAssertEqual(
             GatewayWayfinderClient.endpointDisplayStatuses(gateway: .offline(detail: "offline"), models: models),
             [
+                EndpointDisplayStatus(name: "apple-local", providerName: "Apple Foundation Models", modelName: "system-default", state: .ready),
                 EndpointDisplayStatus(name: "cloud", providerName: "Anthropic", modelName: "claude", state: .disabled),
                 EndpointDisplayStatus(name: "local", providerName: "Ollama", modelName: "llama", state: .ready),
             ]
@@ -120,7 +123,42 @@ final class GatewayOverviewTests: XCTestCase {
         XCTAssertEqual(
             GatewayWayfinderClient.endpointDisplayStatuses(gateway: .unreachable(detail: "down"), models: models)
                 .map(\.state),
-            [.unavailable, .unavailable]
+            [.unavailable, .unavailable, .unavailable]
+        )
+    }
+
+    func testNativeAppleProviderIsLocalWithoutAnHTTPEndpoint() {
+        let apple = GatewayModelInfo(
+            name: "apple-local",
+            endpoint: "",
+            model: "system-default",
+            provider: "apple-foundation-models",
+            tier: "local",
+            apiKeyEnv: nil,
+            keyOK: true
+        )
+
+        XCTAssertTrue(apple.isProvenLocal)
+        XCTAssertEqual(apple.providerDisplayName, "Apple Foundation Models")
+    }
+
+    func testNativeAppleProviderReportsUnavailableWhenProductSigningIsNotReady() {
+        let apple = GatewayModelInfo(
+            name: "apple-local",
+            endpoint: "",
+            model: "system-default",
+            provider: "apple-foundation-models",
+            tier: "local",
+            apiKeyEnv: nil,
+            keyOK: true
+        )
+        XCTAssertEqual(
+            GatewayWayfinderClient.endpointDisplayStatuses(
+                gateway: .running(detail: "ready"),
+                models: [apple],
+                appleFoundationModelsReady: false
+            ).first?.state,
+            .unavailable
         )
     }
 

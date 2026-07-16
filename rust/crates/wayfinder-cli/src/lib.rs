@@ -2,6 +2,7 @@
 
 #![forbid(unsafe_code)]
 
+mod app_setup_command;
 mod apple_foundation_live;
 mod service_command;
 
@@ -140,6 +141,7 @@ pub fn run(
             EXIT_OK
         }
         "route" => run_route(&arguments[1..], stdin, stdout, stderr),
+        "app-setup-init" => app_setup_command::run_app_setup(&arguments[1..], stdout, stderr),
         "service" => service_command::run_service(&arguments[1..], stdout, stderr),
         "capabilities" => run_capabilities(&arguments[1..], stdout, stderr),
         "apple-foundation-live-smoke" => {

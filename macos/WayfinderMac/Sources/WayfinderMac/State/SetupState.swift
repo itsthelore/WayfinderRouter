@@ -15,6 +15,7 @@ public final class SetupState: ObservableObject {
     private let service: SetupService
     private let resolver: GatewayToolResolver
     private var operation: Task<Void, Never>?
+    private var isAssessing = false
 
     public init(service: SetupService = SetupService(), resolver: GatewayToolResolver = GatewayToolResolver()) {
         self.service = service
@@ -26,6 +27,9 @@ public final class SetupState: ObservableObject {
     public var requiredCredentials: [SetupCredential] { selectedPreset.credentials }
 
     public func assess() async {
+        guard !isAssessing else { return }
+        isAssessing = true
+        defer { isAssessing = false }
         assessment = .checking; step = .checking; failureMessage = nil
         async let assessed = service.assess()
         async let apple = service.appleFoundationModelsAvailability()

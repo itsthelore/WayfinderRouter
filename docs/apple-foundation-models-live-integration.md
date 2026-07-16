@@ -9,9 +9,8 @@ only stable availability categories, completion booleans, event counts, and byte
 - Apple Silicon running macOS 26 or newer;
 - Apple Intelligence enabled and `SystemLanguageModel.default` available;
 - a Developer ID or Apple Development signing identity with a Team ID;
-- a signed `Wayfinder.app` containing the genuine Rust helper and Foundation Models XPC service;
-- a test-only helper app harness signed as `com.wayfinder.router.helper`, so macOS can discover the
-  embedded application XPC service without weakening the service's caller requirement;
+- a signed `Wayfinder.app` containing `Contents/Helpers/WayfinderGateway.app`, whose main
+  executable is the genuine Rust gateway and whose `Contents/XPCServices` contains both brokers;
 - the Wayfinder menu-bar process closed for app-closed inference evidence.
 
 Ad-hoc signing is insufficient because the XPC service authenticates the helper identifier, Apple
@@ -28,7 +27,7 @@ WAYFINDER_RELEASE_ARCHS=arm64 \
   macos/WayfinderMac/script/build_release_bundle.sh
 ```
 
-Create the test-only signed helper harness from that bundle:
+Create a private test copy of the production gateway helper app:
 
 ```sh
 CODESIGN_IDENTITY="Apple Development: Example (TEAMID)" \
@@ -45,10 +44,10 @@ WAYFINDER_APP_BUNDLE="/private/tmp/WayfinderFoundationLiveHarness.app" \
   macos/WayfinderMac/script/run_apple_foundation_live.sh
 ```
 
-The harness contains the production Rust helper bytes and production XPC service but exists only to
-give `NSXPCConnection(serviceName:)` the containing application bundle required for live testing.
-It does not claim that the current release-bundle helper/XPC placement is the final app-closed
-production topology; packaging and clean-machine proof remain part of Step 10.
+The harness is a byte-for-byte bundle copy of the production containing gateway helper app, then
+re-signed with the supplied identity. The release bundle now uses the same containing-app topology;
+the copy merely isolates gated live testing under `/private/tmp`. Signed clean-machine proof
+remains part of Step 10.
 
 The wrapper fails before inference when the gate is absent, the machine is not Apple Silicon, the
 OS is older than macOS 26, the menu-bar app is open, the bundle is incomplete, or signature checks
@@ -90,5 +89,5 @@ closed. The gated command exited `0` with this content-free report:
 
 The run also exposed and fixed two cancellation races before the successful evidence was recorded:
 early idempotent cancellation is retained until task insertion, and all authenticated XPC
-connections share one broker task registry. The test-only containing-app harness remains necessary;
-the production app-closed service placement is intentionally still a Step 10 packaging gate.
+connections share one broker task registry. This evidence predates adoption of the same containing
+helper-app topology in the production bundle, so a new signed clean-machine run is still required.

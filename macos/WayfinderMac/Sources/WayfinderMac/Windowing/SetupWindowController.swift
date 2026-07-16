@@ -1,10 +1,12 @@
 import AppKit
+import Combine
 import SwiftUI
 
 @MainActor
 final class SetupWindowController: NSObject, NSWindowDelegate {
     private let state: SetupState
     private var window: NSWindow!
+    private var stepCancellable: AnyCancellable?
 
     override convenience init() {
         self.init(state: SetupState())
@@ -17,17 +19,47 @@ final class SetupWindowController: NSObject, NSWindowDelegate {
         let window = NSWindow(contentViewController: NSHostingController(rootView: root))
         window.title = "Set up Wayfinder"
         window.styleMask = [.titled, .closable, .resizable]
-        window.setContentSize(NSSize(width: 560, height: 460))
-        window.contentMinSize = NSSize(width: 520, height: 420)
+        window.setContentSize(Self.preferredContentSize(for: state.step))
+        window.contentMinSize = NSSize(width: 520, height: 300)
         window.isReleasedWhenClosed = false
         window.center()
         window.delegate = self
         self.window = window
+        stepCancellable = state.$step
+            .removeDuplicates()
+            .dropFirst()
+            .sink { [weak self] step in
+                self?.resize(for: step)
+            }
     }
 
-    func show() {
+    static func preferredContentSize(for step: SetupStep) -> NSSize {
+        let height: CGFloat
+        switch step {
+        case .chooseRouting:
+            height = 500
+        case .credentials, .configure, .result, .requirements, .toolsMissing:
+            height = 400
+        case .checking, .welcome, .existingConfiguration:
+            height = 340
+        }
+        return NSSize(width: 560, height: height)
+    }
+
+    private func resize(for step: SetupStep) {
+        let targetSize = Self.preferredContentSize(for: step)
+        guard window.contentView?.frame.size != targetSize else { return }
+        window.setContentSize(targetSize)
+        window.center()
+    }
+
+    private func present() {
         window.makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)
+    }
+
+    func reassessAndShow() {
+        present()
         Task { await state.assess() }
     }
 
@@ -35,7 +67,7 @@ final class SetupWindowController: NSObject, NSWindowDelegate {
         Task {
             await state.assess()
             let deferred = UserDefaults.standard.bool(forKey: "Wayfinder.Setup.Deferred")
-            if state.assessment.isIncomplete && !deferred { show() }
+            if state.assessment.isIncomplete && !deferred { present() }
         }
     }
 

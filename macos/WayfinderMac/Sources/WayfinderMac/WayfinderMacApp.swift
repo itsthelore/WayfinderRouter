@@ -32,7 +32,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
         setupObserver = NotificationCenter.default.addObserver(
             forName: .wayfinderRunSetupAssistant, object: nil, queue: .main
         ) { [weak setupWindowController] _ in
-            Task { @MainActor in setupWindowController?.show() }
+            Task { @MainActor in setupWindowController?.reassessAndShow() }
         }
         NotificationCenter.default.addObserver(
             forName: .wayfinderSetupDidChange, object: nil, queue: .main

@@ -901,6 +901,8 @@ struct RouterModel {
     name: String,
     endpoint: String,
     model: String,
+    provider: String,
+    tier: Option<String>,
     api_key_env: Option<String>,
     key_ok: bool,
 }
@@ -913,6 +915,8 @@ async fn router_models(State(state): State<AppState>) -> Json<RouterModelsRespon
             name: model.name().to_owned(),
             endpoint: model.endpoint().to_owned(),
             model: model.provider_model().to_owned(),
+            provider: model.provider().as_str().to_owned(),
+            tier: model.tier().map(|tier| tier.as_str().to_owned()),
             api_key_env: model.api_key_env().map(str::to_owned),
             key_ok: model.key_ready(),
         })
@@ -3472,6 +3476,8 @@ mod tests {
                         "name": "zeta",
                         "endpoint": "https://zeta.example/v1",
                         "model": "provider-zeta",
+                        "provider": "openai-compatible",
+                        "tier": null,
                         "api_key_env": "ZETA_API_KEY",
                         "key_ok": false
                     },
@@ -3479,6 +3485,8 @@ mod tests {
                         "name": "alpha",
                         "endpoint": "http://127.0.0.1:11434/v1",
                         "model": "provider-alpha",
+                        "provider": "openai-compatible",
+                        "tier": null,
                         "api_key_env": null,
                         "key_ok": true
                     }

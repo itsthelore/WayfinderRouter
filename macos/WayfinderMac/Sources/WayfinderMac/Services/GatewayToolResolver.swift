@@ -14,8 +14,7 @@ public struct GatewayToolResolver: Sendable {
 
     public func resolve(_ name: String = "wayfinder-router") -> URL? {
         if name == "wayfinder-router" {
-            let bundled = Bundle.main.bundleURL
-                .appendingPathComponent("Contents/Helpers/wayfinder-router")
+            let bundled = Self.bundledHelperURL(in: Bundle.main.bundleURL)
             if isExecutable(bundled.path) { return bundled }
         }
         let inherited = environment["PATH", default: ""].split(separator: ":").map(String.init)
@@ -29,6 +28,12 @@ public struct GatewayToolResolver: Sendable {
 
     public func resolvesRuntime(_ executable: String) -> Bool {
         resolve(executable) != nil
+    }
+
+    static func bundledHelperURL(in appBundleURL: URL) -> URL {
+        appBundleURL
+            .appendingPathComponent("Contents/Helpers/WayfinderGateway.app")
+            .appendingPathComponent("Contents/MacOS/wayfinder-router")
     }
 }
 
@@ -46,7 +51,7 @@ public enum SetupCommandPlan {
         let target = URL(fileURLWithPath: configPath).standardizedFileURL.path
         guard target.hasPrefix(allowedRoot + "/") else { throw SetupFailure.unsafeConfigPath }
         return [
-            SetupCommand(executable: tool, arguments: ["init", "--preset", presetID, "--keychain", "--path", target]),
+            SetupCommand(executable: tool, arguments: ["app-setup-init", "--preset", presetID, "--path", target]),
             SetupCommand(executable: tool, arguments: ["service", "uninstall"]),
             SetupCommand(executable: tool, arguments: ["service", "install", "--config", target]),
         ]

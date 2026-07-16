@@ -6,6 +6,10 @@ REPO_DIR="$(cd "$ROOT_DIR/../.." && pwd)"
 RUST_DIR="$REPO_DIR/rust"
 DIST_DIR="${DIST_DIR:-$ROOT_DIR/dist-release}"
 APP="$DIST_DIR/Wayfinder.app"
+GATEWAY_APP="$APP/Contents/Helpers/WayfinderGateway.app"
+HELPER="$GATEWAY_APP/Contents/MacOS/wayfinder-router"
+CREDENTIAL_XPC="$GATEWAY_APP/Contents/XPCServices/com.wayfinder.CredentialBroker.xpc"
+FOUNDATION_XPC="$GATEWAY_APP/Contents/XPCServices/com.wayfinder.FoundationModelBroker.xpc"
 IDENTITY="${CODESIGN_IDENTITY:--}"
 TIMESTAMP_OPTION="${CODESIGN_TIMESTAMP_OPTION:---timestamp}"
 DEPLOYMENT_TARGET="14.0"
@@ -63,8 +67,9 @@ fi
 
 rm -rf "$APP"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Helpers" "$APP/Contents/Resources"
-mkdir -p "$APP/Contents/XPCServices/com.wayfinder.CredentialBroker.xpc/Contents/MacOS"
-mkdir -p "$APP/Contents/XPCServices/com.wayfinder.FoundationModelBroker.xpc/Contents/MacOS"
+mkdir -p "$GATEWAY_APP/Contents/MacOS"
+mkdir -p "$CREDENTIAL_XPC/Contents/MacOS"
+mkdir -p "$FOUNDATION_XPC/Contents/MacOS"
 
 assemble_binary() {
   local name="$1"
@@ -78,34 +83,54 @@ assemble_binary() {
   fi
 }
 
-assemble_binary wayfinder-router "$APP/Contents/Helpers/wayfinder-router"
+assemble_binary wayfinder-router "$HELPER"
 assemble_binary WayfinderMac "$APP/Contents/MacOS/WayfinderMac"
-assemble_binary WayfinderCredentialBroker "$APP/Contents/XPCServices/com.wayfinder.CredentialBroker.xpc/Contents/MacOS/WayfinderCredentialBroker"
-assemble_binary WayfinderFoundationModelBroker "$APP/Contents/XPCServices/com.wayfinder.FoundationModelBroker.xpc/Contents/MacOS/WayfinderFoundationModelBroker"
+assemble_binary WayfinderCredentialBroker "$CREDENTIAL_XPC/Contents/MacOS/WayfinderCredentialBroker"
+assemble_binary WayfinderFoundationModelBroker "$FOUNDATION_XPC/Contents/MacOS/WayfinderFoundationModelBroker"
 
 cp "$ROOT_DIR/Packaging/App-Info.plist" "$APP/Contents/Info.plist"
-cp "$ROOT_DIR/Packaging/CredentialBroker-Info.plist" "$APP/Contents/XPCServices/com.wayfinder.CredentialBroker.xpc/Contents/Info.plist"
-cp "$ROOT_DIR/Packaging/FoundationModelBroker-Info.plist" "$APP/Contents/XPCServices/com.wayfinder.FoundationModelBroker.xpc/Contents/Info.plist"
+cp "$ROOT_DIR/Packaging/Gateway-Info.plist" "$GATEWAY_APP/Contents/Info.plist"
+cp "$ROOT_DIR/Packaging/CredentialBroker-Info.plist" "$CREDENTIAL_XPC/Contents/Info.plist"
+cp "$ROOT_DIR/Packaging/FoundationModelBroker-Info.plist" "$FOUNDATION_XPC/Contents/Info.plist"
 cp "$ROOT_DIR/Resources/wayfinder-helper.json" "$APP/Contents/Resources/wayfinder-helper.json"
-chmod 755 "$APP/Contents/MacOS/WayfinderMac" "$APP/Contents/Helpers/wayfinder-router"
-chmod 755 "$APP/Contents/XPCServices/com.wayfinder.CredentialBroker.xpc/Contents/MacOS/WayfinderCredentialBroker"
-chmod 755 "$APP/Contents/XPCServices/com.wayfinder.FoundationModelBroker.xpc/Contents/MacOS/WayfinderFoundationModelBroker"
+chmod 755 "$APP/Contents/MacOS/WayfinderMac" "$HELPER"
+chmod 755 "$CREDENTIAL_XPC/Contents/MacOS/WayfinderCredentialBroker"
+chmod 755 "$FOUNDATION_XPC/Contents/MacOS/WayfinderFoundationModelBroker"
 
 for binary in \
-  "$APP/Contents/Helpers/wayfinder-router" \
+  "$HELPER" \
   "$APP/Contents/MacOS/WayfinderMac" \
-  "$APP/Contents/XPCServices/com.wayfinder.CredentialBroker.xpc/Contents/MacOS/WayfinderCredentialBroker" \
-  "$APP/Contents/XPCServices/com.wayfinder.FoundationModelBroker.xpc/Contents/MacOS/WayfinderFoundationModelBroker"; do
+  "$CREDENTIAL_XPC/Contents/MacOS/WayfinderCredentialBroker" \
+  "$FOUNDATION_XPC/Contents/MacOS/WayfinderFoundationModelBroker"; do
   for arch in $RELEASE_ARCHS; do
     lipo "$binary" -verify_arch "$arch"
   done
 done
 
-codesign --force "$TIMESTAMP_OPTION" --options runtime --identifier com.wayfinder.router.helper --entitlements "$ROOT_DIR/Packaging/Helper.entitlements" --sign "$IDENTITY" "$APP/Contents/Helpers/wayfinder-router"
-codesign --force "$TIMESTAMP_OPTION" --options runtime --entitlements "$ROOT_DIR/Packaging/CredentialBroker.entitlements" --sign "$IDENTITY" "$APP/Contents/XPCServices/com.wayfinder.CredentialBroker.xpc"
-codesign --force "$TIMESTAMP_OPTION" --options runtime --entitlements "$ROOT_DIR/Packaging/FoundationModelBroker.entitlements" --sign "$IDENTITY" "$APP/Contents/XPCServices/com.wayfinder.FoundationModelBroker.xpc"
+codesign --force "$TIMESTAMP_OPTION" --options runtime --identifier com.wayfinder.router.helper --entitlements "$ROOT_DIR/Packaging/Helper.entitlements" --sign "$IDENTITY" "$HELPER"
+codesign --force "$TIMESTAMP_OPTION" --options runtime --entitlements "$ROOT_DIR/Packaging/CredentialBroker.entitlements" --sign "$IDENTITY" "$CREDENTIAL_XPC"
+codesign --force "$TIMESTAMP_OPTION" --options runtime --entitlements "$ROOT_DIR/Packaging/FoundationModelBroker.entitlements" --sign "$IDENTITY" "$FOUNDATION_XPC"
+codesign --force "$TIMESTAMP_OPTION" --options runtime --entitlements "$ROOT_DIR/Packaging/Helper.entitlements" --sign "$IDENTITY" "$GATEWAY_APP"
 codesign --force "$TIMESTAMP_OPTION" --options runtime --entitlements "$ROOT_DIR/Packaging/App.entitlements" --sign "$IDENTITY" "$APP"
 codesign --verify --deep --strict --verbose=2 "$APP"
+
+if [[ "$IDENTITY" != "-" ]]; then
+  signing_team() {
+    codesign --display --verbose=4 "$1" 2>&1 | awk -F= '/^TeamIdentifier=/{print $2; exit}'
+  }
+  expected_team="$(signing_team "$APP")"
+  if [[ -z "$expected_team" ]]; then
+    echo "error: signed Wayfinder.app has no TeamIdentifier" >&2
+    exit 1
+  fi
+  for component in "$HELPER" "$GATEWAY_APP" "$CREDENTIAL_XPC" "$FOUNDATION_XPC"; do
+    component_team="$(signing_team "$component")"
+    if [[ "$component_team" != "$expected_team" ]]; then
+      echo "error: signing TeamIdentifier mismatch for $component" >&2
+      exit 1
+    fi
+  done
+fi
 
 if [[ -n "${NOTARYTOOL_PROFILE:-}" ]]; then
   ditto -c -k --keepParent "$APP" "$DIST_DIR/Wayfinder.zip"

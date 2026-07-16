@@ -19,23 +19,16 @@ if [[ -z "$identity" ]] || [[ "$identity" == "-" ]]; then
   exit 2
 fi
 
-source_helper="$source_app/Contents/Helpers/wayfinder-router"
-source_broker="$source_app/Contents/XPCServices/com.wayfinder.FoundationModelBroker.xpc"
+source_gateway="$source_app/Contents/Helpers/WayfinderGateway.app"
+source_helper="$source_gateway/Contents/MacOS/wayfinder-router"
+source_broker="$source_gateway/Contents/XPCServices/com.wayfinder.FoundationModelBroker.xpc"
 if [[ ! -x "$source_helper" ]] || [[ ! -d "$source_broker" ]]; then
-  echo "error: source app is missing the Rust helper or Foundation Models XPC service" >&2
+  echo "error: source app is missing its containing gateway app or Foundation Models XPC service" >&2
   exit 2
 fi
 
 rm -rf "$output"
-mkdir -p "$output/Contents/MacOS" "$output/Contents/XPCServices"
-cp "$source_helper" "$output/Contents/MacOS/wayfinder-router"
-cp -R "$source_broker" "$output/Contents/XPCServices/com.wayfinder.FoundationModelBroker.xpc"
-cp "$source_app/Contents/Info.plist" "$output/Contents/Info.plist"
-plutil -replace CFBundleExecutable -string wayfinder-router "$output/Contents/Info.plist"
-plutil -replace CFBundleIdentifier -string com.wayfinder.router.helper "$output/Contents/Info.plist"
-plutil -replace CFBundleName -string WayfinderFoundationLiveHarness "$output/Contents/Info.plist"
-plutil -remove LSUIElement "$output/Contents/Info.plist" 2>/dev/null || true
-plutil -remove NSPrincipalClass "$output/Contents/Info.plist" 2>/dev/null || true
+ditto "$source_gateway" "$output"
 
 codesign --force "$timestamp_option" --options runtime \
   --identifier com.wayfinder.router.helper \
