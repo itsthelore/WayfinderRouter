@@ -8,25 +8,35 @@ public struct SetupProcessResult: Sendable {
 
 public struct SetupService: Sendable {
     public typealias Runner = @Sendable (SetupCommand) async -> SetupProcessResult
+    public typealias AppleAvailabilityQuery = @Sendable () async -> AppleFoundationModelsAvailability
 
     private let resolver: GatewayToolResolver
     private let service: GatewayServiceController
     private let keychain: KeychainCredentialStore
     private let fileExists: @Sendable (String) -> Bool
     private let runner: Runner
+    private let appleAvailabilityQuery: AppleAvailabilityQuery
 
     public init(
         resolver: GatewayToolResolver = GatewayToolResolver(),
         service: GatewayServiceController = GatewayServiceController(),
         keychain: KeychainCredentialStore = KeychainCredentialStore(),
         fileExists: @escaping @Sendable (String) -> Bool = { FileManager.default.fileExists(atPath: $0) },
-        runner: @escaping Runner = { command in await SetupService.run(command) }
+        runner: @escaping Runner = { command in await SetupService.run(command) },
+        appleAvailabilityQuery: @escaping AppleAvailabilityQuery = {
+            AppleFoundationModelsAvailabilityQuery.current()
+        }
     ) {
         self.resolver = resolver
         self.service = service
         self.keychain = keychain
         self.fileExists = fileExists
         self.runner = runner
+        self.appleAvailabilityQuery = appleAvailabilityQuery
+    }
+
+    public func appleFoundationModelsAvailability() async -> AppleFoundationModelsAvailability {
+        await appleAvailabilityQuery()
     }
 
     public func assess(previouslyHealthy: Bool = UserDefaults.standard.bool(forKey: "Wayfinder.Setup.PreviouslyHealthy")) async -> SetupAssessment {

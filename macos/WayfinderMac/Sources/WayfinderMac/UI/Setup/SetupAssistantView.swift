@@ -37,8 +37,11 @@ public struct SetupAssistantView: View {
         case .chooseRouting:
             stepHeader("Choose routing", "Choose how requests should be routed. Preset rules are created by the gateway.")
             VStack(alignment: .leading, spacing: 12) {
-                ForEach(SetupPreset.approved) { preset in presetRow(preset) }
+                ForEach(state.approvedPresets) { preset in presetRow(preset) }
             }.padding(.top, 18)
+            if let guidance = state.appleAvailability.setupGuidance {
+                Text(guidance).font(.caption).foregroundStyle(.secondary).padding(.top, 14)
+            }
         case .requirements:
             stepHeader("Check requirements", "The selected preset needs a local runtime that Wayfinder will not install or launch.")
             commandBox("brew install \(state.missingRuntime ?? "ollama")")

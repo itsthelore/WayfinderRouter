@@ -349,6 +349,18 @@ def test_init_local_preset_is_offline_and_keyless(tmp_path, monkeypatch, capsys)
     assert "api_key_env" not in text
 
 
+def test_init_apple_local_preset_is_explicit_and_keyless(tmp_path, monkeypatch, capsys):
+    monkeypatch.chdir(tmp_path)
+    assert main(["init", "--preset", "apple-local", "--keychain"]) == 0
+    text = (tmp_path / "wayfinder-router.toml").read_text()
+    assert 'provider = "apple-foundation-models"' in text
+    assert 'model = "system-default"' in text
+    assert "offline = true" in text
+    assert "api_key_env" not in text
+    assert "api_key_cmd" not in text
+    assert not (tmp_path / ".env.example").exists()
+
+
 def test_init_creates_missing_parent_directory(tmp_path, capsys):
     target = tmp_path / "nested" / "config" / "wayfinder-router.toml"
     assert main(["init", "--preset", "local", "--path", str(target)]) == 0

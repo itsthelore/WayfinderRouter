@@ -19,6 +19,22 @@ def test_hybrid_preset_config_round_trips():
     assert [t.model for t in routing.tiers] == ["local", "cloud"]
 
 
+def test_apple_local_preset_is_explicit_keyless_and_offline():
+    assert bootstrap.DEFAULT_PRESET == "hybrid"
+    text = bootstrap.render_config(bootstrap.PRESETS["apple-local"], keychain=True)
+    gw = gateway_config_from_toml(text)
+    assert gw.offline is True
+    assert set(gw.models) == {"apple-local"}
+    model = gw.models["apple-local"]
+    assert model.provider.value == "apple-foundation-models"
+    assert model.model == "system-default"
+    assert model.api_key_env is None
+    assert "api_key_cmd" not in text
+    routing = routing_config_from_toml(text)
+    assert [t.model for t in routing.tiers] == ["apple-local"]
+    assert bootstrap.render_env_example(bootstrap.PRESETS["apple-local"]).endswith("\n\n")
+
+
 def test_openai_preset_config_round_trips(monkeypatch):
     text = bootstrap.render_config(bootstrap.PRESETS["openai"])
     gw = gateway_config_from_toml(text)

@@ -10,6 +10,7 @@ public final class SetupState: ObservableObject {
     @Published public private(set) var failureMessage: String?
     @Published public private(set) var isMutating = false
     @Published public private(set) var missingRuntime: String?
+    @Published public private(set) var appleAvailability: AppleFoundationModelsAvailability = .unsupported
 
     private let service: SetupService
     private let resolver: GatewayToolResolver
@@ -20,13 +21,36 @@ public final class SetupState: ObservableObject {
         self.resolver = resolver
     }
 
-    public var selectedPreset: SetupPreset { SetupPreset.approved.first { $0.id == selectedPresetID } ?? SetupPreset.approved[0] }
+    public var approvedPresets: [SetupPreset] { SetupPreset.approved(appleAvailability: appleAvailability) }
+    public var selectedPreset: SetupPreset { approvedPresets.first { $0.id == selectedPresetID } ?? approvedPresets[0] }
     public var requiredCredentials: [SetupCredential] { selectedPreset.credentials }
 
     public func assess() async {
         assessment = .checking; step = .checking; failureMessage = nil
-        let value = await service.assess()
+        async let assessed = service.assess()
+        async let apple = service.appleFoundationModelsAvailability()
+        let (value, availability) = await (assessed, apple)
+        appleAvailability = availability
+        selectedPresetID = Self.selectedPresetID(
+            afterAssessment: value,
+            appleAvailability: availability,
+            current: selectedPresetID
+        )
         assessment = value; step = value.initialStep
+    }
+
+    nonisolated public static func selectedPresetID(
+        afterAssessment assessment: SetupAssessment,
+        appleAvailability: AppleFoundationModelsAvailability,
+        current: String
+    ) -> String {
+        if assessment == .neverConfigured {
+            return appleAvailability == .available ? SetupPreset.appleLocal.id : "hybrid"
+        }
+        if current == SetupPreset.appleLocal.id, appleAvailability != .available {
+            return "hybrid"
+        }
+        return current
     }
 
     public func continueFromWelcome() { step = .chooseRouting }
