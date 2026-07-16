@@ -4,15 +4,20 @@ public struct GatewayWayfinderClient: WayfinderClient {
     private let baseURL: URL
     private let session: URLSession
     private let serviceController: GatewayServiceController
+    private let appleProductReadiness: @Sendable () -> Bool
 
     public init(
         baseURL: URL = URL(string: "http://127.0.0.1:8088")!,
         session: URLSession = .shared,
-        serviceController: GatewayServiceController = GatewayServiceController()
+        serviceController: GatewayServiceController = GatewayServiceController(),
+        appleProductReadiness: @escaping @Sendable () -> Bool = {
+            AppleFoundationModelsProductReadiness.current().isReady
+        }
     ) {
         self.baseURL = baseURL
         self.session = session
         self.serviceController = serviceController
+        self.appleProductReadiness = appleProductReadiness
     }
 
     public func route(prompt: String) async throws -> RoutingDecision {
@@ -79,7 +84,8 @@ public struct GatewayWayfinderClient: WayfinderClient {
             hosted: hosted,
             endpoints: Self.endpointDisplayStatuses(
                 gateway: gateway,
-                models: models?.models ?? []
+                models: models?.models ?? [],
+                appleFoundationModelsReady: appleProductReadiness()
             ),
             routingStats: stats,
             updatedAt: updatedAt
@@ -88,18 +94,21 @@ public struct GatewayWayfinderClient: WayfinderClient {
 
     static func endpointDisplayStatuses(
         gateway: GatewayDisplayState,
-        models: [GatewayModelInfo]
+        models: [GatewayModelInfo],
+        appleFoundationModelsReady: Bool = true
     ) -> [EndpointDisplayStatus] {
         models.map { model in
             let state: EndpointState
-            switch gateway {
+            if model.isAppleFoundationModels && !appleFoundationModelsReady {
+                state = .unavailable
+            } else { switch gateway {
             case .checking, .stopped, .unreachable, .notInstalled:
                 state = .unavailable
             case .offline:
-                state = model.isLocalEndpoint ? .ready : .disabled
+                state = model.isProvenLocal ? .ready : .disabled
             case .running, .degraded:
                 state = model.keyOK ? .ready : .checkKey
-            }
+            } }
             return EndpointDisplayStatus(
                 name: model.name,
                 providerName: model.providerDisplayName,
@@ -344,15 +353,48 @@ struct GatewayModelInfo: Decodable, Equatable, Sendable {
     let name: String
     let endpoint: String
     let model: String
+    let provider: String
+    let tier: String?
     let apiKeyEnv: String?
     let keyOK: Bool
+
+    init(
+        name: String,
+        endpoint: String,
+        model: String,
+        provider: String = "openai-compatible",
+        tier: String? = nil,
+        apiKeyEnv: String?,
+        keyOK: Bool
+    ) {
+        self.name = name
+        self.endpoint = endpoint
+        self.model = model
+        self.provider = provider
+        self.tier = tier
+        self.apiKeyEnv = apiKeyEnv
+        self.keyOK = keyOK
+    }
 
     private enum CodingKeys: String, CodingKey {
         case name
         case endpoint
         case model
+        case provider
+        case tier
         case apiKeyEnv = "api_key_env"
         case keyOK = "key_ok"
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        name = try container.decode(String.self, forKey: .name)
+        endpoint = try container.decode(String.self, forKey: .endpoint)
+        model = try container.decode(String.self, forKey: .model)
+        provider = try container.decodeIfPresent(String.self, forKey: .provider) ?? "openai-compatible"
+        tier = try container.decodeIfPresent(String.self, forKey: .tier)
+        apiKeyEnv = try container.decodeIfPresent(String.self, forKey: .apiKeyEnv)
+        keyOK = try container.decode(Bool.self, forKey: .keyOK)
     }
 
     var isLocalEndpoint: Bool {
@@ -362,7 +404,18 @@ struct GatewayModelInfo: Decodable, Equatable, Sendable {
         return host == "localhost" || host == "127.0.0.1" || host == "::1" || host == "[::1]"
     }
 
+    var isProvenLocal: Bool {
+        (isAppleFoundationModels && tier == "local") || isLocalEndpoint
+    }
+
+    var isAppleFoundationModels: Bool {
+        provider == "apple-foundation-models"
+    }
+
     var providerDisplayName: String {
+        if provider == "apple-foundation-models" {
+            return "Apple Foundation Models"
+        }
         let endpointHost = URL(string: endpoint)?.host?.lowercased() ?? ""
         let hint = [name, endpointHost, apiKeyEnv ?? ""]
             .joined(separator: " ")

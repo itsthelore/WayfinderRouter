@@ -58,6 +58,13 @@ Use a separate inference service or a separately named protocol from the credent
 expand the credential broker into a general control API. Both services must authenticate the
 bundled Rust helper's signing identity.
 
+The production packaging implementation uses
+`Wayfinder.app/Contents/Helpers/WayfinderGateway.app` as the containing helper application. The
+Rust gateway is its main executable and the credential and Foundation Models services live under
+that helper application's `Contents/XPCServices`. Release signing proceeds inner-to-outer and
+requires the main app, helper app, and both XPC services to share one non-empty Team ID. Ad-hoc
+development bundles remain buildable but are not considered Apple-provider-ready.
+
 ## Provider identity and configuration
 
 Introduce a typed provider kind rather than pretending Apple is OpenAI-compatible. Suggested
@@ -150,7 +157,9 @@ available and enforce the smaller of Apple's reported limit and WAYFINDER's conf
 7. Implement streaming and cancellation against deterministic fake sessions.
 8. Add live Apple Silicon integration behind an explicit test/environment gate.
 9. Update bootstrap/setup UI to prefer Apple only when available.
-10. Add capability, packaging, signing, and clean-machine evidence.
+10. Add capability, packaging, signing, and clean-machine evidence. The containing helper-app
+    topology, matching-Team build validation, and runtime readiness gate are implemented; signed
+    clean-machine release evidence remains required before the exit gate is satisfied.
 
 ## Required tests
 

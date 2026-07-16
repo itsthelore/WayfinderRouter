@@ -12,62 +12,69 @@ public struct SetupAssistantView: View {
 
     public var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            content.padding(32).frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+            ScrollView {
+                content
+                    .padding(.horizontal, 32)
+                    .padding(.vertical, 28)
+                    .frame(maxWidth: .infinity, alignment: .topLeading)
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
             Divider()
             actionRow.padding(.horizontal, 24).frame(height: 62)
         }
-        .frame(minWidth: 520, minHeight: 420)
-        .task { if state.step == .checking { await state.assess() } }
+        .frame(minWidth: 520, minHeight: 300)
     }
 
-    @ViewBuilder private var content: some View {
-        switch state.step {
-        case .checking:
-            stepHeader("Checking Wayfinder", "Looking for the router, configuration, and gateway service.")
-            ProgressView().controlSize(.small).padding(.top, 24)
-        case .toolsMissing:
-            stepHeader("Tools Missing", "The Homebrew gateway command is required before setup can continue.")
-            commandBox("brew install wayfinder-router")
-        case .welcome:
-            stepHeader("Set up Wayfinder", "Wayfinder routes each request to a configured local or hosted model.")
-            Text("Routing decisions are computed locally without a model call.").foregroundStyle(.secondary).padding(.top, 18)
-        case .existingConfiguration:
-            stepHeader("Existing Configuration", "Wayfinder found a configuration and will not overwrite it.")
-            Text(GatewayServiceController.defaultConfigPath()).font(.system(.callout, design: .monospaced)).textSelection(.enabled).padding(.top, 18)
-        case .chooseRouting:
-            stepHeader("Choose routing", "Choose how requests should be routed. Preset rules are created by the gateway.")
-            VStack(alignment: .leading, spacing: 12) {
-                ForEach(state.approvedPresets) { preset in presetRow(preset) }
-            }.padding(.top, 18)
-            if let guidance = state.appleAvailability.setupGuidance {
-                Text(guidance).font(.caption).foregroundStyle(.secondary).padding(.top, 14)
-            }
-        case .requirements:
-            stepHeader("Check requirements", "The selected preset needs a local runtime that Wayfinder will not install or launch.")
-            commandBox("brew install \(state.missingRuntime ?? "ollama")")
-        case .credentials:
-            stepHeader("Add credentials", "Keys are written directly to macOS Keychain and are not added to the configuration.")
-            VStack(alignment: .leading, spacing: 16) {
-                ForEach(state.requiredCredentials, id: \.environmentVariable) { credential in
-                    VStack(alignment: .leading, spacing: 6) {
-                        Text("\(credential.provider) API key").font(.headline)
-                        SecureField("API key", text: binding(for: credential.environmentVariable))
-                            .textFieldStyle(.roundedBorder)
-                            .accessibilityLabel("\(credential.provider) API key")
-                    }
+    private var content: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            switch state.step {
+            case .checking:
+                stepHeader("Checking Wayfinder", "Looking for the router, configuration, and gateway service.")
+                ProgressView().controlSize(.small).padding(.top, 24)
+            case .toolsMissing:
+                stepHeader("Tools Missing", "The Homebrew gateway command is required before setup can continue.")
+                commandBox("brew install wayfinder-router")
+            case .welcome:
+                stepHeader("Set up Wayfinder", "Wayfinder routes each request to a configured local or hosted model.")
+                Text("Routing decisions are computed locally without a model call.").foregroundStyle(.secondary).padding(.top, 18)
+            case .existingConfiguration:
+                stepHeader("Existing Configuration", "Wayfinder found a configuration and will not overwrite it.")
+                Text(GatewayServiceController.defaultConfigPath()).font(.system(.callout, design: .monospaced)).textSelection(.enabled).padding(.top, 18)
+            case .chooseRouting:
+                stepHeader("Choose routing", "Choose how requests should be routed. Preset rules are created by the gateway.")
+                VStack(alignment: .leading, spacing: 12) {
+                    ForEach(state.approvedPresets) { preset in presetRow(preset) }
+                }.padding(.top, 18)
+                if let guidance = state.appleAvailability.setupGuidance {
+                    Text(guidance).font(.caption).foregroundStyle(.secondary).padding(.top, 14)
                 }
-            }.padding(.top, 18)
-        case .configure:
-            stepHeader("Configure and start", "Wayfinder will create the configuration, update the launch agent, save keys, restart, and check the gateway.")
-            if let stage = state.progressStage {
-                VStack(alignment: .leading, spacing: 10) {
-                    ProgressView(value: Double(stage.rawValue + 1), total: Double(SetupProgressStage.allCases.count))
-                    Text("Step \(stage.rawValue + 1) of \(SetupProgressStage.allCases.count): \(stage.title)").font(.callout)
-                }.padding(.top, 24).accessibilityElement(children: .combine)
+            case .requirements:
+                stepHeader("Check requirements", "The selected preset needs a local runtime that Wayfinder will not install or launch.")
+                commandBox("brew install \(state.missingRuntime ?? "ollama")")
+            case .credentials:
+                stepHeader("Add credentials", "Keys are written directly to macOS Keychain and are not added to the configuration.")
+                VStack(alignment: .leading, spacing: 16) {
+                    ForEach(state.requiredCredentials, id: \.environmentVariable) { credential in
+                        VStack(alignment: .leading, spacing: 6) {
+                            Text("\(credential.provider) API key").font(.headline)
+                            SecureField("API key", text: binding(for: credential.environmentVariable))
+                                .textFieldStyle(.roundedBorder)
+                                .accessibilityLabel("\(credential.provider) API key")
+                        }
+                    }
+                }.padding(.top, 18)
+            case .configure:
+                stepHeader("Configure and start", "Wayfinder will create the configuration, update the launch agent, save keys, restart, and check the gateway.")
+                if let stage = state.progressStage {
+                    VStack(alignment: .leading, spacing: 10) {
+                        ProgressView(value: Double(stage.rawValue + 1), total: Double(SetupProgressStage.allCases.count))
+                        Text("Step \(stage.rawValue + 1) of \(SetupProgressStage.allCases.count): \(stage.title)").font(.callout)
+                    }.padding(.top, 24).accessibilityElement(children: .combine)
+                }
+                if let failure = state.failureMessage { errorText(failure) }
+            case .result:
+                resultContent
             }
-            if let failure = state.failureMessage { errorText(failure) }
-        case .result:
-            resultContent
         }
     }
 
