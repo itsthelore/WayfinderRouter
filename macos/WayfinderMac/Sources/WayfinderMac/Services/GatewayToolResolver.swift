@@ -39,7 +39,7 @@ public struct SetupCommand: Equatable, Sendable {
 
 public enum SetupCommandPlan {
     public static func make(tool: URL, presetID: String, configPath: String) throws -> [SetupCommand] {
-        guard SetupPreset.approved.contains(where: { $0.id == presetID }) else { throw SetupFailure.invalidPreset }
+        guard SetupPreset.commandPresetIDs.contains(presetID) else { throw SetupFailure.invalidPreset }
         guard FileManager.default.isExecutableFile(atPath: tool.path) else { throw SetupFailure.toolMissing }
         let allowedRoot = FileManager.default.homeDirectoryForCurrentUser
             .appendingPathComponent("Library/Application Support/Wayfinder").standardizedFileURL.path

@@ -32,6 +32,14 @@ final class SetupTests: XCTestCase {
         XCTAssertEqual(plan[2].arguments.prefix(2), ["service", "install"])
     }
 
+    func testCommandPlanAllowsExplicitApplePresetWithoutCredentials() throws {
+        let executable = URL(fileURLWithPath: "/bin/echo")
+        let plan = try SetupCommandPlan.make(tool: executable, presetID: "apple-local", configPath: GatewayServiceController.defaultConfigPath())
+        XCTAssertEqual(plan[0].arguments.prefix(4), ["init", "--preset", "apple-local", "--keychain"])
+        XCTAssertTrue(SetupPreset.appleLocal.credentials.isEmpty)
+        XCTAssertNil(SetupPreset.appleLocal.localRuntimeExecutable)
+    }
+
     func testSanitizerRedactsCredentialValues() {
         XCTAssertEqual(SetupService.sanitize("failed for secret-key", secrets: ["secret-key"]), "failed for [redacted]")
     }
@@ -50,5 +58,33 @@ final class SetupTests: XCTestCase {
             [SetupCredential(provider: "OpenAI", environmentVariable: "OPENAI_API_KEY")]
         )
         XCTAssertTrue(preset.requirement.contains("OpenAI"))
+    }
+
+    func testApplePresetIsOfferedOnlyWhenAvailabilityIsConfirmed() {
+        XCTAssertEqual(SetupPreset.approved(appleAvailability: .available).first?.id, "apple-local")
+        XCTAssertFalse(SetupPreset.approved(appleAvailability: .modelNotReady).contains(SetupPreset.appleLocal))
+        XCTAssertFalse(SetupPreset.approved(appleAvailability: .deviceNotEligible).contains(SetupPreset.appleLocal))
+        XCTAssertFalse(SetupPreset.approved(appleAvailability: .unsupported).contains(SetupPreset.appleLocal))
+    }
+
+    func testNewSetupSelectsAppleOnlyWhenAvailabilityIsConfirmed() {
+        XCTAssertEqual(
+            SetupState.selectedPresetID(afterAssessment: .neverConfigured, appleAvailability: .available, current: "hybrid"),
+            "apple-local"
+        )
+        XCTAssertEqual(
+            SetupState.selectedPresetID(afterAssessment: .neverConfigured, appleAvailability: .modelNotReady, current: "apple-local"),
+            "hybrid"
+        )
+        XCTAssertEqual(
+            SetupState.selectedPresetID(afterAssessment: .existingConfig, appleAvailability: .available, current: "openai"),
+            "openai"
+        )
+    }
+
+    func testAppleAvailabilityGuidancePreservesFallbackSetup() {
+        XCTAssertTrue(AppleFoundationModelsAvailability.modelNotReady.setupGuidance?.contains("temporary") == true)
+        XCTAssertTrue(AppleFoundationModelsAvailability.deviceNotEligible.setupGuidance?.contains("Ollama") == true)
+        XCTAssertTrue(AppleFoundationModelsAvailability.unsupported.setupGuidance?.contains("Ollama") == true)
     }
 }

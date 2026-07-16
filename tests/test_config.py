@@ -338,6 +338,11 @@ def test_set_toml_bool_appends_a_missing_section_and_still_parses():
         assert out.endswith("\n[gateway]\noffline = true\n")
         assert gateway_config_from_toml(out).offline is True
         routing_config_from_toml(out)  # must not raise
+    apple = bootstrap.render_config(bootstrap.PRESETS["apple-local"])
+    out = set_toml_bool(apple, "gateway", "offline", True)
+    assert "[gateway]\noffline = true\n" in out
+    assert gateway_config_from_toml(out).offline is True
+    routing_config_from_toml(out)
 
 
 def test_set_toml_bool_ignores_commented_keys():
