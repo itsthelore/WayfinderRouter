@@ -10,6 +10,20 @@ independently. Python/Homebrew remains the rollback backend until the default/re
 - A Developer ID Application identity supplied as `CODESIGN_IDENTITY`.
 - For notarization, a `notarytool` keychain profile supplied as `NOTARYTOOL_PROFILE`.
 
+## Desktop version
+
+The native product uses SemVer independently of the router/PyPI CalVer package. The release
+version is single-sourced in `Packaging/DESKTOP_VERSION`; the first native release is `0.1.0` and
+uses the tag `desktop-v0.1.0`. `WAYFINDER_DESKTOP_VERSION` may override the file for a release
+candidate, and `WAYFINDER_DESKTOP_BUILD_NUMBER` supplies the monotonically increasing Apple bundle
+build number. The build script writes the same version and build number into the app, containing
+gateway app, and both XPC bundles. The bundled `wayfinder-helper.json` retains the Rust router's
+independent compatibility version.
+
+In a managed build environment that blocks SwiftPM's default caches or nested sandbox, set
+`CLANG_MODULE_CACHE_PATH` to a writable directory and
+`WAYFINDER_DISABLE_SWIFTPM_SANDBOX=1`. Normal developer and CI builds retain SwiftPM's sandbox.
+
 Run `script/build_release_bundle.sh`. It builds both thin Rust and Swift artifacts, verifies every
 universal slice, assembles the gateway as the containing
 `Contents/Helpers/WayfinderGateway.app` with both XPC services nested inside it, signs inner code
