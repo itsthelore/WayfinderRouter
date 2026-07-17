@@ -14,6 +14,22 @@ IDENTITY="${CODESIGN_IDENTITY:--}"
 TIMESTAMP_OPTION="${CODESIGN_TIMESTAMP_OPTION:---timestamp}"
 DEPLOYMENT_TARGET="14.0"
 RELEASE_ARCHS="${WAYFINDER_RELEASE_ARCHS:-arm64 x86_64}"
+SWIFT_BUILD_FLAGS=()
+if [[ "${WAYFINDER_DISABLE_SWIFTPM_SANDBOX:-0}" == "1" ]]; then
+  SWIFT_BUILD_FLAGS+=(--disable-sandbox)
+fi
+DESKTOP_VERSION_FILE="$ROOT_DIR/Packaging/DESKTOP_VERSION"
+DESKTOP_VERSION="${WAYFINDER_DESKTOP_VERSION:-$(tr -d '[:space:]' < "$DESKTOP_VERSION_FILE")}"
+DESKTOP_BUILD_NUMBER="${WAYFINDER_DESKTOP_BUILD_NUMBER:-1}"
+
+if [[ ! "$DESKTOP_VERSION" =~ ^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]; then
+  echo "WAYFINDER_DESKTOP_VERSION must be a SemVer core such as 0.1.0" >&2
+  exit 2
+fi
+if [[ ! "$DESKTOP_BUILD_NUMBER" =~ ^[1-9][0-9]*$ ]]; then
+  echo "WAYFINDER_DESKTOP_BUILD_NUMBER must be a positive integer" >&2
+  exit 2
+fi
 
 export MACOSX_DEPLOYMENT_TARGET="$DEPLOYMENT_TARGET"
 
@@ -48,9 +64,9 @@ build_rust_slice() {
 
 build_swift_slice() {
   local swift_arch="$1"
-  swift build --package-path "$ROOT_DIR" -c release --arch "$swift_arch"
+  swift build --package-path "$ROOT_DIR" -c release --arch "$swift_arch" "${SWIFT_BUILD_FLAGS[@]}"
   local bin_path
-  bin_path="$(swift build --package-path "$ROOT_DIR" -c release --arch "$swift_arch" --show-bin-path)"
+  bin_path="$(swift build --package-path "$ROOT_DIR" -c release --arch "$swift_arch" --show-bin-path "${SWIFT_BUILD_FLAGS[@]}")"
   cp "$bin_path/WayfinderMac" "$DIST_DIR/thin/$swift_arch/WayfinderMac"
   cp "$bin_path/WayfinderCredentialBroker" "$DIST_DIR/thin/$swift_arch/WayfinderCredentialBroker"
   cp "$bin_path/WayfinderFoundationModelBroker" "$DIST_DIR/thin/$swift_arch/WayfinderFoundationModelBroker"
@@ -93,6 +109,17 @@ cp "$ROOT_DIR/Packaging/Gateway-Info.plist" "$GATEWAY_APP/Contents/Info.plist"
 cp "$ROOT_DIR/Packaging/CredentialBroker-Info.plist" "$CREDENTIAL_XPC/Contents/Info.plist"
 cp "$ROOT_DIR/Packaging/FoundationModelBroker-Info.plist" "$FOUNDATION_XPC/Contents/Info.plist"
 cp "$ROOT_DIR/Resources/wayfinder-helper.json" "$APP/Contents/Resources/wayfinder-helper.json"
+
+set_bundle_version() {
+  local plist="$1"
+  /usr/libexec/PlistBuddy -c "Add :CFBundleShortVersionString string $DESKTOP_VERSION" "$plist"
+  /usr/libexec/PlistBuddy -c "Add :CFBundleVersion string $DESKTOP_BUILD_NUMBER" "$plist"
+}
+
+set_bundle_version "$APP/Contents/Info.plist"
+set_bundle_version "$GATEWAY_APP/Contents/Info.plist"
+set_bundle_version "$CREDENTIAL_XPC/Contents/Info.plist"
+set_bundle_version "$FOUNDATION_XPC/Contents/Info.plist"
 chmod 755 "$APP/Contents/MacOS/WayfinderMac" "$HELPER"
 chmod 755 "$CREDENTIAL_XPC/Contents/MacOS/WayfinderCredentialBroker"
 chmod 755 "$FOUNDATION_XPC/Contents/MacOS/WayfinderFoundationModelBroker"

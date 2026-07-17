@@ -8,6 +8,13 @@ details, release history over commit history.
 
 ### Added
 
+- **Wayfinder Desktop v0.1.0 Chat** (WF-ADR-0042, WF-ROADMAP-0012). The native macOS app now
+  includes a dedicated Chat window that streams replies through the bundled Rust gateway and shows
+  the authoritative routing decision for each completed turn. Conversations remain in memory for
+  this release; Stop, Retry, New Chat, bounded request history, and actionable delivery failures are
+  included. The app uses its own SemVer release line (`0.1.0`) while the bundled router retains its
+  existing CalVer identity.
+
 - **Apple Foundation Models availability contract** (WF-DESIGN-0017). The native macOS package now
   capability-detects `SystemLanguageModel.default` on macOS 26 and distinguishes available,
   device-ineligible, Apple Intelligence disabled, model-not-ready, unsupported, and sanitized

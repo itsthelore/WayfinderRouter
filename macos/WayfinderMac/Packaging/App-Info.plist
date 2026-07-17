@@ -5,8 +5,6 @@
   <key>CFBundleIdentifier</key><string>com.wayfinder.router.mac</string>
   <key>CFBundleName</key><string>Wayfinder</string>
   <key>CFBundlePackageType</key><string>APPL</string>
-  <key>CFBundleShortVersionString</key><string>2026.7.0</string>
-  <key>CFBundleVersion</key><string>20260700</string>
   <key>LSMinimumSystemVersion</key><string>14.0</string>
   <key>LSUIElement</key><true/>
   <key>NSPrincipalClass</key><string>NSApplication</string>
