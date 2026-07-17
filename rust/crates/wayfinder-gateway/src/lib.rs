@@ -1631,6 +1631,25 @@ async fn chat_completions(
     }
 
     if request_body.get("stream").and_then(Value::as_bool) == Some(true) {
+        let initial_event = debug.then(|| {
+            let envelope = DecisionEnvelope {
+                wayfinder: make_decision_response(
+                    &state,
+                    &routing,
+                    &decision,
+                    &chosen,
+                    mode,
+                    offline,
+                    &request_id,
+                    false,
+                    false,
+                ),
+            };
+            let payload = serde_json::to_string(&envelope).unwrap_or_else(|_| {
+                "{\"error\":{\"message\":\"decision metadata unavailable\",\"type\":\"wayfinder_router_state_error\"}}".to_owned()
+            });
+            Bytes::from(format!("data: {payload}\n\n"))
+        });
         return streaming_chat_response(StreamingChatInput {
             state,
             headers: routing_headers,
@@ -1641,6 +1660,7 @@ async fn chat_completions(
             request_id,
             messages,
             access_grant,
+            initial_event,
         })
         .await;
     }
@@ -1734,6 +1754,24 @@ async fn chat_completions(
             }
         }
     }
+    let body = if debug {
+        inject_debug_decision(
+            body,
+            make_decision_response(
+                &state,
+                &routing,
+                &decision,
+                &chosen,
+                mode,
+                offline,
+                &request_id,
+                false,
+                false,
+            ),
+        )
+    } else {
+        body
+    };
     let mut response_headers = routing_headers;
     if let Err(message) = insert_header(
         &mut response_headers,
@@ -1757,6 +1795,20 @@ async fn chat_completions(
     (status, response_headers, body).into_response()
 }
 
+fn inject_debug_decision(body: Bytes, decision: DecisionResponse) -> Bytes {
+    let Ok(mut value) = serde_json::from_slice::<Value>(&body) else {
+        return body;
+    };
+    let Some(object) = value.as_object_mut() else {
+        return body;
+    };
+    let Ok(decision) = serde_json::to_value(decision) else {
+        return body;
+    };
+    object.insert("wayfinder".to_owned(), decision);
+    serde_json::to_vec(&value).map_or(body, Bytes::from)
+}
+
 struct StreamRelayContext {
     state: AppState,
     target_name: String,
@@ -1766,6 +1818,7 @@ struct StreamRelayContext {
     decoder: SseDecoder,
     completion_chars: u64,
     started: Option<Instant>,
+    initial_event: Option<Bytes>,
 }
 
 struct StreamingChatInput {
@@ -1778,6 +1831,7 @@ struct StreamingChatInput {
     request_id: String,
     messages: Value,
     access_grant: Option<AccessGrant>,
+    initial_event: Option<Bytes>,
 }
 
 async fn streaming_chat_response(input: StreamingChatInput) -> Response {
@@ -1791,6 +1845,7 @@ async fn streaming_chat_response(input: StreamingChatInput) -> Response {
         request_id,
         messages,
         access_grant,
+        initial_event,
     } = input;
     if state.streaming_delivery().is_none() {
         return error_response(
@@ -1882,11 +1937,15 @@ async fn streaming_chat_response(input: StreamingChatInput) -> Response {
         decoder: SseDecoder::default(),
         completion_chars: 0,
         started: Some(started),
+        initial_event,
     };
     let body_stream = stream::unfold(
         Some((context, response.into_stream())),
         |phase| async move {
             let (mut context, mut upstream) = phase?;
+            if let Some(event) = context.initial_event.take() {
+                return Some((Ok::<Bytes, Infallible>(event), Some((context, upstream))));
+            }
             match upstream.next().await {
                 Some(Ok(chunk)) => match context.decoder.push(&chunk) {
                     Ok(events) => {
@@ -2786,28 +2845,51 @@ fn decision_only_response(
             HeaderValue::from_static("true"),
         );
     }
-    let cost = cost_response(state, &decision, &metadata.chosen);
-    let contributions = explain_score(&decision.features, &routing.weights);
     (
         StatusCode::OK,
         headers,
         Json(DecisionEnvelope {
-            wayfinder: DecisionResponse {
-                model: metadata.chosen,
-                score: decision.score,
-                mode: metadata.mode,
-                offline: metadata.offline,
-                request_id: metadata.request_id,
-                features: decision.features,
-                contributions,
-                tiers: decision.tiers,
-                cost,
-                dry_run: dry_run.then_some(true),
-                decision_only: (!dry_run).then_some(true),
-            },
+            wayfinder: make_decision_response(
+                state,
+                routing,
+                &decision,
+                &metadata.chosen,
+                metadata.mode,
+                metadata.offline,
+                &metadata.request_id,
+                dry_run,
+                !dry_run,
+            ),
         }),
     )
         .into_response()
+}
+
+#[allow(clippy::too_many_arguments)]
+fn make_decision_response(
+    state: &AppState,
+    routing: &RoutingConfig,
+    decision: &ComplexityScore,
+    chosen: &str,
+    mode: &'static str,
+    offline: bool,
+    request_id: &str,
+    dry_run: bool,
+    decision_only: bool,
+) -> DecisionResponse {
+    DecisionResponse {
+        model: chosen.to_owned(),
+        score: decision.score,
+        mode,
+        offline,
+        request_id: request_id.to_owned(),
+        features: decision.features,
+        contributions: explain_score(&decision.features, &routing.weights),
+        tiers: decision.tiers.clone(),
+        cost: cost_response(state, decision, chosen),
+        dry_run: dry_run.then_some(true),
+        decision_only: decision_only.then_some(true),
+    }
 }
 
 fn cost_response(state: &AppState, decision: &ComplexityScore, chosen: &str) -> CostResponse {
@@ -4587,6 +4669,10 @@ mod tests {
             )
             .await?;
             assert!(response.headers().get("x-wayfinder-router-cache").is_none());
+            let body = json_body(response).await?;
+            assert_eq!(body["wayfinder"]["model"], "cloud");
+            assert_eq!(body["wayfinder"]["mode"], "pinned");
+            assert!(body["choices"].is_array());
         }
 
         assert_eq!(calls.load(Ordering::SeqCst), 4);
@@ -5113,6 +5199,53 @@ mod tests {
         let recent = json_body(get(&state, "/router/recent?limit=2").await?).await?;
         assert!(recent["recent"][0]["cost"].is_object());
         assert!(recent["recent"][1].get("cost").is_none());
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn debug_stream_prepends_authoritative_decision_metadata() -> TestResult {
+        let chunks = vec![
+            Ok(Bytes::from_static(
+                b"data: {\"choices\":[{\"delta\":{\"content\":\"hello\"}}]}\n\n",
+            )),
+            Ok(Bytes::from_static(b"data: [DONE]\n\n")),
+        ];
+        let (state, _) = streaming_live_state(
+            &GatewayConfig::default(),
+            BTreeMap::from([(
+                "local".to_owned(),
+                VecDeque::from([ScriptedStreamOutcome::Chunks(chunks)]),
+            )]),
+        )?;
+        let payload = json!({
+            "model": "auto",
+            "stream": true,
+            "messages": [{"role": "user", "content": "hi"}]
+        });
+
+        let response = post_json(
+            &state,
+            "/v1/chat/completions",
+            &payload,
+            &[("x-wayfinder-debug", "true")],
+        )
+        .await?;
+        assert_eq!(response.status(), StatusCode::OK);
+        let body = to_bytes(response.into_body(), usize::MAX).await?;
+        let text = String::from_utf8(body.to_vec())?;
+        let first_event = text
+            .split("\n\n")
+            .next()
+            .and_then(|event| event.strip_prefix("data: "))
+            .ok_or_else(|| std::io::Error::other("missing debug metadata event"))?;
+        let metadata: Value = serde_json::from_str(first_event)?;
+
+        assert_eq!(metadata["wayfinder"]["model"], "local");
+        assert_eq!(metadata["wayfinder"]["mode"], "scored");
+        assert!(metadata["wayfinder"]["score"].is_number());
+        assert!(metadata["wayfinder"]["features"].is_object());
+        assert!(text.contains("\"content\":\"hello\""));
+        assert!(text.ends_with("data: [DONE]\n\n"));
         Ok(())
     }
 
