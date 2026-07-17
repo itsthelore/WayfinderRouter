@@ -96,7 +96,7 @@ private struct SidebarHeader: View {
                 VStack(alignment: .leading, spacing: 1) {
                     Text("Wayfinder")
                         .font(.headline.weight(.semibold))
-                    Text("Session route history")
+                    Text("In-memory conversation")
                         .font(.caption)
                         .foregroundStyle(ChatWorkspaceChrome.secondaryText)
                 }
@@ -147,7 +147,7 @@ private struct SearchField: View {
         HStack(spacing: 8) {
             Image(systemName: "magnifyingglass")
                 .foregroundStyle(ChatWorkspaceChrome.tertiaryText)
-            TextField("Search routes", text: $text)
+            TextField("Search Chat", text: $text)
                 .textFieldStyle(.plain)
                 .font(.caption)
             if !text.isEmpty {
@@ -275,9 +275,9 @@ private struct SidebarEmptyState: View {
             Image(systemName: "magnifyingglass")
                 .font(.callout)
                 .foregroundStyle(ChatWorkspaceChrome.tertiaryText)
-            Text(hasHistory ? "No routes found" : "No routes yet")
+            Text(hasHistory ? "No messages found" : "No messages yet")
                 .font(.caption.weight(.medium))
-            Text(hasHistory ? "Try another search or filter." : "Route a prompt to start this session.")
+            Text(hasHistory ? "Try another search or filter." : "Send a message to start this Chat.")
                 .font(.caption2)
                 .foregroundStyle(ChatWorkspaceChrome.tertiaryText)
         }

@@ -11,7 +11,7 @@ public struct ChatMessageRow: View {
         switch message.role {
         case .user:
             userRow
-        case .router:
+        case .assistant:
             routerRow
         }
     }
@@ -42,15 +42,17 @@ public struct ChatMessageRow: View {
                 .font(.system(size: 17, weight: .semibold))
                 .foregroundStyle(message.decision?.route.accentColor ?? WayfinderTheme.local)
                 .frame(width: 24)
-            if let decision = message.decision {
-                RoutingResponseCard(decision: decision)
-            } else {
+            VStack(alignment: .leading, spacing: 10) {
                 Text(message.text)
-                    .foregroundStyle(.secondary)
-                    .padding(14)
+                    .foregroundStyle(.primary)
+                    .textSelection(.enabled)
+                if let decision = message.decision {
+                    RoutingResponseCard(decision: decision)
+                }
+            }
+            .padding(14)
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .background(WayfinderTheme.panel, in: RoundedRectangle(cornerRadius: 14))
-            }
         }
     }
 }

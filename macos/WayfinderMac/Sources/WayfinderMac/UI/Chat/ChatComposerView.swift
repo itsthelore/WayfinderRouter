@@ -5,6 +5,7 @@ public struct ChatComposerView: View {
     let isSending: Bool
     let canSend: Bool
     let onSend: () -> Void
+    let onStop: () -> Void
 
     @FocusState private var focused: Bool
 
@@ -12,12 +13,14 @@ public struct ChatComposerView: View {
         draft: Binding<String>,
         isSending: Bool,
         canSend: Bool,
-        onSend: @escaping () -> Void
+        onSend: @escaping () -> Void,
+        onStop: @escaping () -> Void
     ) {
         self._draft = draft
         self.isSending = isSending
         self.canSend = canSend
         self.onSend = onSend
+        self.onStop = onStop
     }
 
     public var body: some View {
@@ -40,7 +43,7 @@ public struct ChatComposerView: View {
                         .frame(minHeight: 42, maxHeight: 68)
 
                     if draft.isEmpty {
-                        Text("Route a prompt...")
+                        Text("Message Wayfinder...")
                             .font(.callout)
                             .foregroundStyle(.tertiary)
                             .padding(.horizontal, 13)
@@ -50,23 +53,23 @@ public struct ChatComposerView: View {
                 }
                 .frame(height: 68)
 
-                Button(action: onSend) {
-                    Image(systemName: isSending ? "hourglass" : "arrow.up")
+                Button(action: isSending ? onStop : onSend) {
+                    Image(systemName: isSending ? "stop.fill" : "arrow.up")
                         .font(.system(size: 14, weight: .bold))
                         .foregroundStyle(.white)
                         .frame(width: 30, height: 30)
-                        .background(canSend ? WayfinderTheme.local : Color.secondary.opacity(0.35), in: Circle())
+                        .background((canSend || isSending) ? WayfinderTheme.local : Color.secondary.opacity(0.35), in: Circle())
                 }
                 .buttonStyle(.plain)
-                .disabled(!canSend)
-                .keyboardShortcut(.return, modifiers: .command)
-                .accessibilityLabel(isSending ? "Routing prompt" : "Send prompt")
-                .accessibilityHint(isSending ? "Wait for the current route to finish." : "Routes the current prompt.")
-                .help(isSending ? "Routing prompt" : "Send prompt (Command-Return)")
+                .disabled(!canSend && !isSending)
+                .keyboardShortcut(isSending ? "." : .return, modifiers: .command)
+                .accessibilityLabel(isSending ? "Stop response" : "Send message")
+                .accessibilityHint(isSending ? "Stops the current model response." : "Routes this message through Wayfinder.")
+                .help(isSending ? "Stop response (Command-Period)" : "Send message (Command-Return)")
             }
 
             HStack {
-                Label("Deterministic route preview", systemImage: "checkmark.shield")
+                Label("Messages route through your local Wayfinder gateway", systemImage: "checkmark.shield")
                     .font(.caption2)
                     .foregroundStyle(.secondary)
                 Spacer()

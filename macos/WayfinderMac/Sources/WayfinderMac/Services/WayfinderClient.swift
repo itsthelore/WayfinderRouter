@@ -2,11 +2,32 @@ import Foundation
 
 public protocol WayfinderClient: Sendable {
     func route(prompt: String) async throws -> RoutingDecision
+    func streamChat(messages: [ChatRequestMessage]) -> AsyncThrowingStream<ChatStreamEvent, Error>
     func loadStats(range: StatsRange) async throws -> RoutingStats
     func loadOverview() async throws -> GatewayOverview
 }
 
 public extension WayfinderClient {
+    func streamChat(messages: [ChatRequestMessage]) -> AsyncThrowingStream<ChatStreamEvent, Error> {
+        AsyncThrowingStream { continuation in
+            let task = Task {
+                do {
+                    guard let prompt = messages.last(where: { $0.role == "user" })?.content else {
+                        throw WayfinderClientError.emptyPrompt
+                    }
+                    let decision = try await route(prompt: prompt)
+                    continuation.yield(.decision(decision))
+                    continuation.yield(.text(decision.explanation))
+                    continuation.yield(.completed)
+                    continuation.finish()
+                } catch {
+                    continuation.finish(throwing: error)
+                }
+            }
+            continuation.onTermination = { _ in task.cancel() }
+        }
+    }
+
     func analyse(prompt: String) async throws -> RoutingDecision {
         try await route(prompt: prompt)
     }
@@ -30,6 +51,8 @@ public enum WayfinderClientError: LocalizedError, Equatable {
     case emptyPrompt
     case gatewayResponseMissingDecision
     case gatewayStatus(Int)
+    case invalidChatStream
+    case conversationTooLarge
 
     public var errorDescription: String? {
         switch self {
@@ -38,7 +61,22 @@ public enum WayfinderClientError: LocalizedError, Equatable {
         case .gatewayResponseMissingDecision:
             return "The gateway response did not include a Wayfinder decision."
         case .gatewayStatus(let status):
-            return "The gateway returned HTTP \(status)."
+            switch status {
+            case 401, 403:
+                return "The selected provider needs a valid key. Check Providers in Settings, then retry."
+            case 402:
+                return "The selected provider could not accept this request because of its account balance. Check Providers in Settings, then retry."
+            case 502:
+                return "The selected model endpoint could not be reached. Check Gateway in Settings, then retry."
+            case 503:
+                return "No configured model is ready to reply. Check Gateway in Settings, then retry."
+            default:
+                return "The gateway could not complete this request (HTTP \(status)). Check Settings, then retry."
+            }
+        case .invalidChatStream:
+            return "The gateway returned an incomplete Chat stream. Try again."
+        case .conversationTooLarge:
+            return "This conversation is too large. Start a new Chat and try again."
         }
     }
 }

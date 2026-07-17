@@ -38,7 +38,7 @@ public struct ChatConversationView: View {
                 .padding(.vertical, 22)
                 .frame(maxWidth: .infinity, alignment: .center)
             }
-            .onChange(of: turns.count) {
+            .onChange(of: scrollRevision) {
                 if let last = turns.last {
                     if reduceMotion {
                         proxy.scrollTo(last.id, anchor: .bottom)
@@ -52,6 +52,12 @@ public struct ChatConversationView: View {
         }
         .background(ChatWorkspaceChrome.canvas)
         .textSelection(.enabled)
+    }
+
+    private var scrollRevision: Int {
+        turns.reduce(turns.count) { partial, turn in
+            partial + (turn.response?.text.count ?? 0)
+        }
     }
 }
 
@@ -78,9 +84,9 @@ private struct EmptyFilteredHistory: View {
             Image(systemName: "line.3.horizontal.decrease.circle")
                 .font(.title2)
                 .foregroundStyle(ChatWorkspaceChrome.secondaryText)
-            Text(hasHistory ? "No matching routes" : "No routed turns yet")
+            Text(hasHistory ? "No matching conversations" : "Start a conversation")
                 .font(.headline)
-            Text(hasHistory ? "Adjust the search or route filter to show history." : "Route a prompt below to inspect the decision.")
+            Text(hasHistory ? "Adjust the search or route filter to show history." : "Send a message below. Wayfinder will show the reply and its route.")
                 .font(.callout)
                 .foregroundStyle(.secondary)
         }
@@ -100,7 +106,7 @@ public struct ChatTurn: Identifiable, Equatable {
             switch message.role {
             case .user:
                 turns.append(ChatTurn(id: message.id, prompt: message, response: nil))
-            case .router:
+            case .assistant:
                 guard let last = turns.last else {
                     continue
                 }

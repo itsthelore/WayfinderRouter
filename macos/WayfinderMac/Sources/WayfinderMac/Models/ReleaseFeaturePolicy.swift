@@ -32,13 +32,13 @@ public struct ReleaseFeaturePolicy: Equatable, Sendable {
         availability[feature] ?? .blocked(reason: "This feature is unavailable in this release.")
     }
 
-    public static let v1 = ReleaseFeaturePolicy(
+    public static let desktopV0_1_0 = ReleaseFeaturePolicy(
         availability: [
-            .chat: .blocked(reason: "Chat is unavailable in this release.")
+            .chat: .available
         ]
     )
 
-    public static let current = v1
+    public static let current = desktopV0_1_0
 }
 
 struct ChatPopoverRowModel: Equatable {
