@@ -19,10 +19,10 @@ Accepted
 > Historical Tauri amendment (WF-DESIGN-0014): §3's 360×480 webview popover was revised to
 > **400×550** for that implementation. This is **not** the current native Swift requirement.
 >
-> Native Swift v1 amendment (WF-ROADMAP-0012): the shipping app is a compact routing utility using
+> Native Swift v0.1.0 amendment (WF-ROADMAP-0012): the shipping app is a compact routing utility using
 > a 340 pt target width and intrinsic content height, clamped to a 420 pt maximum at the default
-> text size. Chat is post-v1 and technically unreachable; at most, the popover may show one
-> disabled “Chat” row with trailing “Coming later” and no disclosure chevron. The service-first
+> text size. Chat ships in `desktop-v0.1.0` as a dedicated native window over the same bundled
+> gateway; it never scores, calls a provider directly, or owns credentials. The service-first
 > lifecycle, Keychain boundary, semantic route colors, and privacy ruling below are unchanged.
 
 ## Category
@@ -105,10 +105,12 @@ honest statement of our posture is an app that *provably does less*.
    guarantees nothing leaves — and it is a one-click toggle in the popover. No claim of "your data
    never leaves your machine" outside that mode. No telemetry, ever.
 
-9. **The native Swift v1 ships without Chat.** WF-ROADMAP-0012 supersedes the earlier native scope
-   assumption. Release wiring must not create a Chat controller or expose Chat through a popover
-   action, shortcut, command, deep link, or other route. Chat source may remain in-tree for a
-   separately accepted post-v1 milestone.
+9. **The native Swift v0.1.0 ships with focused Chat.** Chat is a dedicated persistent window, not
+   content crowded into the menu-bar popover. It sends bounded conversation history only to the
+   bundled gateway's OpenAI-compatible endpoint, renders the authoritative assistant reply and
+   routing decision, supports streaming cancellation and recovery, and never scores, contacts a
+   provider directly, or stores a credential. The routing decision remains the product-specific
+   signature element and is inspectable for every completed turn.
 
 ## Consequences
 

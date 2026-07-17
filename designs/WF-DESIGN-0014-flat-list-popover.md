@@ -23,10 +23,10 @@ Accepted
 > inventory, both below). Credit: CodexBar's layout is mirrored deliberately and disclosedly,
 > per its MIT license — no CodexBar code is vendored, only its arrangement.
 
-> Native Swift v1 amendment (WF-ROADMAP-0012): the fixed **400×550** canvas described below is
+> Native Swift v0.1.0 amendment (WF-ROADMAP-0012): the fixed **400×550** canvas described below is
 > historical Tauri guidance, not the current native target. The Swift popover targets 340 pt width,
-> intrinsic height, and a 420 pt maximum at the default text size. Chat is post-v1 and is removed
-> from the shipping native component inventory and all interactive routes.
+> intrinsic height, and a 420 pt maximum at the default text size. Chat is one compact disclosure
+> row that opens a separate native window; conversation content never expands the popover.
 
 ## Native Swift v1 compact-popover grammar
 
@@ -37,11 +37,10 @@ exit near the bottom. Detail, remediation, and diagnostics belong in Settings. T
 stored at `designs/references/macos-wifi-popover-reference.png`; its provenance is recorded beside
 the asset.
 
-The shipping native v1 component inventory is: compact header/status, Gateway, Routing with a 6 pt
+The shipping native v0.1.0 component inventory is: compact header/status, Gateway, Routing with a 6 pt
 local/cloud composition bar, Endpoint Status, Settings…, and Quit Wayfinder. Refresh remains
-automatic on open and available through Command-R rather than a permanent row. Chat is not a v1
-destination. At most one non-interactive status row may remain visible: “Chat” with trailing
-“Coming later,” no chevron, and a VoiceOver hint that it is unavailable in this release.
+automatic on open and available through Command-R rather than a permanent row. Chat is an enabled
+row with a chevron and a VoiceOver hint that it opens the dedicated Chat window.
 
 Endpoint Status is one compact disclosure row whose native sibling submenu lists each configured
 provider and model with its route alias as secondary context, a Wayfinder status dot, and trailing

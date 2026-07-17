@@ -11,10 +11,9 @@ tags: [desktop, macos, tauri, clients, distribution, signing, notarization, upda
 
 Accepted
 
-> Native Swift v1 scope amendment (WF-ROADMAP-0012): this roadmap's former “chat included in v1”
-> decision is **superseded**. The native v1 is a compact routing utility; Chat is post-v1 and
-> technically unreachable. This roadmap remains the historical Tauri delivery plan, while
-> WF-ROADMAP-0012 governs the shipping native Swift UX.
+> Native Swift v0.1.0 scope amendment (WF-ROADMAP-0012): Chat ships as a focused, dedicated native
+> window over the bundled gateway while the menu-bar popover remains compact. This roadmap remains
+> the historical Tauri delivery plan; WF-ROADMAP-0012 governs the shipping native Swift UX.
 
 ## Context
 
@@ -28,7 +27,7 @@ auto-updating DMG — the distribution playbook adapted from the June study, min
 Decisions already made (WF-ADR-0042, confirmed with the maintainer): service-first (the app never
 owns the gateway process), Keychain via `api_key_cmd`, Tailwind v4 + macOS 14.0 minimum, no
 PyInstaller sidecar in v1, no Windows/Linux in v1, no telemetry ever. The earlier “chat included in
-v1” scope is superseded for the native Swift app by WF-ROADMAP-0012.
+v1” scope is governed for the native Swift app by WF-ROADMAP-0012.
 
 Each phase lands as its own conventional-commit PR onto `main`; the Python suite must stay green and
 untouched throughout (the entire tree lives under `clients/`, `decisions/`, `designs/`, `docs/`,
@@ -37,7 +36,7 @@ untouched throughout (the entire tree lives under `clients/`, `decisions/`, `des
 ## Outcomes
 
 - A menu-bar app where the routing decision (● LOCAL / ◆ CLOUD, score, why) is glanceable and
-  rendered, never computed, by the client (WF-ADR-0001). The native Swift v1 does not expose Chat.
+  rendered, never computed, by the client (WF-ADR-0001), with focused Chat in a separate window.
 - A first run that goes: install service → (optionally) key into Keychain → first routed turn — with
   no terminal required after the gateway package is installed.
 - A signed, notarized, stapled universal DMG on a `desktop-v*` release lane with working in-place

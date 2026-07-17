@@ -5,11 +5,11 @@ type: roadmap
 tags: [desktop, macos, swiftui, menu-bar, settings, v1, ux, accessibility, chat]
 ---
 
-# Roadmap: ship the native macOS v1 as a compact routing utility — and block Chat until it is ready
+# Roadmap: ship native Wayfinder Desktop v0.1.0 with compact routing and focused Chat
 
 ## Status
 
-Proposed
+Accepted
 
 ## Decision summary
 
@@ -18,15 +18,16 @@ window**. It should feel closer to the macOS Wi-Fi popover and System Settings t
 short rows, system materials, hairline separators, restrained symbols, terse status, and deeper
 explanation moved out of the glance surface.
 
-**Chat is not a v1 feature.** Its entry may remain visible as one disabled row labelled
-“Coming later,” but the app must not create, open, shortcut into, or otherwise expose the current
-Chat window in a release build. Chat returns only after a separate UX milestone proves its
-interaction model, gateway response/history contract, accessibility, and visual quality.
+**Chat is a v0.1.0 feature.** Its entry opens a dedicated native window whose conversation is
+delivered only through the bundled gateway. The release must prove its interaction model,
+authoritative response/history contract, streaming cancellation, accessibility, failure states,
+and visual quality; merely exposing the existing route-preview window does not satisfy this scope.
 
 This roadmap intentionally changes three accepted assumptions that currently pull implementation
 back toward the wrong result:
 
-- WF-ROADMAP-0009 says “chat included in v1.” This roadmap supersedes that v1 scope decision.
+- WF-ROADMAP-0009 says “chat included in v1.” This roadmap now accepts that scope for v0.1.0 while
+  narrowing it to a thin client over the bundled gateway.
 - WF-DESIGN-0014 fixes the popover at 400×550 and describes a Chat drill-in. The compact native
   amendment replaces those layout and Chat requirements for the Swift app.
 - WF-ADR-0042’s 400×550 amendment is no longer the native Swift target. The accessory-app,
@@ -65,8 +66,8 @@ Top to bottom:
 3. **Routing row** — local/cloud composition, counts if available, and one compact 6 pt split bar.
 4. **Endpoint Status row** — opens a compact native sibling submenu listing configured provider,
    model, route alias, and readiness.
-5. **Chat row** — disabled in v1, no chevron, trailing “Coming later,” with a VoiceOver hint that
-   the feature is unavailable in this release.
+5. **Chat row** — enabled with a disclosure chevron and a VoiceOver hint that it opens the dedicated
+   Chat window.
 6. **Footer** — Settings… and Quit Wayfinder. Refresh remains a keyboard command and automatic
    refresh-on-open behavior, not a permanent row.
 
@@ -99,32 +100,36 @@ Settings is the deeper operational surface, but it still should not read like an
 Before Swift changes:
 
 - Amend WF-ADR-0042: replace the native 400×550 requirement with intrinsic compact sizing and
-  record Chat as post-v1.
-- Amend WF-DESIGN-0014: add a native Swift compact-popover section, remove Chat from the v1
-  component inventory, and record the Wi-Fi/System Settings reference grammar.
-- Amend WF-ROADMAP-0009: mark “chat included in v1” superseded and link this roadmap.
-- Update `macos/README.md` so its implemented-surface list distinguishes v1 shipping surfaces from
-  blocked/post-v1 work.
+  record the focused Chat window in the desktop v0.1.0 contract.
+- Amend WF-DESIGN-0014: add a native Swift compact-popover section, keep Chat out of the compact
+  popover itself, and record the Wi-Fi/System Settings reference grammar.
+- Amend WF-ROADMAP-0009: narrow “chat included in v1” to the focused v0.1.0 thin-client scope and
+  link this roadmap.
+- Update `macos/README.md` so its implemented-surface list distinguishes v0.1.0 shipping surfaces
+  from later desktop work.
 - Add the supplied screenshot to a stable repo-owned design-reference location with provenance;
   do not leave the design target dependent on a clipboard path.
 
 **Exit criterion:** searching the governing docs for “400×550” or “chat included in v1” cannot
 lead an implementer to treat either as the current native Swift requirement.
 
-### Phase 1 — block Chat at the capability boundary
+### Phase 1 — expose Chat at the capability boundary
 
-Block the feature before polishing anything else:
+Make the release scope explicit before polishing anything else:
 
-- Introduce a single release availability policy, e.g. `AppFeature.chat = .blocked(reason:)`.
-- Do not instantiate `ChatWindowController` when Chat is blocked.
-- Remove/disable every route to `showChatWindow()`, including popover action, shortcuts, commands,
-  tests, and future deep-link seams.
-- Render the compact disabled Chat row from availability state; do not fake an active destination.
-- Keep Chat source files in-tree for later work, but exclude them from v1 interaction and fidelity
-  acceptance. Do not spend v1 polish time refining the current 1180 pt three-pane window.
+- Set the single release availability policy to `AppFeature.chat = .available` for v0.1.0.
+- Instantiate one retained `ChatWindowController` and expose it from the popover with native focus
+  restoration and window reuse.
+- Keep the menu-bar entry compact; conversation, routing inspection, and recovery live in the
+  dedicated window.
+- Replace the route-preview-only behavior with authoritative assistant delivery through the
+  gateway, bounded history, streaming stop, retry, clear/new-session semantics, and explicit empty,
+  offline, unavailable, and error states.
+- Make the window responsive below 1180 pt and preserve keyboard, VoiceOver, selection, and copy.
 
-**Acceptance:** automated tests prove a release configuration cannot create or show a Chat window;
-keyboard navigation skips the disabled action; VoiceOver announces why it is unavailable.
+**Acceptance:** automated tests prove v0.1.0 creates one reusable Chat window, the popover row opens
+it, all delivery uses the gateway client, and cancellation/error recovery never creates a second
+routing path.
 
 ### Phase 2 — rebuild the popover around native compact rows
 
@@ -192,9 +197,8 @@ Build a screenshot-and-accessibility review loop before packaging:
 - Run clean SwiftPM build/tests, then build and launch the staged `.app` bundle on macOS 14 and the
   current macOS release.
 
-**Release gate:** no P0/P1 findings in the native fidelity checklist; all state-matrix and service
-tests green; signed/notarized packaging work may proceed. Chat quality is not part of this gate
-because Chat is blocked by construction.
+**Release gate:** no P0/P1 findings in the native fidelity checklist; all state-matrix, Chat,
+streaming/cancellation, and service tests green; signed/notarized packaging work may proceed.
 
 ## File-level implementation map
 
@@ -213,17 +217,17 @@ because Chat is blocked by construction.
   `Tests/WayfinderMacTests/` plus repo-owned native reference screenshots and a concise
   `docs/desktop-fidelity.md` checklist.
 
-## Explicit non-goals for this v1 pass
+## Explicit non-goals for this v0.1.0 pass
 
-- Polishing or shipping the current Chat window.
+- Turning Chat into an independent router, provider client, credential owner, or general agent UI.
 - Redesigning the routing algorithm or gateway API.
 - Adding a dashboard, charts, logs browser, onboarding wizard, or extra menu-bar metrics.
 - Replacing the service-first lifecycle or moving routing/key ownership into the app.
 - Adding custom visual effects where system material and controls already solve the problem.
 
-## Chat unblocking milestone (post-v1)
+## Chat delivery contract
 
-Chat becomes eligible for implementation only after a separate plan answers and prototypes:
+Chat is eligible for v0.1.0 only when implementation and evidence answer:
 
 - whether it is a compact routing-inspection conversation or a general chat client;
 - authoritative assistant reply decoding, decision-only states, and last-N-turn gateway history;
@@ -232,7 +236,7 @@ Chat becomes eligible for implementation only after a separate plan answers and 
 - composer behavior, streaming/stop, error/retry, selection/copy, and keyboard commands;
 - Light/Dark, VoiceOver, Reduced Motion, and screenshot fidelity acceptance.
 
-Until that milestone is accepted, “blocked” means technically unreachable—not merely labelled beta.
+Until that contract passes, `desktop-v0.1.0` is not release-ready.
 
 ## Success measures
 
@@ -240,7 +244,8 @@ Until that milestone is accepted, “blocked” means technically unreachable—
   seconds without reading explanatory prose.
 - The popover fits within 340×420 pt at default sizing and never scrolls in a normal v1 state.
 - The Settings window opens at 700×520 pt and uses native selection and form controls.
-- Chat cannot be opened in a v1 build by mouse, keyboard, or code path.
+- Chat opens as a reusable dedicated window and completes a real routed conversation through the
+  bundled gateway.
 - All supported states are screenshot-reviewed and automated where practical.
 - The v1 fidelity checklist has no P0/P1 defects and the clean package test/build gate is green.
 
