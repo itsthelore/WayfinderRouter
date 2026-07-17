@@ -50,7 +50,7 @@ public extension WayfinderClient {
 public enum WayfinderClientError: LocalizedError, Equatable {
     case emptyPrompt
     case gatewayResponseMissingDecision
-    case gatewayStatus(Int)
+    case gatewayStatus(Int, model: String? = nil)
     case invalidChatStream
     case conversationTooLarge
 
@@ -60,7 +60,7 @@ public enum WayfinderClientError: LocalizedError, Equatable {
             return "The prompt is empty."
         case .gatewayResponseMissingDecision:
             return "The gateway response did not include a Wayfinder decision."
-        case .gatewayStatus(let status):
+        case .gatewayStatus(let status, let model):
             switch status {
             case 401, 403:
                 return "The selected provider needs a valid key. Check Providers in Settings, then retry."
@@ -69,6 +69,9 @@ public enum WayfinderClientError: LocalizedError, Equatable {
             case 502:
                 return "The selected model endpoint could not be reached. Check Gateway in Settings, then retry."
             case 503:
+                if model?.localizedCaseInsensitiveContains("apple") == true {
+                    return "Apple Foundation Models aren't ready for this app. Check Apple Intelligence and app signing, or choose another model in Gateway Settings."
+                }
                 return "No configured model is ready to reply. Check Gateway in Settings, then retry."
             default:
                 return "The gateway could not complete this request (HTTP \(status)). Check Settings, then retry."
