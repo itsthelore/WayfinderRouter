@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "implementation": "rust",
-  "version": "2026.7.0",
+  "version": "@WAYFINDER_DESKTOP_VERSION@",
   "wire_contract_version": 1,
   "config_schema_minimum": 1,
   "config_schema_maximum": 1,

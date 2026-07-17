@@ -58,7 +58,7 @@ done
 build_rust_slice() {
   local rust_target="$1"
   local output_arch="$2"
-  cargo build --manifest-path "$RUST_DIR/Cargo.toml" --locked --release --target "$rust_target" -p wayfinder-cli
+  WAYFINDER_PRODUCT_VERSION="$DESKTOP_VERSION" cargo build --manifest-path "$RUST_DIR/Cargo.toml" --locked --release --target "$rust_target" -p wayfinder-cli
   cp "$RUST_DIR/target/$rust_target/release/wayfinder-router" "$DIST_DIR/thin/$output_arch/wayfinder-router"
 }
 
@@ -109,6 +109,7 @@ cp "$ROOT_DIR/Packaging/Gateway-Info.plist" "$GATEWAY_APP/Contents/Info.plist"
 cp "$ROOT_DIR/Packaging/CredentialBroker-Info.plist" "$CREDENTIAL_XPC/Contents/Info.plist"
 cp "$ROOT_DIR/Packaging/FoundationModelBroker-Info.plist" "$FOUNDATION_XPC/Contents/Info.plist"
 cp "$ROOT_DIR/Resources/wayfinder-helper.json" "$APP/Contents/Resources/wayfinder-helper.json"
+sed -i '' "s/@WAYFINDER_DESKTOP_VERSION@/$DESKTOP_VERSION/g" "$APP/Contents/Resources/wayfinder-helper.json"
 
 set_bundle_version() {
   local plist="$1"
@@ -124,6 +125,15 @@ chmod 755 "$APP/Contents/MacOS/WayfinderMac" "$HELPER"
 chmod 755 "$CREDENTIAL_XPC/Contents/MacOS/WayfinderCredentialBroker"
 chmod 755 "$FOUNDATION_XPC/Contents/MacOS/WayfinderFoundationModelBroker"
 
+if [[ "$("$HELPER" --version)" != "wayfinder-router $DESKTOP_VERSION" ]]; then
+  echo "embedded gateway version does not match desktop version $DESKTOP_VERSION" >&2
+  exit 1
+fi
+if ! grep -q "\"version\": \"$DESKTOP_VERSION\"" "$APP/Contents/Resources/wayfinder-helper.json"; then
+  echo "embedded helper manifest version does not match desktop version $DESKTOP_VERSION" >&2
+  exit 1
+fi
+
 for binary in \
   "$HELPER" \
   "$APP/Contents/MacOS/WayfinderMac" \
@@ -134,9 +144,9 @@ for binary in \
   done
 done
 
-codesign --force "$TIMESTAMP_OPTION" --options runtime --identifier com.wayfinder.router.helper --entitlements "$ROOT_DIR/Packaging/Helper.entitlements" --sign "$IDENTITY" "$HELPER"
 codesign --force "$TIMESTAMP_OPTION" --options runtime --entitlements "$ROOT_DIR/Packaging/CredentialBroker.entitlements" --sign "$IDENTITY" "$CREDENTIAL_XPC"
 codesign --force "$TIMESTAMP_OPTION" --options runtime --entitlements "$ROOT_DIR/Packaging/FoundationModelBroker.entitlements" --sign "$IDENTITY" "$FOUNDATION_XPC"
+codesign --force "$TIMESTAMP_OPTION" --options runtime --identifier com.wayfinder.router.helper --entitlements "$ROOT_DIR/Packaging/Helper.entitlements" --sign "$IDENTITY" "$HELPER"
 codesign --force "$TIMESTAMP_OPTION" --options runtime --entitlements "$ROOT_DIR/Packaging/Helper.entitlements" --sign "$IDENTITY" "$GATEWAY_APP"
 codesign --force "$TIMESTAMP_OPTION" --options runtime --entitlements "$ROOT_DIR/Packaging/App.entitlements" --sign "$IDENTITY" "$APP"
 codesign --verify --deep --strict --verbose=2 "$APP"
