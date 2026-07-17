@@ -72,6 +72,23 @@ final class ChatDeliveryTests: XCTestCase {
         }
     }
 
+    func testGatewayFailureUsesTheSelectedAppleModelWithoutReflectingResponseContent() throws {
+        let response = try XCTUnwrap(HTTPURLResponse(
+            url: URL(string: "http://127.0.0.1:8088/v1/chat/completions")!,
+            statusCode: 503,
+            httpVersion: nil,
+            headerFields: ["X-Wayfinder-Router-Model": "apple-local"]
+        ))
+
+        let error = GatewayWayfinderClient.gatewayError(for: response)
+
+        XCTAssertEqual(error, .gatewayStatus(503, model: "apple-local"))
+        XCTAssertEqual(
+            error.localizedDescription,
+            "Apple Foundation Models aren't ready for this app. Check Apple Intelligence and app signing, or choose another model in Gateway Settings."
+        )
+    }
+
     @MainActor
     func testAppStateBuildsARealAssistantReplyAndRetainsDecision() async throws {
         let decision = Self.decision

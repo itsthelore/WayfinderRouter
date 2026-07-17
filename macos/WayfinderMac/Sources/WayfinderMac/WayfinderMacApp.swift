@@ -10,6 +10,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
     private var settingsWindowController: SettingsWindowController?
     private var setupWindowController: SetupWindowController?
     private var setupObserver: NSObjectProtocol?
+    private var settingsObserver: NSObjectProtocol?
 
     public init(
         client: any WayfinderClient,
@@ -36,6 +37,11 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
             forName: .wayfinderRunSetupAssistant, object: nil, queue: .main
         ) { [weak setupWindowController] _ in
             Task { @MainActor in setupWindowController?.reassessAndShow() }
+        }
+        settingsObserver = NotificationCenter.default.addObserver(
+            forName: .wayfinderOpenSettings, object: nil, queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor in self?.showSettingsWindow() }
         }
         NotificationCenter.default.addObserver(
             forName: .wayfinderSetupDidChange, object: nil, queue: .main

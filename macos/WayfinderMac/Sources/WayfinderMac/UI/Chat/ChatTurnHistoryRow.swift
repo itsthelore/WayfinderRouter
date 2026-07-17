@@ -112,7 +112,14 @@ private struct AssistantTurnResponse: View {
                 .font(.caption)
                 .foregroundStyle(.secondary)
             case .failed:
-                StatusStrip(title: "Chat failed", symbol: "exclamationmark.triangle.fill", color: .red)
+                HStack(spacing: 10) {
+                    StatusStrip(title: "Chat failed", symbol: "exclamationmark.triangle.fill", color: .red)
+                    Spacer(minLength: 12)
+                    Button("Open Settings") {
+                        NotificationCenter.default.post(name: .wayfinderOpenSettings, object: nil)
+                    }
+                    .controlSize(.small)
+                }
             case .stopped:
                 StatusStrip(title: "Response stopped", symbol: "stop.circle", color: .secondary)
             case .complete:

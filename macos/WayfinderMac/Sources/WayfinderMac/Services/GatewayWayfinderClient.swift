@@ -34,7 +34,7 @@ public struct GatewayWayfinderClient: WayfinderClient {
 
         let (data, response) = try await session.data(for: request)
         if let http = response as? HTTPURLResponse, !(200..<300).contains(http.statusCode) {
-            throw WayfinderClientError.gatewayStatus(http.statusCode)
+            throw Self.gatewayError(for: http)
         }
 
         let decoded = try JSONDecoder().decode(GatewayChatResponse.self, from: data)
@@ -66,7 +66,7 @@ public struct GatewayWayfinderClient: WayfinderClient {
                         throw WayfinderClientError.invalidChatStream
                     }
                     guard (200..<300).contains(http.statusCode) else {
-                        throw WayfinderClientError.gatewayStatus(http.statusCode)
+                        throw Self.gatewayError(for: http)
                     }
                     guard http.value(forHTTPHeaderField: "Content-Type")?.contains("text/event-stream") == true else {
                         throw WayfinderClientError.invalidChatStream
@@ -112,6 +112,13 @@ public struct GatewayWayfinderClient: WayfinderClient {
             throw WayfinderClientError.conversationTooLarge
         }
         return bounded
+    }
+
+    static func gatewayError(for response: HTTPURLResponse) -> WayfinderClientError {
+        .gatewayStatus(
+            response.statusCode,
+            model: response.value(forHTTPHeaderField: "X-Wayfinder-Router-Model")
+        )
     }
 
     public func loadStats(range: StatsRange) async throws -> RoutingStats {
@@ -301,7 +308,7 @@ public struct GatewayWayfinderClient: WayfinderClient {
         let url = components.url!
         let (data, response) = try await session.data(from: url)
         if let http = response as? HTTPURLResponse, !(200..<300).contains(http.statusCode) {
-            throw WayfinderClientError.gatewayStatus(http.statusCode)
+            throw Self.gatewayError(for: http)
         }
         return try JSONDecoder().decode(T.self, from: data)
     }

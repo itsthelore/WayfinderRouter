@@ -98,4 +98,5 @@ public final class SetupState: ObservableObject {
 public extension Notification.Name {
     static let wayfinderRunSetupAssistant = Notification.Name("Wayfinder.RunSetupAssistant")
     static let wayfinderSetupDidChange = Notification.Name("Wayfinder.SetupDidChange")
+    static let wayfinderOpenSettings = Notification.Name("Wayfinder.OpenSettings")
 }
