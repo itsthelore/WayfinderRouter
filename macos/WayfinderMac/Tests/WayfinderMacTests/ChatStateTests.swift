@@ -16,7 +16,7 @@ final class ChatStateTests: XCTestCase {
 
     func testFailedResponseRemainsDistinctFromPendingTurn() {
         let prompt = ChatMessage(role: .user, text: "Route this")
-        let failure = ChatMessage(role: .router, text: "Gateway unavailable")
+        let failure = ChatMessage(role: .assistant, text: "Gateway unavailable", state: .failed)
 
         let pending = ChatTurn.make(from: [prompt])
         let failed = ChatTurn.make(from: [prompt, failure])
