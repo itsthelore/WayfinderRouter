@@ -39,27 +39,26 @@ macos/
 
 This is a Swift Package executable with a production bundle assembly path. It creates a native `NSStatusItem`,
 opens a transient AppKit panel, hosts SwiftUI with `NSHostingController`, and opens native Settings
-through an AppKit-owned `NSWindow`. Chat window source is retained but blocked by the v1 release
-policy. `script/build_release_bundle.sh` assembles the app, universal Rust helper, credential-broker
+through an AppKit-owned `NSWindow`. Chat ships in v0.1.0 as a dedicated thin-client window over the
+same gateway. `script/build_release_bundle.sh` assembles the app, universal Rust helper, credential-broker
 XPC service, signed manifest, hardened-runtime signatures, and optional notarization/stapling.
 `Packaging/RELEASE.md` defines the physical-Mac release and rollback evidence.
 
-## Native v1 Surfaces
+## Native v0.1.0 Surfaces
 
-- Shipping v1: an accessory menu-bar app, routing/gateway and endpoint status, native
+- Shipping v0.1.0: an accessory menu-bar app, routing/gateway and endpoint status, native
   Settings, service controls, routing configuration, provider-key management through the Keychain
-  boundary, privacy, Help, and About.
-- The v1 popover may show one disabled “Chat” row with trailing “Coming later.” It has no chevron
-  and cannot create or open a window.
+  boundary, privacy, Help, About, and focused Chat through the bundled gateway.
+- The compact popover has one enabled Chat row that opens a retained, reusable native window.
 - Settings window: native sidebar, Keys screen, provider picker/form, existing key status row, Keychain info box.
 - Service boundary: `WayfinderClient` supports `route(prompt:)`, `loadStats(range:)`, and `loadOverview()`. The app entrypoint uses `GatewayWayfinderClient` for live status/stat rendering; `MockWayfinderClient` remains available for previews and tests.
 
-## Blocked / Post-v1
+## Chat boundary
 
-The current Chat window and its supporting source remain in-tree for a later milestone, but Chat is
-not a native v1 capability. Release wiring must not instantiate `ChatWindowController` or expose a
-popover action, shortcut, command, deep link, or any other route to it. Do not treat the retained
-Chat source as a shipping surface or a v1 fidelity target; WF-ROADMAP-0012 governs unblocking it.
+Chat is a shipping v0.1.0 surface, but it remains a thin client: it sends bounded conversation
+history only to the gateway, renders the gateway's authoritative assistant reply and routing
+decision, and never scores, contacts a provider directly, or owns credentials. WF-ROADMAP-0012
+governs its delivery and fidelity gate.
 
 ## Integration Strategy
 
@@ -98,6 +97,9 @@ cd macos/WayfinderMac
 The script builds and stages a local `dist/WayfinderMac.app` bundle before launch. Use
 `--verify` to confirm the process starts, or `--debug`, `--logs`, and `--telemetry` for
 focused diagnostics.
+For repeatable native Chat-window visual QA, launch a staged app with `--args --open-chat` to use
+the real gateway or `--args --preview-chat` to use an explicit deterministic preview client. Normal
+launches remain menu-bar-only and always use the real gateway.
 
 ## Test
 
