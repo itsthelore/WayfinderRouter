@@ -228,7 +228,10 @@ impl GatewayMetrics {
 
 impl Default for GatewayMetrics {
     fn default() -> Self {
-        Self::new(env!("CARGO_PKG_VERSION"), DEFAULT_MAX_LABEL_SERIES)
+        Self::new(
+            option_env!("WAYFINDER_PRODUCT_VERSION").unwrap_or(env!("CARGO_PKG_VERSION")),
+            DEFAULT_MAX_LABEL_SERIES,
+        )
     }
 }
 

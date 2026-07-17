@@ -12,13 +12,15 @@ independently. Python/Homebrew remains the rollback backend until the default/re
 
 ## Desktop version
 
-The native product uses SemVer independently of the router/PyPI CalVer package. The release
+The native product uses SemVer independently of the standalone router/PyPI CalVer package. The release
 version is single-sourced in `Packaging/DESKTOP_VERSION`; the first native release is `0.1.0` and
 uses the tag `desktop-v0.1.0`. `WAYFINDER_DESKTOP_VERSION` may override the file for a release
 candidate, and `WAYFINDER_DESKTOP_BUILD_NUMBER` supplies the monotonically increasing Apple bundle
 build number. The build script writes the same version and build number into the app, containing
-gateway app, and both XPC bundles. The bundled `wayfinder-helper.json` retains the Rust router's
-independent compatibility version.
+gateway app, and both XPC bundles. It also compiles the embedded Rust gateway and stamps its
+`wayfinder-helper.json` compatibility manifest with the desktop version, so every component of one
+installed desktop product reports one version. Standalone router builds retain their independent
+CalVer identity.
 
 In a managed build environment that blocks SwiftPM's default caches or nested sandbox, set
 `CLANG_MODULE_CACHE_PATH` to a writable directory and

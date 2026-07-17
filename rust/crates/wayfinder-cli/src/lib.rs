@@ -64,6 +64,10 @@ pub const EXIT_CONFIG: i32 = 1;
 /// Invalid arguments or input file.
 pub const EXIT_USAGE: i32 = 2;
 
+fn product_version() -> &'static str {
+    option_env!("WAYFINDER_PRODUCT_VERSION").unwrap_or(env!("CARGO_PKG_VERSION"))
+}
+
 /// Whether the process entry point must select the asynchronous serve path.
 #[must_use]
 pub fn is_serve_command(arguments: &[OsString]) -> bool {
@@ -130,10 +134,7 @@ pub fn run(
     };
     match command {
         "--version" => {
-            write_output(
-                stdout,
-                &format!("wayfinder-router {}", env!("CARGO_PKG_VERSION")),
-            );
+            write_output(stdout, &format!("wayfinder-router {}", product_version()));
             EXIT_OK
         }
         "-h" | "--help" => {
@@ -186,7 +187,7 @@ fn run_capabilities(arguments: &[String], stdout: &mut dyn Write, stderr: &mut d
     let payload = json!({
         "schema_version": "1",
         "implementation": "rust",
-        "version": env!("CARGO_PKG_VERSION"),
+        "version": product_version(),
         "commands": ["route", "serve", "service", "capabilities", "calibrate", "recalibrate", "webchat", "ui", "chat", "onboard", "judge", "init", "doctor", "config", "keys"],
         "native_commands": ["route", "serve", "service", "capabilities"],
         "delegated_commands": PYTHON_DELEGATED_COMMANDS,
@@ -475,7 +476,7 @@ async fn build_serve_state<W: Write>(
         "all" => RouteOn::All,
         _ => return Err("validated gateway route_on is unsupported".to_owned()),
     };
-    let mut state = AppState::new(routing, models, gateway.offline, env!("CARGO_PKG_VERSION"))
+    let mut state = AppState::new(routing, models, gateway.offline, product_version())
         .with_dry_run(options.dry_run)
         .with_route_on(route_on)
         .with_sticky(gateway.sticky, gateway.sticky_cooldown)

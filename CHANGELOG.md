@@ -13,7 +13,8 @@ details, release history over commit history.
   the authoritative routing decision for each completed turn. Conversations remain in memory for
   this release; Stop, Retry, New Chat, bounded request history, and actionable delivery failures are
   included. The app uses its own SemVer release line (`0.1.0`) while the bundled router retains its
-  existing CalVer identity.
+  existing CalVer identity when built and distributed independently; the router embedded in the
+  desktop bundle reports the desktop product version.
 
 - **Apple Foundation Models availability contract** (WF-DESIGN-0017). The native macOS package now
   capability-detects `SystemLanguageModel.default` on macOS 26 and distinguishes available,

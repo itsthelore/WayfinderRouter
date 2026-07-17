@@ -306,7 +306,10 @@ impl OpenAiProviderClient {
             .connect_timeout(config.connect_timeout)
             .timeout(config.request_timeout)
             .tcp_nodelay(true)
-            .user_agent(concat!("wayfinder-router/", env!("CARGO_PKG_VERSION")))
+            .user_agent(format!(
+                "wayfinder-router/{}",
+                option_env!("WAYFINDER_PRODUCT_VERSION").unwrap_or(env!("CARGO_PKG_VERSION"))
+            ))
             .build()
             .map_err(|_| ProviderError::ClientBuild)?;
         Ok(Self {
