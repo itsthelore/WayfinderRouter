@@ -44,6 +44,76 @@ public struct GatewayWayfinderClient: WayfinderClient {
         return wayfinder.routingDecision(prompt: trimmed)
     }
 
+    public func streamChat(messages: [ChatRequestMessage]) -> AsyncThrowingStream<ChatStreamEvent, Error> {
+        AsyncThrowingStream { continuation in
+            let task = Task {
+                do {
+                    let bounded = try Self.boundedChatMessages(messages)
+                    guard let prompt = bounded.last(where: { $0.role == "user" })?.content else {
+                        throw WayfinderClientError.emptyPrompt
+                    }
+
+                    var request = URLRequest(url: baseURL.appending(path: "v1/chat/completions"))
+                    request.httpMethod = "POST"
+                    request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+                    request.setValue("1", forHTTPHeaderField: "X-Wayfinder-Debug")
+                    request.httpBody = try JSONEncoder().encode(
+                        GatewayStreamingChatRequest(messages: bounded)
+                    )
+
+                    let (bytes, response) = try await session.bytes(for: request)
+                    guard let http = response as? HTTPURLResponse else {
+                        throw WayfinderClientError.invalidChatStream
+                    }
+                    guard (200..<300).contains(http.statusCode) else {
+                        throw WayfinderClientError.gatewayStatus(http.statusCode)
+                    }
+                    guard http.value(forHTTPHeaderField: "Content-Type")?.contains("text/event-stream") == true else {
+                        throw WayfinderClientError.invalidChatStream
+                    }
+
+                    var decoder = GatewayStreamDecoder(prompt: prompt)
+                    for try await line in bytes.lines {
+                        try Task.checkCancellation()
+                        for event in try decoder.consume(line: line) {
+                            continuation.yield(event)
+                        }
+                    }
+                    guard decoder.sawDecision, decoder.sawCompletion else {
+                        throw WayfinderClientError.invalidChatStream
+                    }
+                    continuation.finish()
+                } catch {
+                    continuation.finish(throwing: error)
+                }
+            }
+            continuation.onTermination = { _ in task.cancel() }
+        }
+    }
+
+    static func boundedChatMessages(_ messages: [ChatRequestMessage]) throws -> [ChatRequestMessage] {
+        let maximumMessages = 20
+        let maximumMessageCharacters = 32_768
+        let maximumConversationCharacters = 65_536
+        var bounded = Array(messages.suffix(maximumMessages))
+
+        guard bounded.allSatisfy({ $0.content.count <= maximumMessageCharacters }) else {
+            throw WayfinderClientError.conversationTooLarge
+        }
+        while bounded.reduce(0, { $0 + $1.content.count }) > maximumConversationCharacters,
+              bounded.count > 1 {
+            bounded.removeFirst()
+        }
+        while bounded.first?.role == "assistant" {
+            bounded.removeFirst()
+        }
+        guard !bounded.isEmpty,
+              bounded.reduce(0, { $0 + $1.content.count }) <= maximumConversationCharacters else {
+            throw WayfinderClientError.conversationTooLarge
+        }
+        return bounded
+    }
+
     public func loadStats(range: StatsRange) async throws -> RoutingStats {
         try await loadOverview().routingStats
     }
@@ -247,6 +317,12 @@ private struct GatewayChatRequest: Encodable {
     }
 }
 
+private struct GatewayStreamingChatRequest: Encodable {
+    let model = "auto"
+    let messages: [ChatRequestMessage]
+    let stream = true
+}
+
 private struct GatewayMessage: Encodable {
     let role: String
     let content: String
@@ -321,6 +397,80 @@ private struct GatewayDecision: Decodable {
         }
         return "The gateway returned a \(route.displayName.lowercased()) decision from \(signals)."
     }
+}
+
+struct GatewayStreamDecoder {
+    private let prompt: String
+    private let maximumResponseCharacters: Int
+    private var responseCharacters = 0
+    private(set) var sawDecision = false
+    private(set) var sawCompletion = false
+
+    init(prompt: String, maximumResponseCharacters: Int = 1_048_576) {
+        self.prompt = prompt
+        self.maximumResponseCharacters = maximumResponseCharacters
+    }
+
+    mutating func consume(line: String) throws -> [ChatStreamEvent] {
+        guard line.hasPrefix("data:") else {
+            return []
+        }
+        guard !sawCompletion else {
+            throw WayfinderClientError.invalidChatStream
+        }
+        let payload = line.dropFirst(5).trimmingCharacters(in: .whitespaces)
+        if payload == "[DONE]" {
+            sawCompletion = true
+            return [.completed]
+        }
+        guard let data = payload.data(using: .utf8) else {
+            throw WayfinderClientError.invalidChatStream
+        }
+        let envelope = try JSONDecoder().decode(GatewayStreamEnvelope.self, from: data)
+        if envelope.error != nil {
+            throw WayfinderClientError.invalidChatStream
+        }
+
+        var events: [ChatStreamEvent] = []
+        if let decision = envelope.wayfinder {
+            guard !sawDecision else {
+                throw WayfinderClientError.invalidChatStream
+            }
+            sawDecision = true
+            events.append(.decision(decision.routingDecision(prompt: prompt)))
+        }
+        for choice in envelope.choices ?? [] {
+            if let text = choice.delta.content, !text.isEmpty {
+                guard sawDecision else {
+                    throw WayfinderClientError.invalidChatStream
+                }
+                responseCharacters += text.count
+                guard responseCharacters <= maximumResponseCharacters else {
+                    throw WayfinderClientError.invalidChatStream
+                }
+                events.append(.text(text))
+            }
+        }
+        return events
+    }
+}
+
+private struct GatewayStreamEnvelope: Decodable {
+    let wayfinder: GatewayDecision?
+    let choices: [GatewayStreamChoice]?
+    let error: GatewayStreamError?
+}
+
+private struct GatewayStreamChoice: Decodable {
+    let delta: GatewayStreamDelta
+}
+
+private struct GatewayStreamDelta: Decodable {
+    let content: String?
+}
+
+private struct GatewayStreamError: Decodable {
+    let type: String?
 }
 
 private struct GatewayContribution: Decodable {

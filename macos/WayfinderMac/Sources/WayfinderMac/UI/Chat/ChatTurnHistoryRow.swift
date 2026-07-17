@@ -27,15 +27,11 @@ public struct ChatTurnHistoryRow: View {
                 promptHeader
 
                 if let response = turn.response {
-                    if let decision = response.decision {
-                        RoutingResponseCard(
-                            decision: decision,
-                            isSelected: decision.id == selectedDecisionID,
-                            onSelect: { onSelectDecision(decision) }
-                        )
-                    } else {
-                        FailedRouteStrip(message: response.text)
-                    }
+                    AssistantTurnResponse(
+                        response: response,
+                        selectedDecisionID: selectedDecisionID,
+                        onSelectDecision: onSelectDecision
+                    )
                 } else {
                     PendingRouteStrip()
                 }
@@ -92,27 +88,64 @@ public struct ChatTurnHistoryRow: View {
     }
 }
 
-private struct FailedRouteStrip: View {
-    let message: String
+private struct AssistantTurnResponse: View {
+    let response: ChatMessage
+    let selectedDecisionID: UUID?
+    let onSelectDecision: (RoutingDecision) -> Void
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            Label("Routing failed", systemImage: "exclamationmark.triangle.fill")
-                .font(.caption.weight(.semibold))
-                .foregroundStyle(.red)
-            Text(message)
+        VStack(alignment: .leading, spacing: 10) {
+            if !response.text.isEmpty {
+                Text(response.text)
+                    .font(.body)
+                    .foregroundStyle(response.state == .failed ? .secondary : .primary)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .textSelection(.enabled)
+            }
+
+            switch response.state {
+            case .streaming:
+                HStack(spacing: 8) {
+                    ProgressView().controlSize(.small)
+                    Text("Responding")
+                }
                 .font(.caption)
                 .foregroundStyle(.secondary)
-                .fixedSize(horizontal: false, vertical: true)
+            case .failed:
+                StatusStrip(title: "Chat failed", symbol: "exclamationmark.triangle.fill", color: .red)
+            case .stopped:
+                StatusStrip(title: "Response stopped", symbol: "stop.circle", color: .secondary)
+            case .complete:
+                EmptyView()
+            }
+
+            if let decision = response.decision {
+                RoutingResponseCard(
+                    decision: decision,
+                    isSelected: decision.id == selectedDecisionID,
+                    onSelect: { onSelectDecision(decision) }
+                )
+            }
         }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 9)
+        .padding(14)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(Color.red.opacity(0.07), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+        .background(ChatWorkspaceChrome.panel, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
         .overlay(
             RoundedRectangle(cornerRadius: 10, style: .continuous)
-                .stroke(Color.red.opacity(0.22), lineWidth: 1)
+                .stroke(response.state == .failed ? Color.red.opacity(0.22) : ChatWorkspaceChrome.border, lineWidth: 1)
         )
+    }
+}
+
+private struct StatusStrip: View {
+    let title: String
+    let symbol: String
+    let color: Color
+
+    var body: some View {
+        Label(title, systemImage: symbol)
+            .font(.caption.weight(.semibold))
+            .foregroundStyle(color)
     }
 }
 

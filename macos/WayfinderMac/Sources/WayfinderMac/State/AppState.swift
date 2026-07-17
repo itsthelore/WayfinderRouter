@@ -15,6 +15,7 @@ public final class AppState: ObservableObject {
 
     private let client: any WayfinderClient
     private let setupService = SetupService()
+    private var chatTask: Task<Void, Never>?
 
     public init(client: any WayfinderClient) {
         self.client = client
@@ -29,6 +30,16 @@ public final class AppState: ObservableObject {
 
     public var canSendMessage: Bool {
         !chatDraft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && !isSendingMessage
+    }
+
+    public var canClearChat: Bool {
+        !chatMessages.isEmpty && !isSendingMessage
+    }
+
+    public var canRetryChat: Bool {
+        !isSendingMessage && chatMessages.last.map {
+            $0.role == .assistant && ($0.state == .failed || $0.state == .stopped)
+        } == true
     }
 
     public func analyse() {
@@ -103,35 +114,121 @@ public final class AppState: ObservableObject {
             return
         }
 
+        let requestMessages = Self.chatRequestMessages(from: chatMessages) + [
+            ChatRequestMessage(role: "user", content: input)
+        ]
+        let responseID = UUID()
         chatDraft = ""
         isSendingMessage = true
         chatMessages.append(ChatMessage(role: .user, text: input))
+        chatMessages.append(ChatMessage(
+            id: responseID,
+            role: .assistant,
+            text: "",
+            state: .streaming
+        ))
 
-        Task {
+        chatTask = Task {
             do {
-                let decision = try await client.route(prompt: input)
-                let response = ChatMessage(
-                    role: .router,
-                    text: decision.explanation,
-                    decision: decision
-                )
-                await MainActor.run {
-                    self.chatMessages.append(response)
-                    self.isSendingMessage = false
-                    self.refreshStats()
+                for try await event in client.streamChat(messages: requestMessages) {
+                    guard let index = self.chatMessages.firstIndex(where: { $0.id == responseID }) else {
+                        continue
+                    }
+                    switch event {
+                    case let .decision(decision):
+                        self.chatMessages[index].decision = decision
+                    case let .text(fragment):
+                        self.chatMessages[index].text += fragment
+                    case .completed:
+                        self.chatMessages[index].state = self.chatMessages[index].text.isEmpty
+                            ? .failed
+                            : .complete
+                        if self.chatMessages[index].text.isEmpty {
+                            self.chatMessages[index].text = "No model reply was delivered. Check the configured endpoint in Settings."
+                        }
+                    }
                 }
+                if Task.isCancelled {
+                    self.finishStoppedChatMessage(id: responseID)
+                    return
+                }
+                if let index = self.chatMessages.firstIndex(where: { $0.id == responseID }),
+                   self.chatMessages[index].state == .streaming {
+                    self.finishFailedChatMessage(
+                        id: responseID,
+                        message: WayfinderClientError.invalidChatStream.localizedDescription
+                    )
+                    return
+                }
+                self.isSendingMessage = false
+                self.chatTask = nil
+                self.refreshStats()
             } catch {
-                let fallback = ChatMessage(
-                    role: .router,
-                    text: error.localizedDescription,
-                    decision: nil
-                )
-                await MainActor.run {
-                    self.chatMessages.append(fallback)
-                    self.isSendingMessage = false
+                if Task.isCancelled || error is CancellationError {
+                    self.finishStoppedChatMessage(id: responseID)
+                } else {
+                    self.finishFailedChatMessage(id: responseID, message: error.localizedDescription)
                 }
             }
         }
+    }
+
+    public func stopChatResponse() {
+        chatTask?.cancel()
+    }
+
+    public func clearChat() {
+        guard canClearChat else {
+            return
+        }
+        chatMessages.removeAll()
+    }
+
+    public func retryLastChatTurn() {
+        guard !isSendingMessage,
+              let responseIndex = chatMessages.lastIndex(where: {
+                  $0.role == .assistant && ($0.state == .failed || $0.state == .stopped)
+              }),
+              responseIndex > 0,
+              chatMessages[responseIndex - 1].role == .user else {
+            return
+        }
+        let prompt = chatMessages[responseIndex - 1].text
+        chatMessages.removeSubrange((responseIndex - 1)...responseIndex)
+        chatDraft = prompt
+        sendChatDraft()
+    }
+
+    static func chatRequestMessages(from messages: [ChatMessage]) -> [ChatRequestMessage] {
+        messages.compactMap { message in
+            guard message.state == .complete, !message.text.isEmpty else {
+                return nil
+            }
+            return ChatRequestMessage(
+                role: message.role == .user ? "user" : "assistant",
+                content: message.text
+            )
+        }
+    }
+
+    private func finishStoppedChatMessage(id: UUID) {
+        if let index = chatMessages.firstIndex(where: { $0.id == id }) {
+            chatMessages[index].state = .stopped
+            if chatMessages[index].text.isEmpty {
+                chatMessages[index].text = "Response stopped."
+            }
+        }
+        isSendingMessage = false
+        chatTask = nil
+    }
+
+    private func finishFailedChatMessage(id: UUID, message: String) {
+        if let index = chatMessages.firstIndex(where: { $0.id == id }) {
+            chatMessages[index].state = .failed
+            chatMessages[index].text = message
+        }
+        isSendingMessage = false
+        chatTask = nil
     }
 }
 

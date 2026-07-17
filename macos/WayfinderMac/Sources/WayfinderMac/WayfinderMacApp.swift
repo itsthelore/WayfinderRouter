@@ -4,6 +4,7 @@ import AppKit
 public final class AppDelegate: NSObject, NSApplicationDelegate {
     private let appState: AppState
     private let featurePolicy: ReleaseFeaturePolicy
+    private let openChatOnLaunch: Bool
     private var statusItemController: StatusItemController?
     private var chatFeatureCoordinator: ChatFeatureCoordinator?
     private var settingsWindowController: SettingsWindowController?
@@ -12,10 +13,12 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
 
     public init(
         client: any WayfinderClient,
-        featurePolicy: ReleaseFeaturePolicy = .current
+        featurePolicy: ReleaseFeaturePolicy = .current,
+        openChatOnLaunch: Bool = false
     ) {
         self.appState = AppState(client: client)
         self.featurePolicy = featurePolicy
+        self.openChatOnLaunch = openChatOnLaunch
         super.init()
     }
 
@@ -48,6 +51,9 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
         )
         appState.refreshSetupAssessment()
         setupWindowController.assessAndShowIfNeeded()
+        if openChatOnLaunch {
+            chatFeatureCoordinator.openAction?()
+        }
     }
 
     public func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {

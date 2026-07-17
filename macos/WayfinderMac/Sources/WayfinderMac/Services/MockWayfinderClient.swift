@@ -14,6 +14,26 @@ public struct MockWayfinderClient: WayfinderClient {
         return try await localClient.analyse(prompt: prompt)
     }
 
+    public func streamChat(messages: [ChatRequestMessage]) -> AsyncThrowingStream<ChatStreamEvent, Error> {
+        AsyncThrowingStream { continuation in
+            let task = Task {
+                do {
+                    guard let prompt = messages.last(where: { $0.role == "user" })?.content else {
+                        throw WayfinderClientError.emptyPrompt
+                    }
+                    let decision = try await analyse(prompt: prompt)
+                    continuation.yield(.decision(decision))
+                    continuation.yield(.text("This preview reply was delivered through Wayfinder's streaming Chat contract."))
+                    continuation.yield(.completed)
+                    continuation.finish()
+                } catch {
+                    continuation.finish(throwing: error)
+                }
+            }
+            continuation.onTermination = { _ in task.cancel() }
+        }
+    }
+
     public func loadStats(range: StatsRange) async throws -> RoutingStats {
         try await Task.sleep(nanoseconds: 80_000_000)
         let local: Double

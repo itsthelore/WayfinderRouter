@@ -29,7 +29,11 @@ public struct WayfinderChatWindow: View {
                     visibleCount: visibleTurns.count,
                     selectedDecision: selectedDecision(in: turns),
                     routeFilter: routeFilter,
-                    onSelectLatest: { selectLatestDecision(in: visibleTurns) }
+                    onSelectLatest: { selectLatestDecision(in: visibleTurns) },
+                    canRetry: appState.canRetryChat,
+                    canClear: appState.canClearChat,
+                    onRetry: appState.retryLastChatTurn,
+                    onClear: appState.clearChat
                 )
                 Divider()
                 ChatConversationView(
@@ -42,17 +46,20 @@ public struct WayfinderChatWindow: View {
                     draft: $appState.chatDraft,
                     isSending: appState.isSendingMessage,
                     canSend: appState.canSendMessage,
-                    onSend: appState.sendChatDraft
+                    onSend: appState.sendChatDraft,
+                    onStop: appState.stopChatResponse
                 )
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
 
-            RoutingOutputsPanel(
-                decision: selectedDecision(in: turns),
-                turn: selectedTurn(in: turns)
-            )
+            if let decision = selectedDecision(in: turns) {
+                RoutingOutputsPanel(
+                    decision: decision,
+                    turn: selectedTurn(in: turns)
+                )
+            }
         }
-        .frame(minWidth: 1180, minHeight: 740)
+        .frame(minWidth: 920, minHeight: 620)
         .background(ChatWorkspaceChrome.canvas)
         .onAppear {
             selectedDecisionID = selectedDecisionID ?? latestDecision(in: turns)?.id
@@ -61,6 +68,9 @@ public struct WayfinderChatWindow: View {
             let updatedTurns = ChatTurn.make(from: appState.chatMessages)
             let visible = updatedTurns.filtered(by: routeFilter, searchText: searchText)
             selectedDecisionID = latestDecision(in: visible)?.id ?? selectedDecisionID
+        }
+        .onChange(of: visibleTurns.compactMap { $0.response?.decision?.id }) {
+            selectedDecisionID = latestDecision(in: visibleTurns)?.id ?? selectedDecisionID
         }
         .onChange(of: routeFilter) {
             selectValidDecision(in: visibleTurns)
@@ -71,7 +81,7 @@ public struct WayfinderChatWindow: View {
     }
 
     private var routedTurnCount: Int {
-        appState.chatMessages.filter { $0.role == .router && $0.decision != nil }.count
+        appState.chatMessages.filter { $0.role == .assistant && $0.decision != nil }.count
     }
 
     private func selectLatestDecision(in turns: [ChatTurn]) {
@@ -112,12 +122,16 @@ private struct ChatToolbar: View {
     let selectedDecision: RoutingDecision?
     let routeFilter: ChatRouteFilter
     let onSelectLatest: () -> Void
+    let canRetry: Bool
+    let canClear: Bool
+    let onRetry: () -> Void
+    let onClear: () -> Void
 
     var body: some View {
         HStack(spacing: 14) {
             VStack(alignment: .leading, spacing: 4) {
                 HStack(spacing: 8) {
-                    Text("Route Preview")
+                    Text("Chat")
                         .font(.title3.weight(.semibold))
                     if let selectedDecision {
                         Text(selectedDecision.routeSummary)
@@ -133,12 +147,26 @@ private struct ChatToolbar: View {
                     .foregroundStyle(ChatWorkspaceChrome.secondaryText)
             }
             Spacer()
+            if canRetry {
+                Button(action: onRetry) {
+                    Label("Retry", systemImage: "arrow.clockwise")
+                }
+                .buttonStyle(.bordered)
+                .controlSize(.small)
+            }
             Button(action: onSelectLatest) {
                 Label("Latest", systemImage: "clock.arrow.circlepath")
             }
             .buttonStyle(.bordered)
             .controlSize(.small)
             .help("Select the latest visible routed turn")
+            Button(action: onClear) {
+                Label("New Chat", systemImage: "square.and.pencil")
+            }
+            .buttonStyle(.bordered)
+            .controlSize(.small)
+            .disabled(!canClear)
+            .help("Clear this in-memory conversation")
         }
         .buttonStyle(.borderless)
         .padding(.horizontal, 22)
