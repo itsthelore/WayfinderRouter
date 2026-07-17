@@ -227,8 +227,8 @@ final class PopoverPresentationTests: XCTestCase {
     private func measuredSize(_ presentation: PopoverPresentation) -> NSSize {
         let content = WayfinderPopoverContent(
             presentation: presentation,
-            chatAvailability: ReleaseFeaturePolicy.v1[.chat],
-            onOpenChat: nil,
+            chatAvailability: ReleaseFeaturePolicy.current[.chat],
+            onOpenChat: {},
             onEndpointAnchorFrameChange: { _ in },
             onEndpointHoverChange: { _, _ in },
             onOpenEndpointStatus: { _ in },

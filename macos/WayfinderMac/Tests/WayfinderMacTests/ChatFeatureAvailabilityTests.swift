@@ -11,11 +11,11 @@ final class ChatFeatureAvailabilityTests: XCTestCase {
         }
     }
 
-    func testV1PolicyBlocksChatWithReleaseReason() {
-        XCTAssertEqual(ReleaseFeaturePolicy.current, .v1)
+    func testDesktopV010PolicyShipsChat() {
+        XCTAssertEqual(ReleaseFeaturePolicy.current, .desktopV0_1_0)
         XCTAssertEqual(
-            ReleaseFeaturePolicy.v1[.chat],
-            .blocked(reason: "Chat is unavailable in this release.")
+            ReleaseFeaturePolicy.desktopV0_1_0[.chat],
+            .available
         )
     }
 
@@ -24,7 +24,7 @@ final class ChatFeatureAvailabilityTests: XCTestCase {
         var creationCount = 0
 
         let coordinator = ChatFeatureCoordinator(
-            policy: .v1,
+            policy: ReleaseFeaturePolicy(availability: [.chat: .blocked(reason: "Disabled for test.")]),
             appState: state,
             makeController: { _ in
                 creationCount += 1
@@ -37,13 +37,13 @@ final class ChatFeatureAvailabilityTests: XCTestCase {
     }
 
     func testBlockedPopoverRowIsDisabledAndHasNoChevron() {
-        let row = ChatPopoverRowModel(availability: ReleaseFeaturePolicy.v1[.chat])
+        let row = ChatPopoverRowModel(availability: .blocked(reason: "Disabled for test."))
 
         XCTAssertFalse(row.isEnabled)
         XCTAssertEqual(row.trailingText, "Coming later")
         XCTAssertFalse(row.showsChevron)
         XCTAssertEqual(row.accessibilityLabel, "Chat, Coming later")
-        XCTAssertEqual(row.accessibilityHint, "Chat is unavailable in this release.")
+        XCTAssertEqual(row.accessibilityHint, "Disabled for test.")
     }
 
     func testAvailablePolicyCreatesAndCanShowController() {
@@ -64,5 +64,15 @@ final class ChatFeatureAvailabilityTests: XCTestCase {
         XCTAssertEqual(creationCount, 1)
         coordinator.openAction?()
         XCTAssertEqual(spy.showCount, 1)
+    }
+
+    func testDesktopPopoverRowOpensChat() {
+        let row = ChatPopoverRowModel(availability: ReleaseFeaturePolicy.current[.chat])
+
+        XCTAssertTrue(row.isEnabled)
+        XCTAssertNil(row.trailingText)
+        XCTAssertTrue(row.showsChevron)
+        XCTAssertEqual(row.accessibilityLabel, "Chat")
+        XCTAssertEqual(row.accessibilityHint, "Opens the Chat window.")
     }
 }
