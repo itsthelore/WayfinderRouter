@@ -44,6 +44,9 @@ final class CodexAccountClientTests: XCTestCase {
         XCTAssertTrue(requests.allSatisfy {
             $0.value(forHTTPHeaderField: "X-Wayfinder-Local-Control") == "1"
         })
+        XCTAssertTrue(requests.allSatisfy {
+            $0.cachePolicy == .reloadIgnoringLocalCacheData
+        })
         XCTAssertEqual(requests.map(\.httpMethod), ["GET", "GET", "POST", "POST", "POST"])
         let requestBodies = AccountURLProtocolStub.requestBodies
         XCTAssertNil(requestBodies[0])
@@ -79,12 +82,33 @@ final class CodexAccountClientTests: XCTestCase {
 
     func testControlClientRejectsOversizedAndMalformedResponses() async {
         AccountURLProtocolStub.install { request in
+            (
+                HTTPURLResponse(
+                    url: request.url!,
+                    statusCode: 200,
+                    httpVersion: nil,
+                    headerFields: [
+                        "Content-Type": "application/json",
+                        "Content-Length": "\(GatewayCodexAccountClient.maximumResponseBytes + 1)",
+                    ]
+                )!,
+                Data()
+            )
+        }
+        let client = makeClient()
+        do {
+            _ = try await client.account()
+            XCTFail("Expected declared oversized response rejection")
+        } catch {
+            XCTAssertEqual(error as? CodexAccountClientError, .responseTooLarge)
+        }
+
+        AccountURLProtocolStub.install { request in
             Self.response(
                 for: request,
                 data: Data(repeating: 0x20, count: GatewayCodexAccountClient.maximumResponseBytes + 1)
             )
         }
-        let client = makeClient()
         do {
             _ = try await client.account()
             XCTFail("Expected oversized response rejection")

@@ -235,9 +235,19 @@ public final class AppState: ObservableObject {
         destination: ChatDestination
     ) -> String {
         if destination.isChatGPTAccount,
-           let clientError = error as? WayfinderClientError,
-           case .gatewayStatus(503, _) = clientError {
-            return "ChatGPT is not connected or its Codex model is unavailable. Check Accounts in Settings, then retry."
+           let clientError = error as? WayfinderClientError {
+            switch clientError {
+            case .chatTurnInterrupted, .gatewayStatus(409, _):
+                return "ChatGPT interrupted this reply before completion. Retry when you're ready."
+            case .chatTurnFailed, .gatewayStatus(502, _):
+                return "ChatGPT could not complete this reply. Retry, or choose another destination."
+            case .chatUsageLimitReached, .gatewayStatus(429, _):
+                return "This ChatGPT account has reached its current usage limit. Try again later, or choose another destination."
+            case .gatewayStatus(503, _):
+                return "ChatGPT is not connected or its Codex model is unavailable. Check Accounts in Settings, then retry."
+            default:
+                break
+            }
         }
         return error.localizedDescription
     }

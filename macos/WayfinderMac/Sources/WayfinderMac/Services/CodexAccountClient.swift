@@ -71,6 +71,7 @@ public struct GatewayCodexAccountClient: CodexAccountClient {
         }
 
         var request = URLRequest(url: baseURL.appending(path: path))
+        request.cachePolicy = .reloadIgnoringLocalCacheData
         request.httpMethod = method
         request.timeoutInterval = 15
         request.setValue("1", forHTTPHeaderField: "X-Wayfinder-Local-Control")
@@ -79,15 +80,29 @@ public struct GatewayCodexAccountClient: CodexAccountClient {
             request.httpBody = try JSONEncoder().encode(body)
         }
 
-        let (data, response) = try await session.data(for: request)
+        let (bytes, response) = try await session.bytes(for: request)
         guard let http = response as? HTTPURLResponse else {
             throw CodexAccountClientError.invalidResponse
         }
         guard (200..<300).contains(http.statusCode) else {
             throw CodexAccountClientError.gatewayStatus(http.statusCode)
         }
-        guard data.count <= Self.maximumResponseBytes else {
+        guard
+            http.expectedContentLength < 0
+                || http.expectedContentLength <= Self.maximumResponseBytes
+        else {
             throw CodexAccountClientError.responseTooLarge
+        }
+
+        var data = Data()
+        data.reserveCapacity(
+            min(max(Int(http.expectedContentLength), 0), Self.maximumResponseBytes)
+        )
+        for try await byte in bytes {
+            guard data.count < Self.maximumResponseBytes else {
+                throw CodexAccountClientError.responseTooLarge
+            }
+            data.append(byte)
         }
         do {
             return try JSONDecoder().decode(Response.self, from: data)

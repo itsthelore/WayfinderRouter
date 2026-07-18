@@ -464,8 +464,17 @@ struct GatewayStreamDecoder {
             throw WayfinderClientError.invalidChatStream
         }
         let envelope = try JSONDecoder().decode(GatewayStreamEnvelope.self, from: data)
-        if envelope.error != nil {
-            throw WayfinderClientError.invalidChatStream
+        if let error = envelope.error {
+            switch error.type {
+            case "wayfinder_router_turn_failed":
+                throw WayfinderClientError.chatTurnFailed
+            case "wayfinder_router_interrupted":
+                throw WayfinderClientError.chatTurnInterrupted
+            case "wayfinder_router_usage_limited":
+                throw WayfinderClientError.chatUsageLimitReached
+            default:
+                throw WayfinderClientError.invalidChatStream
+            }
         }
 
         var events: [ChatStreamEvent] = []
