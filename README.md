@@ -141,6 +141,31 @@ that takes a Bearer key.</sub>
 
 </div>
 
+### Use a ChatGPT Codex account in Desktop Chat (opt-in)
+
+The native desktop app can route Chat through an eligible ChatGPT Codex account without an OpenAI
+Platform API key. This is a separate `codex-app-server` provider—not a bearer token for arbitrary
+OpenAI API calls—and it is never enabled as a default route.
+
+Add the route to the desktop gateway config, restart the gateway, then use **Settings → Accounts**
+to sign in:
+
+```toml
+[gateway.models.chatgpt-sol]
+provider = "codex-app-server"
+model = "gpt-5.6-sol"
+context_window = 1050000
+```
+
+The account route appears in Chat only when that model is advertised by the isolated Codex runtime.
+Signing in does not change `Automatic` or any existing route ladder. Requests are hosted and leave
+the Mac; Offline mode disables the provider. Wayfinder receives normalized account state and model
+names, never account tokens, and does not broaden its credential broker. Development builds can use
+an explicitly selected helper; the fixed ChatGPT-app fallback is accepted only when its runtime and
+signing checks pass. Public distribution remains gated on a pinned, licensed, architecture-correct,
+nested-signed helper. See the
+[provider design](designs/WF-DESIGN-0018-codex-chatgpt-provider.md) for the full boundary.
+
 ## Quickstart
 
 Put Wayfinder in front of your models. Your app keeps speaking the OpenAI API; you

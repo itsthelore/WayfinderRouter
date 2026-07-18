@@ -8,6 +8,17 @@ details, release history over commit history.
 
 ### Added
 
+- **Opt-in ChatGPT account routing for Desktop Chat** (WF-DESIGN-0018,
+  WF-ROADMAP-0012). The Rust gateway can now run an isolated, bounded Codex app-server provider and
+  deliver text-only Chat through models available to an eligible signed-in ChatGPT account. Native
+  Settings keeps this under Accounts, separate from OpenAI Platform keys, and receives only
+  normalized account/model state—never tokens. The provider must be explicitly added as
+  `codex-app-server`; signing in does not change Automatic routing, make it a preferred hosted
+  destination, or expand the credential broker. Offline mode excludes it, and a pinned ChatGPT
+  destination fails visibly instead of falling back. Development builds can use an explicitly
+  selected helper; the ChatGPT-app fallback must pass runtime and signing validation. A public
+  bundle remains gated on shipping a pinned, licensed, architecture-correct, nested-signed helper.
+
 - **Wayfinder Desktop v0.1.0 Chat** (WF-ADR-0042, WF-ROADMAP-0012). The native macOS app now
   includes a dedicated, thread-first Chat window that streams replies through the bundled Rust
   gateway. The complete conversation stays central while the authoritative provider, mode, score,

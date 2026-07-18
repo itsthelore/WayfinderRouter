@@ -66,6 +66,21 @@ score, explanation, and signal detail live in the persistent, collapsible routin
 right. Navigator search and route filters never remove messages from the transcript. WF-ROADMAP-0012
 governs its delivery and fidelity gate.
 
+### ChatGPT account destination
+
+Desktop Chat can use the opt-in gateway-owned `codex-app-server` provider with an eligible ChatGPT
+Codex account. Add a `codex-app-server` model to the gateway config and restart the service before
+opening **Settings → Accounts** to sign in. The destination appears in Chat only when the configured
+model is present in the runtime catalog; `Automatic` remains the default, and a pinned unavailable
+destination never silently falls back.
+
+The Swift app receives only bounded account status, display identity, and model names through the
+literal-loopback control API. It never reads Codex auth files or receives tokens. OpenAI Platform
+keys remain under **Keys**, and the existing credential broker is unchanged. ChatGPT-authenticated
+requests are hosted and leave the Mac; Offline mode disables the provider. See
+[WF-DESIGN-0018](../designs/WF-DESIGN-0018-codex-chatgpt-provider.md) for the runtime, release, and
+adversarial-isolation gates.
+
 ## Integration Strategy
 
 Recommended path:

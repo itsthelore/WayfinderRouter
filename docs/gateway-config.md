@@ -17,6 +17,45 @@ itself stays deterministic and offline — none of these touch the scored path.
 | `WAYFINDER_ROUTER_FEEDBACK_TOKEN` | when set, `/v1/feedback` requires `Authorization: Bearer <token>` |
 | `serve --dry-run` | return routing decisions without calling any upstream |
 
+## ChatGPT account provider (opt-in)
+
+`codex-app-server` is a distinct hosted provider for models made available through an eligible
+ChatGPT Codex account. It does not turn a ChatGPT subscription into an OpenAI Platform API key and
+does not replace the existing `openai-compatible` provider.
+
+Add an explicit route, then restart the gateway:
+
+```toml
+[gateway.models.chatgpt-sol]
+provider = "codex-app-server"
+model = "gpt-5.6-sol"
+context_window = 1050000
+```
+
+This provider requires `model` and rejects `base_url`, `api_key_env`, `api_key_cmd`, and native
+`tier`. It is always hosted, has no invented dollar-cost estimate, and is unavailable while offline
+mode is active. Signing in never adds this route to a ladder or changes the desktop's `Automatic`
+destination.
+
+On a literal loopback listener, the native app uses these normalized controls with the exact
+`X-Wayfinder-Local-Control: 1` header:
+
+- `GET /router/codex/account`
+- `GET /router/codex/models`
+- `POST /router/codex/login`
+- `POST /router/codex/login/cancel`
+- `POST /router/codex/logout`
+
+Wayfinder never returns or brokers the account tokens. The managed runtime uses a separate
+Wayfinder-owned Codex home and empty workspace with tool-bearing features disabled. Development
+builds may use an explicitly selected helper; the fixed ChatGPT-app fallback is accepted only when
+its runtime and signing checks pass. A distributable desktop build must not claim this provider is
+self-contained until it bundles a pinned, licensed, architecture-correct, nested-signed helper. See
+[WF-DESIGN-0018](../designs/WF-DESIGN-0018-codex-chatgpt-provider.md) and the official
+[Codex app-server](https://learn.chatgpt.com/docs/app-server),
+[authentication](https://learn.chatgpt.com/docs/auth#openai-authentication), and
+[permissions](https://learn.chatgpt.com/docs/permissions) contracts.
+
 ## Observability
 
 | setting | effect |
