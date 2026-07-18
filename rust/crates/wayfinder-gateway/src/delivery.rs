@@ -18,12 +18,46 @@ use wayfinder_apple_foundation_xpc::{
     GenerateRequest, GenerateResponse, MAX_QUEUED_CHUNKS, Message, MessageRole, StreamEvent,
     StreamEventKind,
 };
+#[cfg(test)]
+use wayfinder_codex_app_server::{AccountSnapshot, AccountStatus, ModelInfo};
+use wayfinder_codex_app_server::{
+    ChatEvent, ChatMessage, ChatRequest, ChatResponse, ChatRole, CodexAppServerError,
+    CodexAppServerManager, MAX_NOTIFICATION_QUEUE, MAX_RESPONSE_BYTES,
+};
 use wayfinder_config::gateway::ProviderKind;
 use wayfinder_providers::openai_compat::{
     OpenAiEndpoint, OpenAiProviderClient, ProviderError, SecretValue,
 };
 
 use crate::ConfiguredModel;
+
+type CodexRuntimeFuture<'a, T> =
+    Pin<Box<dyn Future<Output = Result<T, CodexAppServerError>> + Send + 'a>>;
+
+/// Injectable managed-runtime seam used by the ChatGPT account delivery adapter.
+///
+/// The seam carries only a bounded request and text events. Account/model
+/// readiness and credentials remain owned by the isolated app-server runtime.
+pub trait CodexChatService: Send + Sync {
+    /// Execute one bounded text-only turn.
+    fn chat<'a>(
+        &'a self,
+        request: ChatRequest,
+        cancel: tokio_util::sync::CancellationToken,
+        on_event: Box<dyn FnMut(ChatEvent) -> Result<(), CodexAppServerError> + Send + 'a>,
+    ) -> CodexRuntimeFuture<'a, ChatResponse>;
+}
+
+impl CodexChatService for CodexAppServerManager {
+    fn chat<'a>(
+        &'a self,
+        request: ChatRequest,
+        cancel: tokio_util::sync::CancellationToken,
+        on_event: Box<dyn FnMut(ChatEvent) -> Result<(), CodexAppServerError> + Send + 'a>,
+    ) -> CodexRuntimeFuture<'a, ChatResponse> {
+        Box::pin(CodexAppServerManager::chat(self, request, cancel, on_event))
+    }
+}
 
 /// Boxed cancellable delivery future.
 pub type DeliveryFuture<'a> =
@@ -160,6 +194,38 @@ pub enum DeliveryError {
     /// Native Apple provider failed with a sanitized, planning-safe category.
     #[error(transparent)]
     Apple(AppleDeliveryError),
+    /// Managed Codex app-server delivery failed with a sanitized category.
+    #[error(transparent)]
+    Codex(CodexDeliveryError),
+}
+
+/// Stable Codex app-server delivery failures. No variant retains request content.
+#[derive(Clone, Copy, Debug, Error, PartialEq, Eq)]
+pub enum CodexDeliveryError {
+    /// The managed helper or ChatGPT account is not currently available.
+    #[error("ChatGPT account delivery is unavailable")]
+    Unavailable,
+    /// Authentication is absent or must be renewed.
+    #[error("ChatGPT sign-in is required")]
+    AuthenticationRequired,
+    /// The selected runtime model is not advertised by the helper.
+    #[error("the selected ChatGPT model is unavailable")]
+    ModelUnavailable,
+    /// The connected ChatGPT account cannot start another turn yet.
+    #[error("the ChatGPT account usage limit has been reached")]
+    UsageLimitReached,
+    /// The public request is outside the bounded Chat adapter contract.
+    #[error("request is unsupported by the ChatGPT account provider")]
+    InvalidRequest,
+    /// The helper response violated the bounded protocol contract.
+    #[error("the ChatGPT account provider returned an invalid response")]
+    InvalidResponse,
+    /// The managed model reported a failed generation turn.
+    #[error("the ChatGPT account provider failed the generation turn")]
+    TurnFailed,
+    /// The managed model reported that the turn was interrupted.
+    #[error("the ChatGPT account provider interrupted the generation turn")]
+    Interrupted,
 }
 
 /// Stable buffered Apple delivery failures. No variant retains request content.
@@ -225,6 +291,33 @@ pub trait StreamingDelivery: Send + Sync {
         model: &'a ConfiguredModel,
         body: Value,
     ) -> StreamingDeliveryFuture<'a>;
+}
+
+/// Combined provider seam used when startup selects between a live optional
+/// runtime and a deterministic unavailable implementation.
+pub trait ProviderDelivery: BufferedDelivery + StreamingDelivery {}
+
+impl<T> ProviderDelivery for T where T: BufferedDelivery + StreamingDelivery + ?Sized {}
+
+/// Fail-closed delivery used when an explicitly configured optional runtime
+/// cannot be prepared. The gateway remains available for its other providers.
+#[derive(Clone, Copy, Debug, Default)]
+pub struct UnavailableCodexDelivery;
+
+impl BufferedDelivery for UnavailableCodexDelivery {
+    fn send<'a>(&'a self, _model: &'a ConfiguredModel, _body: Value) -> DeliveryFuture<'a> {
+        Box::pin(async { Err(DeliveryError::Codex(CodexDeliveryError::Unavailable)) })
+    }
+}
+
+impl StreamingDelivery for UnavailableCodexDelivery {
+    fn send_stream<'a>(
+        &'a self,
+        _model: &'a ConfiguredModel,
+        _body: Value,
+    ) -> StreamingDeliveryFuture<'a> {
+        Box::pin(async { Err(DeliveryError::Codex(CodexDeliveryError::Unavailable)) })
+    }
 }
 
 impl<D> StreamingDelivery for Arc<D>
@@ -493,36 +586,44 @@ where
 }
 
 /// Buffered dispatcher that keeps native and OpenAI-compatible providers distinct.
-pub struct BufferedProviderDelivery<O, A> {
+pub struct BufferedProviderDelivery<O, A, C> {
     openai: O,
     apple: A,
+    codex: C,
 }
 
-impl<O, A> BufferedProviderDelivery<O, A> {
+impl<O, A, C> BufferedProviderDelivery<O, A, C> {
     /// Bind provider-specific buffered implementations.
     #[must_use]
-    pub const fn new(openai: O, apple: A) -> Self {
-        Self { openai, apple }
+    pub const fn new(openai: O, apple: A, codex: C) -> Self {
+        Self {
+            openai,
+            apple,
+            codex,
+        }
     }
 }
 
-impl<O, A> BufferedDelivery for BufferedProviderDelivery<O, A>
+impl<O, A, C> BufferedDelivery for BufferedProviderDelivery<O, A, C>
 where
     O: BufferedDelivery,
     A: BufferedDelivery,
+    C: BufferedDelivery,
 {
     fn send<'a>(&'a self, model: &'a ConfiguredModel, body: Value) -> DeliveryFuture<'a> {
         match model.provider() {
             ProviderKind::OpenAiCompatible => self.openai.send(model, body),
             ProviderKind::AppleFoundationModels => self.apple.send(model, body),
+            ProviderKind::CodexAppServer => self.codex.send(model, body),
         }
     }
 }
 
-impl<O, A> StreamingDelivery for BufferedProviderDelivery<O, A>
+impl<O, A, C> StreamingDelivery for BufferedProviderDelivery<O, A, C>
 where
     O: StreamingDelivery,
     A: StreamingDelivery,
+    C: StreamingDelivery,
 {
     fn send_stream<'a>(
         &'a self,
@@ -532,6 +633,7 @@ where
         match model.provider() {
             ProviderKind::OpenAiCompatible => self.openai.send_stream(model, body),
             ProviderKind::AppleFoundationModels => self.apple.send_stream(model, body),
+            ProviderKind::CodexAppServer => self.codex.send_stream(model, body),
         }
     }
 }
@@ -660,6 +762,373 @@ fn map_xpc_error(error: FoundationModelsXpcError) -> DeliveryError {
         | FoundationModelsXpcError::GenerationFailed => AppleDeliveryError::Unavailable,
     };
     DeliveryError::Apple(class)
+}
+
+/// Managed ChatGPT account delivery over the bounded Codex app-server protocol.
+pub struct CodexAppServerDelivery<S> {
+    service: Arc<S>,
+}
+
+impl<S> CodexAppServerDelivery<S> {
+    /// Bind one shared process manager to the gateway provider seam.
+    #[must_use]
+    pub const fn new(service: Arc<S>) -> Self {
+        Self { service }
+    }
+}
+
+impl<S> fmt::Debug for CodexAppServerDelivery<S> {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("CodexAppServerDelivery")
+            .field("service", &"<isolated managed runtime>")
+            .finish()
+    }
+}
+
+struct CodexBufferedCancellation {
+    cancel: tokio_util::sync::CancellationToken,
+    armed: bool,
+}
+
+impl Drop for CodexBufferedCancellation {
+    fn drop(&mut self) {
+        if self.armed {
+            self.cancel.cancel();
+        }
+    }
+}
+
+impl<S> BufferedDelivery for CodexAppServerDelivery<S>
+where
+    S: CodexChatService + 'static,
+{
+    fn send<'a>(&'a self, model: &'a ConfiguredModel, body: Value) -> DeliveryFuture<'a> {
+        let service = self.service.clone();
+        let provider_model = model.provider_model().to_owned();
+        Box::pin(async move {
+            if model.provider() != ProviderKind::CodexAppServer {
+                return Err(DeliveryError::Codex(CodexDeliveryError::InvalidRequest));
+            }
+            let request = codex_chat_request(&body, &provider_model, false)?;
+            let cancel = tokio_util::sync::CancellationToken::new();
+            let worker_cancel = cancel.clone();
+            let worker_service = service.clone();
+            let (result_sender, result_receiver) = tokio::sync::oneshot::channel();
+            tokio::spawn(async move {
+                let result = worker_service
+                    .chat(request, worker_cancel, Box::new(|_event| Ok(())))
+                    .await;
+                let _ = result_sender.send(result);
+            });
+            let mut cancellation = CodexBufferedCancellation {
+                cancel,
+                armed: true,
+            };
+            let result = result_receiver
+                .await
+                .map_err(|_| DeliveryError::Codex(CodexDeliveryError::InvalidResponse))?;
+            cancellation.armed = false;
+            let response = result.map_err(map_codex_runtime_error)?;
+            let body = serde_json::to_vec(&serde_json::json!({
+                "id": response.turn_id,
+                "object": "chat.completion",
+                "created": 0,
+                "model": provider_model,
+                "choices": [{
+                    "index": 0,
+                    "message": {"role": "assistant", "content": response.content},
+                    "finish_reason": "stop"
+                }]
+            }))
+            .map_err(|_| DeliveryError::Codex(CodexDeliveryError::InvalidResponse))?;
+            if body.len() > MAX_RESPONSE_BYTES {
+                return Err(DeliveryError::Codex(CodexDeliveryError::InvalidResponse));
+            }
+            Ok(BufferedDeliveryResponse::new(
+                StatusCode::OK,
+                "application/json",
+                Bytes::from(body),
+            ))
+        })
+    }
+}
+
+struct CodexDeliveryStream {
+    receiver: tokio::sync::mpsc::Receiver<(Result<Bytes, DeliveryError>, bool)>,
+    cancel: tokio_util::sync::CancellationToken,
+    finished: bool,
+}
+
+impl Stream for CodexDeliveryStream {
+    type Item = Result<Bytes, DeliveryError>;
+
+    fn poll_next(mut self: Pin<&mut Self>, context: &mut Context<'_>) -> Poll<Option<Self::Item>> {
+        match self.receiver.poll_recv(context) {
+            Poll::Ready(Some((item, terminal))) => {
+                self.finished = terminal;
+                Poll::Ready(Some(item))
+            }
+            Poll::Ready(None) if self.finished => Poll::Ready(None),
+            Poll::Ready(None) => {
+                self.finished = true;
+                Poll::Ready(Some(Err(DeliveryError::Codex(
+                    CodexDeliveryError::InvalidResponse,
+                ))))
+            }
+            Poll::Pending => Poll::Pending,
+        }
+    }
+}
+
+impl Drop for CodexDeliveryStream {
+    fn drop(&mut self) {
+        if !self.finished {
+            self.cancel.cancel();
+        }
+    }
+}
+
+impl<S> StreamingDelivery for CodexAppServerDelivery<S>
+where
+    S: CodexChatService + 'static,
+{
+    fn send_stream<'a>(
+        &'a self,
+        model: &'a ConfiguredModel,
+        body: Value,
+    ) -> StreamingDeliveryFuture<'a> {
+        let service = self.service.clone();
+        let provider_model = model.provider_model().to_owned();
+        Box::pin(async move {
+            if model.provider() != ProviderKind::CodexAppServer {
+                return Err(DeliveryError::Codex(CodexDeliveryError::InvalidRequest));
+            }
+            let request = codex_chat_request(&body, &provider_model, true)?;
+            let stream_id = format!("chatcmpl-{}", uuid::Uuid::new_v4().simple());
+            let cancel = tokio_util::sync::CancellationToken::new();
+            let worker_cancel = cancel.clone();
+            let (sender, receiver) = tokio::sync::mpsc::channel(MAX_NOTIFICATION_QUEUE);
+            let worker_service = service.clone();
+            let worker_model = provider_model.clone();
+            let worker_id = stream_id.clone();
+            tokio::spawn(async move {
+                let emitted = Arc::new(std::sync::Mutex::new(String::new()));
+                let event_emitted = emitted.clone();
+                let event_sender = sender.clone();
+                let event_id = worker_id.clone();
+                let event_model = worker_model.clone();
+                let on_event = move |event: ChatEvent| {
+                    let ChatEvent::Delta(delta) = event;
+                    if delta.is_empty() {
+                        return Ok(());
+                    }
+                    {
+                        let mut current = event_emitted
+                            .lock()
+                            .map_err(|_| CodexAppServerError::MalformedProtocol)?;
+                        if current.len().saturating_add(delta.len()) > MAX_RESPONSE_BYTES {
+                            return Err(CodexAppServerError::ResponseTooLarge);
+                        }
+                        current.push_str(&delta);
+                    }
+                    let chunk = codex_stream_chunk(&event_id, &event_model, Some(&delta), false)
+                        .map_err(|_| CodexAppServerError::MalformedProtocol)?;
+                    event_sender
+                        .try_send((Ok(chunk), false))
+                        .map_err(|error| match error {
+                            tokio::sync::mpsc::error::TrySendError::Full(_) => {
+                                CodexAppServerError::NotificationQueueFull
+                            }
+                            tokio::sync::mpsc::error::TrySendError::Closed(_) => {
+                                CodexAppServerError::Interrupted
+                            }
+                        })
+                };
+                let result = worker_service
+                    .chat(request, worker_cancel, Box::new(on_event))
+                    .await;
+                let terminal = match result {
+                    Ok(response) => {
+                        let current = emitted
+                            .lock()
+                            .map_err(|_| CodexAppServerError::MalformedProtocol)
+                            .map(|value| value.clone());
+                        match current {
+                            Ok(current) if response.content == current => {
+                                codex_stream_chunk(&worker_id, &worker_model, None, true)
+                            }
+                            Ok(current) if response.content.starts_with(&current) => {
+                                let suffix = &response.content[current.len()..];
+                                if !suffix.is_empty() {
+                                    match codex_stream_chunk(
+                                        &worker_id,
+                                        &worker_model,
+                                        Some(suffix),
+                                        false,
+                                    ) {
+                                        Ok(chunk) => {
+                                            if sender.send((Ok(chunk), false)).await.is_err() {
+                                                return;
+                                            }
+                                        }
+                                        Err(error) => {
+                                            let _ = sender.send((Err(error), true)).await;
+                                            return;
+                                        }
+                                    }
+                                }
+                                codex_stream_chunk(&worker_id, &worker_model, None, true)
+                            }
+                            Ok(_) | Err(_) => {
+                                Err(DeliveryError::Codex(CodexDeliveryError::InvalidResponse))
+                            }
+                        }
+                    }
+                    Err(error) => Err(map_codex_runtime_error(error)),
+                };
+                let _ = sender.send((terminal, true)).await;
+            });
+            Ok(StreamingDeliveryResponse::new(
+                StatusCode::OK,
+                "text/event-stream",
+                Box::pin(CodexDeliveryStream {
+                    receiver,
+                    cancel,
+                    finished: false,
+                }),
+            ))
+        })
+    }
+}
+
+fn codex_chat_request(
+    body: &Value,
+    provider_model: &str,
+    streaming: bool,
+) -> Result<ChatRequest, DeliveryError> {
+    let invalid = || DeliveryError::Codex(CodexDeliveryError::InvalidRequest);
+    let object = body.as_object().ok_or_else(invalid)?;
+    if object
+        .keys()
+        .any(|field| !matches!(field.as_str(), "model" | "messages" | "stream" | "n"))
+    {
+        return Err(invalid());
+    }
+    match object.get("stream") {
+        Some(Value::Bool(value)) if *value == streaming => {}
+        None if !streaming => {}
+        _ => return Err(invalid()),
+    }
+    if object
+        .get("n")
+        .is_some_and(|value| value.as_u64() != Some(1))
+        || object
+            .get("model")
+            .is_some_and(|value| value.as_str().is_none())
+    {
+        return Err(invalid());
+    }
+    let raw_messages = object
+        .get("messages")
+        .and_then(Value::as_array)
+        .filter(|messages| !messages.is_empty())
+        .ok_or_else(invalid)?;
+    let mut messages = Vec::with_capacity(raw_messages.len());
+    for raw in raw_messages {
+        let message = raw.as_object().ok_or_else(invalid)?;
+        if message.len() != 2 || !message.contains_key("role") || !message.contains_key("content") {
+            return Err(invalid());
+        }
+        let role = match message.get("role").and_then(Value::as_str) {
+            Some("system") => ChatRole::System,
+            Some("developer") => ChatRole::Developer,
+            Some("user") => ChatRole::User,
+            Some("assistant") => ChatRole::Assistant,
+            _ => return Err(invalid()),
+        };
+        let content = message
+            .get("content")
+            .and_then(Value::as_str)
+            .ok_or_else(invalid)?;
+        messages.push(ChatMessage {
+            role,
+            content: content.to_owned(),
+        });
+    }
+    Ok(ChatRequest {
+        model: provider_model.to_owned(),
+        messages,
+    })
+}
+
+fn codex_stream_chunk(
+    id: &str,
+    provider_model: &str,
+    delta: Option<&str>,
+    terminal: bool,
+) -> Result<Bytes, DeliveryError> {
+    let value = if terminal {
+        serde_json::json!({
+            "id": id,
+            "object": "chat.completion.chunk",
+            "created": 0,
+            "model": provider_model,
+            "choices": [{"index": 0, "delta": {}, "finish_reason": "stop"}]
+        })
+    } else {
+        serde_json::json!({
+            "id": id,
+            "object": "chat.completion.chunk",
+            "created": 0,
+            "model": provider_model,
+            "choices": [{
+                "index": 0,
+                "delta": {"content": delta.unwrap_or_default()},
+                "finish_reason": Value::Null
+            }]
+        })
+    };
+    let encoded = serde_json::to_string(&value)
+        .map_err(|_| DeliveryError::Codex(CodexDeliveryError::InvalidResponse))?;
+    let suffix = if terminal {
+        "\n\ndata: [DONE]\n\n"
+    } else {
+        "\n\n"
+    };
+    Ok(Bytes::from(format!("data: {encoded}{suffix}")))
+}
+
+fn map_codex_runtime_error(error: CodexAppServerError) -> DeliveryError {
+    let class = match error {
+        CodexAppServerError::AuthenticationRequired
+        | CodexAppServerError::UnsupportedAuthentication => {
+            CodexDeliveryError::AuthenticationRequired
+        }
+        CodexAppServerError::ModelUnavailable => CodexDeliveryError::ModelUnavailable,
+        CodexAppServerError::UsageLimitReached => CodexDeliveryError::UsageLimitReached,
+        CodexAppServerError::InvalidRequest | CodexAppServerError::RequestTooLarge => {
+            CodexDeliveryError::InvalidRequest
+        }
+        CodexAppServerError::MalformedProtocol
+        | CodexAppServerError::LineTooLarge
+        | CodexAppServerError::CorrelationFailed
+        | CodexAppServerError::NotificationQueueFull
+        | CodexAppServerError::ResponseTooLarge
+        | CodexAppServerError::ForbiddenAction => CodexDeliveryError::InvalidResponse,
+        CodexAppServerError::TurnFailed => CodexDeliveryError::TurnFailed,
+        CodexAppServerError::Interrupted => CodexDeliveryError::Interrupted,
+        CodexAppServerError::InvalidConfiguration
+        | CodexAppServerError::RuntimeUnavailable
+        | CodexAppServerError::TimedOut
+        | CodexAppServerError::RequestRejected
+        | CodexAppServerError::Busy
+        | CodexAppServerError::LoginFailed
+        | CodexAppServerError::LoginCancelled
+        | CodexAppServerError::EndOfStream
+        | CodexAppServerError::InsecureCredentialStore => CodexDeliveryError::Unavailable,
+    };
+    DeliveryError::Codex(class)
 }
 
 /// Reqwest-backed OpenAI-compatible delivery with per-request credential resolution.
@@ -792,6 +1261,7 @@ pub fn endpoint_is_literal_loopback(endpoint: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use std::collections::VecDeque;
+    use std::sync::atomic::{AtomicUsize, Ordering};
     use std::sync::{Condvar, Mutex};
 
     use wayfinder_config::gateway::ProviderTier;
@@ -919,6 +1389,304 @@ mod tests {
             ProviderKind::AppleFoundationModels,
             Some(ProviderTier::Local),
         )
+    }
+
+    #[derive(Debug)]
+    struct FakeCodexService {
+        account: AccountSnapshot,
+        models: Vec<ModelInfo>,
+        deltas: Vec<String>,
+        final_content: String,
+        requests: Mutex<Vec<ChatRequest>>,
+        chat_calls: AtomicUsize,
+        completed_calls: AtomicUsize,
+        cancelled_calls: AtomicUsize,
+        wait_on_call: Option<usize>,
+    }
+
+    impl FakeCodexService {
+        fn connected(final_content: &str) -> Self {
+            Self {
+                account: AccountSnapshot {
+                    status: AccountStatus::Connected,
+                    email: Some("person@example.com".to_owned()),
+                    plan_type: Some("Plus".to_owned()),
+                },
+                models: vec![ModelInfo {
+                    id: "gpt-5.6-sol".to_owned(),
+                    display_name: "GPT-5.6 Sol".to_owned(),
+                    description: "Managed subscription model".to_owned(),
+                    is_default: true,
+                    hidden: false,
+                }],
+                deltas: Vec::new(),
+                final_content: final_content.to_owned(),
+                requests: Mutex::new(Vec::new()),
+                chat_calls: AtomicUsize::new(0),
+                completed_calls: AtomicUsize::new(0),
+                cancelled_calls: AtomicUsize::new(0),
+                wait_on_call: None,
+            }
+        }
+
+        fn signed_out() -> Self {
+            Self {
+                account: AccountSnapshot {
+                    status: AccountStatus::SignedOut,
+                    email: None,
+                    plan_type: None,
+                },
+                ..Self::connected("unused")
+            }
+        }
+
+        fn with_deltas(mut self, deltas: &[&str]) -> Self {
+            self.deltas = deltas.iter().map(|delta| (*delta).to_owned()).collect();
+            self
+        }
+
+        const fn waiting_on_call(mut self, call: usize) -> Self {
+            self.wait_on_call = Some(call);
+            self
+        }
+    }
+
+    impl CodexChatService for FakeCodexService {
+        fn chat<'a>(
+            &'a self,
+            request: ChatRequest,
+            cancel: tokio_util::sync::CancellationToken,
+            mut on_event: Box<dyn FnMut(ChatEvent) -> Result<(), CodexAppServerError> + Send + 'a>,
+        ) -> CodexRuntimeFuture<'a, ChatResponse> {
+            Box::pin(async move {
+                if self.account.status != AccountStatus::Connected {
+                    return Err(CodexAppServerError::AuthenticationRequired);
+                }
+                if !self
+                    .models
+                    .iter()
+                    .any(|model| !model.hidden && model.id == request.model)
+                {
+                    return Err(CodexAppServerError::ModelUnavailable);
+                }
+                let call = self.chat_calls.fetch_add(1, Ordering::SeqCst);
+                self.requests
+                    .lock()
+                    .map_err(|_| CodexAppServerError::RuntimeUnavailable)?
+                    .push(request);
+                if self.wait_on_call == Some(call) {
+                    cancel.cancelled().await;
+                    self.cancelled_calls.fetch_add(1, Ordering::SeqCst);
+                    return Err(CodexAppServerError::Interrupted);
+                }
+                for delta in &self.deltas {
+                    if cancel.is_cancelled() {
+                        return Err(CodexAppServerError::Interrupted);
+                    }
+                    on_event(ChatEvent::Delta(delta.clone()))?;
+                }
+                self.completed_calls.fetch_add(1, Ordering::SeqCst);
+                Ok(ChatResponse {
+                    content: self.final_content.clone(),
+                    thread_id: "thread-test".to_owned(),
+                    turn_id: "turn-test".to_owned(),
+                })
+            })
+        }
+    }
+
+    async fn wait_for_count(
+        counter: &AtomicUsize,
+        expected: usize,
+    ) -> Result<(), tokio::time::error::Elapsed> {
+        tokio::time::timeout(Duration::from_secs(1), async {
+            while counter.load(Ordering::SeqCst) < expected {
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+    }
+
+    fn codex_model() -> ConfiguredModel {
+        ConfiguredModel::new("chatgpt-sol", "", "gpt-5.6-sol", None, true)
+            .with_provider(ProviderKind::CodexAppServer, None)
+    }
+
+    #[tokio::test]
+    async fn codex_buffered_delivery_preflights_translates_and_wraps_authoritative_response()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let service = Arc::new(FakeCodexService::connected("managed answer"));
+        let delivery = CodexAppServerDelivery::new(service.clone());
+        let response = delivery
+            .send(
+                &codex_model(),
+                serde_json::json!({
+                    "model": "chatgpt-sol",
+                    "messages": [
+                        {"role": "system", "content": "Be concise"},
+                        {"role": "user", "content": "Hello"}
+                    ]
+                }),
+            )
+            .await?;
+
+        assert_eq!(response.status(), StatusCode::OK);
+        assert_eq!(response.content_type(), "application/json");
+        let body: Value = serde_json::from_slice(&response.into_body())?;
+        assert_eq!(body["id"], "turn-test");
+        assert_eq!(body["model"], "gpt-5.6-sol");
+        assert_eq!(body["choices"][0]["message"]["content"], "managed answer");
+        let requests = service
+            .requests
+            .lock()
+            .map_err(|_| std::io::Error::other("fake Codex request lock poisoned"))?;
+        assert_eq!(requests.len(), 1);
+        assert_eq!(requests[0].model, "gpt-5.6-sol");
+        assert_eq!(requests[0].messages[0].role, ChatRole::System);
+        assert_eq!(requests[0].messages[1].content, "Hello");
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn codex_delivery_rejects_tools_before_contacting_managed_runtime()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let service = Arc::new(FakeCodexService::connected("unused"));
+        let delivery = CodexAppServerDelivery::new(service.clone());
+        let result = delivery
+            .send(
+                &codex_model(),
+                serde_json::json!({
+                    "messages": [{"role": "user", "content": "private prompt"}],
+                    "tools": [{"type": "function"}]
+                }),
+            )
+            .await;
+
+        assert!(matches!(
+            result,
+            Err(DeliveryError::Codex(CodexDeliveryError::InvalidRequest))
+        ));
+        assert_eq!(service.chat_calls.load(Ordering::SeqCst), 0);
+        assert!(format!("{result:?}").find("private prompt").is_none());
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn codex_delivery_requires_sign_in_before_model_or_turn_work()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let service = Arc::new(FakeCodexService::signed_out());
+        let delivery = CodexAppServerDelivery::new(service.clone());
+        let result = delivery
+            .send(
+                &codex_model(),
+                serde_json::json!({
+                    "messages": [{"role": "user", "content": "Hello"}]
+                }),
+            )
+            .await;
+
+        assert!(matches!(
+            result,
+            Err(DeliveryError::Codex(
+                CodexDeliveryError::AuthenticationRequired
+            ))
+        ));
+        assert_eq!(service.chat_calls.load(Ordering::SeqCst), 0);
+        Ok(())
+    }
+
+    #[test]
+    fn codex_turn_terminals_and_usage_limit_keep_distinct_categories() {
+        assert_eq!(
+            map_codex_runtime_error(CodexAppServerError::TurnFailed),
+            DeliveryError::Codex(CodexDeliveryError::TurnFailed)
+        );
+        assert_eq!(
+            map_codex_runtime_error(CodexAppServerError::Interrupted),
+            DeliveryError::Codex(CodexDeliveryError::Interrupted)
+        );
+        assert_eq!(
+            map_codex_runtime_error(CodexAppServerError::UsageLimitReached),
+            DeliveryError::Codex(CodexDeliveryError::UsageLimitReached)
+        );
+    }
+
+    #[tokio::test]
+    async fn codex_stream_preserves_delta_order_and_reconciles_authoritative_final_text()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let service = Arc::new(FakeCodexService::connected("Hello!").with_deltas(&["Hel", "lo"]));
+        let delivery = CodexAppServerDelivery::new(service);
+        let response = delivery
+            .send_stream(
+                &codex_model(),
+                serde_json::json!({
+                    "stream": true,
+                    "messages": [{"role": "user", "content": "Hello"}]
+                }),
+            )
+            .await?;
+        let chunks = response.into_stream().collect::<Vec<_>>().await;
+        let body = String::from_utf8(chunks.into_iter().collect::<Result<Vec<_>, _>>()?.concat())?;
+
+        let hel = body
+            .find(r#""content":"Hel""#)
+            .ok_or("missing first delta")?;
+        let lo = body
+            .find(r#""content":"lo""#)
+            .ok_or("missing second delta")?;
+        let suffix = body
+            .find(r#""content":"!""#)
+            .ok_or("missing final suffix")?;
+        assert!(hel < lo && lo < suffix);
+        assert!(body.contains(r#""finish_reason":"stop""#));
+        assert!(body.ends_with("data: [DONE]\n\n"));
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn dropping_codex_stream_cancels_its_managed_turn()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let service = Arc::new(FakeCodexService::connected("unused").waiting_on_call(0));
+        let delivery = CodexAppServerDelivery::new(service.clone());
+        let response = delivery
+            .send_stream(
+                &codex_model(),
+                serde_json::json!({
+                    "stream": true,
+                    "messages": [{"role": "user", "content": "Hello"}]
+                }),
+            )
+            .await?;
+        wait_for_count(&service.chat_calls, 1).await?;
+        drop(response);
+        wait_for_count(&service.cancelled_calls, 1).await?;
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn dropping_an_old_completed_stream_never_cancels_a_newer_turn()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let service = Arc::new(FakeCodexService::connected("first answer").waiting_on_call(1));
+        let delivery = CodexAppServerDelivery::new(service.clone());
+        let body = serde_json::json!({
+            "stream": true,
+            "messages": [{"role": "user", "content": "Hello"}]
+        });
+
+        let first = delivery.send_stream(&codex_model(), body.clone()).await?;
+        wait_for_count(&service.completed_calls, 1).await?;
+        let second = delivery.send_stream(&codex_model(), body).await?;
+        wait_for_count(&service.chat_calls, 2).await?;
+
+        drop(first);
+        for _ in 0..10 {
+            tokio::task::yield_now().await;
+        }
+        assert_eq!(service.cancelled_calls.load(Ordering::SeqCst), 0);
+
+        drop(second);
+        wait_for_count(&service.cancelled_calls, 1).await?;
+        Ok(())
     }
 
     #[test]

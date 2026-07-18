@@ -4,6 +4,7 @@
 
 mod app_setup_command;
 mod apple_foundation_live;
+mod codex_app_server;
 mod service_command;
 
 use std::collections::BTreeMap;
@@ -19,7 +20,7 @@ use std::time::Duration;
 
 use serde_json::json;
 use wayfinder_apple_foundation_xpc::FoundationModelsClient;
-use wayfinder_config::gateway::{GatewayConfig, gateway_config_from_toml};
+use wayfinder_config::gateway::{GatewayConfig, ProviderKind, gateway_config_from_toml};
 use wayfinder_config::{
     CONFIG_PATH_ENV, THRESHOLD_ENV, TierOrderPolicy, find_config_file, load_routing_config,
     routing_config_from_toml,
@@ -29,8 +30,9 @@ use wayfinder_core::{
     explain_score, score_complexity,
 };
 use wayfinder_gateway::delivery::{
-    AppleFoundationModelDelivery, BufferedProviderDelivery, CredentialError, CredentialSource,
-    OpenAiCompatibleDelivery,
+    AppleFoundationModelDelivery, BufferedProviderDelivery, CodexAppServerDelivery,
+    CredentialError, CredentialSource, OpenAiCompatibleDelivery, ProviderDelivery,
+    UnavailableCodexDelivery,
 };
 use wayfinder_gateway::reload::{LastGood, ReloadOutcome};
 use wayfinder_gateway::server::{DEFAULT_DRAIN_TIMEOUT, serve_with_shutdown, shutdown_signal};
@@ -465,6 +467,21 @@ async fn build_serve_state<W: Write>(
     .map_err(|error| error.to_string())?;
     let gateway = gateway_config_from_toml(&text, &where_).map_err(|error| error.to_string())?;
 
+    let codex_provider_configured = gateway
+        .models
+        .values()
+        .any(|model| model.provider == ProviderKind::CodexAppServer);
+    let codex_adapter = match codex_app_server::build_codex_app_server_adapter(
+        codex_provider_configured,
+        product_version(),
+    ) {
+        Ok(adapter) => adapter,
+        Err(error) => {
+            let _ = writeln!(stderr, "wayfinder-router: warning: {error}");
+            None
+        }
+    };
+
     let mut credentials = StartupCredentialSource::default();
     preload_xpc_credentials(&gateway, &mut credentials, stderr).await;
     preload_command_credentials(&gateway, &mut credentials, stderr).await;
@@ -508,6 +525,15 @@ async fn build_serve_state<W: Write>(
         .with_gateway_cache(&gateway)
         .map_err(|error| error.to_string())?;
 
+    if codex_provider_configured {
+        let control: Arc<dyn wayfinder_gateway::codex_control::CodexControl> =
+            codex_adapter.as_ref().map_or_else(
+                || Arc::new(codex_app_server::UnavailableCodexControl::new()) as Arc<_>,
+                |adapter| Arc::new(adapter.clone()) as Arc<_>,
+            );
+        state = state.with_codex_control(control, host_is_literal_loopback(&options.host));
+    }
+
     if !options.dry_run {
         let timeout = resolve_provider_timeout(options.timeout)?;
         let request_timeout = Duration::try_from_secs_f64(timeout)
@@ -533,8 +559,13 @@ async fn build_serve_state<W: Write>(
             apple_timeout,
             || uuid::Uuid::new_v4().to_string(),
         );
-        state =
-            state.with_provider_delivery(Arc::new(BufferedProviderDelivery::new(openai, apple)));
+        let codex: Arc<dyn ProviderDelivery> = codex_adapter.as_ref().map_or_else(
+            || Arc::new(UnavailableCodexDelivery) as Arc<_>,
+            |adapter| Arc::new(CodexAppServerDelivery::new(Arc::new(adapter.manager()))) as Arc<_>,
+        );
+        state = state.with_provider_delivery(Arc::new(BufferedProviderDelivery::new(
+            openai, apple, codex,
+        )));
     }
     Ok(state)
 }
@@ -759,12 +790,14 @@ fn resolve_provider_timeout(explicit: Option<f64>) -> Result<f64, String> {
 }
 
 fn host_is_loopback(host: &str) -> bool {
-    host.eq_ignore_ascii_case("localhost")
-        || host
-            .trim_start_matches('[')
-            .trim_end_matches(']')
-            .parse::<IpAddr>()
-            .is_ok_and(|address| address.is_loopback())
+    host.eq_ignore_ascii_case("localhost") || host_is_literal_loopback(host)
+}
+
+fn host_is_literal_loopback(host: &str) -> bool {
+    host.trim_start_matches('[')
+        .trim_end_matches(']')
+        .parse::<IpAddr>()
+        .is_ok_and(|address| address.is_loopback())
 }
 
 fn run_route(
@@ -1186,6 +1219,10 @@ mod tests {
         assert!(host_is_loopback("localhost"));
         assert!(host_is_loopback("[::1]"));
         assert!(!host_is_loopback("0.0.0.0"));
+        assert!(!host_is_literal_loopback("localhost"));
+        assert!(host_is_literal_loopback("127.0.0.1"));
+        assert!(host_is_literal_loopback("[::1]"));
+        assert!(!host_is_literal_loopback("127.evil.example"));
         assert!(is_serve_command(&[OsString::from("serve")]));
         assert!(!is_serve_command(&[OsString::from("route")]));
         Ok(())

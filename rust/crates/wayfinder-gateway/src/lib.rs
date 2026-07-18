@@ -10,6 +10,7 @@ pub mod access;
 pub mod auth;
 pub mod budget;
 pub mod cache;
+pub mod codex_control;
 pub mod decision_policy;
 pub mod delivery;
 pub mod metrics;
@@ -320,6 +321,7 @@ pub struct AppState {
     price_table_version: Arc<str>,
     savings_ledger: Arc<SavingsLedger>,
     savings_path: Option<Arc<std::path::PathBuf>>,
+    codex_control: Option<Arc<dyn codex_control::CodexControl>>,
 }
 
 impl AppState {
@@ -374,6 +376,7 @@ impl AppState {
             price_table_version: Arc::from(price_table_version),
             savings_ledger,
             savings_path: None,
+            codex_control: None,
         }
     }
 
@@ -438,6 +441,20 @@ impl AppState {
     #[must_use]
     pub fn with_streaming_delivery(mut self, delivery: Arc<dyn StreamingDelivery>) -> Self {
         self.streaming_delivery = Some(delivery);
+        self
+    }
+
+    /// Attach local Codex account control only for an explicitly loopback listener.
+    ///
+    /// Passing `false` deliberately discards the control, which keeps every
+    /// account route absent rather than merely rejecting requests at runtime.
+    #[must_use]
+    pub fn with_codex_control(
+        mut self,
+        control: Arc<dyn codex_control::CodexControl>,
+        listener_is_literal_loopback: bool,
+    ) -> Self {
+        self.codex_control = listener_is_literal_loopback.then_some(control);
         self
     }
 
@@ -708,6 +725,10 @@ impl AppState {
     pub fn supports_tier_directives(&self) -> bool {
         self.routing.classifier.is_none() && !self.routing.tiers.is_empty()
     }
+
+    fn codex_control(&self) -> Option<Arc<dyn codex_control::CodexControl>> {
+        self.codex_control.clone()
+    }
 }
 
 impl fmt::Debug for AppState {
@@ -735,6 +756,7 @@ impl fmt::Debug for AppState {
             .field("response_cache", &self.response_cache)
             .field("price_table_version", &self.price_table_version)
             .field("savings_priced", &self.savings_ledger.priced())
+            .field("codex_control_configured", &self.codex_control.is_some())
             .finish_non_exhaustive()
     }
 }
@@ -742,7 +764,8 @@ impl fmt::Debug for AppState {
 /// Build the in-process Axum router without binding a socket or starting a task.
 pub fn build_router(state: AppState) -> Router {
     let request_body_limit = state.request_body_limit();
-    Router::new()
+    let codex_control_enabled = state.codex_control.is_some();
+    let application = Router::new()
         .route("/healthz", get(healthz))
         .route("/metrics", get(gateway_metrics))
         .route("/v1/models", get(openai_models))
@@ -756,7 +779,13 @@ pub fn build_router(state: AppState) -> Router {
         .route("/v1/chat/completions", post(chat_completions))
         .route("/chat/completions", post(chat_completions))
         .route("/v1/messages", post(anthropic_messages))
-        .route("/messages", post(anthropic_messages))
+        .route("/messages", post(anthropic_messages));
+    let application = if codex_control_enabled {
+        application.merge(codex_control::routes())
+    } else {
+        application
+    };
+    application
         .fallback(not_found)
         .method_not_allowed_fallback(method_not_allowed)
         .layer(DefaultBodyLimit::max(request_body_limit))
@@ -1444,7 +1473,8 @@ async fn chat_completions(
         );
     }
 
-    let delivery_name = if offline {
+    let request_is_pinned = matches!(mode, "pinned" | "slash-pinned");
+    let delivery_name = if offline && !request_is_pinned {
         decision
             .tiers
             .as_ref()
@@ -1494,7 +1524,13 @@ async fn chat_completions(
             );
         }
     };
-    let cacheable = cache_enabled && !debug && is_cacheable(&request_body);
+    // ChatGPT subscription replies are account-scoped while the normalized
+    // boundary intentionally exposes no stable account identifier suitable for
+    // a cache key. Never replay or retain them across sign-in state changes.
+    let cacheable = cache_enabled
+        && target.provider() != ProviderKind::CodexAppServer
+        && !debug
+        && is_cacheable(&request_body);
     let mut cache_state = None;
     if cacheable {
         let key = match cache_key(target.provider_model(), &request_body) {
@@ -1582,8 +1618,12 @@ async fn chat_completions(
         .map(|tier| tier.model.clone())
         .collect::<Vec<_>>();
     let failover_header = request_header(&headers, FAILOVER_HEADER).ok().flatten();
-    let mut candidates = target.fallbacks().to_vec();
-    if !offline || ladder.is_empty() {
+    let mut candidates = if request_is_pinned {
+        Vec::new()
+    } else {
+        target.fallbacks().to_vec()
+    };
+    if !request_is_pinned && (!offline || ladder.is_empty()) {
         candidates.extend(failover_candidates(
             &chosen,
             &ladder,
@@ -1737,7 +1777,9 @@ async fn chat_completions(
                 .iter()
                 .find(|model| model.name() == served_by)
             {
-                if let Ok(key) = cache_key(served_target.provider_model(), &request_body) {
+                if served_target.provider() != ProviderKind::CodexAppServer
+                    && let Ok(key) = cache_key(served_target.provider_model(), &request_body)
+                {
                     let _ = state.response_cache().put_at(
                         key,
                         CachedResponse {
@@ -1907,6 +1949,9 @@ async fn streaming_chat_response(input: StreamingChatInput) -> Response {
                 last_failure = fatal_delivery_status(&error);
                 let _ = state.reliability_policy().record(target_name, false);
                 let _ = state.metrics().observe_upstream_error(target_name);
+                if !matches!(error, DeliveryError::Provider(ProviderError::Transport)) {
+                    return error_response(last_failure.0, last_failure.1, last_error, headers);
+                }
             }
         }
     }
@@ -1953,12 +1998,20 @@ async fn streaming_chat_response(input: StreamingChatInput) -> Response {
                         Some((Ok::<Bytes, Infallible>(chunk), Some((context, upstream))))
                     }
                     Err(error) => {
-                        let chunk = stream_failure_chunk(&context, &error.to_string());
+                        let chunk = stream_failure_chunk(
+                            &context,
+                            &error.to_string(),
+                            "wayfinder_router_upstream_error",
+                        );
                         Some((Ok::<Bytes, Infallible>(chunk), None))
                     }
                 },
                 Some(Err(error)) => {
-                    let chunk = stream_failure_chunk(&context, &error.to_string());
+                    let chunk = stream_failure_chunk(
+                        &context,
+                        &error.to_string(),
+                        stream_failure_type(&error),
+                    );
                     Some((Ok::<Bytes, Infallible>(chunk), None))
                 }
                 None => match context.decoder.finish() {
@@ -1968,7 +2021,11 @@ async fn streaming_chat_response(input: StreamingChatInput) -> Response {
                         None
                     }
                     Err(error) => {
-                        let chunk = stream_failure_chunk(&context, &error.to_string());
+                        let chunk = stream_failure_chunk(
+                            &context,
+                            &error.to_string(),
+                            "wayfinder_router_upstream_error",
+                        );
                         Some((Ok::<Bytes, Infallible>(chunk), None))
                     }
                 },
@@ -2024,7 +2081,22 @@ fn finish_stream_success(context: &StreamRelayContext) {
     );
 }
 
-fn stream_failure_chunk(context: &StreamRelayContext, message: &str) -> Bytes {
+fn stream_failure_type(error: &DeliveryError) -> &'static str {
+    match error {
+        DeliveryError::Codex(delivery::CodexDeliveryError::TurnFailed) => {
+            "wayfinder_router_turn_failed"
+        }
+        DeliveryError::Codex(delivery::CodexDeliveryError::Interrupted) => {
+            "wayfinder_router_interrupted"
+        }
+        DeliveryError::Codex(delivery::CodexDeliveryError::UsageLimitReached) => {
+            "wayfinder_router_usage_limited"
+        }
+        _ => "wayfinder_router_upstream_error",
+    }
+}
+
+fn stream_failure_chunk(context: &StreamRelayContext, message: &str, error_type: &str) -> Bytes {
     let _ = context
         .state
         .metrics()
@@ -2036,7 +2108,7 @@ fn stream_failure_chunk(context: &StreamRelayContext, message: &str) -> Bytes {
     let payload = serde_json::to_string(&json!({
         "error": {
             "message": message,
-            "type": "wayfinder_router_upstream_error"
+            "type": error_type
         }
     }))
     .unwrap_or_else(|_| {
@@ -2333,6 +2405,31 @@ fn fatal_delivery_status(error: &DeliveryError) -> (StatusCode, &'static str) {
         ),
         DeliveryError::Apple(delivery::AppleDeliveryError::InvalidResponse) => {
             (StatusCode::BAD_GATEWAY, "wayfinder_router_upstream_error")
+        }
+        DeliveryError::Codex(
+            delivery::CodexDeliveryError::Unavailable
+            | delivery::CodexDeliveryError::AuthenticationRequired
+            | delivery::CodexDeliveryError::ModelUnavailable,
+        ) => (
+            StatusCode::SERVICE_UNAVAILABLE,
+            "wayfinder_router_not_ready",
+        ),
+        DeliveryError::Codex(delivery::CodexDeliveryError::UsageLimitReached) => (
+            StatusCode::TOO_MANY_REQUESTS,
+            "wayfinder_router_usage_limited",
+        ),
+        DeliveryError::Codex(delivery::CodexDeliveryError::InvalidRequest) => (
+            StatusCode::BAD_REQUEST,
+            "wayfinder_router_unsupported_request",
+        ),
+        DeliveryError::Codex(delivery::CodexDeliveryError::InvalidResponse) => {
+            (StatusCode::BAD_GATEWAY, "wayfinder_router_upstream_error")
+        }
+        DeliveryError::Codex(delivery::CodexDeliveryError::TurnFailed) => {
+            (StatusCode::BAD_GATEWAY, "wayfinder_router_upstream_error")
+        }
+        DeliveryError::Codex(delivery::CodexDeliveryError::Interrupted) => {
+            (StatusCode::CONFLICT, "wayfinder_router_interrupted")
         }
         DeliveryError::Provider(_) => (StatusCode::BAD_GATEWAY, "wayfinder_router_upstream_error"),
     }
@@ -3010,7 +3107,11 @@ mod tests {
         BufferedDelivery, BufferedDeliveryResponse, DeliveryError, DeliveryFuture,
         StreamingDelivery, StreamingDeliveryFuture, StreamingDeliveryResponse,
     };
-    use crate::{access::AccessPolicy, auth, cache::CacheSettings};
+    use crate::{
+        access::AccessPolicy,
+        auth,
+        cache::{CacheSettings, CachedResponse, cache_key},
+    };
 
     type TestResult = Result<(), Box<dyn Error>>;
     type SeenTargets = Arc<Mutex<Vec<String>>>;
@@ -3076,6 +3177,19 @@ mod tests {
                     Bytes::from_static(EXACT_USAGE_BODY),
                 ))
             })
+        }
+    }
+
+    struct CodexFailureDelivery {
+        calls: Arc<AtomicUsize>,
+        error: crate::delivery::CodexDeliveryError,
+    }
+
+    impl BufferedDelivery for CodexFailureDelivery {
+        fn send<'a>(&'a self, _model: &'a ConfiguredModel, _body: Value) -> DeliveryFuture<'a> {
+            self.calls.fetch_add(1, Ordering::SeqCst);
+            let error = self.error;
+            Box::pin(async move { Err(DeliveryError::Codex(error)) })
         }
     }
 
@@ -4643,6 +4757,151 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn codex_account_routes_never_replay_or_store_exact_response_cache_entries() -> TestResult
+    {
+        let payload = json!({
+            "model": "chatgpt",
+            "messages": [{"role": "user", "content": "account-scoped request"}]
+        });
+
+        for error in [
+            crate::delivery::CodexDeliveryError::AuthenticationRequired,
+            crate::delivery::CodexDeliveryError::Unavailable,
+        ] {
+            let calls = Arc::new(AtomicUsize::new(0));
+            let state = AppState::new(
+                RoutingConfig::binary(0.5),
+                vec![
+                    ConfiguredModel::new("chatgpt", "", "shared-provider-model", None, true)
+                        .with_provider(ProviderKind::CodexAppServer, None),
+                ],
+                false,
+                "test",
+            )
+            .with_delivery(Arc::new(CodexFailureDelivery {
+                calls: Arc::clone(&calls),
+                error,
+            }))
+            .with_cache_and_clock(
+                CacheSettings {
+                    enabled: true,
+                    ttl_seconds: 300.0,
+                    max_entries: 16,
+                    max_bytes: 1024 * 1024,
+                },
+                || 1_000.0,
+            )?;
+
+            state.response_cache().put_at(
+                cache_key("shared-provider-model", &payload)?,
+                CachedResponse {
+                    status: StatusCode::OK.as_u16(),
+                    content_type: "application/json".to_owned(),
+                    body: br#"{"choices":[{"message":{"content":"old account reply"}}]}"#.to_vec(),
+                    prompt_tokens: 1,
+                    completion_tokens: 1,
+                    estimated: true,
+                },
+                state.cache_now(),
+            )?;
+
+            let response = post_json(&state, "/v1/chat/completions", &payload, &[]).await?;
+            assert_eq!(response.status(), StatusCode::SERVICE_UNAVAILABLE);
+            let body = json_body(response).await?;
+            assert_eq!(body["error"]["type"], "wayfinder_router_not_ready");
+            assert!(!body.to_string().contains("old account reply"));
+            assert_eq!(calls.load(Ordering::SeqCst), 1);
+
+            let cache = state.response_cache().stats()?;
+            assert_eq!(cache.entries, 1);
+            assert_eq!(cache.hits, 0);
+            assert_eq!(cache.misses, 0);
+        }
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn openai_cache_miss_never_stores_a_codex_fallback_response() -> TestResult {
+        let config = GatewayConfig {
+            retries: 0,
+            ..GatewayConfig::default()
+        };
+        let seen = Arc::new(Mutex::new(Vec::new()));
+        let delivery = Arc::new(ScriptedDelivery {
+            outcomes: Arc::new(Mutex::new(BTreeMap::from([
+                (
+                    "local".to_owned(),
+                    VecDeque::from([ScriptedOutcome::Transport]),
+                ),
+                (
+                    "chatgpt".to_owned(),
+                    VecDeque::from([ScriptedOutcome::Response(StatusCode::OK, EXACT_USAGE_BODY)]),
+                ),
+            ]))),
+            seen: Arc::clone(&seen),
+        });
+        let state = AppState::new(
+            RoutingConfig::binary(0.5),
+            vec![
+                ConfiguredModel::new(
+                    "local",
+                    "http://127.0.0.1:11434/v1",
+                    "shared-provider-model",
+                    None,
+                    true,
+                )
+                .with_fallbacks(vec!["chatgpt".to_owned()]),
+                ConfiguredModel::new("chatgpt", "", "shared-provider-model", None, true)
+                    .with_provider(ProviderKind::CodexAppServer, None),
+            ],
+            false,
+            "test",
+        )
+        .with_gateway_reliability(&config)?
+        .with_delivery(delivery)
+        .with_cache_and_clock(
+            CacheSettings {
+                enabled: true,
+                ttl_seconds: 300.0,
+                max_entries: 16,
+                max_bytes: 1024 * 1024,
+            },
+            || 1_000.0,
+        )?;
+
+        let response = post_json(
+            &state,
+            "/v1/chat/completions",
+            &json!({
+                "model": "auto",
+                "messages": [{"role": "user", "content": "fallback request"}]
+            }),
+            &[],
+        )
+        .await?;
+
+        assert_eq!(response.status(), StatusCode::OK);
+        assert_eq!(
+            response
+                .headers()
+                .get("x-wayfinder-router-served-by")
+                .and_then(|value| value.to_str().ok()),
+            Some("chatgpt")
+        );
+        assert_eq!(
+            seen.lock()
+                .map_err(|_| std::io::Error::other("scripted delivery lock poisoned"))?
+                .as_slice(),
+            ["local", "chatgpt"]
+        );
+        let cache = state.response_cache().stats()?;
+        assert_eq!(cache.entries, 0);
+        assert_eq!(cache.hits, 0);
+        assert_eq!(cache.misses, 1);
+        Ok(())
+    }
+
+    #[tokio::test]
     async fn nondeterministic_and_debug_requests_bypass_live_cache() -> TestResult {
         let calls = Arc::new(AtomicUsize::new(0));
         let state = cached_live_state(Arc::clone(&calls))?;
@@ -4832,7 +5091,7 @@ mod tests {
             ..GatewayConfig::default()
         };
         let payload = json!({
-            "model": "cloud",
+            "model": "auto",
             "messages": [{"role": "user", "content": "hi"}]
         });
 
@@ -4888,14 +5147,14 @@ mod tests {
                 .headers()
                 .get("x-wayfinder-router-model")
                 .and_then(|value| value.to_str().ok()),
-            Some("cloud")
+            Some("local")
         );
         assert_eq!(
             degraded
                 .headers()
                 .get("x-wayfinder-router-mode")
                 .and_then(|value| value.to_str().ok()),
-            Some("pinned")
+            Some("scored")
         );
         assert_eq!(
             degraded
@@ -4926,8 +5185,9 @@ mod tests {
             &state,
             "/v1/chat/completions",
             &json!({
-                "model": "cloud",
-                "messages": [{"role": "user", "content": "hi"}]
+                "model": "auto",
+                "messages": [{"role": "user", "content": "Prove the halting problem is undecidable."}],
+                "wayfinder_tuning": {"weights": {"reasoning_term_count": 6.0}}
             }),
             &[("authorization", "Bearer wf-secret")],
         )
@@ -4973,10 +5233,11 @@ mod tests {
             &state,
             "/v1/chat/completions",
             &json!({
-                "model": "cloud",
-                "messages": [{"role": "user", "content": "hi"}]
+                "model": "auto",
+                "messages": [{"role": "user", "content": "Prove the halting problem is undecidable."}],
+                "wayfinder_tuning": {"weights": {"reasoning_term_count": 6.0}}
             }),
-            &[],
+            &[("x-wayfinder-threshold", "0.1")],
         )
         .await?;
         assert_eq!(response.status(), StatusCode::OK);
@@ -5028,17 +5289,30 @@ mod tests {
             )]),
         )?;
         let payload = json!({
-            "model": "cloud",
-            "messages": [{"role": "user", "content": "hi"}]
+            "model": "auto",
+            "messages": [{"role": "user", "content": "Prove the halting problem is undecidable."}],
+            "wayfinder_tuning": {"weights": {"reasoning_term_count": 6.0}}
         });
 
-        let exhausted = post_json(&state, "/v1/chat/completions", &payload, &[]).await?;
+        let exhausted = post_json(
+            &state,
+            "/v1/chat/completions",
+            &payload,
+            &[("x-wayfinder-threshold", "0.1")],
+        )
+        .await?;
         assert_eq!(exhausted.status(), StatusCode::BAD_GATEWAY);
         assert_eq!(
             json_body(exhausted).await?["error"]["type"],
             "wayfinder_router_upstream_error"
         );
-        let open = post_json(&state, "/v1/chat/completions", &payload, &[]).await?;
+        let open = post_json(
+            &state,
+            "/v1/chat/completions",
+            &payload,
+            &[("x-wayfinder-threshold", "0.1")],
+        )
+        .await?;
         assert_eq!(open.status(), StatusCode::SERVICE_UNAVAILABLE);
         assert_eq!(
             json_body(open).await?["error"]["type"],
@@ -5080,11 +5354,18 @@ mod tests {
             ]),
         )?;
         let payload = json!({
-            "model": "cloud",
-            "messages": [{"role": "user", "content": "hi"}]
+            "model": "auto",
+            "messages": [{"role": "user", "content": "Prove the halting problem is undecidable."}],
+            "wayfinder_tuning": {"weights": {"reasoning_term_count": 6.0}}
         });
 
-        let auth = post_json(&state, "/v1/chat/completions", &payload, &[]).await?;
+        let auth = post_json(
+            &state,
+            "/v1/chat/completions",
+            &payload,
+            &[("x-wayfinder-threshold", "0.1")],
+        )
+        .await?;
         assert_eq!(auth.status(), StatusCode::UNAUTHORIZED);
         assert_eq!(
             auth.headers()
@@ -5095,7 +5376,13 @@ mod tests {
         assert!(auth.headers().get("x-wayfinder-router-failover").is_none());
         assert_eq!(json_body(auth).await?["error"]["message"], "bad key");
 
-        let fallback = post_json(&state, "/v1/chat/completions", &payload, &[]).await?;
+        let fallback = post_json(
+            &state,
+            "/v1/chat/completions",
+            &payload,
+            &[("x-wayfinder-threshold", "0.1")],
+        )
+        .await?;
         assert_eq!(fallback.status(), StatusCode::OK);
         assert_eq!(
             fallback
@@ -5250,6 +5537,67 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn established_codex_stream_preserves_distinct_terminal_categories() -> TestResult {
+        for (error, expected_type) in [
+            (
+                DeliveryError::Codex(crate::delivery::CodexDeliveryError::TurnFailed),
+                "wayfinder_router_turn_failed",
+            ),
+            (
+                DeliveryError::Codex(crate::delivery::CodexDeliveryError::Interrupted),
+                "wayfinder_router_interrupted",
+            ),
+            (
+                DeliveryError::Codex(crate::delivery::CodexDeliveryError::UsageLimitReached),
+                "wayfinder_router_usage_limited",
+            ),
+        ] {
+            let (state, _) = streaming_live_state(
+                &GatewayConfig::default(),
+                BTreeMap::from([(
+                    "local".to_owned(),
+                    VecDeque::from([ScriptedStreamOutcome::Chunks(vec![Err(error)])]),
+                )]),
+            )?;
+            let response = post_json(
+                &state,
+                "/v1/chat/completions",
+                &json!({
+                    "model": "auto",
+                    "stream": true,
+                    "messages": [{"role": "user", "content": "hi"}]
+                }),
+                &[("x-wayfinder-debug", "true")],
+            )
+            .await?;
+
+            assert_eq!(response.status(), StatusCode::OK);
+            let text =
+                String::from_utf8(to_bytes(response.into_body(), usize::MAX).await?.to_vec())?;
+            assert!(text.contains(expected_type));
+            assert!(text.ends_with("data: [DONE]\n\n"));
+            assert_eq!(
+                json_body(get(&state, "/v1/savings").await?).await?["requests"],
+                0
+            );
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn codex_usage_limit_has_a_distinct_bounded_http_contract() {
+        assert_eq!(
+            crate::fatal_delivery_status(&DeliveryError::Codex(
+                crate::delivery::CodexDeliveryError::UsageLimitReached,
+            )),
+            (
+                StatusCode::TOO_MANY_REQUESTS,
+                "wayfinder_router_usage_limited",
+            )
+        );
+    }
+
+    #[tokio::test]
     async fn streaming_precommit_transport_failure_is_502_and_opens_breaker() -> TestResult {
         let config = GatewayConfig {
             retries: 2,
@@ -5384,6 +5732,96 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn pinned_stream_never_falls_back_after_transport_failure() -> TestResult {
+        let config = GatewayConfig {
+            failover: "escalate".to_owned(),
+            ..GatewayConfig::default()
+        };
+        let (state, seen) = streaming_live_state(
+            &config,
+            BTreeMap::from([
+                (
+                    "local".to_owned(),
+                    VecDeque::from([ScriptedStreamOutcome::EstablishError(
+                        DeliveryError::Provider(
+                            wayfinder_providers::openai_compat::ProviderError::Transport,
+                        ),
+                    )]),
+                ),
+                (
+                    "cloud".to_owned(),
+                    VecDeque::from([ScriptedStreamOutcome::Chunks(Vec::new())]),
+                ),
+            ]),
+        )?;
+        let response = post_json(
+            &state,
+            "/v1/chat/completions",
+            &json!({
+                "model": "local", "stream": true,
+                "messages": [{"role": "user", "content": "hi"}]
+            }),
+            &[],
+        )
+        .await?;
+
+        assert_eq!(response.status(), StatusCode::BAD_GATEWAY);
+        assert_eq!(
+            seen.lock()
+                .map_err(|_| std::io::Error::other("stream delivery lock poisoned"))?
+                .as_slice(),
+            ["local"]
+        );
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn fatal_codex_stream_readiness_error_never_falls_back() -> TestResult {
+        let config = GatewayConfig {
+            failover: "escalate".to_owned(),
+            ..GatewayConfig::default()
+        };
+        let (state, seen) = streaming_live_state(
+            &config,
+            BTreeMap::from([
+                (
+                    "local".to_owned(),
+                    VecDeque::from([ScriptedStreamOutcome::EstablishError(DeliveryError::Codex(
+                        crate::delivery::CodexDeliveryError::AuthenticationRequired,
+                    ))]),
+                ),
+                (
+                    "cloud".to_owned(),
+                    VecDeque::from([ScriptedStreamOutcome::Chunks(Vec::new())]),
+                ),
+            ]),
+        )?;
+        let response = post_json(
+            &state,
+            "/v1/chat/completions",
+            &json!({
+                "model": "auto", "stream": true,
+                "messages": [{"role": "user", "content": "hi"}]
+            }),
+            &[],
+        )
+        .await?;
+
+        assert_eq!(response.status(), StatusCode::SERVICE_UNAVAILABLE);
+        assert_eq!(
+            json_body(response).await?["error"]["type"],
+            "wayfinder_router_not_ready"
+        );
+        assert_eq!(
+            seen.lock()
+                .map_err(|_| std::io::Error::other("stream delivery lock poisoned"))?
+                .as_slice(),
+            ["local"]
+        );
+        Ok(())
+    }
+
+    #[tokio::test]
     async fn streaming_upstream_http_error_is_not_mislabeled_as_200() -> TestResult {
         let (state, _) = streaming_live_state(
             &GatewayConfig::default(),
@@ -5512,6 +5950,122 @@ mod tests {
         assert_eq!(
             json_body(failed).await?["error"]["type"],
             "wayfinder_router_upstream_error"
+        );
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn offline_buffered_pin_never_rewrites_chatgpt_account_route_to_local() -> TestResult {
+        let seen = Arc::new(Mutex::new(Vec::new()));
+        let delivery = Arc::new(ScriptedDelivery {
+            outcomes: Arc::new(Mutex::new(BTreeMap::from([
+                (
+                    "local".to_owned(),
+                    VecDeque::from([ScriptedOutcome::Response(StatusCode::OK, EXACT_USAGE_BODY)]),
+                ),
+                (
+                    "cloud".to_owned(),
+                    VecDeque::from([ScriptedOutcome::Response(StatusCode::OK, EXACT_USAGE_BODY)]),
+                ),
+            ]))),
+            seen: Arc::clone(&seen),
+        });
+        let state = AppState::new(
+            RoutingConfig::binary(0.5),
+            vec![
+                ConfiguredModel::new(
+                    "local",
+                    "http://127.0.0.1:11434/v1",
+                    "local-model",
+                    None,
+                    true,
+                ),
+                ConfiguredModel::new("cloud", "", "gpt-5.6-sol", None, true)
+                    .with_provider(ProviderKind::CodexAppServer, None),
+            ],
+            true,
+            "test",
+        )
+        .with_delivery(delivery);
+        let response = post_json(
+            &state,
+            "/v1/chat/completions",
+            &json!({
+                "model": "cloud",
+                "messages": [{"role": "user", "content": "hello"}]
+            }),
+            &[],
+        )
+        .await?;
+
+        assert_eq!(response.status(), StatusCode::SERVICE_UNAVAILABLE);
+        assert_eq!(
+            json_body(response).await?["error"]["type"],
+            "wayfinder_router_offline_unavailable"
+        );
+        assert!(
+            seen.lock()
+                .map_err(|_| std::io::Error::other("delivery lock poisoned"))?
+                .is_empty()
+        );
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn offline_streaming_pin_never_rewrites_chatgpt_account_route_to_local() -> TestResult {
+        let seen = Arc::new(Mutex::new(Vec::new()));
+        let chunks = vec![Ok(Bytes::from_static(b"data: [DONE]\n\n"))];
+        let delivery = Arc::new(ScriptedStreamingDelivery {
+            outcomes: Arc::new(Mutex::new(BTreeMap::from([
+                (
+                    "local".to_owned(),
+                    VecDeque::from([ScriptedStreamOutcome::Chunks(chunks.clone())]),
+                ),
+                (
+                    "cloud".to_owned(),
+                    VecDeque::from([ScriptedStreamOutcome::Chunks(chunks)]),
+                ),
+            ]))),
+            seen: Arc::clone(&seen),
+        });
+        let state = AppState::new(
+            RoutingConfig::binary(0.5),
+            vec![
+                ConfiguredModel::new(
+                    "local",
+                    "http://127.0.0.1:11434/v1",
+                    "local-model",
+                    None,
+                    true,
+                ),
+                ConfiguredModel::new("cloud", "", "gpt-5.6-sol", None, true)
+                    .with_provider(ProviderKind::CodexAppServer, None),
+            ],
+            true,
+            "test",
+        )
+        .with_streaming_delivery(delivery);
+        let response = post_json(
+            &state,
+            "/v1/chat/completions",
+            &json!({
+                "model": "cloud",
+                "stream": true,
+                "messages": [{"role": "user", "content": "hello"}]
+            }),
+            &[],
+        )
+        .await?;
+
+        assert_eq!(response.status(), StatusCode::SERVICE_UNAVAILABLE);
+        assert_eq!(
+            json_body(response).await?["error"]["type"],
+            "wayfinder_router_offline_unavailable"
+        );
+        assert!(
+            seen.lock()
+                .map_err(|_| std::io::Error::other("stream delivery lock poisoned"))?
+                .is_empty()
         );
         Ok(())
     }
