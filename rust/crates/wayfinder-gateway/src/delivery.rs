@@ -1595,6 +1595,33 @@ mod tests {
         Ok(())
     }
 
+    #[tokio::test]
+    async fn signed_out_codex_stream_terminates_with_authentication_required()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let service = Arc::new(FakeCodexService::signed_out());
+        let delivery = CodexAppServerDelivery::new(service.clone());
+        let response = delivery
+            .send_stream(
+                &codex_model(),
+                serde_json::json!({
+                    "stream": true,
+                    "messages": [{"role": "user", "content": "Hello"}]
+                }),
+            )
+            .await?;
+        let mut stream = response.into_stream();
+
+        assert!(matches!(
+            stream.next().await,
+            Some(Err(DeliveryError::Codex(
+                CodexDeliveryError::AuthenticationRequired
+            )))
+        ));
+        assert!(stream.next().await.is_none());
+        assert_eq!(service.chat_calls.load(Ordering::SeqCst), 0);
+        Ok(())
+    }
+
     #[test]
     fn codex_turn_terminals_and_usage_limit_keep_distinct_categories() {
         assert_eq!(

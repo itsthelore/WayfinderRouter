@@ -472,6 +472,8 @@ struct GatewayStreamDecoder {
                 throw WayfinderClientError.chatTurnInterrupted
             case "wayfinder_router_usage_limited":
                 throw WayfinderClientError.chatUsageLimitReached
+            case "wayfinder_router_not_ready":
+                throw WayfinderClientError.chatAccountNotReady
             default:
                 throw WayfinderClientError.invalidChatStream
             }

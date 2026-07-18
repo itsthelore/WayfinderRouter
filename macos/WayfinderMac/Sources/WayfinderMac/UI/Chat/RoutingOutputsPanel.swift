@@ -62,7 +62,10 @@ public struct RoutingOutputsPanel: View {
                 actionTitle: "Open Settings",
                 decision: decision
             ) {
-                NotificationCenter.default.post(name: .wayfinderOpenSettings, object: nil)
+                NotificationCenter.default.post(
+                    name: .wayfinderOpenSettings,
+                    object: turn.response?.recoverySettingsSection ?? SettingsSection.gateway
+                )
             }
         case let .stopped(decision):
             TerminalRoutingInspector(

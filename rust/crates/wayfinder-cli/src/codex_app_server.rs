@@ -25,7 +25,8 @@ use wayfinder_gateway::codex_control::{
     CodexLoginFlow, CodexModel,
 };
 
-const HELPER_ENV: &str = "WAYFINDER_CODEX_HELPER";
+#[cfg(debug_assertions)]
+const DEVELOPMENT_HELPER_ENV: &str = "WAYFINDER_CODEX_HELPER";
 const USER_HOME_ENV: &str = "HOME";
 const BUNDLED_HELPER_NAME: &str = "codex";
 const CHATGPT_HELPER: &str = "/Applications/ChatGPT.app/Contents/Resources/codex";
@@ -295,13 +296,40 @@ struct DiscoveryInputs {
 impl DiscoveryInputs {
     fn from_process() -> Self {
         Self {
-            explicit_helper: nonempty_env_path(HELPER_ENV),
+            explicit_helper: development_helper_override(),
             user_home: nonempty_env_path(USER_HOME_ENV),
             current_executable: env::current_exe().ok(),
             chatgpt_helper: PathBuf::from(CHATGPT_HELPER),
             chatgpt_helper_trust: chatgpt_helper_is_trusted,
         }
     }
+}
+
+/// Return the process helper override only in development builds.
+///
+/// Release builds do not read the override environment variable at all, so a
+/// production Wayfinder process can discover helpers only from its signed app
+/// bundle or the separately verified ChatGPT installation.
+fn development_helper_override() -> Option<PathBuf> {
+    development_helper_override_from(|name| env::var_os(name))
+}
+
+#[cfg(debug_assertions)]
+fn development_helper_override_from<F>(read_environment: F) -> Option<PathBuf>
+where
+    F: FnOnce(&str) -> Option<OsString>,
+{
+    read_environment(DEVELOPMENT_HELPER_ENV)
+        .filter(|value| !value.is_empty())
+        .map(PathBuf::from)
+}
+
+#[cfg(not(debug_assertions))]
+fn development_helper_override_from<F>(_read_environment: F) -> Option<PathBuf>
+where
+    F: FnOnce(&str) -> Option<OsString>,
+{
+    None
 }
 
 fn nonempty_env_path(name: &str) -> Option<PathBuf> {
@@ -852,6 +880,34 @@ fn sanitized_control_error() -> CodexControlError {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[cfg(debug_assertions)]
+    #[test]
+    fn debug_builds_expose_only_nonempty_development_helper_overrides() {
+        let expected = PathBuf::from("/tmp/wayfinder-development-codex");
+        assert_eq!(
+            development_helper_override_from(|name| {
+                assert_eq!(name, DEVELOPMENT_HELPER_ENV);
+                Some(expected.clone().into_os_string())
+            }),
+            Some(expected)
+        );
+        assert_eq!(
+            development_helper_override_from(|_| Some(OsString::new())),
+            None
+        );
+    }
+
+    #[cfg(not(debug_assertions))]
+    #[test]
+    fn release_builds_disable_the_development_helper_override() {
+        assert_eq!(
+            development_helper_override_from(|_| -> Option<OsString> {
+                panic!("release builds must not read WAYFINDER_CODEX_HELPER")
+            }),
+            None
+        );
+    }
 
     struct TestDirectory {
         path: PathBuf,

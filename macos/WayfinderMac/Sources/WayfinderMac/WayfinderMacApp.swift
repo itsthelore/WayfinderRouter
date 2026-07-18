@@ -40,8 +40,9 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         settingsObserver = NotificationCenter.default.addObserver(
             forName: .wayfinderOpenSettings, object: nil, queue: .main
-        ) { [weak self] _ in
-            Task { @MainActor in self?.showSettingsWindow() }
+        ) { [weak self] notification in
+            let section = SettingsWindowNavigation.section(from: notification)
+            Task { @MainActor in self?.showSettingsWindow(section: section) }
         }
         NotificationCenter.default.addObserver(
             forName: .wayfinderSetupDidChange, object: nil, queue: .main
@@ -67,7 +68,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
         false
     }
 
-    private func showSettingsWindow() {
-        settingsWindowController?.show()
+    private func showSettingsWindow(section: SettingsSection = .gateway) {
+        settingsWindowController?.show(section: section)
     }
 }

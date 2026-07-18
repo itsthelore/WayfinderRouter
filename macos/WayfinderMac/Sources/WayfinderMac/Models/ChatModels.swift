@@ -18,6 +18,7 @@ public struct ChatMessage: Identifiable, Codable, Equatable, Sendable {
     public var text: String
     public var decision: RoutingDecision?
     public var state: ChatMessageState
+    public var recoverySettingsSection: SettingsSection?
     public let createdAt: Date
 
     public init(
@@ -26,6 +27,7 @@ public struct ChatMessage: Identifiable, Codable, Equatable, Sendable {
         text: String,
         decision: RoutingDecision? = nil,
         state: ChatMessageState = .complete,
+        recoverySettingsSection: SettingsSection? = nil,
         createdAt: Date = Date()
     ) {
         self.id = id
@@ -33,6 +35,7 @@ public struct ChatMessage: Identifiable, Codable, Equatable, Sendable {
         self.text = text
         self.decision = decision
         self.state = state
+        self.recoverySettingsSection = recoverySettingsSection
         self.createdAt = createdAt
     }
 }

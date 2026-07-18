@@ -1354,29 +1354,42 @@ fn is_fatal_error(error: &CodexAppServerError) -> bool {
 
 #[cfg(unix)]
 fn verify_auth_store_permissions(config: &RuntimeConfig) -> Result<(), CodexAppServerError> {
-    use std::os::unix::fs::{MetadataExt, PermissionsExt};
-
+    let expected_owner =
+        process::effective_owner().map_err(|_| CodexAppServerError::InsecureCredentialStore)?;
     let home_metadata = std::fs::symlink_metadata(&config.codex_home)
         .map_err(|_| CodexAppServerError::InsecureCredentialStore)?;
-    if !home_metadata.is_dir()
-        || home_metadata.file_type().is_symlink()
-        || home_metadata.permissions().mode() & 0o777 != 0o700
-    {
-        return Err(CodexAppServerError::InsecureCredentialStore);
-    }
-    verify_auth_path_has_no_acl(&config.codex_home)?;
     let auth_file = config.codex_home.join("auth.json");
     let auth_metadata = std::fs::symlink_metadata(&auth_file)
         .map_err(|_| CodexAppServerError::InsecureCredentialStore)?;
+    verify_auth_store_metadata(&home_metadata, &auth_metadata, expected_owner)?;
+    verify_auth_path_has_no_acl(&config.codex_home)?;
+    verify_auth_path_has_no_acl(&auth_file)?;
+    Ok(())
+}
+
+#[cfg(unix)]
+fn verify_auth_store_metadata(
+    home_metadata: &std::fs::Metadata,
+    auth_metadata: &std::fs::Metadata,
+    expected_owner: u32,
+) -> Result<(), CodexAppServerError> {
+    use std::os::unix::fs::{MetadataExt, PermissionsExt};
+
+    if !home_metadata.is_dir()
+        || home_metadata.file_type().is_symlink()
+        || home_metadata.permissions().mode() & 0o777 != 0o700
+        || home_metadata.uid() != expected_owner
+    {
+        return Err(CodexAppServerError::InsecureCredentialStore);
+    }
     if !auth_metadata.is_file()
         || auth_metadata.file_type().is_symlink()
         || auth_metadata.permissions().mode() & 0o777 != 0o600
         || auth_metadata.nlink() != 1
-        || auth_metadata.uid() != home_metadata.uid()
+        || auth_metadata.uid() != expected_owner
     {
         return Err(CodexAppServerError::InsecureCredentialStore);
     }
-    verify_auth_path_has_no_acl(&auth_file)?;
     Ok(())
 }
 
