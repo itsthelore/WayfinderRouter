@@ -39,18 +39,21 @@ public final class CodexAccountSettingsState: ObservableObject {
     private let automaticallyPollLogin: Bool
     private let pollIntervalNanoseconds: UInt64
     private let maximumPollCount: Int
+    private let onAccountStateChanged: @MainActor () -> Void
     private var pollingTask: Task<Void, Never>?
 
     public init(
         client: any CodexAccountClient = GatewayCodexAccountClient(),
         automaticallyPollLogin: Bool = true,
         pollIntervalNanoseconds: UInt64 = 1_000_000_000,
-        maximumPollCount: Int = 300
+        maximumPollCount: Int = 300,
+        onAccountStateChanged: @escaping @MainActor () -> Void = {}
     ) {
         self.client = client
         self.automaticallyPollLogin = automaticallyPollLogin
         self.pollIntervalNanoseconds = pollIntervalNanoseconds
         self.maximumPollCount = maximumPollCount
+        self.onAccountStateChanged = onAccountStateChanged
     }
 
     deinit {
@@ -140,6 +143,7 @@ public final class CodexAccountSettingsState: ObservableObject {
         case .unavailable(let detail):
             state = .unavailable(detail: detail)
         }
+        onAccountStateChanged()
     }
 
     private func startLoginPolling() {

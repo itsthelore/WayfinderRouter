@@ -228,6 +228,32 @@ final class ChatDeliveryTests: XCTestCase {
         XCTAssertFalse(state.chatDestination.isAvailable)
         XCTAssertFalse(state.canSendMessage)
         XCTAssertEqual(state.chatDestinations.last?.gatewayModelValue, "chatgpt-sol")
+        state.sendChatDraft()
+        XCTAssertTrue(state.chatMessages.isEmpty)
+    }
+
+    @MainActor
+    func testUnavailablePinnedDestinationCannotDiscardAndRetryAFailedTurn() async throws {
+        let state = AppState(client: ScriptedChatClient(events: []))
+        let destination = ChatDestination(
+            routeName: "chatgpt-sol",
+            title: "chatgpt-sol",
+            detail: "ChatGPT · GPT-5.6 Sol",
+            providerName: "ChatGPT"
+        )
+        state.chatDestination = destination
+        state.chatDraft = "Keep this turn"
+        state.sendChatDraft()
+        try await waitUntil { !state.isSendingMessage }
+        XCTAssertEqual(state.chatMessages.last?.state, .failed)
+
+        state.chatDestination = destination.withAvailability(false)
+        let messages = state.chatMessages
+        XCTAssertFalse(state.canRetryChat)
+        state.retryLastChatTurn()
+
+        XCTAssertEqual(state.chatMessages, messages)
+        XCTAssertFalse(state.isSendingMessage)
     }
 
     @MainActor

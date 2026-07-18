@@ -147,7 +147,9 @@ public enum CodexAccountClientError: LocalizedError, Equatable, Sendable {
             return "ChatGPT account controls are available only through the local gateway."
         case .gatewayStatus(let status):
             switch status {
-            case 404, 501:
+            case 404:
+                return "ChatGPT account routing is not configured. Add a codex-app-server model to the gateway first."
+            case 501:
                 return "This gateway build does not include ChatGPT account support."
             case 409:
                 return "The gateway could not change ChatGPT sign-in in its current state. Refresh and try again."

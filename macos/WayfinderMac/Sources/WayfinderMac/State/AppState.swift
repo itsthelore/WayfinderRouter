@@ -41,7 +41,7 @@ public final class AppState: ObservableObject {
     }
 
     public var canRetryChat: Bool {
-        !isSendingMessage && chatMessages.last.map {
+        !isSendingMessage && chatDestination.isAvailable && chatMessages.last.map {
             $0.role == .assistant && ($0.state == .failed || $0.state == .stopped)
         } == true
     }
@@ -115,7 +115,7 @@ public final class AppState: ObservableObject {
 
     public func sendChatDraft() {
         let input = chatDraft.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !input.isEmpty, !isSendingMessage else {
+        guard canSendMessage, !input.isEmpty else {
             return
         }
 
@@ -197,7 +197,7 @@ public final class AppState: ObservableObject {
     }
 
     public func retryLastChatTurn() {
-        guard !isSendingMessage,
+        guard !isSendingMessage, chatDestination.isAvailable,
               let responseIndex = chatMessages.lastIndex(where: {
                   $0.role == .assistant && ($0.state == .failed || $0.state == .stopped)
               }),
@@ -272,6 +272,7 @@ public final class AppState: ObservableObject {
         }
         isSendingMessage = false
         chatTask = nil
+        refreshStats()
     }
 }
 

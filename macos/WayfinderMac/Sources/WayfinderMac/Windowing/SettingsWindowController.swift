@@ -6,7 +6,7 @@ final class SettingsWindowController {
     private let window: NSWindow
 
     init(appState: AppState) {
-        let rootView = WayfinderSettingsWindow()
+        let rootView = WayfinderSettingsWindow(appState: appState)
             .environmentObject(appState)
         let hostingController = NSHostingController(rootView: rootView)
         let window = NSWindow(contentViewController: hostingController)

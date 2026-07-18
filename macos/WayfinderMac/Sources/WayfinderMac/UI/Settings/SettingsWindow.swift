@@ -5,9 +5,15 @@ public struct WayfinderSettingsWindow: View {
     @State private var selectedProvider: ProviderKind = .anthropic
     @StateObject private var codexAccountState: CodexAccountSettingsState
 
-    public init(accountClient: any CodexAccountClient = GatewayCodexAccountClient()) {
+    public init(
+        appState: AppState? = nil,
+        accountClient: any CodexAccountClient = GatewayCodexAccountClient()
+    ) {
         _codexAccountState = StateObject(
-            wrappedValue: CodexAccountSettingsState(client: accountClient)
+            wrappedValue: CodexAccountSettingsState(
+                client: accountClient,
+                onAccountStateChanged: { appState?.refreshStats() }
+            )
         )
     }
 

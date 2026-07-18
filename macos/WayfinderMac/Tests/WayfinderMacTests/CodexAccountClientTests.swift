@@ -103,6 +103,17 @@ final class CodexAccountClientTests: XCTestCase {
         }
     }
 
+    func testMissingAccountRouteExplainsTheOptInConfigurationBoundary() {
+        XCTAssertEqual(
+            CodexAccountClientError.gatewayStatus(404).localizedDescription,
+            "ChatGPT account routing is not configured. Add a codex-app-server model to the gateway first."
+        )
+        XCTAssertEqual(
+            CodexAccountClientError.gatewayStatus(501).localizedDescription,
+            "This gateway build does not include ChatGPT account support."
+        )
+    }
+
     private func makeClient() -> GatewayCodexAccountClient {
         let configuration = URLSessionConfiguration.ephemeral
         configuration.protocolClasses = [AccountURLProtocolStub.self]
