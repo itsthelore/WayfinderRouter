@@ -3,6 +3,76 @@ import XCTest
 @testable import WayfinderMacCore
 
 final class ChatDeliveryTests: XCTestCase {
+    func testChatDestinationsUseGatewayAliasesAndKeepAutomaticAsDefault() {
+        let endpoint = EndpointDisplayStatus(
+            name: "chatgpt-sol",
+            providerName: "ChatGPT",
+            modelName: "gpt-5.6-sol",
+            state: .ready
+        )
+        let destination = ChatDestination(endpoint: endpoint)
+
+        XCTAssertEqual(ChatDestination.automatic.gatewayModelValue, "auto")
+        XCTAssertTrue(ChatDestination.automatic.isAutomatic)
+        XCTAssertEqual(destination.gatewayModelValue, "chatgpt-sol")
+        XCTAssertEqual(destination.title, "chatgpt-sol")
+        XCTAssertEqual(destination.detail, "ChatGPT · gpt-5.6-sol")
+        XCTAssertFalse(destination.isAutomatic)
+        XCTAssertTrue(destination.isChatGPTAccount)
+    }
+
+    func testChatDestinationListOmitsUnadvertisedCodexRoutesAndReservesAuto() {
+        let overview = GatewayOverview(
+            gateway: .running(detail: "ready"),
+            hosted: .ready(detail: "ready"),
+            endpoints: [
+                EndpointDisplayStatus(
+                    name: "auto",
+                    providerName: "Local",
+                    state: .ready
+                ),
+                EndpointDisplayStatus(
+                    name: "chatgpt-sol",
+                    providerName: "ChatGPT",
+                    modelName: "gpt-5.6-sol",
+                    state: .unavailable,
+                    isChatDestinationAvailable: false
+                ),
+                EndpointDisplayStatus(
+                    name: "local",
+                    providerName: "Apple Foundation Models",
+                    modelName: "system-default",
+                    state: .ready
+                ),
+            ],
+            routingStats: .emptyForChatTests,
+            updatedAt: Date()
+        )
+
+        XCTAssertEqual(
+            AppState.chatDestinations(from: overview).map(\.gatewayModelValue),
+            ["auto", "local"]
+        )
+    }
+
+    func testPinnedChatGPTReadinessFailurePointsToAccountsWithoutLeakingDetail() {
+        let destination = ChatDestination(
+            routeName: "chatgpt-sol",
+            title: "chatgpt-sol",
+            detail: "ChatGPT · gpt-5.6-sol",
+            providerName: "ChatGPT"
+        )
+        let message = AppState.chatErrorMessage(
+            WayfinderClientError.gatewayStatus(503, model: "chatgpt-sol"),
+            destination: destination
+        )
+
+        XCTAssertEqual(
+            message,
+            "ChatGPT is not connected or its Codex model is unavailable. Check Accounts in Settings, then retry."
+        )
+    }
+
     func testGatewayStreamDecoderPreservesDecisionTextAndCompletionOrder() throws {
         var decoder = GatewayStreamDecoder(prompt: "Hello")
         let metadata = #"data: {"wayfinder":{"model":"apple-local","score":0.1,"mode":"scored","features":{"word_count":1},"contributions":[],"tiers":[{"min_score":0.0,"model":"apple-local"},{"min_score":0.5,"model":"cloud"}]}}"#
@@ -116,6 +186,51 @@ final class ChatDeliveryTests: XCTestCase {
     }
 
     @MainActor
+    func testAppStatePinsTheSelectedGatewayAliasForTheWholeTurn() async throws {
+        let recorder = DestinationRecorder()
+        let state = AppState(client: DestinationRecordingClient(recorder: recorder))
+        state.chatDestination = ChatDestination(
+            routeName: "chatgpt-sol",
+            title: "chatgpt-sol",
+            detail: "ChatGPT · GPT-5.6 Sol",
+            providerName: "ChatGPT"
+        )
+        state.chatDraft = "Hello"
+
+        state.sendChatDraft()
+        try await waitUntil { !state.isSendingMessage }
+
+        let recorded = await recorder.value()
+        XCTAssertEqual(recorded?.gatewayModelValue, "chatgpt-sol")
+    }
+
+    @MainActor
+    func testUnavailablePinnedDestinationNeverResetsToAutomatic() async throws {
+        let state = AppState(client: OverviewClient(overview: GatewayOverview(
+            gateway: .running(detail: "ready"),
+            hosted: .ready(detail: "ready"),
+            endpoints: [],
+            routingStats: .emptyForChatTests,
+            updatedAt: Date()
+        )))
+        state.chatDestination = ChatDestination(
+            routeName: "chatgpt-sol",
+            title: "chatgpt-sol",
+            detail: "ChatGPT · GPT-5.6 Sol",
+            providerName: "ChatGPT"
+        )
+        state.chatDraft = "Keep this pinned"
+
+        state.refreshStats()
+        try await waitUntil { !state.isRefreshingStats }
+
+        XCTAssertEqual(state.chatDestination.gatewayModelValue, "chatgpt-sol")
+        XCTAssertFalse(state.chatDestination.isAvailable)
+        XCTAssertFalse(state.canSendMessage)
+        XCTAssertEqual(state.chatDestinations.last?.gatewayModelValue, "chatgpt-sol")
+    }
+
+    @MainActor
     func testStopMarksPartialResponseAndAllowsRetry() async throws {
         let state = AppState(client: ScriptedChatClient(
             events: [.decision(Self.decision), .text("Partial")],
@@ -162,6 +277,23 @@ final class ChatDeliveryTests: XCTestCase {
     )
 }
 
+private extension RoutingStats {
+    static var emptyForChatTests: RoutingStats {
+        RoutingStats(
+            localPercent: 0,
+            cloudPercent: 0,
+            totalTurns: 0,
+            savedToday: 0,
+            savedLast30Days: 0,
+            cloudSpendToday: 0,
+            percentVsAlwaysCloud: 0,
+            averageRoutingTimeMilliseconds: 0,
+            updatedAt: Date(),
+            isRunning: true
+        )
+    }
+}
+
 private struct ScriptedChatClient: WayfinderClient {
     let events: [ChatStreamEvent]
     var delayNanoseconds: UInt64 = 0
@@ -202,5 +334,64 @@ private struct ScriptedChatClient: WayfinderClient {
             updatedAt: Date(),
             isRunning: true
         )
+    }
+}
+
+private actor DestinationRecorder {
+    private var destination: ChatDestination?
+
+    func record(_ destination: ChatDestination) {
+        self.destination = destination
+    }
+
+    func value() -> ChatDestination? {
+        destination
+    }
+}
+
+private struct DestinationRecordingClient: WayfinderClient {
+    let recorder: DestinationRecorder
+
+    func route(prompt: String) async throws -> RoutingDecision {
+        ChatDeliveryTests.decision
+    }
+
+    func streamChat(messages: [ChatRequestMessage]) -> AsyncThrowingStream<ChatStreamEvent, Error> {
+        streamChat(messages: messages, destination: .automatic)
+    }
+
+    func streamChat(
+        messages: [ChatRequestMessage],
+        destination: ChatDestination
+    ) -> AsyncThrowingStream<ChatStreamEvent, Error> {
+        AsyncThrowingStream { continuation in
+            Task {
+                await recorder.record(destination)
+                continuation.yield(.decision(ChatDeliveryTests.decision))
+                continuation.yield(.text("Hello"))
+                continuation.yield(.completed)
+                continuation.finish()
+            }
+        }
+    }
+
+    func loadStats(range: StatsRange) async throws -> RoutingStats {
+        .emptyForChatTests
+    }
+}
+
+private struct OverviewClient: WayfinderClient {
+    let overview: GatewayOverview
+
+    func route(prompt: String) async throws -> RoutingDecision {
+        ChatDeliveryTests.decision
+    }
+
+    func loadStats(range: StatsRange) async throws -> RoutingStats {
+        overview.routingStats
+    }
+
+    func loadOverview() async throws -> GatewayOverview {
+        overview
     }
 }

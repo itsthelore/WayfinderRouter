@@ -90,6 +90,7 @@ public struct EndpointDisplayStatus: Equatable, Identifiable, Sendable {
     public let providerName: String
     public let modelName: String?
     public let state: EndpointState
+    public let isChatDestinationAvailable: Bool
 
     public var id: String { name }
 
@@ -97,12 +98,14 @@ public struct EndpointDisplayStatus: Equatable, Identifiable, Sendable {
         name: String,
         providerName: String? = nil,
         modelName: String? = nil,
-        state: EndpointState
+        state: EndpointState,
+        isChatDestinationAvailable: Bool = true
     ) {
         self.name = name
         self.providerName = providerName ?? name
         self.modelName = modelName
         self.state = state
+        self.isChatDestinationAvailable = isChatDestinationAvailable
     }
 
     public var detailText: String? {
@@ -122,6 +125,7 @@ private extension String {
 
 public enum EndpointState: Equatable, Sendable {
     case ready
+    case signIn
     case checkKey
     case disabled
     case unavailable
@@ -130,6 +134,8 @@ public enum EndpointState: Equatable, Sendable {
         switch self {
         case .ready:
             return "Ready"
+        case .signIn:
+            return "Sign In"
         case .checkKey:
             return "Check Key"
         case .disabled:

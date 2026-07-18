@@ -3,11 +3,22 @@ import Foundation
 public protocol WayfinderClient: Sendable {
     func route(prompt: String) async throws -> RoutingDecision
     func streamChat(messages: [ChatRequestMessage]) -> AsyncThrowingStream<ChatStreamEvent, Error>
+    func streamChat(
+        messages: [ChatRequestMessage],
+        destination: ChatDestination
+    ) -> AsyncThrowingStream<ChatStreamEvent, Error>
     func loadStats(range: StatsRange) async throws -> RoutingStats
     func loadOverview() async throws -> GatewayOverview
 }
 
 public extension WayfinderClient {
+    func streamChat(
+        messages: [ChatRequestMessage],
+        destination: ChatDestination
+    ) -> AsyncThrowingStream<ChatStreamEvent, Error> {
+        streamChat(messages: messages)
+    }
+
     func streamChat(messages: [ChatRequestMessage]) -> AsyncThrowingStream<ChatStreamEvent, Error> {
         AsyncThrowingStream { continuation in
             let task = Task {

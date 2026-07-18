@@ -3,8 +3,13 @@ import SwiftUI
 public struct WayfinderSettingsWindow: View {
     @State private var selectedSection: SettingsSection = .gateway
     @State private var selectedProvider: ProviderKind = .anthropic
+    @StateObject private var codexAccountState: CodexAccountSettingsState
 
-    public init() {}
+    public init(accountClient: any CodexAccountClient = GatewayCodexAccountClient()) {
+        _codexAccountState = StateObject(
+            wrappedValue: CodexAccountSettingsState(client: accountClient)
+        )
+    }
 
     public var body: some View {
         NavigationSplitView {
@@ -26,6 +31,8 @@ public struct WayfinderSettingsWindow: View {
             GatewaySettingsView()
         case .routing:
             RoutingSettingsView()
+        case .accounts:
+            AccountsSettingsView(accountState: codexAccountState)
         case .keys:
             KeysSettingsView(selectedProvider: $selectedProvider)
         case .privacy:

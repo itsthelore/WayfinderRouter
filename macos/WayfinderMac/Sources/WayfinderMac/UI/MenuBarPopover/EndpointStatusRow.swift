@@ -234,7 +234,7 @@ private extension EndpointState {
         switch self {
         case .ready:
             return WayfinderTheme.local
-        case .checkKey:
+        case .signIn, .checkKey:
             return WayfinderTheme.cloud
         case .disabled:
             return Color.secondary.opacity(0.55)

@@ -162,6 +162,46 @@ final class GatewayOverviewTests: XCTestCase {
         )
     }
 
+    func testCodexRouteIsAdvertisedOnlyWhenRuntimeCatalogContainsItsModel() {
+        let codex = GatewayModelInfo(
+            name: "chatgpt-sol",
+            endpoint: "",
+            model: "gpt-5.6-sol",
+            provider: "codex-app-server",
+            apiKeyEnv: nil,
+            keyOK: true
+        )
+
+        let unavailable = GatewayWayfinderClient.endpointDisplayStatuses(
+            gateway: .running(detail: "ready"),
+            models: [codex],
+            codexRuntimeModelIDs: [],
+            codexAccountConnected: false
+        )
+        XCTAssertEqual(unavailable.first?.providerName, "ChatGPT")
+        XCTAssertEqual(unavailable.first?.state, .unavailable)
+        XCTAssertEqual(unavailable.first?.isChatDestinationAvailable, false)
+
+        let available = GatewayWayfinderClient.endpointDisplayStatuses(
+            gateway: .running(detail: "ready"),
+            models: [codex],
+            codexRuntimeModelIDs: ["gpt-5.6-sol"],
+            codexAccountConnected: true
+        )
+        XCTAssertEqual(available.first?.state, .ready)
+        XCTAssertEqual(available.first?.isChatDestinationAvailable, true)
+        XCTAssertFalse(codex.isProvenLocal)
+
+        let signedOut = GatewayWayfinderClient.endpointDisplayStatuses(
+            gateway: .running(detail: "ready"),
+            models: [codex],
+            codexRuntimeModelIDs: ["gpt-5.6-sol"],
+            codexAccountConnected: false
+        )
+        XCTAssertEqual(signedOut.first?.state, .signIn)
+        XCTAssertEqual(signedOut.first?.isChatDestinationAvailable, true)
+    }
+
     func testProviderIdentityUsesEndpointAndKeyMetadataInsteadOfRouteAlias() {
         XCTAssertEqual(
             GatewayModelInfo(

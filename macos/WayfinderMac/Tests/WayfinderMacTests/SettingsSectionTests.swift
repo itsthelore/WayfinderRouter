@@ -17,7 +17,16 @@ final class SettingsSectionTests: XCTestCase {
     func testOnlyShippedSettingsSectionsAreListed() {
         XCTAssertEqual(
             SettingsSection.allCases,
-            [.gateway, .routing, .keys, .privacy, .help, .about]
+            [.gateway, .routing, .accounts, .keys, .privacy, .help, .about]
+        )
+    }
+
+    func testAccountsIsSeparateFromKeys() {
+        XCTAssertEqual(SettingsSection.accounts.rawValue, "Accounts")
+        XCTAssertEqual(SettingsSection.accounts.symbolName, "person.crop.circle")
+        XCTAssertLessThan(
+            SettingsSection.allCases.firstIndex(of: .accounts)!,
+            SettingsSection.allCases.firstIndex(of: .keys)!
         )
     }
 
