@@ -23,6 +23,12 @@ delivered only through the bundled gateway. The release must prove its interacti
 authoritative response/history contract, streaming cancellation, accessibility, failure states,
 and visual quality; merely exposing the existing route-preview window does not satisfy this scope.
 
+The accepted Chat information architecture is thread-first: a complete chronological transcript
+and composer remain the primary surface, a compact left navigator searches and selects turns
+without filtering the transcript, and a persistent but collapsible right inspector owns provider,
+mode, score, explanation, and routing signals. Completed replies carry only a quiet routing receipt
+that selects the inspector; they do not repeat the decision as an inline dashboard card.
+
 This roadmap intentionally changes three accepted assumptions that currently pull implementation
 back toward the wrong result:
 
@@ -180,7 +186,7 @@ Exercise the actual product states rather than only the happy path:
 - Privacy language is reviewed against WF-ADR-0042: only offline mode says nothing leaves the Mac.
 
 **Acceptance:** a state matrix test covers rendering and available actions for every state; no
-state changes panel width, clips the footer, or exposes Chat.
+state changes panel width, clips the footer, or hides the dedicated Chat window's recovery path.
 
 ### Phase 5 — fidelity and v1 release gate
 
@@ -189,8 +195,8 @@ Build a screenshot-and-accessibility review loop before packaging:
 - Capture reference screenshots for popover and each Settings page in Light and Dark mode.
 - Review at default text size and one larger accessibility size; Increased Contrast and Reduce
   Transparency must remain usable.
-- VoiceOver order follows visual order; selected sidebar rows announce selection; disabled Chat
-  announces its reason; symbols do not duplicate labels.
+- VoiceOver order follows visual order; selected sidebar rows announce selection; the enabled Chat
+  entry announces that it opens a dedicated window; symbols do not duplicate labels.
 - Full keyboard pass: open/close popover, move through rows, open Settings, change sections, edit
   supported settings, cancel destructive actions, quit.
 - Reduced Motion removes nonessential transitions.
@@ -229,11 +235,20 @@ streaming/cancellation, and service tests green; signed/notarized packaging work
 
 Chat is eligible for v0.1.0 only when implementation and evidence answer:
 
-- whether it is a compact routing-inspection conversation or a general chat client;
+- it is a focused chronological conversation, not a general agent client: navigator filtering does
+  not alter transcript order or content, and selecting a navigator row scrolls to that turn and
+  updates the inspector without reshaping the transcript;
+- the complete transcript and composer remain visually primary; detailed routing lives in a
+  persistent, collapsible right inspector, with only a quiet per-turn receipt in the thread;
+- the latest turn is selected initially and after an explicit Send, while an explicit older-turn
+  selection is not stolen by later streaming metadata; pending, failed, and stopped turns remain
+  selectable and get truthful inspector states;
 - authoritative assistant reply decoding, decision-only states, and last-N-turn gateway history;
 - session boundaries, clear/new semantics, persistence policy, and transcript limits;
-- a responsive one-/two-pane layout that works below 1180 pt;
-- composer behavior, streaming/stop, error/retry, selection/copy, and keyboard commands;
+- a native split view and inspector that work below 1180 pt, let the left navigator yield before the
+  conversation is squeezed, and keep routing accessible when either pane is collapsed;
+- Return-to-send, Shift-Return newline, streaming/stop, contextual error/retry, selection/copy,
+  auto-follow only near the transcript bottom, and keyboard commands for search and both panes;
 - Light/Dark, VoiceOver, Reduced Motion, and screenshot fidelity acceptance.
 
 Until that contract passes, `desktop-v0.1.0` is not release-ready.
@@ -251,7 +266,7 @@ Until that contract passes, `desktop-v0.1.0` is not release-ready.
 
 ## Related
 
-- WF-ADR-0042 (desktop architecture; layout/Chat scope to be amended)
-- WF-DESIGN-0014 (flat-list direction; compact native amendment required)
-- WF-ROADMAP-0009 (desktop delivery; v1 Chat scope superseded)
+- WF-ADR-0042 (desktop architecture; native v0.1.0 Chat contract accepted)
+- WF-DESIGN-0014 (accepted flat-list popover direction)
+- WF-ROADMAP-0009 (desktop delivery; superseded by this native v1 roadmap)
 - WF-DESIGN-0015 (Settings/config seam)

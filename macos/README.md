@@ -1,16 +1,19 @@
-# Wayfinder Native macOS Prototype
+# Wayfinder Native macOS App
 
-This directory contains the first native macOS prototype for Wayfinder Router. It is additive: the Python package, gateway, shared TypeScript scorer, and Tauri client remain untouched.
+This directory contains the shipping native macOS product. Wayfinder Desktop is a thin SwiftUI and
+AppKit client over its bundled Rust gateway; the standalone Python distribution remains available
+for compatibility and delegated commands during the migration period.
 
 ## Inspection Summary
 
-- The deterministic routing core lives in `wayfinder_router/complexity.py`.
-- The CLI entry point is `wayfinder_router/cli.py`, especially `wayfinder-router route <prompt | -> --json --explain`.
-- The local service and OpenAI-compatible gateway live in `wayfinder_router/gateway.py`.
-- The current desktop app is `clients/desktop`: Tauri v2, Rust shell, React UI, and a thin-client contract over the gateway.
-- `clients/shared/src/scorer.js` is a parity-gated JavaScript mirror of the Python scorer for degraded preview mode, not the primary router.
-- Tests cover the Python scorer, gateway, Tauri-adjacent shared client behavior, fixtures, config, calibration, and service helpers.
-- ADRs and design docs already point toward a menu-bar command surface, especially `decisions/WF-ADR-0042-desktop-menu-bar-client.md`, `designs/WF-DESIGN-0012-desktop-popover-design.md`, and `designs/WF-DESIGN-0014-flat-list-popover.md`.
+- The bundled Rust implementation lives under `rust/crates/`; `wayfinder-gateway` owns native
+  routing and OpenAI-compatible delivery.
+- The Python package remains the compatibility implementation and owns explicitly delegated
+  commands until the later removal decision.
+- The macOS app never computes an authoritative route, calls a provider directly, or owns provider
+  secrets. It consumes the bundled gateway contract.
+- `clients/desktop` is the retained legacy Tauri client, not the current native product.
+- WF-ADR-0042 and WF-ROADMAP-0012 define the accepted native shell and Chat contract.
 
 ## Native Layout
 
@@ -57,7 +60,10 @@ XPC service, signed manifest, hardened-runtime signatures, and optional notariza
 
 Chat is a shipping v0.1.0 surface, but it remains a thin client: it sends bounded conversation
 history only to the gateway, renders the gateway's authoritative assistant reply and routing
-decision, and never scores, contacts a provider directly, or owns credentials. WF-ROADMAP-0012
+decision, and never scores, contacts a provider directly, or owns credentials. The chronological
+transcript stays complete and thread-first; a quiet receipt selects the turn while provider, mode,
+score, explanation, and signal detail live in the persistent, collapsible routing inspector on the
+right. Navigator search and route filters never remove messages from the transcript. WF-ROADMAP-0012
 governs its delivery and fidelity gate.
 
 ## Integration Strategy
@@ -71,21 +77,15 @@ Recommended path:
 
 The first UI patch ran with `MockWayfinderClient` so the menu-bar, chat, and settings surfaces could be shaped without bootstrapping the gateway. The native menu now starts with `AppDelegate(client: GatewayWayfinderClient())` in `Sources/WayfinderMacApp/WayfinderMacMain.swift`.
 
-## Risks And Unknowns
+## Release Boundaries
 
-- The Swift local scorer is a prototype mirror, not yet parity-gated against `wayfinder_router/complexity.py`.
-- This Swift Package runs as a native executable, not yet a signed `.app` bundle.
-- Global shortcut, launch-at-login, app icon assets, and real Keychain/provider writes are intentionally deferred.
-- The eventual product architecture should keep the gateway as the routing source of truth, matching WF-ADR-0042.
-
-## First Patch Plan
-
-1. Add the Swift Package scaffold under `macos/WayfinderMac`.
-2. Add AppKit menu-bar shell with `NSStatusItem` and `NSPopover`.
-3. Add SwiftUI menu-bar popover with routing summary, saved summary, and menu-style actions.
-4. Add separate native chat and settings windows.
-5. Add `WayfinderClient` service boundary with local, mock, and gateway client implementations.
-6. Add focused Swift tests for the deterministic local prototype scorer.
+- The Swift preview scorer is non-authoritative and remains limited to deterministic previews.
+- The release script assembles and signs the production `.app`; public distribution still requires
+  the real Developer ID identity, notarization, stapling, and the physical-Mac evidence matrix in
+  `Packaging/RELEASE.md`.
+- Provider-key writes and reads stay behind the existing narrow Keychain and authenticated XPC
+  boundaries. Chat does not broaden either broker.
+- The bundled gateway remains the routing source of truth, matching WF-ADR-0042.
 
 ## Run
 
