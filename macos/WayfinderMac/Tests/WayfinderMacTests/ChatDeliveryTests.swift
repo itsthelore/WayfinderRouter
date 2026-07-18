@@ -263,19 +263,20 @@ final class ChatDeliveryTests: XCTestCase {
         )
     }
 
-    func testGatewayHTTPErrorTypesPreserveStableChatCategoriesWithoutReflectingMessages() throws {
+    func testGatewayHTTPErrorTypesPreserveCanonicalChatCategoriesWithoutReflectingMessages() throws {
         for (status, type, expected) in [
-            (502, "wayfinder_router_turn_failed", WayfinderClientError.chatTurnFailed),
             (409, "wayfinder_router_interrupted", WayfinderClientError.chatTurnInterrupted),
             (409, "wayfinder_router_busy", WayfinderClientError.chatProviderBusy),
             (429, "wayfinder_router_usage_limited", WayfinderClientError.chatUsageLimitReached),
-            (503, "wayfinder_router_not_ready", WayfinderClientError.chatAccountNotReady),
         ] {
             let response = try XCTUnwrap(HTTPURLResponse(
                 url: URL(string: "http://127.0.0.1:8088/v1/chat/completions")!,
                 statusCode: status,
                 httpVersion: nil,
-                headerFields: ["X-Wayfinder-Router-Model": "chatgpt-sol"]
+                headerFields: [
+                    "Content-Type": "application/json; charset=utf-8",
+                    "X-Wayfinder-Router-Model": "chatgpt-sol",
+                ]
             ))
             let body = Data(
                 #"{"error":{"message":"private upstream detail","type":"\#(type)"}}"#.utf8
@@ -286,14 +287,37 @@ final class ChatDeliveryTests: XCTestCase {
             XCTAssertEqual(error, expected)
             XCTAssertFalse(error.localizedDescription.contains("private"))
         }
+
+        let notReady = try XCTUnwrap(HTTPURLResponse(
+            url: URL(string: "http://127.0.0.1:8088/v1/chat/completions")!,
+            statusCode: 503,
+            httpVersion: nil,
+            headerFields: [
+                "Content-Type": "application/json",
+                "X-Wayfinder-Router-Model": "chatgpt-sol",
+            ]
+        ))
+        let body = Data(
+            #"{"error":{"message":"private upstream detail","type":"wayfinder_router_not_ready"}}"#.utf8
+        )
+        let error = GatewayWayfinderClient.gatewayError(
+            for: notReady,
+            body: body,
+            isExplicitChatGPTDestination: true
+        )
+        XCTAssertEqual(error, .chatAccountNotReady)
+        XCTAssertFalse(error.localizedDescription.contains("private"))
     }
 
-    func testGatewayHTTPErrorTypeRejectsUnknownAndOversizedBodies() throws {
+    func testGatewayHTTPErrorTypeRejectsUnknownMismatchedAndOversizedBodies() throws {
         let response = try XCTUnwrap(HTTPURLResponse(
             url: URL(string: "http://127.0.0.1:8088/v1/chat/completions")!,
             statusCode: 409,
             httpVersion: nil,
-            headerFields: ["X-Wayfinder-Router-Model": "chatgpt-sol"]
+            headerFields: [
+                "Content-Type": "application/json",
+                "X-Wayfinder-Router-Model": "chatgpt-sol",
+            ]
         ))
         let fallback = WayfinderClientError.gatewayStatus(409, model: "chatgpt-sol")
         let unknown = Data(
@@ -301,7 +325,7 @@ final class ChatDeliveryTests: XCTestCase {
         )
         let oversized = Data(
             (#"{"error":{"type":"wayfinder_router_busy","padding":""#
-                + String(repeating: "x", count: 16_384)
+                + String(repeating: "x", count: GatewayWayfinderClient.maximumGatewayErrorBodyBytes)
                 + #""}}"#).utf8
         )
 
@@ -313,7 +337,109 @@ final class ChatDeliveryTests: XCTestCase {
             GatewayWayfinderClient.gatewayError(for: response, body: oversized),
             fallback
         )
+
+        for (status, type) in [
+            (500, "wayfinder_router_busy"),
+            (409, "wayfinder_router_usage_limited"),
+            (502, "wayfinder_router_turn_failed"),
+        ] {
+            let mismatch = try XCTUnwrap(HTTPURLResponse(
+                url: response.url!,
+                statusCode: status,
+                httpVersion: nil,
+                headerFields: [
+                    "Content-Type": "application/json",
+                    "X-Wayfinder-Router-Model": "chatgpt-sol",
+                ]
+            ))
+            let mismatchBody = Data(#"{"error":{"type":"\#(type)"}}"#.utf8)
+            XCTAssertEqual(
+                GatewayWayfinderClient.gatewayError(for: mismatch, body: mismatchBody),
+                .gatewayStatus(status, model: "chatgpt-sol")
+            )
+        }
+
+        let missingContentType = try XCTUnwrap(HTTPURLResponse(
+            url: response.url!,
+            statusCode: 409,
+            httpVersion: nil,
+            headerFields: ["X-Wayfinder-Router-Model": "chatgpt-sol"]
+        ))
+        let busy = Data(#"{"error":{"type":"wayfinder_router_busy"}}"#.utf8)
+        XCTAssertEqual(
+            GatewayWayfinderClient.gatewayError(for: missingContentType, body: busy),
+            fallback
+        )
         XCTAssertFalse(fallback.localizedDescription.contains("private"))
+    }
+
+    func testAppleNotReadyHTTPEnvelopeRemainsAnAppleGatewayFailure() throws {
+        let response = try XCTUnwrap(HTTPURLResponse(
+            url: URL(string: "http://127.0.0.1:8088/v1/chat/completions")!,
+            statusCode: 503,
+            httpVersion: nil,
+            headerFields: [
+                "Content-Type": "application/json",
+                "X-Wayfinder-Router-Model": "apple-local",
+            ]
+        ))
+        let body = Data(
+            #"{"error":{"message":"private native detail","type":"wayfinder_router_not_ready"}}"#.utf8
+        )
+
+        let error = GatewayWayfinderClient.gatewayError(for: response, body: body)
+
+        XCTAssertEqual(error, .gatewayStatus(503, model: "apple-local"))
+        XCTAssertTrue(error.localizedDescription.contains("Apple Foundation Models"))
+        XCTAssertFalse(error.localizedDescription.contains("private"))
+    }
+
+    func testRouteRejectsDeclaredOversizedGatewayBodiesBeforeDecoding() async throws {
+        for status in [200, 409] {
+            ChatURLProtocolStub.install { request in
+                let maximum = status == 200
+                    ? GatewayWayfinderClient.maximumBufferedGatewayResponseBytes
+                    : GatewayWayfinderClient.maximumGatewayErrorBodyBytes
+                let response = try XCTUnwrap(HTTPURLResponse(
+                    url: request.url!,
+                    statusCode: status,
+                    httpVersion: nil,
+                    headerFields: [
+                        "Content-Length": "\(maximum + 1)",
+                        "Content-Type": "application/json",
+                        "X-Wayfinder-Router-Model": "chatgpt-sol",
+                    ]
+                ))
+                return (
+                    response,
+                    Data(#"{"error":{"type":"wayfinder_router_busy"}}"#.utf8)
+                )
+            }
+            let configuration = URLSessionConfiguration.ephemeral
+            configuration.protocolClasses = [ChatURLProtocolStub.self]
+            let session = URLSession(configuration: configuration)
+            let client = GatewayWayfinderClient(
+                baseURL: URL(string: "http://127.0.0.1:8088")!,
+                session: session,
+                appleProductReadiness: { true }
+            )
+
+            do {
+                _ = try await client.route(prompt: "Hello")
+                XCTFail("A declared oversized gateway body must be rejected")
+            } catch {
+                if status == 200 {
+                    XCTAssertEqual(error as? WayfinderClientError, .gatewayResponseTooLarge)
+                } else {
+                    XCTAssertEqual(
+                        error as? WayfinderClientError,
+                        .gatewayStatus(409, model: "chatgpt-sol")
+                    )
+                }
+            }
+            session.invalidateAndCancel()
+            ChatURLProtocolStub.reset()
+        }
     }
 
     func testStreamingHTTPBusyEnvelopeIsPreservedEndToEnd() async throws {

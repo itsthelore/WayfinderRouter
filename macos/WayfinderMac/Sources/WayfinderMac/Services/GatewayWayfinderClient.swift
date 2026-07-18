@@ -32,9 +32,24 @@ public struct GatewayWayfinderClient: WayfinderClient {
         request.setValue("1", forHTTPHeaderField: "X-Wayfinder-Debug")
         request.httpBody = try JSONEncoder().encode(GatewayChatRequest(prompt: trimmed))
 
-        let (data, response) = try await session.data(for: request)
-        if let http = response as? HTTPURLResponse, !(200..<300).contains(http.statusCode) {
-            throw Self.gatewayError(for: http, body: data)
+        let (bytes, response) = try await session.bytes(for: request)
+        guard let http = response as? HTTPURLResponse else {
+            throw WayfinderClientError.gatewayResponseMissingDecision
+        }
+        if !(200..<300).contains(http.statusCode) {
+            let body = try await Self.boundedGatewayBody(
+                from: bytes,
+                response: http,
+                maximumBytes: Self.maximumGatewayErrorBodyBytes
+            )
+            throw Self.gatewayError(for: http, body: body)
+        }
+        guard let data = try await Self.boundedGatewayBody(
+            from: bytes,
+            response: http,
+            maximumBytes: Self.maximumBufferedGatewayResponseBytes
+        ) else {
+            throw WayfinderClientError.gatewayResponseTooLarge
         }
 
         let decoded = try JSONDecoder().decode(GatewayChatResponse.self, from: data)
@@ -76,8 +91,16 @@ public struct GatewayWayfinderClient: WayfinderClient {
                         throw WayfinderClientError.invalidChatStream
                     }
                     guard (200..<300).contains(http.statusCode) else {
-                        let body = try await Self.boundedGatewayErrorBody(from: bytes)
-                        throw Self.gatewayError(for: http, body: body)
+                        let body = try await Self.boundedGatewayBody(
+                            from: bytes,
+                            response: http,
+                            maximumBytes: Self.maximumGatewayErrorBodyBytes
+                        )
+                        throw Self.gatewayError(
+                            for: http,
+                            body: body,
+                            isExplicitChatGPTDestination: destination.isChatGPTAccount
+                        )
                     }
                     guard http.value(forHTTPHeaderField: "Content-Type")?.contains("text/event-stream") == true else {
                         throw WayfinderClientError.invalidChatStream
@@ -127,12 +150,18 @@ public struct GatewayWayfinderClient: WayfinderClient {
 
     static func gatewayError(
         for response: HTTPURLResponse,
-        body: Data? = nil
+        body: Data? = nil,
+        isExplicitChatGPTDestination: Bool = false
     ) -> WayfinderClientError {
         if let body,
+           responseHasJSONContentType(response),
            body.count <= maximumGatewayErrorBodyBytes,
            let envelope = try? JSONDecoder().decode(GatewayErrorEnvelope.self, from: body),
-           let error = mappedGatewayChatError(for: envelope.error.type) {
+           let error = mappedGatewayHTTPChatError(
+               status: response.statusCode,
+               type: envelope.error.type,
+               isExplicitChatGPTDestination: isExplicitChatGPTDestination
+           ) {
             return error
         }
         return .gatewayStatus(
@@ -141,21 +170,36 @@ public struct GatewayWayfinderClient: WayfinderClient {
         )
     }
 
-    private static let maximumGatewayErrorBodyBytes = 16_384
+    static let maximumBufferedGatewayResponseBytes = 1_048_576
+    static let maximumGatewayErrorBodyBytes = 16_384
 
-    private static func boundedGatewayErrorBody(
-        from bytes: URLSession.AsyncBytes
+    private static func boundedGatewayBody(
+        from bytes: URLSession.AsyncBytes,
+        response: HTTPURLResponse,
+        maximumBytes: Int
     ) async throws -> Data? {
+        guard response.expectedContentLength < 0
+                || response.expectedContentLength <= maximumBytes else {
+            return nil
+        }
         var body = Data()
-        body.reserveCapacity(maximumGatewayErrorBodyBytes)
+        body.reserveCapacity(min(max(Int(response.expectedContentLength), 0), maximumBytes))
         for try await byte in bytes {
             try Task.checkCancellation()
-            guard body.count < maximumGatewayErrorBodyBytes else {
+            guard body.count < maximumBytes else {
                 return nil
             }
             body.append(byte)
         }
         return body
+    }
+
+    private static func responseHasJSONContentType(_ response: HTTPURLResponse) -> Bool {
+        response.value(forHTTPHeaderField: "Content-Type")?
+            .split(separator: ";", maxSplits: 1)
+            .first?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased() == "application/json"
     }
 
     public func loadStats(range: StatsRange) async throws -> RoutingStats {
@@ -492,7 +536,7 @@ struct GatewayStreamDecoder {
         }
         let envelope = try JSONDecoder().decode(GatewayStreamEnvelope.self, from: data)
         if let error = envelope.error {
-            throw mappedGatewayChatError(for: error.type) ?? WayfinderClientError.invalidChatStream
+            throw mappedGatewaySSEChatError(for: error.type) ?? WayfinderClientError.invalidChatStream
         }
 
         var events: [ChatStreamEvent] = []
@@ -541,7 +585,7 @@ private struct GatewayStreamError: Decodable {
     let type: String?
 }
 
-private func mappedGatewayChatError(for type: String?) -> WayfinderClientError? {
+private func mappedGatewaySSEChatError(for type: String?) -> WayfinderClientError? {
     switch type {
     case "wayfinder_router_turn_failed":
         .chatTurnFailed
@@ -552,6 +596,25 @@ private func mappedGatewayChatError(for type: String?) -> WayfinderClientError? 
     case "wayfinder_router_usage_limited":
         .chatUsageLimitReached
     case "wayfinder_router_not_ready":
+        .chatAccountNotReady
+    default:
+        nil
+    }
+}
+
+private func mappedGatewayHTTPChatError(
+    status: Int,
+    type: String?,
+    isExplicitChatGPTDestination: Bool
+) -> WayfinderClientError? {
+    switch (status, type) {
+    case (409, "wayfinder_router_busy"):
+        .chatProviderBusy
+    case (409, "wayfinder_router_interrupted"):
+        .chatTurnInterrupted
+    case (429, "wayfinder_router_usage_limited"):
+        .chatUsageLimitReached
+    case (503, "wayfinder_router_not_ready") where isExplicitChatGPTDestination:
         .chatAccountNotReady
     default:
         nil
