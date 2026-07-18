@@ -24,34 +24,15 @@ public struct ChatComposerView: View {
     }
 
     public var body: some View {
-        VStack(spacing: 8) {
-            HStack(alignment: .center, spacing: 10) {
-                ZStack(alignment: .topLeading) {
-                    RoundedRectangle(cornerRadius: 11, style: .continuous)
-                        .fill(Color(nsColor: .textBackgroundColor).opacity(0.92))
-                        .overlay(
-                            RoundedRectangle(cornerRadius: 11, style: .continuous)
-                                .stroke(focused ? WayfinderTheme.local : WayfinderTheme.hairline, lineWidth: focused ? 1.35 : 1)
-                        )
-
-                    TextEditor(text: $draft)
-                        .font(.callout)
-                        .scrollContentBackground(.hidden)
-                        .padding(.horizontal, 7)
-                        .padding(.vertical, 5)
-                        .focused($focused)
-                        .frame(minHeight: 42, maxHeight: 68)
-
-                    if draft.isEmpty {
-                        Text("Message Wayfinder...")
-                            .font(.callout)
-                            .foregroundStyle(.tertiary)
-                            .padding(.horizontal, 13)
-                            .padding(.vertical, 13)
-                            .allowsHitTesting(false)
-                    }
-                }
-                .frame(height: 68)
+        VStack(spacing: 7) {
+            HStack(alignment: .bottom, spacing: 10) {
+                TextField("Message Wayfinder...", text: $draft, axis: .vertical)
+                    .textFieldStyle(.plain)
+                    .font(.body)
+                    .lineLimit(1...5)
+                    .padding(.horizontal, 3)
+                    .padding(.vertical, 6)
+                    .focused($focused)
 
                 Button(action: isSending ? onStop : onSend) {
                     Image(systemName: isSending ? "stop.fill" : "arrow.up")
@@ -67,9 +48,17 @@ public struct ChatComposerView: View {
                 .accessibilityHint(isSending ? "Stops the current model response." : "Routes this message through Wayfinder.")
                 .help(isSending ? "Stop response (Command-Period)" : "Send message (Command-Return)")
             }
+            .padding(.leading, 8)
+            .padding(.trailing, 10)
+            .padding(.vertical, 9)
+            .background(ChatWorkspaceChrome.composer, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+            .overlay(
+                RoundedRectangle(cornerRadius: 16, style: .continuous)
+                    .stroke(focused ? WayfinderTheme.local.opacity(0.8) : ChatWorkspaceChrome.border, lineWidth: focused ? 1.25 : 1)
+            )
 
             HStack {
-                Label("Messages route through your local Wayfinder gateway", systemImage: "checkmark.shield")
+                Label("Routes through your local gateway", systemImage: "checkmark.shield")
                     .font(.caption2)
                     .foregroundStyle(.secondary)
                 Spacer()
@@ -77,10 +66,14 @@ public struct ChatComposerView: View {
                     .font(.caption2)
                     .foregroundStyle(.tertiary)
             }
+            .padding(.horizontal, 4)
         }
-        .padding(.horizontal, 18)
-        .padding(.vertical, 12)
-        .background(.bar)
+        .frame(maxWidth: ChatWorkspaceChrome.composerWidth)
+        .padding(.horizontal, 34)
+        .padding(.top, 10)
+        .padding(.bottom, 16)
+        .frame(maxWidth: .infinity)
+        .background(ChatWorkspaceChrome.canvas)
         .onAppear {
             focused = true
         }

@@ -12,8 +12,8 @@ final class ChatWindowController {
         let window = NSWindow(contentViewController: hostingController)
         window.title = "Wayfinder Chat"
         window.styleMask = [.titled, .closable, .miniaturizable, .resizable]
-        window.setContentSize(NSSize(width: 1_080, height: 720))
-        window.contentMinSize = NSSize(width: 920, height: 620)
+        window.setContentSize(NSSize(width: 1_180, height: 760))
+        window.contentMinSize = NSSize(width: 1_040, height: 620)
         window.isReleasedWhenClosed = false
         let frameName = NSWindow.FrameAutosaveName("Wayfinder.Chat")
         if !window.setFrameUsingName(frameName) {

@@ -4,6 +4,7 @@ enum ChatWorkspaceChrome {
     static let sidebar = Color(nsColor: .underPageBackgroundColor)
     static let canvas = Color(nsColor: .windowBackgroundColor)
     static let panel = Color(nsColor: .controlBackgroundColor)
+    static let composer = Color(nsColor: .textBackgroundColor)
     static let panelRaised = Color(nsColor: .unemphasizedSelectedContentBackgroundColor)
     static let border = Color(nsColor: .separatorColor).opacity(0.7)
     static let rowHover = Color.primary.opacity(0.06)
@@ -11,6 +12,11 @@ enum ChatWorkspaceChrome {
     static let tertiaryText = Color(nsColor: .tertiaryLabelColor)
     static let mutedFill = Color.primary.opacity(0.045)
     static let selectedFill = Color(nsColor: .unemphasizedSelectedContentBackgroundColor)
+
+    static let sidebarWidth: CGFloat = 232
+    static let inspectorWidth: CGFloat = 320
+    static let conversationWidth: CGFloat = 760
+    static let composerWidth: CGFloat = 780
 }
 
 public enum ChatRouteFilter: String, CaseIterable, Identifiable {
