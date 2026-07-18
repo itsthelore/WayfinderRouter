@@ -94,6 +94,23 @@ final class CodexAccountSettingsStateTests: XCTestCase {
         XCTAssertEqual(state.state, .connected(profile: profile, models: []))
         XCTAssertEqual(state.modelCatalogError, "Connected, but the model catalog could not be loaded.")
     }
+
+    @MainActor
+    func testSuccessfulAccountTransitionsNotifyTheSharedGatewayState() async {
+        let client = ScriptedCodexAccountClient(accountResponse: .signedOut)
+        var refreshCount = 0
+        let state = CodexAccountSettingsState(
+            client: client,
+            automaticallyPollLogin: false,
+            onAccountStateChanged: { refreshCount += 1 }
+        )
+
+        await state.refresh()
+        XCTAssertEqual(refreshCount, 1)
+
+        await state.signOut()
+        XCTAssertEqual(refreshCount, 2)
+    }
 }
 
 private actor ScriptedCodexAccountClient: CodexAccountClient {
