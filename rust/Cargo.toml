@@ -8,6 +8,7 @@ members = [
     "crates/wayfinder-service",
     "crates/wayfinder-macos-xpc",
     "crates/wayfinder-apple-foundation-xpc",
+    "crates/wayfinder-codex-app-server",
     "crates/wayfinder-cli",
     "crates/wayfinder-compat-tests",
 ]
