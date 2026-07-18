@@ -110,7 +110,9 @@ honest statement of our posture is an app that *provably does less*.
    bundled gateway's OpenAI-compatible endpoint, renders the authoritative assistant reply and
    routing decision, supports streaming cancellation and recovery, and never scores, contacts a
    provider directly, or stores a credential. The routing decision remains the product-specific
-   signature element and is inspectable for every completed turn.
+   signature element and is inspectable for every completed turn. In the native window, detailed
+   routing metadata belongs to the persistent right inspector; the chronological transcript keeps
+   only a quiet receipt that selects that inspector.
 
 ## Consequences
 
@@ -118,8 +120,8 @@ honest statement of our posture is an app that *provably does less*.
 
 - The decision core and key discipline survive contact with a GUI: the app *cannot* drift into a
   second router because it has no scoring path (except the parity-gated mirror) and no key storage.
-- Ambient, glanceable proof that routing works — the product story WF-ROADMAP-0007 wants — while
-  deferring the unfinished Chat surface beyond native v1.
+- Ambient, glanceable proof that routing works in the popover, with focused Chat shipping as a
+  separate native v0.1.0 window rather than competing for the same compact surface.
 - The distribution craft (signing, updater, RC train) is inherited from a studied reference instead
   of discovered by trial and error.
 

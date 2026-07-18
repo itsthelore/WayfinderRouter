@@ -9,19 +9,24 @@ details, release history over commit history.
 ### Added
 
 - **Wayfinder Desktop v0.1.0 Chat** (WF-ADR-0042, WF-ROADMAP-0012). The native macOS app now
-  includes a dedicated Chat window that streams replies through the bundled Rust gateway and shows
-  the authoritative routing decision for each completed turn. Conversations remain in memory for
-  this release; Stop, Retry, New Chat, bounded request history, and actionable delivery failures are
-  included. The app uses its own SemVer release line (`0.1.0`) while the bundled router retains its
-  existing CalVer identity when built and distributed independently; the router embedded in the
-  desktop bundle reports the desktop product version.
+  includes a dedicated, thread-first Chat window that streams replies through the bundled Rust
+  gateway. The complete conversation stays central while the authoritative provider, mode, score,
+  explanation, and routing signals live in a persistent, collapsible inspector on the right.
+  Navigator filters never remove messages from the transcript. Conversations remain in memory for
+  this release; Stop, contextual Retry, New Chat, bounded request history, and actionable delivery
+  failures are included. The app uses its own SemVer release line (`0.1.0`) while the bundled router
+  retains its existing CalVer identity when built and distributed independently; the router
+  embedded in the desktop bundle reports the desktop product version.
 
 - **Apple Foundation Models availability contract** (WF-DESIGN-0017). The native macOS package now
   capability-detects `SystemLanguageModel.default` on macOS 26 and distinguishes available,
   device-ineligible, Apple Intelligence disabled, model-not-ready, unsupported, and sanitized
-  unavailable states through a bounded versioned protocol. This is contract groundwork only: it
-  does not yet add model delivery or change the preferred local provider, and existing Ollama/manual
-  local configuration remains unchanged.
+  unavailable states through a bounded versioned protocol. Availability alone does not change the
+  preferred local provider, and existing Ollama/manual local configuration remains unchanged.
+
+- **Apple Foundation Models delivery boundary** (WF-ROADMAP-0014). Eligible `apple-local` requests
+  use a separate authenticated, bounded inference XPC service inside the native bundle. Delivery is
+  capability-gated; it does not make Apple the preferred default or broaden the credential broker.
 
 - **Decision-only replies when no model is configured** (WF-ADR-0042). A running gateway with no
   `[gateway.models]` now answers `/v1/chat/completions` with the routing **decision** (HTTP 200,
