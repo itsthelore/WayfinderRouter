@@ -4,38 +4,47 @@ public struct ChatConversationView: View {
     let turns: [ChatTurn]
     let hasHistory: Bool
     @Binding var selectedDecisionID: UUID?
+    let onOpenDecision: (RoutingDecision) -> Void
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
-    public init(turns: [ChatTurn], hasHistory: Bool, selectedDecisionID: Binding<UUID?>) {
+    public init(
+        turns: [ChatTurn],
+        hasHistory: Bool,
+        selectedDecisionID: Binding<UUID?>,
+        onOpenDecision: @escaping (RoutingDecision) -> Void = { _ in }
+    ) {
         self.turns = turns
         self.hasHistory = hasHistory
         self._selectedDecisionID = selectedDecisionID
+        self.onOpenDecision = onOpenDecision
     }
 
     public var body: some View {
         ScrollViewReader { proxy in
             ScrollView {
-                LazyVStack(alignment: .leading, spacing: 10) {
+                LazyVStack(alignment: .leading, spacing: 28) {
                     if turns.isEmpty {
                         EmptyFilteredHistory(hasHistory: hasHistory)
-                            .padding(.top, 120)
+                            .padding(.top, 112)
                     } else {
-                        HistoryDateDivider()
-
                         ForEach(Array(turns.enumerated()), id: \.element.id) { index, turn in
                             ChatTurnHistoryRow(
                                 turn: turn,
                                 isLast: index == turns.count - 1,
                                 selectedDecisionID: selectedDecisionID,
-                                onSelectDecision: { selectedDecisionID = $0.id }
+                                onSelectDecision: { decision in
+                                    selectedDecisionID = decision.id
+                                    onOpenDecision(decision)
+                                }
                             )
                                 .id(turn.id)
                         }
                     }
                 }
-                .frame(maxWidth: 820, alignment: .leading)
-                .padding(.horizontal, 28)
-                .padding(.vertical, 22)
+                .frame(maxWidth: ChatWorkspaceChrome.conversationWidth, alignment: .leading)
+                .padding(.horizontal, 36)
+                .padding(.top, 34)
+                .padding(.bottom, 28)
                 .frame(maxWidth: .infinity, alignment: .center)
             }
             .onChange(of: scrollRevision) {
@@ -61,34 +70,21 @@ public struct ChatConversationView: View {
     }
 }
 
-private struct HistoryDateDivider: View {
-    var body: some View {
-        HStack(spacing: 10) {
-            Text("Today")
-                .font(.caption.weight(.semibold))
-                .foregroundStyle(ChatWorkspaceChrome.secondaryText)
-            Rectangle()
-                .fill(ChatWorkspaceChrome.border)
-                .frame(height: 1)
-        }
-        .padding(.leading, 42)
-        .padding(.bottom, 4)
-    }
-}
-
 private struct EmptyFilteredHistory: View {
     let hasHistory: Bool
 
     var body: some View {
-        VStack(spacing: 10) {
-            Image(systemName: "line.3.horizontal.decrease.circle")
-                .font(.title2)
-                .foregroundStyle(ChatWorkspaceChrome.secondaryText)
+        VStack(spacing: 12) {
+            Image(systemName: hasHistory ? "line.3.horizontal.decrease.circle" : "point.topleft.down.curvedto.point.bottomright.up")
+                .font(.system(size: 24, weight: .medium))
+                .foregroundStyle(hasHistory ? ChatWorkspaceChrome.secondaryText : WayfinderTheme.local)
             Text(hasHistory ? "No matching conversations" : "Start a conversation")
-                .font(.headline)
-            Text(hasHistory ? "Adjust the search or route filter to show history." : "Send a message below. Wayfinder will show the reply and its route.")
+                .font(.title3.weight(.semibold))
+            Text(hasHistory ? "Adjust the search or route filter to show this chat's turns." : "Ask anything. Wayfinder will choose a configured model and show you the route it took.")
                 .font(.callout)
                 .foregroundStyle(.secondary)
+                .multilineTextAlignment(.center)
+                .frame(maxWidth: 420)
         }
         .frame(maxWidth: .infinity)
     }

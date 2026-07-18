@@ -23,29 +23,22 @@ public struct ChatSidebarView: View {
 
     public var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            SidebarHeader(turns: turns)
+            SidebarHeader()
 
             SearchField(text: $searchText)
-                .padding(.horizontal, 16)
-                .padding(.bottom, 12)
-
-            RouteFilterPicker(selected: $routeFilter, turns: turns)
-                .padding(.horizontal, 16)
-                .padding(.bottom, 16)
+                .padding(.horizontal, 12)
+                .padding(.bottom, 14)
 
             HStack {
-                Text("History")
+                Text("Turns")
                     .font(.caption2.weight(.semibold))
                     .textCase(.uppercase)
                     .tracking(0.7)
                     .foregroundStyle(ChatWorkspaceChrome.tertiaryText)
                 Spacer()
-                Text("\(visibleTurns.count)")
-                    .font(.caption.monospacedDigit())
-                    .foregroundStyle(ChatWorkspaceChrome.tertiaryText)
+                RouteFilterMenu(selected: $routeFilter, turns: turns)
             }
-            .padding(.horizontal, 18)
-            .padding(.top, 8)
+            .padding(.horizontal, 14)
             .padding(.bottom, 8)
 
             ScrollView {
@@ -73,71 +66,31 @@ public struct ChatSidebarView: View {
 
             SidebarStatusFooter(turns: turns)
         }
-        .frame(width: 252)
+        .frame(width: ChatWorkspaceChrome.sidebarWidth)
         .background(ChatWorkspaceChrome.sidebar)
     }
 }
 
 private struct SidebarHeader: View {
-    let turns: [ChatTurn]
-
     var body: some View {
-        VStack(alignment: .leading, spacing: 14) {
-            HStack(spacing: 10) {
-                ZStack {
-                    RoundedRectangle(cornerRadius: 9, style: .continuous)
-                        .fill(WayfinderTheme.local.opacity(0.13))
-                    Image(systemName: "point.topleft.down.curvedto.point.bottomright.up")
-                        .foregroundStyle(WayfinderTheme.local)
-                        .font(.system(size: 15, weight: .semibold))
-                }
-                .frame(width: 30, height: 30)
-
-                VStack(alignment: .leading, spacing: 1) {
-                    Text("Wayfinder")
-                        .font(.headline.weight(.semibold))
-                    Text("In-memory conversation")
-                        .font(.caption)
-                        .foregroundStyle(ChatWorkspaceChrome.secondaryText)
-                }
+        VStack(alignment: .leading, spacing: 5) {
+            HStack {
+                Text("Wayfinder")
+                    .font(.headline.weight(.semibold))
                 Spacer()
+                Image(systemName: "point.topleft.down.curvedto.point.bottomright.up")
+                    .foregroundStyle(WayfinderTheme.local)
+                    .font(.system(size: 14, weight: .semibold))
             }
-
-            HStack(spacing: 12) {
-                SidebarMetric(value: "\(turns.decisions.count)", label: "routed")
-                SidebarMetric(value: localShareText, label: "local")
-            }
+            Text("In-memory chat")
+                .font(.caption)
+                .foregroundStyle(ChatWorkspaceChrome.secondaryText)
         }
-        .padding(.horizontal, 18)
-        .padding(.top, 18)
-        .padding(.bottom, 16)
+        .padding(.horizontal, 14)
+        .padding(.top, 15)
+        .padding(.bottom, 14)
     }
 
-    private var localShareText: String {
-        let decisions = turns.decisions
-        guard !decisions.isEmpty else {
-            return "0%"
-        }
-        let local = decisions.filter { $0.route == .local }.count
-        return (Double(local) / Double(decisions.count)).percentText
-    }
-}
-
-private struct SidebarMetric: View {
-    let value: String
-    let label: String
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 1) {
-            Text(value)
-                .font(.callout.monospacedDigit().weight(.semibold))
-                .foregroundStyle(.primary)
-            Text(label)
-                .font(.caption2)
-                .foregroundStyle(ChatWorkspaceChrome.tertiaryText)
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-    }
 }
 
 private struct SearchField: View {
@@ -170,31 +123,30 @@ private struct SearchField: View {
     }
 }
 
-private struct RouteFilterPicker: View {
+private struct RouteFilterMenu: View {
     @Binding var selected: ChatRouteFilter
     let turns: [ChatTurn]
 
     var body: some View {
-        HStack(spacing: 6) {
+        Menu {
             ForEach(ChatRouteFilter.allCases) { filter in
                 Button {
                     selected = filter
                 } label: {
-                    VStack(spacing: 2) {
-                        Text(filter.rawValue)
-                            .font(.caption2.weight(.semibold))
-                        Text("\(count(for: filter))")
-                            .font(.caption2.monospacedDigit())
-                            .foregroundStyle(ChatWorkspaceChrome.secondaryText)
-                    }
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, 7)
-                    .background(selected == filter ? ChatWorkspaceChrome.selectedFill : ChatWorkspaceChrome.mutedFill, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+                    Text("\(filter.rawValue) (\(count(for: filter)))")
                 }
-                .buttonStyle(.plain)
-                .foregroundStyle(selected == filter ? .primary : ChatWorkspaceChrome.secondaryText)
             }
+        } label: {
+            HStack(spacing: 4) {
+                Text(selected.rawValue)
+                Text("\(count(for: selected))")
+                    .monospacedDigit()
+            }
+            .font(.caption2)
+            .foregroundStyle(ChatWorkspaceChrome.secondaryText)
         }
+        .menuStyle(.borderlessButton)
+        .fixedSize()
     }
 
     private func count(for filter: ChatRouteFilter) -> Int {
@@ -210,16 +162,25 @@ private struct SidebarStatusFooter: View {
             Divider()
                 .overlay(ChatWorkspaceChrome.border)
             HStack {
-                Label("Routing", systemImage: "checkmark.shield")
-                    .font(.caption)
+                Label("\(turns.decisions.count) routed", systemImage: "checkmark.shield")
+                    .font(.caption2)
                 Spacer()
-                Text("deterministic")
+                Text(localShareText)
                     .font(.caption2.monospacedDigit().weight(.semibold))
-                    .foregroundStyle(WayfinderTheme.local)
+                    .foregroundStyle(turns.decisions.isEmpty ? ChatWorkspaceChrome.tertiaryText : WayfinderTheme.local)
             }
         }
         .foregroundStyle(ChatWorkspaceChrome.secondaryText)
         .padding(18)
+    }
+
+    private var localShareText: String {
+        let decisions = turns.decisions
+        guard !decisions.isEmpty else {
+            return "In memory"
+        }
+        let local = decisions.filter { $0.route == .local }.count
+        return "\((Double(local) / Double(decisions.count)).percentText) local"
     }
 
 }
@@ -250,20 +211,12 @@ private struct SidebarTurnRow: View {
                 Spacer(minLength: 4)
             }
             .font(.caption)
-            .padding(.horizontal, 10)
-            .padding(.vertical, 9)
-            .background(selected ? ChatWorkspaceChrome.selectedFill : Color.clear, in: RoundedRectangle(cornerRadius: 9, style: .continuous))
-            .overlay(alignment: .leading) {
-                if selected {
-                    RoundedRectangle(cornerRadius: 2, style: .continuous)
-                        .fill(turn.response?.decision?.route.accentColor ?? WayfinderTheme.local)
-                        .frame(width: 3)
-                        .padding(.vertical, 8)
-                }
-            }
+            .padding(.horizontal, 9)
+            .padding(.vertical, 8)
+            .background(selected ? ChatWorkspaceChrome.selectedFill : Color.clear, in: RoundedRectangle(cornerRadius: 7, style: .continuous))
         }
         .buttonStyle(.plain)
-        .padding(.horizontal, 12)
+        .padding(.horizontal, 7)
     }
 }
 
@@ -271,15 +224,19 @@ private struct SidebarEmptyState: View {
     let hasHistory: Bool
 
     var body: some View {
-        VStack(spacing: 7) {
-            Image(systemName: "magnifyingglass")
-                .font(.callout)
-                .foregroundStyle(ChatWorkspaceChrome.tertiaryText)
-            Text(hasHistory ? "No messages found" : "No messages yet")
+        VStack(spacing: 6) {
+            if hasHistory {
+                Image(systemName: "magnifyingglass")
+                    .font(.callout)
+                    .foregroundStyle(ChatWorkspaceChrome.tertiaryText)
+            }
+            Text(hasHistory ? "No turns found" : "No turns yet")
                 .font(.caption.weight(.medium))
-            Text(hasHistory ? "Try another search or filter." : "Send a message to start this Chat.")
-                .font(.caption2)
-                .foregroundStyle(ChatWorkspaceChrome.tertiaryText)
+            if hasHistory {
+                Text("Try another search or filter.")
+                    .font(.caption2)
+                    .foregroundStyle(ChatWorkspaceChrome.tertiaryText)
+            }
         }
         .frame(maxWidth: .infinity)
         .padding(.horizontal, 18)

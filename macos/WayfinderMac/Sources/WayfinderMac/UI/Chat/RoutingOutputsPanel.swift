@@ -3,15 +3,17 @@ import SwiftUI
 public struct RoutingOutputsPanel: View {
     let decision: RoutingDecision?
     let turn: ChatTurn?
+    let onClose: () -> Void
 
-    public init(decision: RoutingDecision?, turn: ChatTurn?) {
+    public init(decision: RoutingDecision?, turn: ChatTurn?, onClose: @escaping () -> Void = {}) {
         self.decision = decision
         self.turn = turn
+        self.onClose = onClose
     }
 
     public var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            InspectorHeader()
+            InspectorHeader(onClose: onClose)
                 .padding(.horizontal, 20)
                 .padding(.top, 18)
                 .padding(.bottom, 16)
@@ -40,25 +42,33 @@ public struct RoutingOutputsPanel: View {
 
             Spacer(minLength: 0)
         }
-        .frame(width: 336)
+        .frame(width: ChatWorkspaceChrome.inspectorWidth)
         .background(ChatWorkspaceChrome.panel)
     }
 }
 
 private struct InspectorHeader: View {
+    let onClose: () -> Void
+
     var body: some View {
         HStack(spacing: 10) {
             Image(systemName: "sidebar.right")
                 .font(.system(size: 15, weight: .semibold))
                 .foregroundStyle(ChatWorkspaceChrome.secondaryText)
             VStack(alignment: .leading, spacing: 2) {
-                Text("Outputs")
+                Text("Route")
                     .font(.headline.weight(.semibold))
-                Text("Selected route details")
+                Text("Selected decision")
                     .font(.caption)
                     .foregroundStyle(ChatWorkspaceChrome.secondaryText)
             }
             Spacer()
+            Button(action: onClose) {
+                Image(systemName: "xmark")
+            }
+            .buttonStyle(.borderless)
+            .controlSize(.small)
+            .help("Close route details")
         }
     }
 }

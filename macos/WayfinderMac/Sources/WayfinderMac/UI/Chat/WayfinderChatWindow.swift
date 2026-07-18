@@ -5,6 +5,8 @@ public struct WayfinderChatWindow: View {
     @State private var selectedDecisionID: UUID?
     @State private var routeFilter: ChatRouteFilter = .all
     @State private var searchText = ""
+    @State private var showsSidebar = true
+    @State private var showsInspector = false
 
     public init() {}
 
@@ -13,23 +15,29 @@ public struct WayfinderChatWindow: View {
         let visibleTurns = turns.filtered(by: routeFilter, searchText: searchText)
 
         HStack(spacing: 0) {
-            ChatSidebarView(
-                turns: turns,
-                visibleTurns: visibleTurns,
-                selectedDecisionID: $selectedDecisionID,
-                routeFilter: $routeFilter,
-                searchText: $searchText
-            )
+            if showsSidebar {
+                ChatSidebarView(
+                    turns: turns,
+                    visibleTurns: visibleTurns,
+                    selectedDecisionID: $selectedDecisionID,
+                    routeFilter: $routeFilter,
+                    searchText: $searchText
+                )
 
-            Divider()
+                Divider()
+            }
 
             VStack(spacing: 0) {
                 ChatToolbar(
+                    title: chatTitle(in: turns),
                     turnCount: routedTurnCount,
                     visibleCount: visibleTurns.count,
                     selectedDecision: selectedDecision(in: turns),
                     routeFilter: routeFilter,
-                    onSelectLatest: { selectLatestDecision(in: visibleTurns) },
+                    showsSidebar: showsSidebar,
+                    showsInspector: showsInspector,
+                    onToggleSidebar: { showsSidebar.toggle() },
+                    onToggleInspector: { showsInspector.toggle() },
                     canRetry: appState.canRetryChat,
                     canClear: appState.canClearChat,
                     onRetry: appState.retryLastChatTurn,
@@ -39,9 +47,12 @@ public struct WayfinderChatWindow: View {
                 ChatConversationView(
                     turns: visibleTurns,
                     hasHistory: !turns.isEmpty,
-                    selectedDecisionID: $selectedDecisionID
+                    selectedDecisionID: $selectedDecisionID,
+                    onOpenDecision: { decision in
+                        selectedDecisionID = decision.id
+                        showsInspector = true
+                    }
                 )
-                Divider()
                 ChatComposerView(
                     draft: $appState.chatDraft,
                     isSending: appState.isSendingMessage,
@@ -52,14 +63,16 @@ public struct WayfinderChatWindow: View {
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
 
-            if let decision = selectedDecision(in: turns) {
+            if showsInspector, let decision = selectedDecision(in: turns) {
+                Divider()
                 RoutingOutputsPanel(
                     decision: decision,
-                    turn: selectedTurn(in: turns)
+                    turn: selectedTurn(in: turns),
+                    onClose: { showsInspector = false }
                 )
             }
         }
-        .frame(minWidth: 920, minHeight: 620)
+        .frame(minWidth: 1_040, minHeight: 620)
         .background(ChatWorkspaceChrome.canvas)
         .onAppear {
             selectedDecisionID = selectedDecisionID ?? latestDecision(in: turns)?.id
@@ -84,8 +97,12 @@ public struct WayfinderChatWindow: View {
         appState.chatMessages.filter { $0.role == .assistant && $0.decision != nil }.count
     }
 
-    private func selectLatestDecision(in turns: [ChatTurn]) {
-        selectedDecisionID = latestDecision(in: turns)?.id
+    private func chatTitle(in turns: [ChatTurn]) -> String {
+        guard let firstPrompt = turns.first?.prompt.text,
+              !firstPrompt.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            return "New chat"
+        }
+        return firstPrompt
     }
 
     private func selectValidDecision(in turns: [ChatTurn]) {
@@ -117,22 +134,32 @@ public struct WayfinderChatWindow: View {
 }
 
 private struct ChatToolbar: View {
+    let title: String
     let turnCount: Int
     let visibleCount: Int
     let selectedDecision: RoutingDecision?
     let routeFilter: ChatRouteFilter
-    let onSelectLatest: () -> Void
+    let showsSidebar: Bool
+    let showsInspector: Bool
+    let onToggleSidebar: () -> Void
+    let onToggleInspector: () -> Void
     let canRetry: Bool
     let canClear: Bool
     let onRetry: () -> Void
     let onClear: () -> Void
 
     var body: some View {
-        HStack(spacing: 14) {
+        HStack(spacing: 12) {
+            Button(action: onToggleSidebar) {
+                Image(systemName: "sidebar.left")
+            }
+            .help(showsSidebar ? "Hide turn navigator" : "Show turn navigator")
+
             VStack(alignment: .leading, spacing: 4) {
                 HStack(spacing: 8) {
-                    Text("Chat")
-                        .font(.title3.weight(.semibold))
+                    Text(title)
+                        .font(.headline.weight(.semibold))
+                        .lineLimit(1)
                     if let selectedDecision {
                         Text(selectedDecision.routeSummary)
                             .font(.caption.weight(.semibold))
@@ -149,28 +176,26 @@ private struct ChatToolbar: View {
             Spacer()
             if canRetry {
                 Button(action: onRetry) {
-                    Label("Retry", systemImage: "arrow.clockwise")
+                    Image(systemName: "arrow.clockwise")
                 }
-                .buttonStyle(.bordered)
-                .controlSize(.small)
+                .help("Retry the last response")
             }
-            Button(action: onSelectLatest) {
-                Label("Latest", systemImage: "clock.arrow.circlepath")
+            Button(action: onToggleInspector) {
+                Image(systemName: "sidebar.right")
+                    .symbolVariant(showsInspector ? .fill : .none)
             }
-            .buttonStyle(.bordered)
-            .controlSize(.small)
-            .help("Select the latest visible routed turn")
+            .disabled(selectedDecision == nil)
+            .help(showsInspector ? "Hide route details" : "Show route details")
             Button(action: onClear) {
-                Label("New Chat", systemImage: "square.and.pencil")
+                Image(systemName: "square.and.pencil")
             }
-            .buttonStyle(.bordered)
-            .controlSize(.small)
             .disabled(!canClear)
             .help("Clear this in-memory conversation")
         }
         .buttonStyle(.borderless)
-        .padding(.horizontal, 22)
-        .padding(.vertical, 15)
+        .controlSize(.small)
+        .padding(.horizontal, 18)
+        .frame(height: 54)
         .background(ChatWorkspaceChrome.canvas)
     }
 

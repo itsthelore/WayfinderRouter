@@ -19,72 +19,40 @@ public struct ChatTurnHistoryRow: View {
     }
 
     public var body: some View {
-        HStack(alignment: .top, spacing: 12) {
-            timelineMarker
-                .padding(.top, 4)
+        VStack(alignment: .leading, spacing: 16) {
+            promptBubble
 
-            VStack(alignment: .leading, spacing: 8) {
-                promptHeader
-
-                if let response = turn.response {
-                    AssistantTurnResponse(
-                        response: response,
-                        selectedDecisionID: selectedDecisionID,
-                        onSelectDecision: onSelectDecision
-                    )
-                } else {
-                    PendingRouteStrip()
-                }
+            if let response = turn.response {
+                AssistantTurnResponse(
+                    response: response,
+                    selectedDecisionID: selectedDecisionID,
+                    onSelectDecision: onSelectDecision
+                )
+            } else {
+                PendingRouteStrip()
             }
-            .padding(.bottom, isLast ? 4 : 18)
         }
+        .padding(.bottom, isLast ? 2 : 8)
     }
 
-    private var promptHeader: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            HStack(alignment: .firstTextBaseline, spacing: 8) {
-                Text("Prompt")
-                    .font(.caption2.weight(.semibold))
-                    .textCase(.uppercase)
-                    .tracking(0.7)
-                    .foregroundStyle(ChatWorkspaceChrome.tertiaryText)
-
-                Spacer(minLength: 14)
+    private var promptBubble: some View {
+        HStack(alignment: .bottom, spacing: 10) {
+            Spacer(minLength: 72)
+            VStack(alignment: .trailing, spacing: 6) {
+            Text(turn.prompt.text)
+                    .font(.body)
+                .foregroundStyle(.primary)
+                .fixedSize(horizontal: false, vertical: true)
+                    .textSelection(.enabled)
 
                 Text(turn.prompt.createdAt.formatted(date: .omitted, time: .shortened))
-                    .font(.caption.monospacedDigit())
+                    .font(.caption2.monospacedDigit())
                     .foregroundStyle(ChatWorkspaceChrome.tertiaryText)
             }
-
-            Text(turn.prompt.text)
-                .font(.callout.weight(.semibold))
-                .foregroundStyle(.primary)
-                .lineLimit(4)
-                .fixedSize(horizontal: false, vertical: true)
+            .padding(.horizontal, 14)
+            .padding(.vertical, 11)
+            .background(ChatWorkspaceChrome.mutedFill, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
         }
-        .padding(.top, 2)
-    }
-
-    private var timelineMarker: some View {
-        VStack(spacing: 6) {
-            ZStack {
-                Circle()
-                    .fill((turn.response?.decision?.route.accentColor ?? Color.secondary).opacity(0.12))
-                    .frame(width: 18, height: 18)
-                Circle()
-                    .fill(turn.response?.decision?.route.accentColor ?? Color.secondary.opacity(0.45))
-                    .frame(width: 7, height: 7)
-            }
-
-            if !isLast {
-                Rectangle()
-                    .fill(WayfinderTheme.hairline)
-                    .frame(width: 1)
-                    .frame(maxHeight: .infinity)
-            }
-        }
-        .frame(width: 24)
-        .frame(minHeight: 118)
     }
 }
 
@@ -94,53 +62,59 @@ private struct AssistantTurnResponse: View {
     let onSelectDecision: (RoutingDecision) -> Void
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            if !response.text.isEmpty {
-                Text(response.text)
-                    .font(.body)
-                    .foregroundStyle(response.state == .failed ? .secondary : .primary)
-                    .fixedSize(horizontal: false, vertical: true)
-                    .textSelection(.enabled)
+        HStack(alignment: .top, spacing: 12) {
+            ZStack {
+                Circle()
+                    .fill((response.decision?.route.accentColor ?? WayfinderTheme.local).opacity(0.13))
+                Image(systemName: "point.topleft.down.curvedto.point.bottomright.up")
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundStyle(response.decision?.route.accentColor ?? WayfinderTheme.local)
             }
+            .frame(width: 28, height: 28)
+            .accessibilityHidden(true)
 
-            switch response.state {
-            case .streaming:
-                HStack(spacing: 8) {
-                    ProgressView().controlSize(.small)
-                    Text("Responding")
+            VStack(alignment: .leading, spacing: 12) {
+                if !response.text.isEmpty {
+                    Text(response.text)
+                        .font(.body)
+                        .foregroundStyle(response.state == .failed ? .secondary : .primary)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .textSelection(.enabled)
                 }
-                .font(.caption)
-                .foregroundStyle(.secondary)
-            case .failed:
-                HStack(spacing: 10) {
-                    StatusStrip(title: "Chat failed", symbol: "exclamationmark.triangle.fill", color: .red)
-                    Spacer(minLength: 12)
-                    Button("Open Settings") {
-                        NotificationCenter.default.post(name: .wayfinderOpenSettings, object: nil)
+
+                switch response.state {
+                case .streaming:
+                    HStack(spacing: 8) {
+                        ProgressView().controlSize(.small)
+                        Text("Responding")
                     }
-                    .controlSize(.small)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                case .failed:
+                    HStack(spacing: 10) {
+                        StatusStrip(title: "Chat failed", symbol: "exclamationmark.triangle.fill", color: .red)
+                        Button("Open Settings") {
+                            NotificationCenter.default.post(name: .wayfinderOpenSettings, object: nil)
+                        }
+                        .buttonStyle(.link)
+                        .controlSize(.small)
+                    }
+                case .stopped:
+                    StatusStrip(title: "Response stopped", symbol: "stop.circle", color: .secondary)
+                case .complete:
+                    EmptyView()
                 }
-            case .stopped:
-                StatusStrip(title: "Response stopped", symbol: "stop.circle", color: .secondary)
-            case .complete:
-                EmptyView()
-            }
 
-            if let decision = response.decision {
-                RoutingResponseCard(
-                    decision: decision,
-                    isSelected: decision.id == selectedDecisionID,
-                    onSelect: { onSelectDecision(decision) }
-                )
+                if let decision = response.decision {
+                    RoutingResponseCard(
+                        decision: decision,
+                        isSelected: decision.id == selectedDecisionID,
+                        onSelect: { onSelectDecision(decision) }
+                    )
+                }
             }
+            .frame(maxWidth: .infinity, alignment: .leading)
         }
-        .padding(14)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(ChatWorkspaceChrome.panel, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
-        .overlay(
-            RoundedRectangle(cornerRadius: 10, style: .continuous)
-                .stroke(response.state == .failed ? Color.red.opacity(0.22) : ChatWorkspaceChrome.border, lineWidth: 1)
-        )
     }
 }
 
@@ -159,15 +133,17 @@ private struct StatusStrip: View {
 private struct PendingRouteStrip: View {
     var body: some View {
         HStack(spacing: 8) {
+            Image(systemName: "point.topleft.down.curvedto.point.bottomright.up")
+                .font(.system(size: 12, weight: .semibold))
+                .foregroundStyle(WayfinderTheme.local)
+                .frame(width: 28, height: 28)
+                .background(WayfinderTheme.local.opacity(0.13), in: Circle())
             ProgressView()
                 .controlSize(.small)
             Text("Routing")
                 .font(.caption)
                 .foregroundStyle(.secondary)
         }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 9)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(WayfinderTheme.panel, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
     }
 }
