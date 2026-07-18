@@ -24,53 +24,56 @@ public struct ChatComposerView: View {
     }
 
     public var body: some View {
-        VStack(spacing: 7) {
-            HStack(alignment: .bottom, spacing: 10) {
-                TextField("Message Wayfinder...", text: $draft, axis: .vertical)
-                    .textFieldStyle(.plain)
-                    .font(.body)
-                    .lineLimit(1...5)
-                    .padding(.horizontal, 3)
-                    .padding(.vertical, 6)
-                    .focused($focused)
+        HStack(alignment: .bottom, spacing: 10) {
+            TextField("Message Wayfinder…", text: $draft, axis: .vertical)
+                .textFieldStyle(.plain)
+                .font(.body)
+                .lineLimit(1...5)
+                .padding(.horizontal, 3)
+                .padding(.vertical, 6)
+                .focused($focused)
+                .accessibilityLabel("Message Wayfinder")
+                .accessibilityHint("Press Return to send, or Shift-Return for a new line.")
+                .onKeyPress(.return, phases: .down) { keyPress in
+                    if keyPress.modifiers == [.shift] {
+                        return .ignored
+                    }
 
-                Button(action: isSending ? onStop : onSend) {
-                    Image(systemName: isSending ? "stop.fill" : "arrow.up")
-                        .font(.system(size: 14, weight: .bold))
-                        .foregroundStyle(.white)
-                        .frame(width: 30, height: 30)
-                        .background((canSend || isSending) ? WayfinderTheme.local : Color.secondary.opacity(0.35), in: Circle())
+                    guard keyPress.modifiers.isEmpty || keyPress.modifiers == [.command] else {
+                        return .handled
+                    }
+                    guard canSend, !isSending else {
+                        return .handled
+                    }
+                    onSend()
+                    return .handled
                 }
-                .buttonStyle(.plain)
-                .disabled(!canSend && !isSending)
-                .keyboardShortcut(isSending ? "." : .return, modifiers: .command)
-                .accessibilityLabel(isSending ? "Stop response" : "Send message")
-                .accessibilityHint(isSending ? "Stops the current model response." : "Routes this message through Wayfinder.")
-                .help(isSending ? "Stop response (Command-Period)" : "Send message (Command-Return)")
-            }
-            .padding(.leading, 8)
-            .padding(.trailing, 10)
-            .padding(.vertical, 9)
-            .background(ChatWorkspaceChrome.composer, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
-            .overlay(
-                RoundedRectangle(cornerRadius: 16, style: .continuous)
-                    .stroke(focused ? WayfinderTheme.local.opacity(0.8) : ChatWorkspaceChrome.border, lineWidth: focused ? 1.25 : 1)
-            )
 
-            HStack {
-                Label("Routes through your local gateway", systemImage: "checkmark.shield")
-                    .font(.caption2)
-                    .foregroundStyle(.secondary)
-                Spacer()
-                Text("⌘↩ sends")
-                    .font(.caption2)
-                    .foregroundStyle(.tertiary)
+            Button(action: isSending ? onStop : onSend) {
+                Image(systemName: isSending ? "stop.fill" : "arrow.up")
+                    .font(.system(size: 14, weight: .bold))
+                    .foregroundStyle(.white)
+                    .frame(width: 30, height: 30)
+                    .background((canSend || isSending) ? WayfinderTheme.local : Color.secondary.opacity(0.35), in: Circle())
             }
-            .padding(.horizontal, 4)
+            .buttonStyle(.plain)
+            .disabled(!canSend && !isSending)
+            .keyboardShortcut(isSending ? "." : .return, modifiers: .command)
+            .accessibilityLabel(isSending ? "Stop response" : "Send message")
+            .accessibilityHint(isSending ? "Stops the current model response." : "Press Return to send, or Shift-Return for a new line.")
+            .help(isSending ? "Stop response (Command-Period)" : "Send message (Return)")
         }
+        .padding(.leading, 8)
+        .padding(.trailing, 10)
+        .padding(.vertical, 9)
+        .background(ChatWorkspaceChrome.composer, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                .stroke(focused ? WayfinderTheme.local.opacity(0.8) : ChatWorkspaceChrome.border, lineWidth: focused ? 1.25 : 1)
+        )
         .frame(maxWidth: ChatWorkspaceChrome.composerWidth)
         .padding(.horizontal, 34)
-        .padding(.top, 10)
+        .padding(.top, 12)
         .padding(.bottom, 16)
         .frame(maxWidth: .infinity)
         .background(ChatWorkspaceChrome.canvas)

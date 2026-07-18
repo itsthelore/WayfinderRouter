@@ -2,21 +2,26 @@ import SwiftUI
 
 enum ChatWorkspaceChrome {
     static let sidebar = Color(nsColor: .underPageBackgroundColor)
+    static let inspector = Color(nsColor: .underPageBackgroundColor)
     static let canvas = Color(nsColor: .windowBackgroundColor)
-    static let panel = Color(nsColor: .controlBackgroundColor)
     static let composer = Color(nsColor: .textBackgroundColor)
-    static let panelRaised = Color(nsColor: .unemphasizedSelectedContentBackgroundColor)
     static let border = Color(nsColor: .separatorColor).opacity(0.7)
-    static let rowHover = Color.primary.opacity(0.06)
     static let secondaryText = Color(nsColor: .secondaryLabelColor)
     static let tertiaryText = Color(nsColor: .tertiaryLabelColor)
     static let mutedFill = Color.primary.opacity(0.045)
-    static let selectedFill = Color(nsColor: .unemphasizedSelectedContentBackgroundColor)
 
+    static let sidebarMinimumWidth: CGFloat = 210
     static let sidebarWidth: CGFloat = 232
+    static let sidebarMaximumWidth: CGFloat = 280
+    static let inspectorMinimumWidth: CGFloat = 290
     static let inspectorWidth: CGFloat = 320
+    static let inspectorMaximumWidth: CGFloat = 390
     static let conversationWidth: CGFloat = 760
     static let composerWidth: CGFloat = 780
+    static let initialWindowWidth: CGFloat = 1_320
+    static let initialWindowHeight: CGFloat = 780
+    static let minimumWindowWidth: CGFloat = 940
+    static let minimumWindowHeight: CGFloat = 620
 }
 
 public enum ChatRouteFilter: String, CaseIterable, Identifiable {
@@ -42,6 +47,45 @@ public enum ChatRouteFilter: String, CaseIterable, Identifiable {
     }
 }
 
+struct ChatWorkspaceContent: Equatable {
+    let transcriptTurns: [ChatTurn]
+    let navigatorTurns: [ChatTurn]
+
+    init(turns: [ChatTurn], routeFilter: ChatRouteFilter, searchText: String) {
+        transcriptTurns = turns
+        navigatorTurns = turns.filtered(by: routeFilter, searchText: searchText)
+    }
+}
+
+enum ChatWorkspaceSelectionPolicy {
+    static func resolvedTurnID(
+        current: UUID?,
+        followsLatest: Bool,
+        turnIDs: [UUID]
+    ) -> UUID? {
+        guard let latest = turnIDs.last else {
+            return nil
+        }
+        guard let current else {
+            return latest
+        }
+        if followsLatest || !turnIDs.contains(current) {
+            return latest
+        }
+        return current
+    }
+}
+
+enum ChatScrollFollowPolicy {
+    static func shouldFollowLatest(
+        isNearBottom: Bool,
+        selectedTurnID: UUID?,
+        latestTurnID: UUID?
+    ) -> Bool {
+        isNearBottom && latestTurnID != nil && selectedTurnID == latestTurnID
+    }
+}
+
 extension Array where Element == ChatTurn {
     func filtered(by filter: ChatRouteFilter, searchText: String) -> [ChatTurn] {
         let query = searchText.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
@@ -49,13 +93,10 @@ extension Array where Element == ChatTurn {
             filter.includes(turn)
                 && (query.isEmpty
                     || turn.prompt.text.lowercased().contains(query)
+                    || (turn.response?.text.lowercased().contains(query) ?? false)
                     || (turn.response?.decision?.provider.lowercased().contains(query) ?? false)
                     || (turn.response?.decision?.route.rawValue.lowercased().contains(query) ?? false))
         }
-    }
-
-    var decisions: [RoutingDecision] {
-        compactMap { $0.response?.decision }
     }
 }
 
@@ -63,18 +104,9 @@ extension RoutingDecision {
     var routeSummary: String {
         switch route {
         case .local:
-            return "Kept local"
+            return "Local route"
         case .cloud:
-            return "Sent to cloud"
-        }
-    }
-
-    var routeReasonTitle: String {
-        switch route {
-        case .local:
-            return "Low complexity prompt"
-        case .cloud:
-            return "Higher complexity prompt"
+            return "Cloud route"
         }
     }
 }

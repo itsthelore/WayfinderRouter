@@ -12,10 +12,16 @@ final class ChatWindowController {
         let window = NSWindow(contentViewController: hostingController)
         window.title = "Wayfinder Chat"
         window.styleMask = [.titled, .closable, .miniaturizable, .resizable]
-        window.setContentSize(NSSize(width: 1_180, height: 760))
-        window.contentMinSize = NSSize(width: 1_040, height: 620)
+        window.setContentSize(NSSize(
+            width: ChatWorkspaceChrome.initialWindowWidth,
+            height: ChatWorkspaceChrome.initialWindowHeight
+        ))
+        window.contentMinSize = NSSize(
+            width: ChatWorkspaceChrome.minimumWindowWidth,
+            height: ChatWorkspaceChrome.minimumWindowHeight
+        )
         window.isReleasedWhenClosed = false
-        let frameName = NSWindow.FrameAutosaveName("Wayfinder.Chat")
+        let frameName = NSWindow.FrameAutosaveName("Wayfinder.Chat.v2")
         if !window.setFrameUsingName(frameName) {
             window.center()
         }

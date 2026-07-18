@@ -1,64 +1,123 @@
 import SwiftUI
 
 public struct RoutingOutputsPanel: View {
-    let decision: RoutingDecision?
     let turn: ChatTurn?
     let onClose: () -> Void
 
-    public init(decision: RoutingDecision?, turn: ChatTurn?, onClose: @escaping () -> Void = {}) {
-        self.decision = decision
+    public init(turn: ChatTurn?, onClose: @escaping () -> Void = {}) {
         self.turn = turn
         self.onClose = onClose
     }
 
     public var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            InspectorHeader(onClose: onClose)
-                .padding(.horizontal, 20)
-                .padding(.top, 18)
-                .padding(.bottom, 16)
+            InspectorHeader(subtitle: headerSubtitle, onClose: onClose)
+                .padding(.horizontal, 18)
+                .padding(.vertical, 15)
 
             Divider()
                 .overlay(ChatWorkspaceChrome.border)
 
-            if let decision {
+            if let turn {
                 ScrollView {
-                    VStack(alignment: .leading, spacing: 18) {
-                        if let turn {
-                            PromptInspectorPreview(turn: turn)
-                        }
+                    VStack(alignment: .leading, spacing: 0) {
+                        PromptInspectorPreview(turn: turn)
+                            .padding(.horizontal, 18)
+                            .padding(.vertical, 18)
 
-                        DecisionHero(decision: decision)
-                        DecisionWhySection(decision: decision)
-                        DecisionScoreSection(decision: decision)
-                        DecisionSignalsSection(decision: decision)
+                        InspectorDivider()
+
+                        routingContent(for: turn)
+                            .padding(18)
                     }
-                    .padding(20)
+                    .frame(maxWidth: .infinity, alignment: .leading)
                 }
+                .id(turn.id)
             } else {
-                EmptyOutputsPanel()
-                    .padding(24)
+                EmptyRoutingInspector()
             }
-
-            Spacer(minLength: 0)
         }
-        .frame(width: ChatWorkspaceChrome.inspectorWidth)
-        .background(ChatWorkspaceChrome.panel)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(ChatWorkspaceChrome.inspector)
+    }
+
+    @ViewBuilder
+    private func routingContent(for turn: ChatTurn) -> some View {
+        switch turn.routingInspectionState {
+        case let .routed(decision):
+            RoutedDecisionInspector(decision: decision)
+        case .waiting:
+            InspectorStatus(
+                symbol: "point.topleft.down.curvedto.point.bottomright.up",
+                tint: WayfinderTheme.local,
+                title: "Choosing a route",
+                message: "Wayfinder is evaluating this turn. The selected provider and routing signals will appear here."
+            )
+        case let .failed(message, decision):
+            TerminalRoutingInspector(
+                symbol: "exclamationmark.triangle.fill",
+                tint: .red,
+                title: "Reply failed",
+                message: message.isEmpty ? "The gateway did not complete this reply." : message,
+                actionTitle: "Open Settings",
+                decision: decision
+            ) {
+                NotificationCenter.default.post(name: .wayfinderOpenSettings, object: nil)
+            }
+        case let .stopped(decision):
+            TerminalRoutingInspector(
+                symbol: "stop.circle",
+                tint: ChatWorkspaceChrome.secondaryText,
+                title: "Response stopped",
+                message: decision == nil
+                    ? "This turn ended before routing metadata was delivered."
+                    : "The response stopped after Wayfinder selected a route.",
+                decision: decision
+            )
+        case .unavailable:
+            InspectorStatus(
+                symbol: "questionmark.circle",
+                tint: ChatWorkspaceChrome.secondaryText,
+                title: "No routing metadata",
+                message: "The gateway completed this turn without an inspectable routing decision."
+            )
+        }
+    }
+
+    private var headerSubtitle: String {
+        guard let turn else {
+            return "No turn selected"
+        }
+
+        switch turn.routingInspectionState {
+        case let .routed(decision):
+            return decision.routeSummary
+        case .waiting:
+            return "Routing in progress"
+        case let .failed(_, decision):
+            return decision.map { "Reply failed · \($0.routeSummary)" } ?? "Reply failed"
+        case let .stopped(decision):
+            return decision.map { "Stopped · \($0.routeSummary)" } ?? "Response stopped"
+        case .unavailable:
+            return "Metadata unavailable"
+        }
     }
 }
 
 private struct InspectorHeader: View {
+    let subtitle: String
     let onClose: () -> Void
 
     var body: some View {
         HStack(spacing: 10) {
             Image(systemName: "sidebar.right")
-                .font(.system(size: 15, weight: .semibold))
+                .font(.system(size: 14, weight: .semibold))
                 .foregroundStyle(ChatWorkspaceChrome.secondaryText)
+                .accessibilityHidden(true)
             VStack(alignment: .leading, spacing: 2) {
-                Text("Route")
+                Text("Routing")
                     .font(.headline.weight(.semibold))
-                Text("Selected decision")
+                Text(subtitle)
                     .font(.caption)
                     .foregroundStyle(ChatWorkspaceChrome.secondaryText)
             }
@@ -68,7 +127,8 @@ private struct InspectorHeader: View {
             }
             .buttonStyle(.borderless)
             .controlSize(.small)
-            .help("Close route details")
+            .accessibilityLabel("Close routing inspector")
+            .help("Close routing inspector")
         }
     }
 }
@@ -77,88 +137,148 @@ private struct PromptInspectorPreview: View {
     let turn: ChatTurn
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
+        VStack(alignment: .leading, spacing: 9) {
             InspectorEyebrow("Prompt")
-            Text(turn.prompt.text)
-                .font(.callout.weight(.medium))
-                .foregroundStyle(.primary.opacity(0.9))
-                .lineLimit(5)
-                .fixedSize(horizontal: false, vertical: true)
+            HStack(alignment: .top, spacing: 10) {
+                Rectangle()
+                    .fill(ChatWorkspaceChrome.border)
+                    .frame(width: 2)
+                Text(turn.prompt.text)
+                    .font(.callout)
+                    .foregroundStyle(.primary.opacity(0.9))
+                    .lineLimit(6)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .textSelection(.enabled)
+            }
         }
-        .padding(14)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(ChatWorkspaceChrome.mutedFill, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
-        .overlay(
-            RoundedRectangle(cornerRadius: 10, style: .continuous)
-                .stroke(ChatWorkspaceChrome.border, lineWidth: 1)
-        )
     }
 }
 
-private struct DecisionHero: View {
+private struct RoutedDecisionInspector: View {
     let decision: RoutingDecision
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 13) {
-            HStack(alignment: .top, spacing: 12) {
-                ZStack {
-                    RoundedRectangle(cornerRadius: 10, style: .continuous)
-                        .fill(decision.route.accentColor.opacity(0.14))
-                    Image(systemName: decision.route.symbolName)
-                        .font(.system(size: 18, weight: .semibold))
-                        .foregroundStyle(decision.route.accentColor)
-                }
-                .frame(width: 42, height: 42)
+        VStack(alignment: .leading, spacing: 18) {
+            DecisionSummary(decision: decision)
 
-                VStack(alignment: .leading, spacing: 3) {
-                    Text(decision.routeSummary)
-                        .font(.title3.weight(.semibold))
-                    Text(decision.routeReasonTitle)
-                        .font(.caption)
-                        .foregroundStyle(ChatWorkspaceChrome.secondaryText)
-                }
+            InspectorDivider()
 
-                Spacer()
+            VStack(alignment: .leading, spacing: 10) {
+                InspectorEyebrow("Destination")
+                InspectorValueRow(label: "Provider", value: decision.provider)
+                InspectorValueRow(label: "Mode", value: decision.mode)
             }
 
-            HStack(spacing: 10) {
-                DecisionPill(title: "Provider", value: decision.provider)
-                DecisionPill(title: "Mode", value: decision.mode)
+            InspectorDivider()
+
+            VStack(alignment: .leading, spacing: 9) {
+                InspectorEyebrow("Why")
+                Text(decision.explanation)
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
+            InspectorDivider()
+
+            DecisionScoreSection(decision: decision)
+
+            if !decision.features.isEmpty {
+                InspectorDivider()
+                DecisionSignalsSection(decision: decision)
             }
         }
     }
 }
 
-private struct DecisionPill: View {
+private struct TerminalRoutingInspector: View {
+    let symbol: String
+    let tint: Color
     let title: String
+    let message: String
+    let actionTitle: String?
+    let decision: RoutingDecision?
+    let action: (() -> Void)?
+
+    init(
+        symbol: String,
+        tint: Color,
+        title: String,
+        message: String,
+        actionTitle: String? = nil,
+        decision: RoutingDecision?,
+        action: (() -> Void)? = nil
+    ) {
+        self.symbol = symbol
+        self.tint = tint
+        self.title = title
+        self.message = message
+        self.actionTitle = actionTitle
+        self.decision = decision
+        self.action = action
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 18) {
+            InspectorStatus(
+                symbol: symbol,
+                tint: tint,
+                title: title,
+                message: message,
+                actionTitle: actionTitle,
+                action: action
+            )
+
+            if let decision {
+                InspectorDivider()
+                RoutedDecisionInspector(decision: decision)
+            }
+        }
+    }
+}
+
+private struct DecisionSummary: View {
+    let decision: RoutingDecision
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 12) {
+            ZStack {
+                Circle()
+                    .fill(decision.route.accentColor.opacity(0.14))
+                Image(systemName: decision.route.symbolName)
+                    .font(.system(size: 15, weight: .semibold))
+                    .foregroundStyle(decision.route.accentColor)
+            }
+            .frame(width: 36, height: 36)
+            .accessibilityHidden(true)
+
+            VStack(alignment: .leading, spacing: 3) {
+                Text(decision.routeSummary)
+                    .font(.title3.weight(.semibold))
+            }
+
+            Spacer(minLength: 0)
+        }
+        .accessibilityElement(children: .combine)
+    }
+}
+
+private struct InspectorValueRow: View {
+    let label: String
     let value: String
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 2) {
-            Text(title)
-                .font(.caption2)
-                .foregroundStyle(ChatWorkspaceChrome.tertiaryText)
+        HStack(alignment: .firstTextBaseline, spacing: 12) {
+            Text(label)
+                .foregroundStyle(ChatWorkspaceChrome.secondaryText)
+            Spacer(minLength: 12)
             Text(value)
-                .font(.caption.weight(.semibold))
-                .lineLimit(1)
+                .fontWeight(.medium)
+                .multilineTextAlignment(.trailing)
+                .textSelection(.enabled)
         }
-        .padding(.horizontal, 10)
-        .padding(.vertical, 8)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(ChatWorkspaceChrome.mutedFill, in: RoundedRectangle(cornerRadius: 9, style: .continuous))
-    }
-}
-
-private struct DecisionWhySection: View {
-    let decision: RoutingDecision
-
-    var body: some View {
-        InspectorSection(title: "Why", symbol: "text.justify.leading") {
-            Text(decision.explanation)
-                .font(.callout)
-                .foregroundStyle(.secondary)
-                .fixedSize(horizontal: false, vertical: true)
-        }
+        .font(.callout)
+        .accessibilityElement(children: .combine)
     }
 }
 
@@ -166,36 +286,28 @@ private struct DecisionScoreSection: View {
     let decision: RoutingDecision
 
     var body: some View {
-        InspectorSection(title: "Score", symbol: "gauge.with.dots.needle.67percent") {
-            VStack(alignment: .leading, spacing: 10) {
-                HStack(alignment: .firstTextBaseline) {
-                    Text(decision.score.scoreText)
-                        .font(.system(size: 34, weight: .semibold, design: .rounded).monospacedDigit())
-                        .foregroundStyle(decision.route.accentColor)
-                    Spacer()
-                    Text(decision.routeSummary)
-                        .font(.caption.monospacedDigit().weight(.semibold))
-                        .foregroundStyle(ChatWorkspaceChrome.secondaryText)
-                        .padding(.horizontal, 8)
-                        .padding(.vertical, 4)
-                        .background(ChatWorkspaceChrome.mutedFill, in: Capsule())
-                }
-
-                ScoreMeter(decision: decision)
-
-                HStack {
-                    Text("0")
-                    Spacer()
-                    Text("Routing score")
-                    Spacer()
-                    Text("1")
-                }
-                .font(.caption2.monospacedDigit())
-                .foregroundStyle(ChatWorkspaceChrome.tertiaryText)
+        VStack(alignment: .leading, spacing: 11) {
+            HStack(alignment: .firstTextBaseline) {
+                InspectorEyebrow("Routing score")
+                Spacer()
+                Text(decision.score.scoreText)
+                    .font(.title3.monospacedDigit().weight(.semibold))
+                    .foregroundStyle(decision.route.accentColor)
             }
-        }
-    }
 
+            ScoreMeter(decision: decision)
+
+            HStack {
+                Text("Local")
+                Spacer()
+                Text("Cloud")
+            }
+            .font(.caption2)
+            .foregroundStyle(ChatWorkspaceChrome.tertiaryText)
+        }
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("Routing score \(decision.score.scoreText)")
+    }
 }
 
 private struct ScoreMeter: View {
@@ -212,21 +324,26 @@ private struct ScoreMeter: View {
                     .frame(width: max(8, proxy.size.width * min(max(decision.score, 0), 1)))
             }
         }
-        .frame(height: 8)
+        .frame(height: 6)
     }
 }
 
 private struct DecisionSignalsSection: View {
     let decision: RoutingDecision
+    @State private var isExpanded = false
 
     var body: some View {
-        InspectorSection(title: "Signals", symbol: "list.bullet.rectangle") {
-            VStack(spacing: 8) {
+        DisclosureGroup(isExpanded: $isExpanded) {
+            VStack(alignment: .leading, spacing: 11) {
                 ForEach(decision.features.prefix(6)) { feature in
                     FeatureSignalRow(feature: feature, tint: decision.route.accentColor)
                 }
             }
+            .padding(.top, 11)
+        } label: {
+            InspectorEyebrow("Signals")
         }
+        .disclosureGroupStyle(.automatic)
     }
 }
 
@@ -258,48 +375,84 @@ private struct FeatureSignalRow: View {
                             .frame(width: max(4, proxy.size.width * min(max(contribution, 0), 1)))
                     }
                 }
-                .frame(height: 4)
+                .frame(height: 3)
             }
         }
-        .padding(.vertical, 2)
+        .accessibilityElement(children: .combine)
     }
 }
 
-private struct EmptyOutputsPanel: View {
+private struct InspectorStatus: View {
+    let symbol: String
+    let tint: Color
+    let title: String
+    let message: String
+    let actionTitle: String?
+    let action: (() -> Void)?
+
+    init(
+        symbol: String,
+        tint: Color,
+        title: String,
+        message: String,
+        actionTitle: String? = nil,
+        action: (() -> Void)? = nil
+    ) {
+        self.symbol = symbol
+        self.tint = tint
+        self.title = title
+        self.message = message
+        self.actionTitle = actionTitle
+        self.action = action
+    }
+
     var body: some View {
-        VStack(alignment: .center, spacing: 10) {
+        VStack(alignment: .leading, spacing: 12) {
+            Image(systemName: symbol)
+                .font(.title2)
+                .foregroundStyle(tint)
+                .accessibilityHidden(true)
+            Text(title)
+                .font(.headline)
+            Text(message)
+                .font(.callout)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+                .textSelection(.enabled)
+            if let actionTitle, let action {
+                Button(actionTitle, action: action)
+                    .controlSize(.small)
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+}
+
+private struct EmptyRoutingInspector: View {
+    var body: some View {
+        VStack(spacing: 10) {
             Spacer()
-            Image(systemName: "sidebar.right")
+            Image(systemName: "point.topleft.down.curvedto.point.bottomright.up")
                 .font(.title2)
                 .foregroundStyle(ChatWorkspaceChrome.secondaryText)
-            Text("Select a route")
+                .accessibilityHidden(true)
+            Text("Select a turn")
                 .font(.headline)
-            Text("Decision details, score, and feature signals will appear here.")
+            Text("Its destination, score, and routing signals will appear here.")
                 .font(.callout)
                 .multilineTextAlignment(.center)
                 .foregroundStyle(.secondary)
             Spacer()
         }
+        .padding(24)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 }
 
-private struct InspectorSection<Content: View>: View {
-    let title: String
-    let symbol: String
-    @ViewBuilder let content: Content
-
+private struct InspectorDivider: View {
     var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            HStack(spacing: 7) {
-                Image(systemName: symbol)
-                    .frame(width: 14)
-                InspectorEyebrow(title)
-            }
-            .foregroundStyle(ChatWorkspaceChrome.secondaryText)
-
-            content
-        }
+        Divider()
+            .overlay(ChatWorkspaceChrome.border)
     }
 }
 
