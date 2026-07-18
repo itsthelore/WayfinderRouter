@@ -73,6 +73,58 @@ final class ChatDeliveryTests: XCTestCase {
         )
     }
 
+    func testPinnedChatGPTTurnFailuresRemainDistinctFromAccountReadiness() {
+        let destination = ChatDestination(
+            routeName: "chatgpt-sol",
+            title: "chatgpt-sol",
+            detail: "ChatGPT · GPT-5.6 Sol",
+            providerName: "ChatGPT"
+        )
+
+        XCTAssertEqual(
+            AppState.chatErrorMessage(
+                WayfinderClientError.gatewayStatus(502, model: "chatgpt-sol"),
+                destination: destination
+            ),
+            "ChatGPT could not complete this reply. Retry, or choose another destination."
+        )
+        XCTAssertEqual(
+            AppState.chatErrorMessage(
+                WayfinderClientError.chatTurnFailed,
+                destination: destination
+            ),
+            "ChatGPT could not complete this reply. Retry, or choose another destination."
+        )
+        XCTAssertEqual(
+            AppState.chatErrorMessage(
+                WayfinderClientError.gatewayStatus(409, model: "chatgpt-sol"),
+                destination: destination
+            ),
+            "ChatGPT interrupted this reply before completion. Retry when you're ready."
+        )
+        XCTAssertEqual(
+            AppState.chatErrorMessage(
+                WayfinderClientError.chatTurnInterrupted,
+                destination: destination
+            ),
+            "ChatGPT interrupted this reply before completion. Retry when you're ready."
+        )
+        XCTAssertEqual(
+            AppState.chatErrorMessage(
+                WayfinderClientError.gatewayStatus(429, model: "chatgpt-sol"),
+                destination: destination
+            ),
+            "This ChatGPT account has reached its current usage limit. Try again later, or choose another destination."
+        )
+        XCTAssertEqual(
+            AppState.chatErrorMessage(
+                WayfinderClientError.chatUsageLimitReached,
+                destination: destination
+            ),
+            "This ChatGPT account has reached its current usage limit. Try again later, or choose another destination."
+        )
+    }
+
     func testGatewayStreamDecoderPreservesDecisionTextAndCompletionOrder() throws {
         var decoder = GatewayStreamDecoder(prompt: "Hello")
         let metadata = #"data: {"wayfinder":{"model":"apple-local","score":0.1,"mode":"scored","features":{"word_count":1},"contributions":[],"tiers":[{"min_score":0.0,"model":"apple-local"},{"min_score":0.5,"model":"cloud"}]}}"#
@@ -103,6 +155,21 @@ final class ChatDeliveryTests: XCTestCase {
         ) { error in
             XCTAssertEqual(error as? WayfinderClientError, .invalidChatStream)
             XCTAssertFalse(error.localizedDescription.contains("private"))
+        }
+    }
+
+    func testGatewayStreamDecoderPreservesCodexTerminalCategories() {
+        for (type, expected) in [
+            ("wayfinder_router_turn_failed", WayfinderClientError.chatTurnFailed),
+            ("wayfinder_router_interrupted", WayfinderClientError.chatTurnInterrupted),
+            ("wayfinder_router_usage_limited", WayfinderClientError.chatUsageLimitReached),
+        ] {
+            var decoder = GatewayStreamDecoder(prompt: "private prompt")
+            XCTAssertThrowsError(
+                try decoder.consume(line: #"data: {"error":{"message":"sanitized","type":"\#(type)"}}"#)
+            ) { error in
+                XCTAssertEqual(error as? WayfinderClientError, expected)
+            }
         }
     }
 
