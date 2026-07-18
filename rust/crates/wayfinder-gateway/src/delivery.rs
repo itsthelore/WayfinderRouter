@@ -211,6 +211,9 @@ pub enum CodexDeliveryError {
     /// The selected runtime model is not advertised by the helper.
     #[error("the selected ChatGPT model is unavailable")]
     ModelUnavailable,
+    /// The isolated managed runtime is already serving another turn.
+    #[error("the ChatGPT account provider is already serving another turn")]
+    Busy,
     /// The connected ChatGPT account cannot start another turn yet.
     #[error("the ChatGPT account usage limit has been reached")]
     UsageLimitReached,
@@ -1102,14 +1105,15 @@ fn codex_stream_chunk(
 fn map_codex_runtime_error(error: CodexAppServerError) -> DeliveryError {
     let class = match error {
         CodexAppServerError::AuthenticationRequired
-        | CodexAppServerError::UnsupportedAuthentication => {
-            CodexDeliveryError::AuthenticationRequired
-        }
+        | CodexAppServerError::UnsupportedAuthentication
+        | CodexAppServerError::LoginFailed
+        | CodexAppServerError::LoginCancelled => CodexDeliveryError::AuthenticationRequired,
         CodexAppServerError::ModelUnavailable => CodexDeliveryError::ModelUnavailable,
+        CodexAppServerError::Busy => CodexDeliveryError::Busy,
         CodexAppServerError::UsageLimitReached => CodexDeliveryError::UsageLimitReached,
-        CodexAppServerError::InvalidRequest | CodexAppServerError::RequestTooLarge => {
-            CodexDeliveryError::InvalidRequest
-        }
+        CodexAppServerError::InvalidRequest
+        | CodexAppServerError::RequestTooLarge
+        | CodexAppServerError::RequestRejected => CodexDeliveryError::InvalidRequest,
         CodexAppServerError::MalformedProtocol
         | CodexAppServerError::LineTooLarge
         | CodexAppServerError::CorrelationFailed
@@ -1121,10 +1125,6 @@ fn map_codex_runtime_error(error: CodexAppServerError) -> DeliveryError {
         CodexAppServerError::InvalidConfiguration
         | CodexAppServerError::RuntimeUnavailable
         | CodexAppServerError::TimedOut
-        | CodexAppServerError::RequestRejected
-        | CodexAppServerError::Busy
-        | CodexAppServerError::LoginFailed
-        | CodexAppServerError::LoginCancelled
         | CodexAppServerError::EndOfStream
         | CodexAppServerError::InsecureCredentialStore => CodexDeliveryError::Unavailable,
     };
@@ -1636,6 +1636,39 @@ mod tests {
             map_codex_runtime_error(CodexAppServerError::UsageLimitReached),
             DeliveryError::Codex(CodexDeliveryError::UsageLimitReached)
         );
+    }
+
+    #[test]
+    fn codex_control_and_runtime_failures_keep_distinct_reliability_categories() {
+        assert_eq!(
+            map_codex_runtime_error(CodexAppServerError::Busy),
+            DeliveryError::Codex(CodexDeliveryError::Busy)
+        );
+        assert_eq!(
+            map_codex_runtime_error(CodexAppServerError::RequestRejected),
+            DeliveryError::Codex(CodexDeliveryError::InvalidRequest)
+        );
+        for error in [
+            CodexAppServerError::LoginFailed,
+            CodexAppServerError::LoginCancelled,
+        ] {
+            assert_eq!(
+                map_codex_runtime_error(error),
+                DeliveryError::Codex(CodexDeliveryError::AuthenticationRequired)
+            );
+        }
+        for error in [
+            CodexAppServerError::InvalidConfiguration,
+            CodexAppServerError::RuntimeUnavailable,
+            CodexAppServerError::TimedOut,
+            CodexAppServerError::EndOfStream,
+            CodexAppServerError::InsecureCredentialStore,
+        ] {
+            assert_eq!(
+                map_codex_runtime_error(error),
+                DeliveryError::Codex(CodexDeliveryError::Unavailable)
+            );
+        }
     }
 
     #[tokio::test]

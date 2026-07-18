@@ -242,6 +242,8 @@ public final class AppState: ObservableObject {
         if destination.isChatGPTAccount,
            let clientError = error as? WayfinderClientError {
             switch clientError {
+            case .chatProviderBusy:
+                return "ChatGPT is already answering another request. Wait for it to finish, then retry."
             case .chatTurnInterrupted, .gatewayStatus(409, _):
                 return "ChatGPT interrupted this reply before completion. Retry when you're ready."
             case .chatTurnFailed, .gatewayStatus(502, _):

@@ -2096,6 +2096,7 @@ fn stream_failure_type(error: &DeliveryError) -> &'static str {
         DeliveryError::Codex(delivery::CodexDeliveryError::InvalidRequest) => {
             "wayfinder_router_unsupported_request"
         }
+        DeliveryError::Codex(delivery::CodexDeliveryError::Busy) => "wayfinder_router_busy",
         DeliveryError::Codex(delivery::CodexDeliveryError::TurnFailed) => {
             "wayfinder_router_turn_failed"
         }
@@ -2115,6 +2116,7 @@ fn stream_failure_affects_reliability(error: &DeliveryError) -> bool {
         DeliveryError::Codex(
             delivery::CodexDeliveryError::AuthenticationRequired
                 | delivery::CodexDeliveryError::ModelUnavailable
+                | delivery::CodexDeliveryError::Busy
                 | delivery::CodexDeliveryError::UsageLimitReached
                 | delivery::CodexDeliveryError::InvalidRequest
                 | delivery::CodexDeliveryError::Interrupted
@@ -2451,6 +2453,9 @@ fn fatal_delivery_status(error: &DeliveryError) -> (StatusCode, &'static str) {
             StatusCode::TOO_MANY_REQUESTS,
             "wayfinder_router_usage_limited",
         ),
+        DeliveryError::Codex(delivery::CodexDeliveryError::Busy) => {
+            (StatusCode::CONFLICT, "wayfinder_router_busy")
+        }
         DeliveryError::Codex(delivery::CodexDeliveryError::InvalidRequest) => (
             StatusCode::BAD_REQUEST,
             "wayfinder_router_unsupported_request",
@@ -5585,6 +5590,10 @@ mod tests {
                 "wayfinder_router_not_ready",
             ),
             (
+                DeliveryError::Codex(crate::delivery::CodexDeliveryError::Busy),
+                "wayfinder_router_busy",
+            ),
+            (
                 DeliveryError::Codex(crate::delivery::CodexDeliveryError::InvalidRequest),
                 "wayfinder_router_unsupported_request",
             ),
@@ -5650,6 +5659,7 @@ mod tests {
         for error in [
             crate::delivery::CodexDeliveryError::AuthenticationRequired,
             crate::delivery::CodexDeliveryError::ModelUnavailable,
+            crate::delivery::CodexDeliveryError::Busy,
             crate::delivery::CodexDeliveryError::UsageLimitReached,
             crate::delivery::CodexDeliveryError::InvalidRequest,
             crate::delivery::CodexDeliveryError::Interrupted,
@@ -5688,6 +5698,59 @@ mod tests {
                 ["local", "local"]
             );
         }
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn codex_busy_before_stream_establishment_does_not_open_breaker() -> TestResult {
+        let config = GatewayConfig {
+            retries: 0,
+            breaker_threshold: 1,
+            breaker_cooldown: 30.0,
+            ..GatewayConfig::default()
+        };
+        let success = vec![
+            Ok(Bytes::from_static(
+                b"data: {\"choices\":[{\"delta\":{\"content\":\"ready\"}}]}\n\n",
+            )),
+            Ok(Bytes::from_static(b"data: [DONE]\n\n")),
+        ];
+        let (state, seen) = streaming_live_state(
+            &config,
+            BTreeMap::from([(
+                "local".to_owned(),
+                VecDeque::from([
+                    ScriptedStreamOutcome::EstablishError(DeliveryError::Codex(
+                        crate::delivery::CodexDeliveryError::Busy,
+                    )),
+                    ScriptedStreamOutcome::Chunks(success),
+                ]),
+            )]),
+        )?;
+        let payload = json!({
+            "model": "auto",
+            "stream": true,
+            "messages": [{"role": "user", "content": "hi"}]
+        });
+
+        let busy = post_json(&state, "/v1/chat/completions", &payload, &[]).await?;
+        assert_eq!(busy.status(), StatusCode::CONFLICT);
+        assert_eq!(
+            json_body(busy).await?["error"]["type"],
+            "wayfinder_router_busy"
+        );
+
+        let recovered = post_json(&state, "/v1/chat/completions", &payload, &[]).await?;
+        assert_eq!(recovered.status(), StatusCode::OK);
+        let recovered_body =
+            String::from_utf8(to_bytes(recovered.into_body(), usize::MAX).await?.to_vec())?;
+        assert!(recovered_body.contains("ready"));
+        assert_eq!(
+            seen.lock()
+                .map_err(|_| std::io::Error::other("stream delivery lock poisoned"))?
+                .as_slice(),
+            ["local", "local"]
+        );
         Ok(())
     }
 
@@ -5745,6 +5808,16 @@ mod tests {
                 StatusCode::TOO_MANY_REQUESTS,
                 "wayfinder_router_usage_limited",
             )
+        );
+    }
+
+    #[test]
+    fn codex_busy_has_a_distinct_bounded_http_contract() {
+        assert_eq!(
+            crate::fatal_delivery_status(&DeliveryError::Codex(
+                crate::delivery::CodexDeliveryError::Busy,
+            )),
+            (StatusCode::CONFLICT, "wayfinder_router_busy")
         );
     }
 

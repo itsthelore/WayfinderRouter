@@ -28,6 +28,7 @@ use wayfinder_gateway::codex_control::{
 #[cfg(debug_assertions)]
 const DEVELOPMENT_HELPER_ENV: &str = "WAYFINDER_CODEX_HELPER";
 const USER_HOME_ENV: &str = "HOME";
+#[cfg(debug_assertions)]
 const BUNDLED_HELPER_NAME: &str = "codex";
 const CHATGPT_HELPER: &str = "/Applications/ChatGPT.app/Contents/Resources/codex";
 #[cfg(target_os = "macos")]
@@ -308,8 +309,9 @@ impl DiscoveryInputs {
 /// Return the process helper override only in development builds.
 ///
 /// Release builds do not read the override environment variable at all, so a
-/// production Wayfinder process can discover helpers only from its signed app
-/// bundle or the separately verified ChatGPT installation.
+/// production Wayfinder process can discover a helper only from the separately
+/// verified ChatGPT installation. Bundled release discovery stays disabled
+/// until packaging can pin and verify the nested helper's identity and digest.
 fn development_helper_override() -> Option<PathBuf> {
     development_helper_override_from(|name| env::var_os(name))
 }
@@ -386,13 +388,7 @@ fn discover_helper(inputs: &DiscoveryInputs) -> Result<PathBuf, CodexAdapterSetu
         };
     }
 
-    if let Some(bundled) = inputs
-        .current_executable
-        .as_deref()
-        .and_then(Path::parent)
-        .map(|parent| parent.join(BUNDLED_HELPER_NAME))
-        .filter(|path| helper_is_executable(path))
-    {
+    if let Some(bundled) = development_bundled_helper(inputs.current_executable.as_deref()) {
         return Ok(bundled);
     }
 
@@ -401,6 +397,19 @@ fn discover_helper(inputs: &DiscoveryInputs) -> Result<PathBuf, CodexAdapterSetu
     }
 
     Err(CodexAdapterSetupError::HelperUnavailable)
+}
+
+#[cfg(debug_assertions)]
+fn development_bundled_helper(current_executable: Option<&Path>) -> Option<PathBuf> {
+    current_executable
+        .and_then(Path::parent)
+        .map(|parent| parent.join(BUNDLED_HELPER_NAME))
+        .filter(|path| helper_is_executable(path))
+}
+
+#[cfg(not(debug_assertions))]
+fn development_bundled_helper(_current_executable: Option<&Path>) -> Option<PathBuf> {
+    None
 }
 
 fn helper_is_executable(path: &Path) -> bool {
@@ -980,6 +989,7 @@ mod tests {
         Ok(())
     }
 
+    #[cfg(debug_assertions)]
     #[test]
     fn bundled_helper_precedes_installed_chatgpt_helper() -> Result<(), Box<dyn std::error::Error>>
     {
@@ -996,6 +1006,32 @@ mod tests {
         discovery.chatgpt_helper = chatgpt;
 
         assert_eq!(discover_helper(&discovery)?, bundled);
+        Ok(())
+    }
+
+    #[cfg(not(debug_assertions))]
+    #[test]
+    fn release_builds_reject_unverified_siblings_and_use_only_the_trusted_fallback()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let root = TestDirectory::new("release-helper-trust")?;
+        let current_executable = root
+            .path
+            .join("Wayfinder.app/Contents/Helpers/wayfinder-router");
+        let sibling = root.path.join("Wayfinder.app/Contents/Helpers/codex");
+        let chatgpt = root.path.join("ChatGPT.app/Contents/Resources/codex");
+        executable(&sibling)?;
+        executable(&chatgpt)?;
+        let mut discovery = inputs(&root.path);
+        discovery.current_executable = Some(current_executable);
+        discovery.chatgpt_helper = chatgpt.clone();
+
+        assert_eq!(discover_helper(&discovery)?, chatgpt);
+
+        discovery.chatgpt_helper_trust = reject_helper;
+        assert_eq!(
+            discover_helper(&discovery),
+            Err(CodexAdapterSetupError::HelperUnavailable)
+        );
         Ok(())
     }
 

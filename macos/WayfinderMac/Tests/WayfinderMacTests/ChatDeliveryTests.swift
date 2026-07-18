@@ -139,6 +139,13 @@ final class ChatDeliveryTests: XCTestCase {
         )
         XCTAssertEqual(
             AppState.chatErrorMessage(
+                WayfinderClientError.chatProviderBusy,
+                destination: destination
+            ),
+            "ChatGPT is already answering another request. Wait for it to finish, then retry."
+        )
+        XCTAssertEqual(
+            AppState.chatErrorMessage(
                 WayfinderClientError.gatewayStatus(429, model: "chatgpt-sol"),
                 destination: destination
             ),
@@ -190,6 +197,7 @@ final class ChatDeliveryTests: XCTestCase {
         for (type, expected) in [
             ("wayfinder_router_turn_failed", WayfinderClientError.chatTurnFailed),
             ("wayfinder_router_interrupted", WayfinderClientError.chatTurnInterrupted),
+            ("wayfinder_router_busy", WayfinderClientError.chatProviderBusy),
             ("wayfinder_router_usage_limited", WayfinderClientError.chatUsageLimitReached),
             ("wayfinder_router_not_ready", WayfinderClientError.chatAccountNotReady),
         ] {
@@ -253,6 +261,111 @@ final class ChatDeliveryTests: XCTestCase {
             error.localizedDescription,
             "Apple Foundation Models aren't ready for this app. Check Apple Intelligence and app signing, or choose another model in Gateway Settings."
         )
+    }
+
+    func testGatewayHTTPErrorTypesPreserveStableChatCategoriesWithoutReflectingMessages() throws {
+        for (status, type, expected) in [
+            (502, "wayfinder_router_turn_failed", WayfinderClientError.chatTurnFailed),
+            (409, "wayfinder_router_interrupted", WayfinderClientError.chatTurnInterrupted),
+            (409, "wayfinder_router_busy", WayfinderClientError.chatProviderBusy),
+            (429, "wayfinder_router_usage_limited", WayfinderClientError.chatUsageLimitReached),
+            (503, "wayfinder_router_not_ready", WayfinderClientError.chatAccountNotReady),
+        ] {
+            let response = try XCTUnwrap(HTTPURLResponse(
+                url: URL(string: "http://127.0.0.1:8088/v1/chat/completions")!,
+                statusCode: status,
+                httpVersion: nil,
+                headerFields: ["X-Wayfinder-Router-Model": "chatgpt-sol"]
+            ))
+            let body = Data(
+                #"{"error":{"message":"private upstream detail","type":"\#(type)"}}"#.utf8
+            )
+
+            let error = GatewayWayfinderClient.gatewayError(for: response, body: body)
+
+            XCTAssertEqual(error, expected)
+            XCTAssertFalse(error.localizedDescription.contains("private"))
+        }
+    }
+
+    func testGatewayHTTPErrorTypeRejectsUnknownAndOversizedBodies() throws {
+        let response = try XCTUnwrap(HTTPURLResponse(
+            url: URL(string: "http://127.0.0.1:8088/v1/chat/completions")!,
+            statusCode: 409,
+            httpVersion: nil,
+            headerFields: ["X-Wayfinder-Router-Model": "chatgpt-sol"]
+        ))
+        let fallback = WayfinderClientError.gatewayStatus(409, model: "chatgpt-sol")
+        let unknown = Data(
+            #"{"error":{"message":"private upstream detail","type":"upstream_busy"}}"#.utf8
+        )
+        let oversized = Data(
+            (#"{"error":{"type":"wayfinder_router_busy","padding":""#
+                + String(repeating: "x", count: 16_384)
+                + #""}}"#).utf8
+        )
+
+        XCTAssertEqual(
+            GatewayWayfinderClient.gatewayError(for: response, body: unknown),
+            fallback
+        )
+        XCTAssertEqual(
+            GatewayWayfinderClient.gatewayError(for: response, body: oversized),
+            fallback
+        )
+        XCTAssertFalse(fallback.localizedDescription.contains("private"))
+    }
+
+    func testStreamingHTTPBusyEnvelopeIsPreservedEndToEnd() async throws {
+        ChatURLProtocolStub.install { request in
+            XCTAssertEqual(request.httpMethod, "POST")
+            XCTAssertEqual(request.url?.path, "/v1/chat/completions")
+            let response = try XCTUnwrap(HTTPURLResponse(
+                url: request.url!,
+                statusCode: 409,
+                httpVersion: nil,
+                headerFields: [
+                    "Content-Type": "application/json",
+                    "X-Wayfinder-Router-Model": "chatgpt-sol",
+                ]
+            ))
+            return (
+                response,
+                Data(
+                    #"{"error":{"message":"private upstream detail","type":"wayfinder_router_busy"}}"#.utf8
+                )
+            )
+        }
+        defer { ChatURLProtocolStub.reset() }
+
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [ChatURLProtocolStub.self]
+        let session = URLSession(configuration: configuration)
+        defer { session.invalidateAndCancel() }
+        let client = GatewayWayfinderClient(
+            baseURL: URL(string: "http://127.0.0.1:8088")!,
+            session: session,
+            appleProductReadiness: { true }
+        )
+        let destination = ChatDestination(
+            routeName: "chatgpt-sol",
+            title: "chatgpt-sol",
+            detail: "ChatGPT · GPT-5.6 Sol",
+            providerName: "ChatGPT"
+        )
+
+        do {
+            for try await _ in client.streamChat(
+                messages: [ChatRequestMessage(role: "user", content: "Hello")],
+                destination: destination
+            ) {
+                XCTFail("A rejected request must not produce stream events")
+            }
+            XCTFail("Expected the HTTP Busy envelope to terminate the stream")
+        } catch {
+            XCTAssertEqual(error as? WayfinderClientError, .chatProviderBusy)
+            XCTAssertFalse(error.localizedDescription.contains("private"))
+        }
     }
 
     @MainActor
@@ -516,4 +629,47 @@ private struct OverviewClient: WayfinderClient {
     func loadOverview() async throws -> GatewayOverview {
         overview
     }
+}
+
+private final class ChatURLProtocolStub: URLProtocol {
+    typealias Handler = (URLRequest) throws -> (HTTPURLResponse, Data)
+
+    private static let lock = NSLock()
+    private static var handler: Handler?
+
+    static func install(_ handler: @escaping Handler) {
+        lock.lock()
+        self.handler = handler
+        lock.unlock()
+    }
+
+    static func reset() {
+        lock.lock()
+        handler = nil
+        lock.unlock()
+    }
+
+    override class func canInit(with request: URLRequest) -> Bool { true }
+    override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
+
+    override func startLoading() {
+        Self.lock.lock()
+        let handler = Self.handler
+        Self.lock.unlock()
+        guard let handler else {
+            client?.urlProtocol(self, didFailWithError: URLError(.badServerResponse))
+            return
+        }
+
+        do {
+            let (response, data) = try handler(request)
+            client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
+            client?.urlProtocol(self, didLoad: data)
+            client?.urlProtocolDidFinishLoading(self)
+        } catch {
+            client?.urlProtocol(self, didFailWithError: error)
+        }
+    }
+
+    override func stopLoading() {}
 }

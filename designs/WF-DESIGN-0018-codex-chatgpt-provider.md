@@ -51,10 +51,12 @@ For `codex-app-server` models:
 ## Runtime boundary
 
 The gateway launches a version-compatible `codex app-server --listen stdio://` child only when a
-Codex model or account operation is used. Development builds may use an explicitly configured
-helper or a verified Codex installed with the ChatGPT app. A distributable Wayfinder build does not
-claim this provider is self-contained until the release bundle contains a pinned, licensed,
-architecture-correct, nested-signed helper and records its version and digest.
+Codex model or account operation is used. Development builds may use an explicitly configured or
+colocated helper. Release builds accept only the separately verified helper installed with the
+ChatGPT app; an executable placed beside the gateway is never sufficient production trust. A
+distributable Wayfinder build does not claim this provider is self-contained until the release
+bundle contains a pinned, licensed, architecture-correct, nested-signed helper and records and
+verifies its version and digest.
 
 The child receives:
 
@@ -84,7 +86,8 @@ gateway must enforce:
 - finite request, login, turn-idle, and shutdown deadlines;
 - maximum JSONL line, pending-request, notification-queue, transcript, response, and stderr-tail
   sizes;
-- one active inference turn in v0.1.0;
+- one active inference turn in v0.1.0; a concurrent turn reports bounded Busy without affecting
+  circuit-breaker health;
 - `turn/interrupt` on downstream cancellation, followed by a finite kill grace period;
 - sanitized errors on malformed messages, protocol skew, process EOF, timeout, or restart;
 - a finite restart budget with no retry for signed-out or re-authentication-required failures.
@@ -172,8 +175,9 @@ UX.
 Deterministic coverage must include configuration rejection/round-tripping, fragmented and
 oversized JSONL, handshake ordering, request-id correlation, auth transitions, login cancellation,
 model discovery, tool-item fail-closed behavior, ordered deltas, authoritative final output,
-interrupt, timeout, process EOF/restart, loopback/control-header enforcement, offline exclusion,
-and Swift account/destination state transitions.
+interrupt, concurrent-turn Busy handling without circuit-breaker poisoning, timeout, process
+EOF/restart, release rejection of unverified sibling helpers, loopback/control-header enforcement,
+offline exclusion, and Swift account/destination state transitions.
 
 The signed-app release gate additionally covers login, refresh, logout, sleep/wake, helper signing
 and architecture, cancellation, Sol delivery, a missing/expired account, and the adversarial

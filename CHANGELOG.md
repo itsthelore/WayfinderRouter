@@ -16,8 +16,10 @@ details, release history over commit history.
   `codex-app-server`; signing in does not change Automatic routing, make it a preferred hosted
   destination, or expand the credential broker. Offline mode excludes it, and a pinned ChatGPT
   destination fails visibly instead of falling back. Development builds can use an explicitly
-  selected helper; the ChatGPT-app fallback must pass runtime and signing validation. A public
-  bundle remains gated on shipping a pinned, licensed, architecture-correct, nested-signed helper.
+  selected helper; release builds reject unverified sibling executables, and the ChatGPT-app
+  fallback must pass runtime and signing validation. Concurrent turns report a bounded Busy state
+  without poisoning provider health. A public bundle remains gated on shipping a pinned, licensed,
+  architecture-correct, nested-signed helper.
 
 - **Wayfinder Desktop v0.1.0 Chat** (WF-ADR-0042, WF-ROADMAP-0012). The native macOS app now
   includes a dedicated, thread-first Chat window that streams replies through the bundled Rust
