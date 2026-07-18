@@ -56,6 +56,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
             onQuit: { NSApp.terminate(nil) }
         )
         appState.refreshSetupAssessment()
+        appState.refreshStats()
         setupWindowController.assessAndShowIfNeeded()
         if openChatOnLaunch {
             chatFeatureCoordinator.openAction?()

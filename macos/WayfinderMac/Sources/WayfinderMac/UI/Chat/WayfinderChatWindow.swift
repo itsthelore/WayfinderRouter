@@ -66,6 +66,8 @@ public struct WayfinderChatWindow: View {
                 )
                 ChatComposerView(
                     draft: $appState.chatDraft,
+                    destination: $appState.chatDestination,
+                    destinations: appState.chatDestinations,
                     isSending: appState.isSendingMessage,
                     canSend: appState.canSendMessage,
                     onSend: {

@@ -45,6 +45,13 @@ public struct GatewayWayfinderClient: WayfinderClient {
     }
 
     public func streamChat(messages: [ChatRequestMessage]) -> AsyncThrowingStream<ChatStreamEvent, Error> {
+        streamChat(messages: messages, destination: .automatic)
+    }
+
+    public func streamChat(
+        messages: [ChatRequestMessage],
+        destination: ChatDestination
+    ) -> AsyncThrowingStream<ChatStreamEvent, Error> {
         AsyncThrowingStream { continuation in
             let task = Task {
                 do {
@@ -58,7 +65,10 @@ public struct GatewayWayfinderClient: WayfinderClient {
                     request.setValue("application/json", forHTTPHeaderField: "Content-Type")
                     request.setValue("1", forHTTPHeaderField: "X-Wayfinder-Debug")
                     request.httpBody = try JSONEncoder().encode(
-                        GatewayStreamingChatRequest(messages: bounded)
+                        GatewayStreamingChatRequest(
+                            model: destination.gatewayModelValue,
+                            messages: bounded
+                        )
                     )
 
                     let (bytes, response) = try await session.bytes(for: request)
@@ -128,6 +138,9 @@ public struct GatewayWayfinderClient: WayfinderClient {
     public func loadOverview() async throws -> GatewayOverview {
         let serviceStatus = await serviceController.status()
         async let modelsTask = optionalFetch(GatewayModelsResponse.self, path: "router/models")
+        let codexClient = GatewayCodexAccountClient(baseURL: baseURL, session: session)
+        async let codexModelsTask: CodexModelsResponse? = try? codexClient.models()
+        async let codexAccountTask: CodexAccountSnapshot? = try? codexClient.account()
         async let recentTask = optionalFetch(GatewayRecentResponse.self, path: "router/recent")
         async let savingsTodayTask = optionalFetch(GatewaySavingsResponse.self, path: "v1/savings", queryItems: [
             URLQueryItem(name: "period", value: "today")
@@ -137,6 +150,8 @@ public struct GatewayWayfinderClient: WayfinderClient {
         ])
 
         let models = await modelsTask
+        let codexModelIDs = Set((await codexModelsTask)?.models.map(\.id) ?? [])
+        let codexAccountConnected = (await codexAccountTask)?.isConnected
         let recent = await recentTask
         let savingsToday = await savingsTodayTask
         let savingsThirtyDays = await savingsThirtyDaysTask
@@ -162,7 +177,9 @@ public struct GatewayWayfinderClient: WayfinderClient {
             endpoints: Self.endpointDisplayStatuses(
                 gateway: gateway,
                 models: models?.models ?? [],
-                appleFoundationModelsReady: appleProductReadiness()
+                appleFoundationModelsReady: appleProductReadiness(),
+                codexRuntimeModelIDs: codexModelIDs,
+                codexAccountConnected: codexAccountConnected
             ),
             routingStats: stats,
             updatedAt: updatedAt
@@ -172,11 +189,17 @@ public struct GatewayWayfinderClient: WayfinderClient {
     static func endpointDisplayStatuses(
         gateway: GatewayDisplayState,
         models: [GatewayModelInfo],
-        appleFoundationModelsReady: Bool = true
+        appleFoundationModelsReady: Bool = true,
+        codexRuntimeModelIDs: Set<String>? = nil,
+        codexAccountConnected: Bool? = nil
     ) -> [EndpointDisplayStatus] {
         models.map { model in
+            let codexModelAvailable = !model.isCodexAppServer
+                || codexRuntimeModelIDs?.contains(model.model) == true
             let state: EndpointState
             if model.isAppleFoundationModels && !appleFoundationModelsReady {
+                state = .unavailable
+            } else if !codexModelAvailable {
                 state = .unavailable
             } else { switch gateway {
             case .checking, .stopped, .unreachable, .notInstalled:
@@ -184,13 +207,20 @@ public struct GatewayWayfinderClient: WayfinderClient {
             case .offline:
                 state = model.isProvenLocal ? .ready : .disabled
             case .running, .degraded:
-                state = model.keyOK ? .ready : .checkKey
+                if model.isCodexAppServer {
+                    state = codexAccountConnected == true
+                        ? .ready
+                        : (codexAccountConnected == false ? .signIn : .unavailable)
+                } else {
+                    state = model.keyOK ? .ready : .checkKey
+                }
             } }
             return EndpointDisplayStatus(
                 name: model.name,
                 providerName: model.providerDisplayName,
                 modelName: model.model,
-                state: state
+                state: state,
+                isChatDestinationAvailable: codexModelAvailable
             )
         }
         .sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
@@ -325,7 +355,7 @@ private struct GatewayChatRequest: Encodable {
 }
 
 private struct GatewayStreamingChatRequest: Encodable {
-    let model = "auto"
+    let model: String
     let messages: [ChatRequestMessage]
     let stream = true
 }
@@ -569,9 +599,16 @@ struct GatewayModelInfo: Decodable, Equatable, Sendable {
         provider == "apple-foundation-models"
     }
 
+    var isCodexAppServer: Bool {
+        provider == "codex-app-server"
+    }
+
     var providerDisplayName: String {
         if provider == "apple-foundation-models" {
             return "Apple Foundation Models"
+        }
+        if provider == "codex-app-server" {
+            return "ChatGPT"
         }
         let endpointHost = URL(string: endpoint)?.host?.lowercased() ?? ""
         let hint = [name, endpointHost, apiKeyEnv ?? ""]

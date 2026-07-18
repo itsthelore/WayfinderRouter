@@ -9,6 +9,8 @@ public final class AppState: ObservableObject {
     @Published public private(set) var gatewayOverview: GatewayOverview
     @Published public private(set) var isRefreshingStats = false
     @Published public var chatDraft = ""
+    @Published public var chatDestination: ChatDestination = .automatic
+    @Published public private(set) var chatDestinations: [ChatDestination] = [.automatic]
     @Published public private(set) var chatMessages: [ChatMessage]
     @Published public private(set) var isSendingMessage = false
     @Published public private(set) var setupAssessment: SetupAssessment = .checking
@@ -29,7 +31,9 @@ public final class AppState: ObservableObject {
     }
 
     public var canSendMessage: Bool {
-        !chatDraft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && !isSendingMessage
+        !chatDraft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            && !isSendingMessage
+            && chatDestination.isAvailable
     }
 
     public var canClearChat: Bool {
@@ -81,6 +85,7 @@ public final class AppState: ObservableObject {
                     self.gatewayOverview = overview.preservingUnavailableEndpoints(
                         from: self.gatewayOverview.endpoints
                     )
+                    self.updateChatDestinations(from: self.gatewayOverview)
                     self.routingStats = overview.routingStats
                     self.isRefreshingStats = false
                 }
@@ -117,6 +122,7 @@ public final class AppState: ObservableObject {
         let requestMessages = Self.chatRequestMessages(from: chatMessages) + [
             ChatRequestMessage(role: "user", content: input)
         ]
+        let destination = chatDestination
         let responseID = UUID()
         chatDraft = ""
         isSendingMessage = true
@@ -130,7 +136,10 @@ public final class AppState: ObservableObject {
 
         chatTask = Task {
             do {
-                for try await event in client.streamChat(messages: requestMessages) {
+                for try await event in client.streamChat(
+                    messages: requestMessages,
+                    destination: destination
+                ) {
                     guard let index = self.chatMessages.firstIndex(where: { $0.id == responseID }) else {
                         continue
                     }
@@ -167,7 +176,10 @@ public final class AppState: ObservableObject {
                 if Task.isCancelled || error is CancellationError {
                     self.finishStoppedChatMessage(id: responseID)
                 } else {
-                    self.finishFailedChatMessage(id: responseID, message: error.localizedDescription)
+                    self.finishFailedChatMessage(
+                        id: responseID,
+                        message: Self.chatErrorMessage(error, destination: destination)
+                    )
                 }
             }
         }
@@ -211,6 +223,37 @@ public final class AppState: ObservableObject {
         }
     }
 
+    nonisolated static func chatDestinations(from overview: GatewayOverview) -> [ChatDestination] {
+        let configured = overview.endpoints
+            .filter { $0.isChatDestinationAvailable && $0.name != "auto" }
+            .map(ChatDestination.init(endpoint:))
+        return [.automatic] + configured
+    }
+
+    nonisolated static func chatErrorMessage(
+        _ error: Error,
+        destination: ChatDestination
+    ) -> String {
+        if destination.isChatGPTAccount,
+           let clientError = error as? WayfinderClientError,
+           case .gatewayStatus(503, _) = clientError {
+            return "ChatGPT is not connected or its Codex model is unavailable. Check Accounts in Settings, then retry."
+        }
+        return error.localizedDescription
+    }
+
+    private func updateChatDestinations(from overview: GatewayOverview) {
+        var destinations = Self.chatDestinations(from: overview)
+        if let refreshed = destinations.first(where: { $0.id == chatDestination.id }) {
+            chatDestination = refreshed
+        } else if !chatDestination.isAutomatic {
+            let unavailable = chatDestination.withAvailability(false)
+            destinations.append(unavailable)
+            chatDestination = unavailable
+        }
+        chatDestinations = destinations
+    }
+
     private func finishStoppedChatMessage(id: UUID) {
         if let index = chatMessages.firstIndex(where: { $0.id == id }) {
             chatMessages[index].state = .stopped
@@ -235,6 +278,7 @@ public final class AppState: ObservableObject {
 public enum SettingsSection: String, CaseIterable, Identifiable, Sendable {
     case gateway = "Gateway"
     case routing = "Routing"
+    case accounts = "Accounts"
     case keys = "Keys"
     case privacy = "Privacy"
     case help = "Help"
@@ -248,6 +292,8 @@ public enum SettingsSection: String, CaseIterable, Identifiable, Sendable {
             return "server.rack"
         case .routing:
             return "point.topleft.down.curvedto.point.bottomright.up"
+        case .accounts:
+            return "person.crop.circle"
         case .keys:
             return "key"
         case .privacy:
