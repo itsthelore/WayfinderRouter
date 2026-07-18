@@ -2,60 +2,109 @@ import SwiftUI
 
 public struct ChatConversationView: View {
     let turns: [ChatTurn]
-    let hasHistory: Bool
-    @Binding var selectedDecisionID: UUID?
-    let onOpenDecision: (RoutingDecision) -> Void
+    @Binding var selectedTurnID: UUID?
+    let canRetry: Bool
+    let onRetry: () -> Void
+    let onOpenRouting: (ChatTurn) -> Void
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var isNearBottom = true
 
     public init(
         turns: [ChatTurn],
-        hasHistory: Bool,
-        selectedDecisionID: Binding<UUID?>,
-        onOpenDecision: @escaping (RoutingDecision) -> Void = { _ in }
+        selectedTurnID: Binding<UUID?>,
+        canRetry: Bool = false,
+        onRetry: @escaping () -> Void = {},
+        onOpenRouting: @escaping (ChatTurn) -> Void = { _ in }
     ) {
         self.turns = turns
-        self.hasHistory = hasHistory
-        self._selectedDecisionID = selectedDecisionID
-        self.onOpenDecision = onOpenDecision
+        self._selectedTurnID = selectedTurnID
+        self.canRetry = canRetry
+        self.onRetry = onRetry
+        self.onOpenRouting = onOpenRouting
     }
 
     public var body: some View {
-        ScrollViewReader { proxy in
-            ScrollView {
-                LazyVStack(alignment: .leading, spacing: 28) {
-                    if turns.isEmpty {
-                        EmptyFilteredHistory(hasHistory: hasHistory)
-                            .padding(.top, 112)
-                    } else {
-                        ForEach(Array(turns.enumerated()), id: \.element.id) { index, turn in
-                            ChatTurnHistoryRow(
-                                turn: turn,
-                                isLast: index == turns.count - 1,
-                                selectedDecisionID: selectedDecisionID,
-                                onSelectDecision: { decision in
-                                    selectedDecisionID = decision.id
-                                    onOpenDecision(decision)
+        GeometryReader { viewport in
+            ScrollViewReader { proxy in
+                ZStack(alignment: .bottomTrailing) {
+                    ScrollView {
+                        LazyVStack(alignment: .leading, spacing: 28) {
+                            if turns.isEmpty {
+                                EmptyConversation()
+                                    .padding(.top, 112)
+                            } else {
+                                ForEach(Array(turns.enumerated()), id: \.element.id) { index, turn in
+                                    ChatTurnHistoryRow(
+                                        turn: turn,
+                                        isLast: index == turns.count - 1,
+                                        isSelected: selectedTurnID == turn.id,
+                                        canRetry: canRetry && index == turns.count - 1,
+                                        onRetry: onRetry,
+                                        onShowRouting: {
+                                            selectedTurnID = turn.id
+                                            onOpenRouting(turn)
+                                        }
+                                    )
+                                    .id(turn.id)
                                 }
-                            )
-                                .id(turn.id)
+                            }
+
+                            Color.clear
+                                .frame(height: 1)
+                                .id(Self.bottomAnchorID)
+                                .background {
+                                    GeometryReader { proxy in
+                                        Color.clear.preference(
+                                            key: ConversationBottomPreferenceKey.self,
+                                            value: proxy.frame(in: .named(Self.scrollCoordinateSpace)).maxY
+                                        )
+                                    }
+                                }
                         }
+                        .frame(maxWidth: ChatWorkspaceChrome.conversationWidth, alignment: .leading)
+                        .padding(.horizontal, 36)
+                        .padding(.top, 34)
+                        .padding(.bottom, 28)
+                        .frame(maxWidth: .infinity, alignment: .center)
+                    }
+                    .coordinateSpace(name: Self.scrollCoordinateSpace)
+                    .onPreferenceChange(ConversationBottomPreferenceKey.self) { bottomY in
+                        isNearBottom = bottomY <= viewport.size.height + 72
+                    }
+
+                    if !isNearBottom, !turns.isEmpty {
+                        Button {
+                            selectedTurnID = turns.last?.id
+                            scrollToLatest(using: proxy)
+                        } label: {
+                            Label("Jump to latest", systemImage: "arrow.down")
+                        }
+                        .buttonStyle(.bordered)
+                        .controlSize(.small)
+                        .padding(16)
+                        .help("Return to the latest response")
                     }
                 }
-                .frame(maxWidth: ChatWorkspaceChrome.conversationWidth, alignment: .leading)
-                .padding(.horizontal, 36)
-                .padding(.top, 34)
-                .padding(.bottom, 28)
-                .frame(maxWidth: .infinity, alignment: .center)
-            }
-            .onChange(of: scrollRevision) {
-                if let last = turns.last {
-                    if reduceMotion {
-                        proxy.scrollTo(last.id, anchor: .bottom)
+                .onChange(of: turns.count) {
+                    scrollToLatest(using: proxy)
+                }
+                .onChange(of: selectedTurnID) {
+                    guard let selectedTurnID else { return }
+                    if selectedTurnID == turns.last?.id {
+                        isNearBottom = true
+                        scrollToLatest(using: proxy)
                     } else {
-                        withAnimation(.easeOut(duration: 0.2)) {
-                            proxy.scrollTo(last.id, anchor: .bottom)
-                        }
+                        isNearBottom = false
+                        scroll(to: selectedTurnID, anchor: .center, using: proxy)
                     }
+                }
+                .onChange(of: scrollRevision) {
+                    guard ChatScrollFollowPolicy.shouldFollowLatest(
+                        isNearBottom: isNearBottom,
+                        selectedTurnID: selectedTurnID,
+                        latestTurnID: turns.last?.id
+                    ) else { return }
+                    scrollToLatest(using: proxy)
                 }
             }
         }
@@ -68,19 +117,44 @@ public struct ChatConversationView: View {
             partial + (turn.response?.text.count ?? 0)
         }
     }
+
+    private func scrollToLatest(using proxy: ScrollViewProxy) {
+        guard !turns.isEmpty else { return }
+        isNearBottom = true
+        scroll(to: Self.bottomAnchorID, anchor: .bottom, using: proxy)
+    }
+
+    private func scroll<ID: Hashable>(to id: ID, anchor: UnitPoint, using proxy: ScrollViewProxy) {
+        if reduceMotion {
+            proxy.scrollTo(id, anchor: anchor)
+        } else {
+            withAnimation(.easeOut(duration: 0.2)) {
+                proxy.scrollTo(id, anchor: anchor)
+            }
+        }
+    }
+
+    private static let bottomAnchorID = "wayfinder-chat-bottom"
+    private static let scrollCoordinateSpace = "wayfinder-chat-scroll"
 }
 
-private struct EmptyFilteredHistory: View {
-    let hasHistory: Bool
+private struct ConversationBottomPreferenceKey: PreferenceKey {
+    static var defaultValue: CGFloat = 0
 
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
+        value = nextValue()
+    }
+}
+
+private struct EmptyConversation: View {
     var body: some View {
         VStack(spacing: 12) {
-            Image(systemName: hasHistory ? "line.3.horizontal.decrease.circle" : "point.topleft.down.curvedto.point.bottomright.up")
+            Image(systemName: "point.topleft.down.curvedto.point.bottomright.up")
                 .font(.system(size: 24, weight: .medium))
-                .foregroundStyle(hasHistory ? ChatWorkspaceChrome.secondaryText : WayfinderTheme.local)
-            Text(hasHistory ? "No matching conversations" : "Start a conversation")
+                .foregroundStyle(WayfinderTheme.local)
+            Text("Start a conversation")
                 .font(.title3.weight(.semibold))
-            Text(hasHistory ? "Adjust the search or route filter to show this chat's turns." : "Ask anything. Wayfinder will choose a configured model and show you the route it took.")
+            Text("Ask anything. Wayfinder will choose a configured model and show you the route it took.")
                 .font(.callout)
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
@@ -111,5 +185,38 @@ public struct ChatTurn: Identifiable, Equatable {
         }
 
         return turns
+    }
+}
+
+enum ChatRoutingInspectionState: Equatable {
+    case waiting
+    case routed(RoutingDecision)
+    case failed(String, RoutingDecision?)
+    case stopped(RoutingDecision?)
+    case unavailable
+}
+
+extension ChatTurn {
+    var routingInspectionState: ChatRoutingInspectionState {
+        guard let response else {
+            return .waiting
+        }
+
+        switch response.state {
+        case .streaming:
+            if let decision = response.decision {
+                return .routed(decision)
+            }
+            return .waiting
+        case .failed:
+            return .failed(response.text, response.decision)
+        case .stopped:
+            return .stopped(response.decision)
+        case .complete:
+            if let decision = response.decision {
+                return .routed(decision)
+            }
+            return .unavailable
+        }
     }
 }

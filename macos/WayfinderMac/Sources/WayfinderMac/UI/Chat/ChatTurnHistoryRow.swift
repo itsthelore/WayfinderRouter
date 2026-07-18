@@ -3,19 +3,25 @@ import SwiftUI
 public struct ChatTurnHistoryRow: View {
     let turn: ChatTurn
     let isLast: Bool
-    let selectedDecisionID: UUID?
-    let onSelectDecision: (RoutingDecision) -> Void
+    let isSelected: Bool
+    let canRetry: Bool
+    let onRetry: () -> Void
+    let onShowRouting: () -> Void
 
     public init(
         turn: ChatTurn,
         isLast: Bool,
-        selectedDecisionID: UUID?,
-        onSelectDecision: @escaping (RoutingDecision) -> Void
+        isSelected: Bool,
+        canRetry: Bool,
+        onRetry: @escaping () -> Void,
+        onShowRouting: @escaping () -> Void
     ) {
         self.turn = turn
         self.isLast = isLast
-        self.selectedDecisionID = selectedDecisionID
-        self.onSelectDecision = onSelectDecision
+        self.isSelected = isSelected
+        self.canRetry = canRetry
+        self.onRetry = onRetry
+        self.onShowRouting = onShowRouting
     }
 
     public var body: some View {
@@ -25,8 +31,10 @@ public struct ChatTurnHistoryRow: View {
             if let response = turn.response {
                 AssistantTurnResponse(
                     response: response,
-                    selectedDecisionID: selectedDecisionID,
-                    onSelectDecision: onSelectDecision
+                    isSelected: isSelected,
+                    canRetry: canRetry,
+                    onRetry: onRetry,
+                    onShowRouting: onShowRouting
                 )
             } else {
                 PendingRouteStrip()
@@ -39,15 +47,20 @@ public struct ChatTurnHistoryRow: View {
         HStack(alignment: .bottom, spacing: 10) {
             Spacer(minLength: 72)
             VStack(alignment: .trailing, spacing: 6) {
-            Text(turn.prompt.text)
+                Text(turn.prompt.text)
                     .font(.body)
-                .foregroundStyle(.primary)
-                .fixedSize(horizontal: false, vertical: true)
+                    .foregroundStyle(.primary)
+                    .fixedSize(horizontal: false, vertical: true)
                     .textSelection(.enabled)
+                    .accessibilityLabel("You")
+                    .accessibilityValue(turn.prompt.text)
 
                 Text(turn.prompt.createdAt.formatted(date: .omitted, time: .shortened))
                     .font(.caption2.monospacedDigit())
                     .foregroundStyle(ChatWorkspaceChrome.tertiaryText)
+                    .accessibilityLabel(
+                        "Sent at \(turn.prompt.createdAt.formatted(date: .omitted, time: .shortened))"
+                    )
             }
             .padding(.horizontal, 14)
             .padding(.vertical, 11)
@@ -58,17 +71,19 @@ public struct ChatTurnHistoryRow: View {
 
 private struct AssistantTurnResponse: View {
     let response: ChatMessage
-    let selectedDecisionID: UUID?
-    let onSelectDecision: (RoutingDecision) -> Void
+    let isSelected: Bool
+    let canRetry: Bool
+    let onRetry: () -> Void
+    let onShowRouting: () -> Void
 
     var body: some View {
         HStack(alignment: .top, spacing: 12) {
             ZStack {
                 Circle()
-                    .fill((response.decision?.route.accentColor ?? WayfinderTheme.local).opacity(0.13))
+                    .fill(WayfinderTheme.local.opacity(0.13))
                 Image(systemName: "point.topleft.down.curvedto.point.bottomright.up")
                     .font(.system(size: 12, weight: .semibold))
-                    .foregroundStyle(response.decision?.route.accentColor ?? WayfinderTheme.local)
+                    .foregroundStyle(WayfinderTheme.local)
             }
             .frame(width: 28, height: 28)
             .accessibilityHidden(true)
@@ -80,6 +95,9 @@ private struct AssistantTurnResponse: View {
                         .foregroundStyle(response.state == .failed ? .secondary : .primary)
                         .fixedSize(horizontal: false, vertical: true)
                         .textSelection(.enabled)
+                        .accessibilityLabel("Wayfinder")
+                        .accessibilityValue(response.text)
+                        .accessibilityAddTraits(response.state == .streaming ? .updatesFrequently : [])
                 }
 
                 switch response.state {
@@ -90,9 +108,17 @@ private struct AssistantTurnResponse: View {
                     }
                     .font(.caption)
                     .foregroundStyle(.secondary)
+                    .accessibilityElement(children: .combine)
+                    .accessibilityLabel("Wayfinder is responding")
+                    .accessibilityAddTraits(.updatesFrequently)
                 case .failed:
                     HStack(spacing: 10) {
                         StatusStrip(title: "Chat failed", symbol: "exclamationmark.triangle.fill", color: .red)
+                        if canRetry {
+                            Button("Retry", action: onRetry)
+                                .buttonStyle(.link)
+                                .controlSize(.small)
+                        }
                         Button("Open Settings") {
                             NotificationCenter.default.post(name: .wayfinderOpenSettings, object: nil)
                         }
@@ -100,21 +126,58 @@ private struct AssistantTurnResponse: View {
                         .controlSize(.small)
                     }
                 case .stopped:
-                    StatusStrip(title: "Response stopped", symbol: "stop.circle", color: .secondary)
+                    HStack(spacing: 10) {
+                        StatusStrip(title: "Response stopped", symbol: "stop.circle", color: .secondary)
+                        if canRetry {
+                            Button("Retry", action: onRetry)
+                                .buttonStyle(.link)
+                                .controlSize(.small)
+                        }
+                    }
                 case .complete:
                     EmptyView()
                 }
 
                 if let decision = response.decision {
-                    RoutingResponseCard(
+                    RoutingReceiptButton(
                         decision: decision,
-                        isSelected: decision.id == selectedDecisionID,
-                        onSelect: { onSelectDecision(decision) }
+                        isSelected: isSelected,
+                        action: onShowRouting
                     )
                 }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
         }
+    }
+
+}
+
+private struct RoutingReceiptButton: View {
+    let decision: RoutingDecision
+    let isSelected: Bool
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: 6) {
+                Image(systemName: decision.route.symbolName)
+                    .foregroundStyle(decision.route.accentColor)
+                Text(decision.routeSummary)
+                    .fontWeight(.semibold)
+                Text("Routing details")
+                    .foregroundStyle(ChatWorkspaceChrome.secondaryText)
+                Image(systemName: "chevron.right")
+                    .font(.caption2.weight(.semibold))
+                    .foregroundStyle(ChatWorkspaceChrome.tertiaryText)
+            }
+            .font(.caption)
+            .padding(.vertical, 3)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .foregroundStyle(isSelected ? decision.route.accentColor : .primary)
+        .accessibilityLabel("\(decision.routeSummary). Show routing details.")
+        .help("Show this turn in the routing inspector")
     }
 }
 
@@ -145,5 +208,8 @@ private struct PendingRouteStrip: View {
                 .foregroundStyle(.secondary)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("Routing this message")
+        .accessibilityAddTraits(.updatesFrequently)
     }
 }
