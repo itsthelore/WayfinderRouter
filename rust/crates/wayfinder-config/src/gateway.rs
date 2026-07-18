@@ -37,6 +37,8 @@ pub enum ProviderKind {
     OpenAiCompatible,
     /// Apple's native on-device system language model.
     AppleFoundationModels,
+    /// A bounded Codex app-server authenticated through ChatGPT.
+    CodexAppServer,
 }
 
 impl ProviderKind {
@@ -46,6 +48,7 @@ impl ProviderKind {
         match self {
             Self::OpenAiCompatible => "openai-compatible",
             Self::AppleFoundationModels => "apple-foundation-models",
+            Self::CodexAppServer => "codex-app-server",
         }
     }
 }
@@ -700,12 +703,15 @@ fn parse_models(
             Some(Value::String(value)) if value == "apple-foundation-models" => {
                 ProviderKind::AppleFoundationModels
             }
+            Some(Value::String(value)) if value == "codex-app-server" => {
+                ProviderKind::CodexAppServer
+            }
             Some(_) => {
                 return Err(invalid(
                     where_,
                     format!(
                         "'gateway.models.{name}.provider' must be one of openai-compatible, \
-                         apple-foundation-models"
+                         apple-foundation-models, codex-app-server"
                     ),
                 ));
             }
@@ -800,6 +806,31 @@ fn parse_models(
                             "'gateway.models.{name}.tier' must be local for \
                              apple-foundation-models"
                         ),
+                    ));
+                }
+            }
+            ProviderKind::CodexAppServer => {
+                if base_url.is_some() {
+                    return Err(invalid(
+                        where_,
+                        format!(
+                            "'gateway.models.{name}.base_url' is not valid for codex-app-server"
+                        ),
+                    ));
+                }
+                if api_key_env.is_some() || api_key_cmd.is_some() {
+                    return Err(invalid(
+                        where_,
+                        format!(
+                            "'gateway.models.{name}' cannot configure credentials for \
+                             codex-app-server"
+                        ),
+                    ));
+                }
+                if tier.is_some() {
+                    return Err(invalid(
+                        where_,
+                        format!("'gateway.models.{name}.tier' is not valid for codex-app-server"),
                     ));
                 }
             }
@@ -1381,6 +1412,60 @@ cost_per_1k = 0.0"#;
         assert_eq!(model.api_key_env, None);
         assert_eq!(dump_gateway_toml(&config)?, text);
         Ok(())
+    }
+
+    #[test]
+    fn codex_app_server_is_typed_keyless_hosted_and_round_trips() -> Result<(), ConfigError> {
+        let text = concat!(
+            "[gateway.models.chatgpt]\n",
+            "provider = \"codex-app-server\"\n",
+            "model = \"gpt-5.6-sol\"\n",
+            "context_window = 1050000"
+        );
+        let config = gateway_config_from_toml(text, "test")?;
+        let model = config
+            .models
+            .get("chatgpt")
+            .ok_or_else(|| invalid("test", "missing Codex app-server model"))?;
+        assert_eq!(model.provider, ProviderKind::CodexAppServer);
+        assert_eq!(model.model, "gpt-5.6-sol");
+        assert_eq!(model.base_url, None);
+        assert_eq!(model.api_key_env, None);
+        assert_eq!(model.api_key_cmd, None);
+        assert_eq!(model.tier, None);
+        assert_eq!(model.context_window, Some(1_050_000));
+        assert_eq!(dump_gateway_toml(&config)?, text);
+        assert_eq!(gateway_config_from_toml(text, "round-trip")?, config);
+        Ok(())
+    }
+
+    #[test]
+    fn codex_app_server_requires_a_non_empty_model() {
+        for model_field in ["", "model = \"\"\n"] {
+            let text =
+                format!("[gateway.models.chatgpt]\nprovider = \"codex-app-server\"\n{model_field}");
+            assert!(parse(&text).is_err(), "unexpectedly accepted: {text}");
+        }
+    }
+
+    #[test]
+    fn codex_app_server_rejects_endpoint_credentials_and_native_tier() {
+        for incompatible_fields in [
+            "base_url = \"https://api.openai.com/v1\"\n",
+            "api_key_env = \"OPENAI_API_KEY\"\n",
+            "api_key_cmd = \"credential-helper read openai\"\n",
+            concat!(
+                "api_key_env = \"OPENAI_API_KEY\"\n",
+                "api_key_cmd = \"credential-helper read openai\"\n"
+            ),
+            "tier = \"local\"\n",
+        ] {
+            let text = format!(
+                "[gateway.models.chatgpt]\nprovider = \"codex-app-server\"\n\
+                 model = \"gpt-5.6-sol\"\n{incompatible_fields}"
+            );
+            assert!(parse(&text).is_err(), "unexpectedly accepted: {text}");
+        }
     }
 
     #[test]
