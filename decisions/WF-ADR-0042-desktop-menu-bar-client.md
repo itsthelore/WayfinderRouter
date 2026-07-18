@@ -114,6 +114,13 @@ honest statement of our posture is an app that *provably does less*.
    routing metadata belongs to the persistent right inspector; the chronological transcript keeps
    only a quiet receipt that selects that inspector.
 
+10. **ChatGPT account access remains a gateway provider, never a desktop credential path.** The
+    optional `codex-app-server` provider in WF-DESIGN-0018 owns managed ChatGPT authentication,
+    token refresh, model discovery, and bounded response translation behind the Rust gateway. The
+    Swift app receives normalized account state and opens the returned browser flow, but never
+    receives tokens, reads Codex auth storage, calls a provider directly, or changes routing merely
+    because an account signed in. The existing API-key provider and credential broker are unchanged.
+
 ## Consequences
 
 ### Positive
