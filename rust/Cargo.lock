@@ -1691,15 +1691,28 @@ name = "wayfinder-cli"
 version = "2026.7.0"
 dependencies = [
  "serde_json",
+ "thiserror",
  "tokio",
  "uuid",
  "wayfinder-apple-foundation-xpc",
+ "wayfinder-codex-app-server",
  "wayfinder-config",
  "wayfinder-core",
  "wayfinder-gateway",
  "wayfinder-macos-xpc",
  "wayfinder-providers",
  "wayfinder-service",
+]
+
+[[package]]
+name = "wayfinder-codex-app-server"
+version = "2026.7.0"
+dependencies = [
+ "serde",
+ "serde_json",
+ "thiserror",
+ "tokio",
+ "tokio-util",
 ]
 
 [[package]]
@@ -1763,6 +1776,7 @@ dependencies = [
  "tracing",
  "uuid",
  "wayfinder-apple-foundation-xpc",
+ "wayfinder-codex-app-server",
  "wayfinder-config",
  "wayfinder-core",
  "wayfinder-providers",
