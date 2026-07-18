@@ -29,6 +29,11 @@ without filtering the transcript, and a persistent but collapsible right inspect
 mode, score, explanation, and routing signals. Completed replies carry only a quiet routing receipt
 that selects the inspector; they do not repeat the decision as an inline dashboard card.
 
+An optional ChatGPT-authenticated destination may be added through the separate gateway-owned
+`codex-app-server` provider in WF-DESIGN-0018. Account UI belongs in Settings, destination choice is
+compact composer chrome, and detailed provider/model/access data remains in the right inspector.
+Signing in does not change `Automatic`, provider defaults, or routing configuration.
+
 This roadmap intentionally changes three accepted assumptions that currently pull implementation
 back toward the wrong result:
 
@@ -226,6 +231,7 @@ streaming/cancellation, and service tests green; signed/notarized packaging work
 ## Explicit non-goals for this v0.1.0 pass
 
 - Turning Chat into an independent router, provider client, credential owner, or general agent UI.
+- Exposing Codex tools, filesystem actions, approvals, or agent activity through focused Chat.
 - Redesigning the routing algorithm or gateway API.
 - Adding a dashboard, charts, logs browser, onboarding wizard, or extra menu-bar metrics.
 - Replacing the service-first lifecycle or moving routing/key ownership into the app.
