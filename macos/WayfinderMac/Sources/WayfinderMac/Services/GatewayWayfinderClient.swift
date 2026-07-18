@@ -34,7 +34,7 @@ public struct GatewayWayfinderClient: WayfinderClient {
 
         let (data, response) = try await session.data(for: request)
         if let http = response as? HTTPURLResponse, !(200..<300).contains(http.statusCode) {
-            throw Self.gatewayError(for: http)
+            throw Self.gatewayError(for: http, body: data)
         }
 
         let decoded = try JSONDecoder().decode(GatewayChatResponse.self, from: data)
@@ -76,7 +76,8 @@ public struct GatewayWayfinderClient: WayfinderClient {
                         throw WayfinderClientError.invalidChatStream
                     }
                     guard (200..<300).contains(http.statusCode) else {
-                        throw Self.gatewayError(for: http)
+                        let body = try await Self.boundedGatewayErrorBody(from: bytes)
+                        throw Self.gatewayError(for: http, body: body)
                     }
                     guard http.value(forHTTPHeaderField: "Content-Type")?.contains("text/event-stream") == true else {
                         throw WayfinderClientError.invalidChatStream
@@ -124,11 +125,37 @@ public struct GatewayWayfinderClient: WayfinderClient {
         return bounded
     }
 
-    static func gatewayError(for response: HTTPURLResponse) -> WayfinderClientError {
-        .gatewayStatus(
+    static func gatewayError(
+        for response: HTTPURLResponse,
+        body: Data? = nil
+    ) -> WayfinderClientError {
+        if let body,
+           body.count <= maximumGatewayErrorBodyBytes,
+           let envelope = try? JSONDecoder().decode(GatewayErrorEnvelope.self, from: body),
+           let error = mappedGatewayChatError(for: envelope.error.type) {
+            return error
+        }
+        return .gatewayStatus(
             response.statusCode,
             model: response.value(forHTTPHeaderField: "X-Wayfinder-Router-Model")
         )
+    }
+
+    private static let maximumGatewayErrorBodyBytes = 16_384
+
+    private static func boundedGatewayErrorBody(
+        from bytes: URLSession.AsyncBytes
+    ) async throws -> Data? {
+        var body = Data()
+        body.reserveCapacity(maximumGatewayErrorBodyBytes)
+        for try await byte in bytes {
+            try Task.checkCancellation()
+            guard body.count < maximumGatewayErrorBodyBytes else {
+                return nil
+            }
+            body.append(byte)
+        }
+        return body
     }
 
     public func loadStats(range: StatsRange) async throws -> RoutingStats {
@@ -465,18 +492,7 @@ struct GatewayStreamDecoder {
         }
         let envelope = try JSONDecoder().decode(GatewayStreamEnvelope.self, from: data)
         if let error = envelope.error {
-            switch error.type {
-            case "wayfinder_router_turn_failed":
-                throw WayfinderClientError.chatTurnFailed
-            case "wayfinder_router_interrupted":
-                throw WayfinderClientError.chatTurnInterrupted
-            case "wayfinder_router_usage_limited":
-                throw WayfinderClientError.chatUsageLimitReached
-            case "wayfinder_router_not_ready":
-                throw WayfinderClientError.chatAccountNotReady
-            default:
-                throw WayfinderClientError.invalidChatStream
-            }
+            throw mappedGatewayChatError(for: error.type) ?? WayfinderClientError.invalidChatStream
         }
 
         var events: [ChatStreamEvent] = []
@@ -509,6 +525,10 @@ private struct GatewayStreamEnvelope: Decodable {
     let error: GatewayStreamError?
 }
 
+private struct GatewayErrorEnvelope: Decodable {
+    let error: GatewayStreamError
+}
+
 private struct GatewayStreamChoice: Decodable {
     let delta: GatewayStreamDelta
 }
@@ -519,6 +539,23 @@ private struct GatewayStreamDelta: Decodable {
 
 private struct GatewayStreamError: Decodable {
     let type: String?
+}
+
+private func mappedGatewayChatError(for type: String?) -> WayfinderClientError? {
+    switch type {
+    case "wayfinder_router_turn_failed":
+        .chatTurnFailed
+    case "wayfinder_router_interrupted":
+        .chatTurnInterrupted
+    case "wayfinder_router_busy":
+        .chatProviderBusy
+    case "wayfinder_router_usage_limited":
+        .chatUsageLimitReached
+    case "wayfinder_router_not_ready":
+        .chatAccountNotReady
+    default:
+        nil
+    }
 }
 
 private struct GatewayContribution: Decodable {

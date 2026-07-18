@@ -161,9 +161,9 @@ The account route appears in Chat only when that model is advertised by the isol
 Signing in does not change `Automatic` or any existing route ladder. Requests are hosted and leave
 the Mac; Offline mode disables the provider. Wayfinder receives normalized account state and model
 names, never account tokens, and does not broaden its credential broker. Development builds can use
-an explicitly selected helper; the fixed ChatGPT-app fallback is accepted only when its runtime and
-signing checks pass. Public distribution remains gated on a pinned, licensed, architecture-correct,
-nested-signed helper. See the
+an explicitly selected or colocated helper. Release builds reject unverified sibling executables;
+the fixed ChatGPT-app fallback is accepted only when its runtime and signing checks pass. Public
+distribution remains gated on a pinned, licensed, architecture-correct, nested-signed helper. See the
 [provider design](designs/WF-DESIGN-0018-codex-chatgpt-provider.md) for the full boundary.
 
 ## Quickstart

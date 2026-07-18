@@ -37,6 +37,9 @@ This provider requires `model` and rejects `base_url`, `api_key_env`, `api_key_c
 mode is active. Signing in never adds this route to a ladder or changes the desktop's `Automatic`
 destination.
 
+The managed runtime serves one inference turn at a time. A concurrent turn returns HTTP `409` or a
+streamed `wayfinder_router_busy` terminal without affecting the route's circuit-breaker health.
+
 On a literal loopback listener, the native app uses these normalized controls with the exact
 `X-Wayfinder-Local-Control: 1` header:
 
@@ -48,9 +51,10 @@ On a literal loopback listener, the native app uses these normalized controls wi
 
 Wayfinder never returns or brokers the account tokens. The managed runtime uses a separate
 Wayfinder-owned Codex home and empty workspace with tool-bearing features disabled. Development
-builds may use an explicitly selected helper; the fixed ChatGPT-app fallback is accepted only when
-its runtime and signing checks pass. A distributable desktop build must not claim this provider is
-self-contained until it bundles a pinned, licensed, architecture-correct, nested-signed helper. See
+builds may use an explicitly selected or colocated helper. Release builds reject unverified sibling
+executables; the fixed ChatGPT-app fallback is accepted only when its runtime and signing checks
+pass. A distributable desktop build must not claim this provider is self-contained until it bundles
+a pinned, licensed, architecture-correct, nested-signed helper and verifies its recorded digest. See
 [WF-DESIGN-0018](../designs/WF-DESIGN-0018-codex-chatgpt-provider.md) and the official
 [Codex app-server](https://learn.chatgpt.com/docs/app-server),
 [authentication](https://learn.chatgpt.com/docs/auth#openai-authentication), and
