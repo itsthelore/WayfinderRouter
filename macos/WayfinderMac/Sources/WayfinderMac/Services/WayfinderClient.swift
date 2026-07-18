@@ -61,6 +61,7 @@ public extension WayfinderClient {
 public enum WayfinderClientError: LocalizedError, Equatable {
     case emptyPrompt
     case gatewayResponseMissingDecision
+    case gatewayResponseTooLarge
     case gatewayStatus(Int, model: String? = nil)
     case invalidChatStream
     case chatTurnFailed
@@ -76,6 +77,8 @@ public enum WayfinderClientError: LocalizedError, Equatable {
             return "The prompt is empty."
         case .gatewayResponseMissingDecision:
             return "The gateway response did not include a Wayfinder decision."
+        case .gatewayResponseTooLarge:
+            return "The gateway response exceeded Wayfinder's safety limit."
         case .gatewayStatus(let status, let model):
             switch status {
             case 401, 403:
