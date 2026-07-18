@@ -120,7 +120,10 @@ private struct AssistantTurnResponse: View {
                                 .controlSize(.small)
                         }
                         Button("Open Settings") {
-                            NotificationCenter.default.post(name: .wayfinderOpenSettings, object: nil)
+                            NotificationCenter.default.post(
+                                name: .wayfinderOpenSettings,
+                                object: response.recoverySettingsSection ?? SettingsSection.gateway
+                            )
                         }
                         .buttonStyle(.link)
                         .controlSize(.small)

@@ -154,6 +154,7 @@ public final class AppState: ObservableObject {
                             : .complete
                         if self.chatMessages[index].text.isEmpty {
                             self.chatMessages[index].text = "No model reply was delivered. Check the configured endpoint in Settings."
+                            self.chatMessages[index].recoverySettingsSection = .gateway
                         }
                     }
                 }
@@ -178,7 +179,11 @@ public final class AppState: ObservableObject {
                 } else {
                     self.finishFailedChatMessage(
                         id: responseID,
-                        message: Self.chatErrorMessage(error, destination: destination)
+                        message: Self.chatErrorMessage(error, destination: destination),
+                        recoverySettingsSection: Self.chatRecoverySettingsSection(
+                            error,
+                            destination: destination
+                        )
                     )
                 }
             }
@@ -243,13 +248,30 @@ public final class AppState: ObservableObject {
                 return "ChatGPT could not complete this reply. Retry, or choose another destination."
             case .chatUsageLimitReached, .gatewayStatus(429, _):
                 return "This ChatGPT account has reached its current usage limit. Try again later, or choose another destination."
-            case .gatewayStatus(503, _):
+            case .chatAccountNotReady, .gatewayStatus(503, _):
                 return "ChatGPT is not connected or its Codex model is unavailable. Check Accounts in Settings, then retry."
             default:
                 break
             }
         }
         return error.localizedDescription
+    }
+
+    nonisolated static func chatRecoverySettingsSection(
+        _ error: Error,
+        destination: ChatDestination
+    ) -> SettingsSection {
+        guard let clientError = error as? WayfinderClientError else {
+            return .gateway
+        }
+        switch clientError {
+        case .chatAccountNotReady:
+            return .accounts
+        case .gatewayStatus(503, _) where destination.isChatGPTAccount:
+            return .accounts
+        default:
+            return .gateway
+        }
     }
 
     private func updateChatDestinations(from overview: GatewayOverview) {
@@ -275,10 +297,15 @@ public final class AppState: ObservableObject {
         chatTask = nil
     }
 
-    private func finishFailedChatMessage(id: UUID, message: String) {
+    private func finishFailedChatMessage(
+        id: UUID,
+        message: String,
+        recoverySettingsSection: SettingsSection = .gateway
+    ) {
         if let index = chatMessages.firstIndex(where: { $0.id == id }) {
             chatMessages[index].state = .failed
             chatMessages[index].text = message
+            chatMessages[index].recoverySettingsSection = recoverySettingsSection
         }
         isSendingMessage = false
         chatTask = nil
@@ -286,7 +313,7 @@ public final class AppState: ObservableObject {
     }
 }
 
-public enum SettingsSection: String, CaseIterable, Identifiable, Sendable {
+public enum SettingsSection: String, CaseIterable, Codable, Identifiable, Sendable {
     case gateway = "Gateway"
     case routing = "Routing"
     case accounts = "Accounts"

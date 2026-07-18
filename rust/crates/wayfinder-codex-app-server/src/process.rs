@@ -5,7 +5,7 @@ use std::path::Path;
 use std::process::Stdio;
 use std::sync::Arc;
 
-#[cfg(target_os = "macos")]
+#[cfg(unix)]
 use std::process::Command as StdCommand;
 
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
@@ -25,11 +25,10 @@ pub(crate) fn spawn_process<'a>(
     config: &'a RuntimeConfig,
 ) -> TransportFuture<'a, Box<dyn AppServerTransport>> {
     Box::pin(async move {
-        prepare_runtime(config)?;
+        let owner = prepare_runtime(config)?;
 
         let mut command = Command::new(&config.helper_path);
         let temporary_directory = config.codex_home.join("runtime-tmp");
-        let owner = private_directory_owner(&config.codex_home)?;
         create_private_directory(&temporary_directory, owner)?;
         command
             .arg("app-server")
@@ -92,9 +91,17 @@ pub(crate) fn spawn_process<'a>(
     })
 }
 
-fn prepare_runtime(config: &RuntimeConfig) -> Result<(), CodexAppServerError> {
+fn prepare_runtime(config: &RuntimeConfig) -> Result<OwnerId, CodexAppServerError> {
+    let owner = effective_owner()?;
+    prepare_runtime_for_owner(config, owner)?;
+    Ok(owner)
+}
+
+fn prepare_runtime_for_owner(
+    config: &RuntimeConfig,
+    owner: OwnerId,
+) -> Result<(), CodexAppServerError> {
     verify_regular_executable(&config.helper_path)?;
-    let owner = private_directory_owner(&config.codex_home)?;
     create_private_directory(&config.codex_home, owner)?;
     create_private_directory(&config.workspace, owner)?;
     verify_empty_directory(&config.workspace)?;
@@ -293,6 +300,42 @@ fn verify_empty_directory(path: &Path) -> Result<(), CodexAppServerError> {
     Ok(())
 }
 
+#[cfg(unix)]
+pub(crate) fn effective_owner() -> Result<OwnerId, CodexAppServerError> {
+    let output = StdCommand::new("/usr/bin/id")
+        .arg("-u")
+        .env_clear()
+        .stdin(Stdio::null())
+        .stderr(Stdio::null())
+        .output()
+        .map_err(|_| CodexAppServerError::RuntimeUnavailable)?;
+    if !output.status.success() {
+        return Err(CodexAppServerError::RuntimeUnavailable);
+    }
+    parse_owner_id(&output.stdout)
+}
+
+#[cfg(unix)]
+fn parse_owner_id(output: &[u8]) -> Result<OwnerId, CodexAppServerError> {
+    if output.is_empty() || output.len() > 32 {
+        return Err(CodexAppServerError::RuntimeUnavailable);
+    }
+    let text = std::str::from_utf8(output).map_err(|_| CodexAppServerError::RuntimeUnavailable)?;
+    let value = text.strip_suffix('\n').unwrap_or(text);
+    if value.is_empty() || !value.bytes().all(|byte| byte.is_ascii_digit()) {
+        return Err(CodexAppServerError::RuntimeUnavailable);
+    }
+    value
+        .parse::<OwnerId>()
+        .map_err(|_| CodexAppServerError::RuntimeUnavailable)
+}
+
+#[cfg(not(unix))]
+pub(crate) fn effective_owner() -> Result<OwnerId, CodexAppServerError> {
+    Ok(())
+}
+
+#[cfg(test)]
 fn private_directory_owner(path: &Path) -> Result<OwnerId, CodexAppServerError> {
     let metadata =
         fs::symlink_metadata(path).map_err(|_| CodexAppServerError::InvalidConfiguration)?;
@@ -541,6 +584,84 @@ mod tests {
         let metadata = fs::metadata(&root.path)?;
         assert_eq!(
             verify_owner(&metadata, metadata.uid().wrapping_add(1)),
+            Err(CodexAppServerError::InvalidConfiguration)
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn effective_owner_parser_is_strict_and_bounded() {
+        assert_eq!(parse_owner_id(b"501\n"), Ok(501));
+        assert_eq!(parse_owner_id(b"0"), Ok(0));
+        for invalid in [
+            b"".as_slice(),
+            b"501 \n".as_slice(),
+            b" 501\n".as_slice(),
+            b"-1\n".as_slice(),
+            b"501\n\n".as_slice(),
+            b"4294967296\n".as_slice(),
+            &[0xff],
+        ] {
+            assert_eq!(
+                parse_owner_id(invalid),
+                Err(CodexAppServerError::RuntimeUnavailable)
+            );
+        }
+    }
+
+    #[test]
+    fn runtime_artifacts_are_anchored_to_the_process_owner()
+    -> Result<(), Box<dyn std::error::Error>> {
+        use std::os::unix::fs::{MetadataExt, PermissionsExt};
+
+        let root = TestDirectory::new("runtime-owner")?;
+        fs::set_permissions(&root.path, fs::Permissions::from_mode(0o700))?;
+        let owner = fs::metadata(&root.path)?.uid();
+        assert_eq!(effective_owner()?, owner);
+
+        let auth_path = root.path.join("auth.json");
+        fs::write(&auth_path, b"{}")?;
+        fs::set_permissions(&auth_path, fs::Permissions::from_mode(0o600))?;
+        let config = RuntimeConfig {
+            helper_path: fs::canonicalize(std::env::current_exe()?)?,
+            codex_home: root.path.clone(),
+            workspace: root.path.join("workspace"),
+            client_version: "test".to_owned(),
+            limits: crate::RuntimeLimits::default(),
+        };
+
+        prepare_runtime_for_owner(&config, owner)?;
+        let home_metadata = fs::symlink_metadata(&config.codex_home)?;
+        let auth_metadata = fs::symlink_metadata(&auth_path)?;
+        assert_eq!(
+            crate::verify_auth_store_metadata(&home_metadata, &auth_metadata, owner),
+            Ok(())
+        );
+        assert_eq!(
+            crate::verify_auth_store_metadata(
+                &home_metadata,
+                &auth_metadata,
+                owner.wrapping_add(1)
+            ),
+            Err(CodexAppServerError::InsecureCredentialStore)
+        );
+        for (path, mode) in [
+            (config.codex_home.clone(), 0o700),
+            (config.workspace.clone(), 0o700),
+            (config.codex_home.join("config.toml"), 0o600),
+            (auth_path, 0o600),
+        ] {
+            let metadata = fs::symlink_metadata(&path)?;
+            assert_eq!(metadata.uid(), owner, "unexpected owner for {path:?}");
+            assert_eq!(
+                metadata.permissions().mode() & 0o777,
+                mode,
+                "unexpected mode for {path:?}"
+            );
+        }
+
+        assert_eq!(
+            prepare_runtime_for_owner(&config, owner.wrapping_add(1)),
             Err(CodexAppServerError::InvalidConfiguration)
         );
         Ok(())

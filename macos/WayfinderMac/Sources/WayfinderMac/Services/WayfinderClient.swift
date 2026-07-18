@@ -66,6 +66,7 @@ public enum WayfinderClientError: LocalizedError, Equatable {
     case chatTurnFailed
     case chatTurnInterrupted
     case chatUsageLimitReached
+    case chatAccountNotReady
     case conversationTooLarge
 
     public var errorDescription: String? {
@@ -98,6 +99,8 @@ public enum WayfinderClientError: LocalizedError, Equatable {
             return "The selected model interrupted this reply before completion."
         case .chatUsageLimitReached:
             return "The selected account has reached its current ChatGPT usage limit."
+        case .chatAccountNotReady:
+            return "The selected ChatGPT account or model is not ready. Check Accounts in Settings, then retry."
         case .conversationTooLarge:
             return "This conversation is too large. Start a new Chat and try again."
         }

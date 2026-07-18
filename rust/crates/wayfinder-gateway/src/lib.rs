@@ -1947,7 +1947,9 @@ async fn streaming_chat_response(input: StreamingChatInput) -> Response {
             Err(error) => {
                 last_error = error.to_string();
                 last_failure = fatal_delivery_status(&error);
-                let _ = state.reliability_policy().record(target_name, false);
+                if stream_failure_affects_reliability(&error) {
+                    let _ = state.reliability_policy().record(target_name, false);
+                }
                 let _ = state.metrics().observe_upstream_error(target_name);
                 if !matches!(error, DeliveryError::Provider(ProviderError::Transport)) {
                     return error_response(last_failure.0, last_failure.1, last_error, headers);
@@ -2002,6 +2004,7 @@ async fn streaming_chat_response(input: StreamingChatInput) -> Response {
                             &context,
                             &error.to_string(),
                             "wayfinder_router_upstream_error",
+                            true,
                         );
                         Some((Ok::<Bytes, Infallible>(chunk), None))
                     }
@@ -2011,6 +2014,7 @@ async fn streaming_chat_response(input: StreamingChatInput) -> Response {
                         &context,
                         &error.to_string(),
                         stream_failure_type(&error),
+                        stream_failure_affects_reliability(&error),
                     );
                     Some((Ok::<Bytes, Infallible>(chunk), None))
                 }
@@ -2025,6 +2029,7 @@ async fn streaming_chat_response(input: StreamingChatInput) -> Response {
                             &context,
                             &error.to_string(),
                             "wayfinder_router_upstream_error",
+                            true,
                         );
                         Some((Ok::<Bytes, Infallible>(chunk), None))
                     }
@@ -2083,6 +2088,14 @@ fn finish_stream_success(context: &StreamRelayContext) {
 
 fn stream_failure_type(error: &DeliveryError) -> &'static str {
     match error {
+        DeliveryError::Codex(
+            delivery::CodexDeliveryError::Unavailable
+            | delivery::CodexDeliveryError::AuthenticationRequired
+            | delivery::CodexDeliveryError::ModelUnavailable,
+        ) => "wayfinder_router_not_ready",
+        DeliveryError::Codex(delivery::CodexDeliveryError::InvalidRequest) => {
+            "wayfinder_router_unsupported_request"
+        }
         DeliveryError::Codex(delivery::CodexDeliveryError::TurnFailed) => {
             "wayfinder_router_turn_failed"
         }
@@ -2096,15 +2109,35 @@ fn stream_failure_type(error: &DeliveryError) -> &'static str {
     }
 }
 
-fn stream_failure_chunk(context: &StreamRelayContext, message: &str, error_type: &str) -> Bytes {
+fn stream_failure_affects_reliability(error: &DeliveryError) -> bool {
+    !matches!(
+        error,
+        DeliveryError::Codex(
+            delivery::CodexDeliveryError::AuthenticationRequired
+                | delivery::CodexDeliveryError::ModelUnavailable
+                | delivery::CodexDeliveryError::UsageLimitReached
+                | delivery::CodexDeliveryError::InvalidRequest
+                | delivery::CodexDeliveryError::Interrupted
+        )
+    )
+}
+
+fn stream_failure_chunk(
+    context: &StreamRelayContext,
+    message: &str,
+    error_type: &str,
+    affects_reliability: bool,
+) -> Bytes {
     let _ = context
         .state
         .metrics()
         .observe_upstream_error(&context.target_name);
-    let _ = context
-        .state
-        .reliability_policy()
-        .record(&context.target_name, false);
+    if affects_reliability {
+        let _ = context
+            .state
+            .reliability_policy()
+            .record(&context.target_name, false);
+    }
     let payload = serde_json::to_string(&json!({
         "error": {
             "message": message,
@@ -5540,6 +5573,22 @@ mod tests {
     async fn established_codex_stream_preserves_distinct_terminal_categories() -> TestResult {
         for (error, expected_type) in [
             (
+                DeliveryError::Codex(crate::delivery::CodexDeliveryError::Unavailable),
+                "wayfinder_router_not_ready",
+            ),
+            (
+                DeliveryError::Codex(crate::delivery::CodexDeliveryError::AuthenticationRequired),
+                "wayfinder_router_not_ready",
+            ),
+            (
+                DeliveryError::Codex(crate::delivery::CodexDeliveryError::ModelUnavailable),
+                "wayfinder_router_not_ready",
+            ),
+            (
+                DeliveryError::Codex(crate::delivery::CodexDeliveryError::InvalidRequest),
+                "wayfinder_router_unsupported_request",
+            ),
+            (
                 DeliveryError::Codex(crate::delivery::CodexDeliveryError::TurnFailed),
                 "wayfinder_router_turn_failed",
             ),
@@ -5581,6 +5630,108 @@ mod tests {
                 0
             );
         }
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn codex_readiness_and_user_stream_failures_do_not_open_breaker() -> TestResult {
+        let config = GatewayConfig {
+            retries: 0,
+            breaker_threshold: 1,
+            breaker_cooldown: 30.0,
+            ..GatewayConfig::default()
+        };
+        let success = vec![
+            Ok(Bytes::from_static(
+                b"data: {\"choices\":[{\"delta\":{\"content\":\"ready\"}}]}\n\n",
+            )),
+            Ok(Bytes::from_static(b"data: [DONE]\n\n")),
+        ];
+        for error in [
+            crate::delivery::CodexDeliveryError::AuthenticationRequired,
+            crate::delivery::CodexDeliveryError::ModelUnavailable,
+            crate::delivery::CodexDeliveryError::UsageLimitReached,
+            crate::delivery::CodexDeliveryError::InvalidRequest,
+            crate::delivery::CodexDeliveryError::Interrupted,
+        ] {
+            let (state, seen) = streaming_live_state(
+                &config,
+                BTreeMap::from([(
+                    "local".to_owned(),
+                    VecDeque::from([
+                        ScriptedStreamOutcome::Chunks(vec![Err(DeliveryError::Codex(error))]),
+                        ScriptedStreamOutcome::Chunks(success.clone()),
+                    ]),
+                )]),
+            )?;
+            let payload = json!({
+                "model": "auto",
+                "stream": true,
+                "messages": [{"role": "user", "content": "hi"}]
+            });
+
+            let failed = post_json(&state, "/v1/chat/completions", &payload, &[]).await?;
+            assert_eq!(failed.status(), StatusCode::OK);
+            let failed_body =
+                String::from_utf8(to_bytes(failed.into_body(), usize::MAX).await?.to_vec())?;
+            assert!(failed_body.ends_with("data: [DONE]\n\n"));
+
+            let recovered = post_json(&state, "/v1/chat/completions", &payload, &[]).await?;
+            assert_eq!(recovered.status(), StatusCode::OK);
+            let recovered_body =
+                String::from_utf8(to_bytes(recovered.into_body(), usize::MAX).await?.to_vec())?;
+            assert!(recovered_body.contains("ready"));
+            assert_eq!(
+                seen.lock()
+                    .map_err(|_| std::io::Error::other("stream delivery lock poisoned"))?
+                    .as_slice(),
+                ["local", "local"]
+            );
+        }
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn codex_runtime_stream_failure_opens_breaker() -> TestResult {
+        let config = GatewayConfig {
+            retries: 0,
+            breaker_threshold: 1,
+            breaker_cooldown: 30.0,
+            ..GatewayConfig::default()
+        };
+        let (state, seen) = streaming_live_state(
+            &config,
+            BTreeMap::from([(
+                "local".to_owned(),
+                VecDeque::from([ScriptedStreamOutcome::Chunks(vec![Err(
+                    DeliveryError::Codex(crate::delivery::CodexDeliveryError::Unavailable),
+                )])]),
+            )]),
+        )?;
+        let payload = json!({
+            "model": "auto",
+            "stream": true,
+            "messages": [{"role": "user", "content": "hi"}]
+        });
+
+        let failed = post_json(&state, "/v1/chat/completions", &payload, &[]).await?;
+        assert_eq!(failed.status(), StatusCode::OK);
+        let failed_body =
+            String::from_utf8(to_bytes(failed.into_body(), usize::MAX).await?.to_vec())?;
+        assert!(failed_body.contains("wayfinder_router_not_ready"));
+
+        let open = post_json(&state, "/v1/chat/completions", &payload, &[]).await?;
+        assert_eq!(open.status(), StatusCode::SERVICE_UNAVAILABLE);
+        assert_eq!(
+            json_body(open).await?["error"]["type"],
+            "wayfinder_router_circuit_open"
+        );
+        assert_eq!(
+            seen.lock()
+                .map_err(|_| std::io::Error::other("stream delivery lock poisoned"))?
+                .as_slice(),
+            ["local"]
+        );
         Ok(())
     }
 

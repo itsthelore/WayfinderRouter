@@ -30,6 +30,24 @@ final class SettingsSectionTests: XCTestCase {
         )
     }
 
+    func testSettingsNotificationDeepLinksToAccountsAndDefaultsToGateway() {
+        let accounts = Notification(
+            name: .wayfinderOpenSettings,
+            object: SettingsSection.accounts
+        )
+        XCTAssertEqual(SettingsWindowNavigation.section(from: accounts), .accounts)
+        XCTAssertEqual(
+            SettingsWindowNavigation.section(
+                from: Notification(name: .wayfinderOpenSettings)
+            ),
+            .gateway
+        )
+
+        let navigation = SettingsWindowNavigation()
+        navigation.select(SettingsWindowNavigation.section(from: accounts))
+        XCTAssertEqual(navigation.selectedSection, .accounts)
+    }
+
     func testHelpSectionUsesExpectedLabelAndSymbol() {
         XCTAssertEqual(SettingsSection.help.rawValue, "Help")
         XCTAssertEqual(SettingsSection.help.symbolName, "questionmark.circle")

@@ -1,14 +1,32 @@
 import SwiftUI
 
+public final class SettingsWindowNavigation: ObservableObject {
+    @Published public var selectedSection: SettingsSection
+
+    public init(selectedSection: SettingsSection = .gateway) {
+        self.selectedSection = selectedSection
+    }
+
+    public func select(_ section: SettingsSection) {
+        selectedSection = section
+    }
+
+    public static func section(from notification: Notification) -> SettingsSection {
+        notification.object as? SettingsSection ?? .gateway
+    }
+}
+
 public struct WayfinderSettingsWindow: View {
-    @State private var selectedSection: SettingsSection = .gateway
+    @ObservedObject private var navigation: SettingsWindowNavigation
     @State private var selectedProvider: ProviderKind = .anthropic
     @StateObject private var codexAccountState: CodexAccountSettingsState
 
     public init(
         appState: AppState? = nil,
-        accountClient: any CodexAccountClient = GatewayCodexAccountClient()
+        accountClient: any CodexAccountClient = GatewayCodexAccountClient(),
+        navigation: SettingsWindowNavigation = SettingsWindowNavigation()
     ) {
+        self.navigation = navigation
         _codexAccountState = StateObject(
             wrappedValue: CodexAccountSettingsState(
                 client: accountClient,
@@ -19,7 +37,7 @@ public struct WayfinderSettingsWindow: View {
 
     public var body: some View {
         NavigationSplitView {
-            SettingsSidebar(selected: $selectedSection)
+            SettingsSidebar(selected: $navigation.selectedSection)
                 .navigationSplitViewColumnWidth(min: 170, ideal: 180, max: 190)
         } detail: {
             settingsContent
@@ -32,7 +50,7 @@ public struct WayfinderSettingsWindow: View {
 
     @ViewBuilder
     private var settingsContent: some View {
-        switch selectedSection {
+        switch navigation.selectedSection {
         case .gateway:
             GatewaySettingsView()
         case .routing:

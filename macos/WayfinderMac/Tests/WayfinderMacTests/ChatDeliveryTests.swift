@@ -71,6 +71,34 @@ final class ChatDeliveryTests: XCTestCase {
             message,
             "ChatGPT is not connected or its Codex model is unavailable. Check Accounts in Settings, then retry."
         )
+        XCTAssertEqual(
+            AppState.chatErrorMessage(
+                WayfinderClientError.chatAccountNotReady,
+                destination: destination
+            ),
+            "ChatGPT is not connected or its Codex model is unavailable. Check Accounts in Settings, then retry."
+        )
+        XCTAssertEqual(
+            AppState.chatRecoverySettingsSection(
+                WayfinderClientError.chatAccountNotReady,
+                destination: destination
+            ),
+            .accounts
+        )
+        XCTAssertEqual(
+            AppState.chatRecoverySettingsSection(
+                WayfinderClientError.chatAccountNotReady,
+                destination: .automatic
+            ),
+            .accounts
+        )
+        XCTAssertEqual(
+            AppState.chatRecoverySettingsSection(
+                WayfinderClientError.invalidChatStream,
+                destination: destination
+            ),
+            .gateway
+        )
     }
 
     func testPinnedChatGPTTurnFailuresRemainDistinctFromAccountReadiness() {
@@ -163,6 +191,7 @@ final class ChatDeliveryTests: XCTestCase {
             ("wayfinder_router_turn_failed", WayfinderClientError.chatTurnFailed),
             ("wayfinder_router_interrupted", WayfinderClientError.chatTurnInterrupted),
             ("wayfinder_router_usage_limited", WayfinderClientError.chatUsageLimitReached),
+            ("wayfinder_router_not_ready", WayfinderClientError.chatAccountNotReady),
         ] {
             var decoder = GatewayStreamDecoder(prompt: "private prompt")
             XCTAssertThrowsError(
