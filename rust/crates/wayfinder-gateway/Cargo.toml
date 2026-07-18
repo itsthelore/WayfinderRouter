@@ -27,6 +27,7 @@ tracing.workspace = true
 uuid.workspace = true
 wayfinder-config = { path = "../wayfinder-config" }
 wayfinder-apple-foundation-xpc = { path = "../wayfinder-apple-foundation-xpc" }
+wayfinder-codex-app-server = { path = "../wayfinder-codex-app-server" }
 wayfinder-core = { path = "../wayfinder-core" }
 wayfinder-providers = { path = "../wayfinder-providers" }
 wayfinder-service = { path = "../wayfinder-service" }

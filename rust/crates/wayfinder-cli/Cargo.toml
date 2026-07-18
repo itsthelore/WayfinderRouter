@@ -13,9 +13,11 @@ path = "src/main.rs"
 
 [dependencies]
 serde_json.workspace = true
+thiserror.workspace = true
 tokio.workspace = true
 uuid.workspace = true
 wayfinder-apple-foundation-xpc = { path = "../wayfinder-apple-foundation-xpc" }
+wayfinder-codex-app-server = { path = "../wayfinder-codex-app-server" }
 wayfinder-config = { path = "../wayfinder-config" }
 wayfinder-core = { path = "../wayfinder-core" }
 wayfinder-gateway = { path = "../wayfinder-gateway" }
