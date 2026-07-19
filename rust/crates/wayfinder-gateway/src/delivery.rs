@@ -1567,7 +1567,7 @@ mod tests {
             Err(DeliveryError::Codex(CodexDeliveryError::InvalidRequest))
         ));
         assert_eq!(service.chat_calls.load(Ordering::SeqCst), 0);
-        assert!(format!("{result:?}").find("private prompt").is_none());
+        assert!(!format!("{result:?}").contains("private prompt"));
         Ok(())
     }
 
@@ -1851,7 +1851,7 @@ mod tests {
             error,
             DeliveryError::Apple(AppleDeliveryError::InvalidRequest)
         );
-        assert!(format!("{error:?}").find("secret prompt").is_none());
+        assert!(!format!("{error:?}").contains("secret prompt"));
         assert!(
             service
                 .availability_calls

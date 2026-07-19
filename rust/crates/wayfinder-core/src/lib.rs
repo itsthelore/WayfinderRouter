@@ -805,16 +805,16 @@ pub fn python_round(value: f64, places: usize) -> f64 {
 
     let tail = decimals.as_bytes().get(places..).unwrap_or_default();
     let first_discarded = tail.first().copied().unwrap_or(b'0');
-    let should_increment = if first_discarded > b'5' {
-        true
-    } else if first_discarded < b'5' {
-        false
-    } else {
-        tail.get(1..)
-            .unwrap_or_default()
-            .iter()
-            .any(|byte| *byte != b'0')
-            || retained % 2 == 1
+    let should_increment = match first_discarded.cmp(&b'5') {
+        std::cmp::Ordering::Greater => true,
+        std::cmp::Ordering::Less => false,
+        std::cmp::Ordering::Equal => {
+            tail.get(1..)
+                .unwrap_or_default()
+                .iter()
+                .any(|byte| *byte != b'0')
+                || retained % 2 == 1
+        }
     };
     if should_increment {
         retained = retained.saturating_add(1);

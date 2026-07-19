@@ -150,11 +150,12 @@ pub fn table_version(costs: &IndexMap<String, f64>) -> Result<String, PricingErr
         }
     }
     let digest = Sha256::digest(ascii_json.as_bytes());
-    Ok(digest
-        .iter()
-        .take(6)
-        .map(|byte| format!("{byte:02x}"))
-        .collect())
+    let mut fingerprint = String::with_capacity(12);
+    for byte in digest.iter().take(6) {
+        fingerprint.push(char::from(b"0123456789abcdef"[usize::from(*byte >> 4)]));
+        fingerprint.push(char::from(b"0123456789abcdef"[usize::from(*byte & 0x0f)]));
+    }
+    Ok(fingerprint)
 }
 
 /// Upstream or estimated token counts.
