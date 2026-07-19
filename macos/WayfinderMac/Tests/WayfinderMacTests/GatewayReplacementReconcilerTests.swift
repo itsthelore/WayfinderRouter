@@ -33,7 +33,7 @@ final class GatewayReplacementReconcilerTests: XCTestCase {
         let gateway = URL(fileURLWithPath: "/Applications/Wayfinder.app/Contents/MacOS/wayfinder-router")
         let recorder = Recorder()
         let reconciler = GatewayReplacementReconciler(
-            resolveGateway: { gateway },
+            locateGateway: { gateway },
             statusQuery: { _ in XCTFail("Unchanged installation must not query service"); return Self.status(gateway: gateway) },
             restart: { _ in XCTFail("Unchanged installation must not restart") },
             fingerprintProvider: { _ in "same" },
@@ -57,7 +57,7 @@ final class GatewayReplacementReconcilerTests: XCTestCase {
         ] {
             let recorder = Recorder()
             let reconciler = GatewayReplacementReconciler(
-                resolveGateway: { expected },
+                locateGateway: { expected },
                 statusQuery: { _ in status },
                 restart: { gateway in await recorder.restart(gateway) },
                 fingerprintProvider: { _ in "new" },
@@ -77,7 +77,7 @@ final class GatewayReplacementReconcilerTests: XCTestCase {
         let gateway = URL(fileURLWithPath: "/Applications/Wayfinder.app/Contents/MacOS/wayfinder-router")
         let recorder = Recorder()
         let reconciler = GatewayReplacementReconciler(
-            resolveGateway: { gateway },
+            locateGateway: { gateway },
             statusQuery: { _ in Self.status(gateway: gateway) },
             restart: { _ in throw GatewayServiceControllerError.restartFailed("expected") },
             fingerprintProvider: { _ in "new" },
@@ -98,7 +98,7 @@ final class GatewayReplacementReconcilerTests: XCTestCase {
         recorder: Recorder
     ) -> GatewayReplacementReconciler {
         GatewayReplacementReconciler(
-            resolveGateway: { gateway },
+            locateGateway: { gateway },
             statusQuery: { _ in Self.status(gateway: gateway) },
             restart: { value in await recorder.restart(value) },
             fingerprintProvider: { _ in fingerprint },
