@@ -20,7 +20,7 @@ final class ChatWindowController {
             width: ChatWorkspaceChrome.minimumWindowWidth,
             height: ChatWorkspaceChrome.minimumWindowHeight
         )
-        window.isReleasedWhenClosed = false
+        ChatWindowBehavior.apply(to: window)
         let frameName = NSWindow.FrameAutosaveName("Wayfinder.Chat.v3")
         if !window.setFrameUsingName(frameName) {
             window.center()
@@ -32,6 +32,15 @@ final class ChatWindowController {
     func show() {
         window.makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)
+    }
+}
+
+enum ChatWindowBehavior {
+    @MainActor
+    static func apply(to window: NSWindow) {
+        window.hidesOnDeactivate = false
+        window.isReleasedWhenClosed = false
+        window.collectionBehavior.insert(.managed)
     }
 }
 

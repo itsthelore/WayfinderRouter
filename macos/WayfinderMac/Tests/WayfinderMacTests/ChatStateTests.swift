@@ -1,8 +1,20 @@
+import AppKit
 import XCTest
 @testable import WayfinderMacCore
 
 @MainActor
 final class ChatStateTests: XCTestCase {
+    func testChatWindowPersistsWhenTheAccessoryAppDeactivates() {
+        let window = NSWindow()
+        window.hidesOnDeactivate = true
+
+        ChatWindowBehavior.apply(to: window)
+
+        XCTAssertFalse(window.hidesOnDeactivate)
+        XCTAssertFalse(window.isReleasedWhenClosed)
+        XCTAssertTrue(window.collectionBehavior.contains(.managed))
+    }
+
     func testAppStateStartsWithAnEmptyChatSession() {
         let state = AppState(client: MockWayfinderClient())
 
