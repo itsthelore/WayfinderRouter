@@ -693,9 +693,9 @@ impl CodexAppServerManager {
 
         if let Err(error) = &outcome {
             let already_terminal = terminal_seen;
-            let confirmed = if let Some((thread_id, turn_id)) = active_turn.as_ref()
-                && !already_terminal
-            {
+            let confirmed = if already_terminal {
+                true
+            } else if let Some((thread_id, turn_id)) = active_turn.as_ref() {
                 interrupt_turn_and_confirm(
                     &mut session,
                     thread_id,
@@ -721,10 +721,10 @@ impl CodexAppServerManager {
     }
 
     pub fn interrupt_active_turn(&self) {
-        if let Ok(guard) = self.inner.active_cancel.lock()
-            && let Some(cancel) = guard.as_ref()
-        {
-            cancel.cancel();
+        if let Ok(guard) = self.inner.active_cancel.lock() {
+            if let Some(cancel) = guard.as_ref() {
+                cancel.cancel();
+            }
         }
     }
 

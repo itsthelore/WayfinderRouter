@@ -350,10 +350,10 @@ impl JsonlDecoder {
             return Err(CodexAppServerError::LineTooLarge);
         }
         self.buffer.extend_from_slice(bytes);
-        if let Some(position) = self.buffer.iter().position(|byte| *byte == b'\n')
-            && position > MAX_JSONL_LINE_BYTES
-        {
-            return Err(CodexAppServerError::LineTooLarge);
+        if let Some(position) = self.buffer.iter().position(|byte| *byte == b'\n') {
+            if position > MAX_JSONL_LINE_BYTES {
+                return Err(CodexAppServerError::LineTooLarge);
+            }
         }
         Ok(())
     }

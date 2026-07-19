@@ -142,12 +142,10 @@ pub fn extract_prompt(messages: &Value, route_on: RouteOn) -> String {
             selected
         }
     };
-    if chosen.is_empty()
-        && !typed.is_empty()
-        && route_on != RouteOn::All
-        && let Some(last) = typed.last()
-    {
-        chosen.push(last);
+    if chosen.is_empty() && !typed.is_empty() && route_on != RouteOn::All {
+        if let Some(last) = typed.last() {
+            chosen.push(last);
+        }
     }
     chosen
         .iter()
