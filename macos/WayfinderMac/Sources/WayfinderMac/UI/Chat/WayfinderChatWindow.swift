@@ -6,7 +6,7 @@ public struct WayfinderChatWindow: View {
     @State private var routeFilter: ChatRouteFilter = .all
     @State private var searchText = ""
     @State private var columnVisibility: NavigationSplitViewVisibility = .all
-    @State private var showsInspector = true
+    @State private var showsInspector = ChatWorkspaceChrome.showsInspectorByDefault
     @State private var followsLatestTurn = true
     @State private var searchFocusRequest = 0
 
@@ -29,8 +29,7 @@ public struct WayfinderChatWindow: View {
                 routeFilter: $routeFilter,
                 searchText: $searchText,
                 searchFocusRequest: searchFocusRequest,
-                onNewChat: appState.clearChat,
-                onSelectTurn: { showsInspector = true }
+                onNewChat: appState.clearChat
             )
             .navigationSplitViewColumnWidth(
                 min: ChatWorkspaceChrome.sidebarMinimumWidth,
