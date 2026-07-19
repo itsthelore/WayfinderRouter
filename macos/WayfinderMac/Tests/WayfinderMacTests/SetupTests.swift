@@ -20,7 +20,34 @@ final class SetupTests: XCTestCase {
         }
     }
 
+    private actor VerificationCounter {
+        private var count = 0
+
+        func verify(failingOn failureCall: Int) throws {
+            count += 1
+            if count == failureCall { throw BundledHelperVerificationError.invalidHandshake }
+        }
+
+        func callCount() -> Int { count }
+    }
+
+    private actor RunnerCounter {
+        private var count = 0
+        private var commands: [SetupCommand] = []
+
+        func run(_ command: SetupCommand) -> SetupProcessResult {
+            count += 1
+            commands.append(command)
+            return SetupProcessResult(exitCode: 0, stderr: "")
+        }
+
+        func callCount() -> Int { count }
+        func capturedCommands() -> [SetupCommand] { commands }
+    }
+
     func testAssessmentCompletenessKeepsOperationalFailuresOutOfFirstRun() {
+        XCTAssertTrue(SetupAssessment.bundledHelperInvalid.isIncomplete)
+        XCTAssertTrue(SetupAssessment.serviceNeedsRepair.isIncomplete)
         XCTAssertTrue(SetupAssessment.neverConfigured.isIncomplete)
         XCTAssertTrue(SetupAssessment.missingKeys(["OPENAI_API_KEY"]).isIncomplete)
         XCTAssertFalse(SetupAssessment.stopped.isIncomplete)
@@ -28,11 +55,142 @@ final class SetupTests: XCTestCase {
         XCTAssertFalse(SetupAssessment.healthy.isIncomplete)
     }
 
-    func testResolverChecksInheritedAndHomebrewLocations() {
-        let resolver = GatewayToolResolver(environment: ["PATH": "/custom/bin"]) { path in
-            path == "/opt/homebrew/bin/wayfinder-router"
+    func testResolverChecksInheritedAndHomebrewLocationsOnlyForAncillaryRuntimes() {
+        let resolver = GatewayToolResolver(
+            environment: ["PATH": "/custom/bin"],
+            isExecutable: { path in
+                path == "/opt/homebrew/bin/ollama" || path == "/opt/homebrew/bin/wayfinder-router"
+            }
+        )
+        XCTAssertEqual(resolver.resolveRuntime("ollama")?.path, "/opt/homebrew/bin/ollama")
+        XCTAssertNil(resolver.resolveRuntime("wayfinder-router"))
+    }
+
+    func testResolverNeverFallsBackToPATHForGateway() async {
+        let app = URL(fileURLWithPath: "/Applications/Wayfinder.app")
+        let resolver = GatewayToolResolver(
+            environment: ["PATH": "/custom/bin"],
+            appBundleURL: app,
+            isExecutable: { path in path == "/custom/bin/wayfinder-router" },
+            bundledGatewayVerifier: { _, _ in XCTFail("Missing bundled helper must fail before verification") }
+        )
+
+        do {
+            _ = try await resolver.resolveGateway()
+            XCTFail("Expected the missing bundled helper to fail closed")
+        } catch {
+            XCTAssertEqual(error as? BundledHelperVerificationError, .missingHelper)
         }
-        XCTAssertEqual(resolver.resolve()?.path, "/opt/homebrew/bin/wayfinder-router")
+    }
+
+    func testResolverReturnsOnlyTheVerifiedBundledGateway() async throws {
+        let app = URL(fileURLWithPath: "/Applications/Wayfinder.app")
+        let expected = GatewayToolResolver.bundledHelperURL(in: app)
+        let resolver = GatewayToolResolver(
+            environment: ["PATH": "/custom/bin"],
+            appBundleURL: app,
+            isExecutable: { $0 == expected.path || $0 == "/custom/bin/wayfinder-router" },
+            bundledGatewayVerifier: { verifiedApp, helper in
+                XCTAssertEqual(verifiedApp, app)
+                XCTAssertEqual(helper, expected)
+            }
+        )
+
+        let resolved = try await resolver.resolveGateway()
+        XCTAssertEqual(resolved, expected)
+    }
+
+    func testSetupRevalidatesBundledGatewayBeforeEveryInvocation() async throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        let app = directory.appendingPathComponent("Wayfinder.app")
+        let helper = GatewayToolResolver.bundledHelperURL(in: app)
+        try FileManager.default.createDirectory(
+            at: helper.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        try FileManager.default.copyItem(at: URL(fileURLWithPath: "/bin/echo"), to: helper)
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        let verifications = VerificationCounter()
+        let invocations = RunnerCounter()
+        let resolver = GatewayToolResolver(
+            environment: [:],
+            appBundleURL: app,
+            isExecutable: { $0 == helper.path },
+            bundledGatewayVerifier: { _, _ in try await verifications.verify(failingOn: 3) }
+        )
+        let service = SetupService(
+            resolver: resolver,
+            fileExists: { _ in false },
+            runner: { command in await invocations.run(command) }
+        )
+
+        do {
+            _ = try await service.run(preset: .appleLocal, credentials: [:]) { _ in }
+            XCTFail("Expected revalidation failure before the second helper invocation")
+        } catch {
+            XCTAssertEqual(error as? SetupFailure, .bundledHelperInvalid)
+        }
+        let verificationCount = await verifications.callCount()
+        let invocationCount = await invocations.callCount()
+        XCTAssertEqual(verificationCount, 3)
+        XCTAssertEqual(invocationCount, 1)
+    }
+
+    func testAssessmentRequiresConfirmedRepairForAnExternalLaunchAgent() async {
+        let app = URL(fileURLWithPath: "/Applications/Wayfinder.app")
+        let helper = GatewayToolResolver.bundledHelperURL(in: app)
+        let invocations = RunnerCounter()
+        let resolver = GatewayToolResolver(
+            environment: [:],
+            appBundleURL: app,
+            isExecutable: { $0 == helper.path },
+            bundledGatewayVerifier: { _, _ in }
+        )
+        let service = SetupService(
+            resolver: resolver,
+            fileExists: { _ in true },
+            runner: { command in await invocations.run(command) },
+            serviceStatusQuery: { _ in
+                Self.serviceStatus(executablePath: "/opt/homebrew/bin/wayfinder-router")
+            }
+        )
+
+        let assessment = await service.assess(previouslyHealthy: false)
+
+        XCTAssertEqual(assessment, .serviceNeedsRepair)
+        XCTAssertEqual(assessment.initialStep, .serviceRepair)
+        let invocationCount = await invocations.callCount()
+        XCTAssertEqual(invocationCount, 0, "Assessment must never silently repair the service")
+    }
+
+    func testConfirmedServiceRepairPreservesConfigAndUsesOnlyBundledServiceCommands() async throws {
+        let app = URL(fileURLWithPath: "/Applications/Wayfinder.app")
+        let helper = GatewayToolResolver.bundledHelperURL(in: app)
+        let invocations = RunnerCounter()
+        let resolver = GatewayToolResolver(
+            environment: [:],
+            appBundleURL: app,
+            isExecutable: { $0 == helper.path },
+            bundledGatewayVerifier: { _, _ in }
+        )
+        let service = SetupService(
+            resolver: resolver,
+            fileExists: { _ in true },
+            runner: { command in await invocations.run(command) }
+        )
+
+        try await service.repairExistingService()
+
+        let commands = await invocations.capturedCommands()
+        XCTAssertEqual(commands.map(\.executable), [helper, helper])
+        XCTAssertEqual(commands[0].arguments, ["service", "uninstall"])
+        XCTAssertEqual(
+            commands[1].arguments,
+            ["service", "install", "--config", GatewayServiceController.defaultConfigPath()]
+        )
+        XCTAssertFalse(commands.flatMap(\.arguments).contains("app-setup-init"))
+        XCTAssertFalse(commands.flatMap(\.arguments).contains("keys"))
     }
 
     func testBundledGatewayUsesContainingHelperAppTopology() {
@@ -40,6 +198,20 @@ final class SetupTests: XCTestCase {
         XCTAssertEqual(
             GatewayToolResolver.bundledHelperURL(in: app).path,
             "/Applications/Wayfinder.app/Contents/Helpers/WayfinderGateway.app/Contents/MacOS/wayfinder-router"
+        )
+    }
+
+    private static func serviceStatus(executablePath: String) -> GatewayServiceStatus {
+        GatewayServiceStatus(
+            installed: true,
+            loaded: true,
+            launchConfiguration: GatewayLaunchConfiguration(
+                host: "127.0.0.1",
+                port: 8088,
+                configPath: GatewayServiceController.defaultConfigPath(),
+                executablePath: executablePath
+            ),
+            health: GatewayHealth(status: "ok", models: ["local"], offline: false)
         )
     }
 
@@ -185,6 +357,6 @@ final class SetupTests: XCTestCase {
         await probe.finish()
         await first.value
         await duplicate.value
-        XCTAssertEqual(state.step, .toolsMissing)
+        XCTAssertEqual(state.step, .bundledHelperInvalid)
     }
 }

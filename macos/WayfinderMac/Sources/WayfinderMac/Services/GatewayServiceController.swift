@@ -23,11 +23,17 @@ public struct GatewayServiceController: Sendable {
         self.healthProbe = healthProbe
     }
 
-    public func status() async -> GatewayServiceStatus {
-        let launchConfiguration = readLaunchConfiguration()
+    public func status(expectedGateway: URL? = nil) async -> GatewayServiceStatus {
+        let installedConfiguration = installedLaunchConfiguration()
+        let launchConfiguration = installedConfiguration ?? defaultLaunchConfiguration()
         let loaded = await isLoaded()
         let health: GatewayHealth?
-        if let healthURL = launchConfiguration.healthURL {
+        let executableMatches = expectedGateway.map {
+            installedConfiguration?.usesGateway(at: $0) == true
+        } ?? true
+        if installedConfiguration != nil,
+           executableMatches,
+           let healthURL = launchConfiguration.loopbackHealthURL {
             health = await healthProbe(healthURL)
         } else {
             health = nil
@@ -37,6 +43,16 @@ public struct GatewayServiceController: Sendable {
             loaded: loaded,
             launchConfiguration: launchConfiguration,
             health: health
+        )
+    }
+
+    public func statusWithoutHealthProbe() async -> GatewayServiceStatus {
+        let launchConfiguration = installedLaunchConfiguration() ?? defaultLaunchConfiguration()
+        return GatewayServiceStatus(
+            installed: FileManager.default.fileExists(atPath: launchAgentURL.path),
+            loaded: await isLoaded(),
+            launchConfiguration: launchConfiguration,
+            health: nil
         )
     }
 
@@ -52,6 +68,13 @@ public struct GatewayServiceController: Sendable {
         }
     }
 
+    public func restart(expectedGateway: URL) async throws {
+        guard installedLaunchConfiguration()?.usesGateway(at: expectedGateway) == true else {
+            throw GatewayServiceControllerError.serviceNeedsRepair
+        }
+        try await restart()
+    }
+
     public static func defaultConfigPath() -> String {
         FileManager.default.homeDirectoryForCurrentUser
             .appendingPathComponent("Library/Application Support/Wayfinder/wayfinder-router.toml")
@@ -64,37 +87,56 @@ public struct GatewayServiceController: Sendable {
     }
 
     public static func launchConfiguration(fromProgramArguments arguments: [String]) -> GatewayLaunchConfiguration {
+        let executablePath = arguments.first
         let host = argumentValue(after: "--host", in: arguments) ?? defaultHost
         let port = argumentValue(after: "--port", in: arguments)
             .flatMap(Int.init)
             .flatMap { GatewayLaunchConfiguration.validPortRange.contains($0) ? $0 : nil }
             ?? defaultPort
         let configPath = argumentValue(after: "--config", in: arguments) ?? defaultConfigPath()
-        return GatewayLaunchConfiguration(host: host, port: port, configPath: configPath)
+        return GatewayLaunchConfiguration(
+            host: host,
+            port: port,
+            configPath: configPath,
+            executablePath: executablePath
+        )
     }
 
     public static func decodeHealth(_ data: Data) throws -> GatewayHealth {
         try JSONDecoder().decode(GatewayHealth.self, from: data)
     }
 
-    private func readLaunchConfiguration() -> GatewayLaunchConfiguration {
-        guard
-            let data = try? Data(contentsOf: launchAgentURL),
-            let plist = try? PropertyListSerialization.propertyList(
-                from: data,
-                options: [],
-                format: nil
-            ) as? [String: Any],
-            let arguments = plist["ProgramArguments"] as? [String]
-        else {
-            return GatewayLaunchConfiguration(
-                host: Self.defaultHost,
-                port: Self.defaultPort,
-                configPath: Self.defaultConfigPath()
-            )
+    /// Returns a bounded, parsed LaunchAgent configuration without contacting the configured
+    /// endpoint or invoking launchctl. Runtime trust checks use this before any loopback request.
+    public func installedLaunchConfiguration() -> GatewayLaunchConfiguration? {
+        guard let values = try? launchAgentURL.resourceValues(
+            forKeys: [.fileSizeKey, .isRegularFileKey, .isSymbolicLinkKey]
+        ),
+        values.isRegularFile == true,
+        values.isSymbolicLink != true,
+        let fileSize = values.fileSize,
+        fileSize >= 0,
+        fileSize <= 64 * 1_024,
+        let data = try? Data(contentsOf: launchAgentURL, options: [.uncached]),
+        data.count <= 64 * 1_024,
+        let plist = try? PropertyListSerialization.propertyList(
+            from: data,
+            options: [],
+            format: nil
+        ) as? [String: Any],
+        let arguments = plist["ProgramArguments"] as? [String],
+        !arguments.isEmpty else {
+            return nil
         }
-
         return Self.launchConfiguration(fromProgramArguments: arguments)
+    }
+
+    private func defaultLaunchConfiguration() -> GatewayLaunchConfiguration {
+        GatewayLaunchConfiguration(
+            host: Self.defaultHost,
+            port: Self.defaultPort,
+            configPath: Self.defaultConfigPath()
+        )
     }
 
     private func isLoaded() async -> Bool {
@@ -179,6 +221,20 @@ public struct GatewayLaunchConfiguration: Equatable, Sendable {
     public let host: String
     public let port: Int
     public let configPath: String
+    public let executablePath: String?
+
+    public init(host: String, port: Int, configPath: String, executablePath: String? = nil) {
+        self.host = host
+        self.port = port
+        self.configPath = configPath
+        self.executablePath = executablePath
+    }
+
+    public func usesGateway(at expectedURL: URL) -> Bool {
+        guard let executablePath, executablePath.hasPrefix("/") else { return false }
+        return URL(fileURLWithPath: executablePath).standardizedFileURL
+            == expectedURL.standardizedFileURL
+    }
 
     public var bindDescription: String? {
         isNetworkExposedBind ? "Network-exposed bind: \(host):\(port)" : nil
@@ -202,6 +258,15 @@ public struct GatewayLaunchConfiguration: Equatable, Sendable {
 
     public var healthURL: URL? {
         endpointURL(path: "/healthz")
+    }
+
+    /// Health checks are local control-plane traffic. Never resolve a hostname or contact a remote
+    /// address based on mutable LaunchAgent contents.
+    var loopbackHealthURL: URL? {
+        guard ["127.0.0.1", "::1", "[::1]", "0.0.0.0", "::"].contains(host) else {
+            return nil
+        }
+        return endpointURL(path: "/healthz")
     }
 
     private func endpointURL(path: String = "") -> URL? {
@@ -292,11 +357,14 @@ public struct GatewayHealth: Decodable, Equatable, Sendable {
 
 public enum GatewayServiceControllerError: LocalizedError, Sendable {
     case restartFailed(String)
+    case serviceNeedsRepair
 
     public var errorDescription: String? {
         switch self {
         case .restartFailed(let message):
             return message.isEmpty ? "Could not restart the gateway service." : message
+        case .serviceNeedsRepair:
+            return "The installed gateway service does not use this copy of Wayfinder. Run Setup to repair it."
         }
     }
 }

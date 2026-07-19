@@ -127,6 +127,27 @@ final class CodexAccountClientTests: XCTestCase {
         }
     }
 
+    func testControlClientRejectsUnverifiedRuntimeBeforeAnyLoopbackRequest() async {
+        AccountURLProtocolStub.install { _ in
+            XCTFail("Runtime validation must happen before the control request")
+            throw URLError(.badServerResponse)
+        }
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [AccountURLProtocolStub.self]
+        let client = GatewayCodexAccountClient(
+            baseURL: URL(string: "http://127.0.0.1:8088")!,
+            session: URLSession(configuration: configuration),
+            runtimeValidation: { throw VerifiedGatewayRuntimeError.serviceNeedsRepair }
+        )
+
+        do {
+            _ = try await client.account()
+            XCTFail("Expected the unverified runtime to be rejected")
+        } catch {
+            XCTAssertEqual(error as? VerifiedGatewayRuntimeError, .serviceNeedsRepair)
+        }
+    }
+
     func testMissingAccountRouteExplainsTheOptInConfigurationBoundary() {
         XCTAssertEqual(
             CodexAccountClientError.gatewayStatus(404).localizedDescription,
@@ -143,7 +164,8 @@ final class CodexAccountClientTests: XCTestCase {
         configuration.protocolClasses = [AccountURLProtocolStub.self]
         return GatewayCodexAccountClient(
             baseURL: URL(string: "http://127.0.0.1:8088")!,
-            session: URLSession(configuration: configuration)
+            session: URLSession(configuration: configuration),
+            runtimeValidation: {}
         )
     }
 

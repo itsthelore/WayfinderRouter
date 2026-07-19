@@ -12,6 +12,9 @@ public struct ProviderFormView: View {
 
     private let keychain = KeychainCredentialStore()
     private let gatewayService = GatewayServiceController()
+    private var gatewayRuntime: VerifiedGatewayRuntime {
+        VerifiedGatewayRuntime(serviceController: gatewayService)
+    }
 
     public init(provider: ProviderKind) {
         self.provider = provider
@@ -180,7 +183,9 @@ public struct ProviderFormView: View {
         Task {
             do {
                 try await keychain.store(envVar: envVar, key: key)
-                try? await gatewayService.restart()
+                if let helper = try? await gatewayRuntime.validatedHelper() {
+                    try? await gatewayService.restart(expectedGateway: helper)
+                }
                 keyValue = ""
                 status = .keyPresent
                 message = SettingsActionMessage(
@@ -206,7 +211,9 @@ public struct ProviderFormView: View {
         Task {
             do {
                 try await keychain.delete(envVar: envVar)
-                try? await gatewayService.restart()
+                if let helper = try? await gatewayRuntime.validatedHelper() {
+                    try? await gatewayService.restart(expectedGateway: helper)
+                }
                 keyValue = ""
                 status = .keyMissing
                 message = SettingsActionMessage(

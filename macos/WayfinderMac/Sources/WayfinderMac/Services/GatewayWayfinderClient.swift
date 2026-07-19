@@ -1,15 +1,19 @@
 import Foundation
 
 public struct GatewayWayfinderClient: WayfinderClient {
+    public typealias RuntimeValidation = @Sendable () async throws -> URL
+
     private let baseURL: URL
     private let session: URLSession
     private let serviceController: GatewayServiceController
     private let appleProductReadiness: @Sendable () -> Bool
+    private let runtimeValidation: RuntimeValidation
 
     public init(
         baseURL: URL = URL(string: "http://127.0.0.1:8088")!,
         session: URLSession = .shared,
         serviceController: GatewayServiceController = GatewayServiceController(),
+        runtimeValidation: RuntimeValidation? = nil,
         appleProductReadiness: @escaping @Sendable () -> Bool = {
             AppleFoundationModelsProductReadiness.current().isReady
         }
@@ -17,6 +21,8 @@ public struct GatewayWayfinderClient: WayfinderClient {
         self.baseURL = baseURL
         self.session = session
         self.serviceController = serviceController
+        let runtime = VerifiedGatewayRuntime(serviceController: serviceController)
+        self.runtimeValidation = runtimeValidation ?? { try await runtime.validatedHelper() }
         self.appleProductReadiness = appleProductReadiness
     }
 
@@ -25,6 +31,7 @@ public struct GatewayWayfinderClient: WayfinderClient {
         guard !trimmed.isEmpty else {
             throw WayfinderClientError.emptyPrompt
         }
+        _ = try await runtimeValidation()
 
         var request = URLRequest(url: baseURL.appending(path: "v1/chat/completions"))
         request.httpMethod = "POST"
@@ -70,6 +77,7 @@ public struct GatewayWayfinderClient: WayfinderClient {
         AsyncThrowingStream { continuation in
             let task = Task {
                 do {
+                    _ = try await runtimeValidation()
                     let bounded = try Self.boundedChatMessages(messages)
                     guard let prompt = bounded.last(where: { $0.role == "user" })?.content else {
                         throw WayfinderClientError.emptyPrompt
@@ -207,9 +215,14 @@ public struct GatewayWayfinderClient: WayfinderClient {
     }
 
     public func loadOverview() async throws -> GatewayOverview {
-        let serviceStatus = await serviceController.status()
+        let helper = try await runtimeValidation()
+        let serviceStatus = await serviceController.status(expectedGateway: helper)
         async let modelsTask = optionalFetch(GatewayModelsResponse.self, path: "router/models")
-        let codexClient = GatewayCodexAccountClient(baseURL: baseURL, session: session)
+        let codexClient = GatewayCodexAccountClient(
+            baseURL: baseURL,
+            session: session,
+            runtimeValidation: {}
+        )
         async let codexModelsTask: CodexModelsResponse? = try? codexClient.models()
         async let codexAccountTask: CodexAccountSnapshot? = try? codexClient.account()
         async let recentTask = optionalFetch(GatewayRecentResponse.self, path: "router/recent")

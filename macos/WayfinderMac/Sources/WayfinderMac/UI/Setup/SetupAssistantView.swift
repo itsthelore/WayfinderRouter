@@ -31,9 +31,28 @@ public struct SetupAssistantView: View {
             case .checking:
                 stepHeader("Checking Wayfinder", "Looking for the router, configuration, and gateway service.")
                 ProgressView().controlSize(.small).padding(.top, 24)
-            case .toolsMissing:
-                stepHeader("Tools Missing", "The Homebrew gateway command is required before setup can continue.")
-                commandBox("brew install wayfinder-router")
+            case .bundledHelperInvalid:
+                stepHeader(
+                    "Wayfinder needs repair",
+                    "The bundled gateway is missing, damaged, or incompatible. Reinstall Wayfinder from an official release before continuing."
+                )
+            case .serviceRepair:
+                stepHeader(
+                    "Update the gateway service",
+                    "The installed service points to an older external router. Wayfinder can replace the LaunchAgent with its verified bundled gateway."
+                )
+                Text("Your existing routing configuration and Keychain credentials will be preserved.")
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+                    .padding(.top, 18)
+                if state.isMutating {
+                    HStack(spacing: 10) {
+                        ProgressView().controlSize(.small)
+                        Text("Replacing the gateway service…").font(.callout)
+                    }
+                    .padding(.top, 18)
+                }
+                if let failure = state.failureMessage { errorText(failure) }
             case .welcome:
                 stepHeader("Set up Wayfinder", "Wayfinder routes each request to a configured local or hosted model.")
                 Text("Routing decisions are computed locally without a model call.").foregroundStyle(.secondary).padding(.top, 18)
@@ -133,7 +152,10 @@ public struct SetupAssistantView: View {
     @ViewBuilder private var primaryAction: some View {
         switch state.step {
         case .checking: EmptyView()
-        case .toolsMissing: Button("Check Again") { Task { await state.assess() } }.keyboardShortcut(.defaultAction)
+        case .bundledHelperInvalid: Button("Check Again") { Task { await state.assess() } }.keyboardShortcut(.defaultAction)
+        case .serviceRepair:
+            if state.isMutating { Button("Cancel") { state.cancel() } }
+            else { Button("Repair Gateway Service") { state.repairService() }.keyboardShortcut(.defaultAction) }
         case .welcome: Button("Continue") { state.continueFromWelcome() }.keyboardShortcut(.defaultAction)
         case .existingConfiguration: Button("Use Existing Configuration") { deferSetup() }.keyboardShortcut(.defaultAction)
         case .chooseRouting: Button("Continue") { state.chooseRouting() }.keyboardShortcut(.defaultAction)

@@ -3,6 +3,16 @@ import XCTest
 @testable import WayfinderMacCore
 
 final class GatewayServiceControllerTests: XCTestCase {
+    private actor HealthProbeCounter {
+        private var urls: [URL] = []
+
+        func record(_ url: URL) {
+            urls.append(url)
+        }
+
+        func recordedURLs() -> [URL] { urls }
+    }
+
     func testExtractsHostPortAndConfigFromProgramArguments() {
         let config = GatewayServiceController.launchConfiguration(fromProgramArguments: [
             "/usr/local/bin/wayfinder-router",
@@ -18,6 +28,9 @@ final class GatewayServiceControllerTests: XCTestCase {
         XCTAssertEqual(config.host, "127.0.0.1")
         XCTAssertEqual(config.port, 9191)
         XCTAssertEqual(config.configPath, "/Users/test/wayfinder-router.toml")
+        XCTAssertEqual(config.executablePath, "/usr/local/bin/wayfinder-router")
+        XCTAssertTrue(config.usesGateway(at: URL(fileURLWithPath: "/usr/local/bin/wayfinder-router")))
+        XCTAssertFalse(config.usesGateway(at: URL(fileURLWithPath: "/Applications/Wayfinder.app/Contents/Helpers/wayfinder-router")))
     }
 
     func testProgramArgumentsFallbackToGatewayDefaults() {
@@ -104,6 +117,64 @@ final class GatewayServiceControllerTests: XCTestCase {
         XCTAssertEqual(config.port, GatewayServiceController.defaultPort)
     }
 
+    func testStatusProbesOnlyTheExpectedBundledGatewayOnLiteralLoopback() async throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        let launchAgent = directory.appendingPathComponent("com.wayfinder-router.gateway.plist")
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        let bundled = URL(fileURLWithPath: "/Applications/Wayfinder.app/Contents/Helpers/WayfinderGateway.app/Contents/MacOS/wayfinder-router")
+        try writeLaunchAgent(at: launchAgent, executable: bundled.path, host: "127.0.0.1")
+        let probes = HealthProbeCounter()
+        let controller = GatewayServiceController(launchAgentURL: launchAgent) { url in
+            await probes.record(url)
+            return GatewayHealth(status: "ok", models: ["local"], offline: false)
+        }
+
+        let verified = await controller.status(expectedGateway: bundled)
+        XCTAssertEqual(verified.health?.status, "ok")
+        var recordedURLs = await probes.recordedURLs()
+        XCTAssertEqual(recordedURLs.count, 1)
+
+        let legacy = await controller.status(
+            expectedGateway: URL(fileURLWithPath: "/opt/homebrew/bin/wayfinder-router")
+        )
+        XCTAssertNil(legacy.health)
+        recordedURLs = await probes.recordedURLs()
+        XCTAssertEqual(recordedURLs.count, 1)
+    }
+
+    func testStatusAndRestartFailClosedForRemoteOrMismatchedLaunchAgent() async throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        let launchAgent = directory.appendingPathComponent("com.wayfinder-router.gateway.plist")
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        let bundled = URL(fileURLWithPath: "/Applications/Wayfinder.app/Contents/Helpers/WayfinderGateway.app/Contents/MacOS/wayfinder-router")
+        try writeLaunchAgent(at: launchAgent, executable: bundled.path, host: "gateway.example.com")
+        let probes = HealthProbeCounter()
+        let controller = GatewayServiceController(launchAgentURL: launchAgent) { url in
+            await probes.record(url)
+            return GatewayHealth(status: "ok", models: ["local"], offline: false)
+        }
+
+        let remoteStatus = await controller.status(expectedGateway: bundled)
+        XCTAssertNil(remoteStatus.health)
+        let recordedURLs = await probes.recordedURLs()
+        XCTAssertTrue(recordedURLs.isEmpty)
+
+        do {
+            try await controller.restart(
+                expectedGateway: URL(fileURLWithPath: "/opt/homebrew/bin/wayfinder-router")
+            )
+            XCTFail("A mismatched LaunchAgent must not be restarted")
+        } catch {
+            guard case GatewayServiceControllerError.serviceNeedsRepair = error else {
+                return XCTFail("Unexpected error: \(error)")
+            }
+        }
+    }
+
     func testHealthResponseDecodingOk() throws {
         let health = try decode("""
         {
@@ -181,5 +252,31 @@ final class GatewayServiceControllerTests: XCTestCase {
 
     private func decode(_ json: String) throws -> GatewayHealth {
         try GatewayServiceController.decodeHealth(Data(json.utf8))
+    }
+
+    private func writeLaunchAgent(
+        at url: URL,
+        executable: String,
+        host: String
+    ) throws {
+        let plist: [String: Any] = [
+            "Label": GatewayServiceController.launchdLabel,
+            "ProgramArguments": [
+                executable,
+                "serve",
+                "--host",
+                host,
+                "--port",
+                "8088",
+                "--config",
+                GatewayServiceController.defaultConfigPath(),
+            ],
+        ]
+        let data = try PropertyListSerialization.data(
+            fromPropertyList: plist,
+            format: .xml,
+            options: 0
+        )
+        try data.write(to: url, options: .atomic)
     }
 }

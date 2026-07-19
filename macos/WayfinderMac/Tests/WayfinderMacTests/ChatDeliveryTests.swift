@@ -421,6 +421,7 @@ final class ChatDeliveryTests: XCTestCase {
             let client = GatewayWayfinderClient(
                 baseURL: URL(string: "http://127.0.0.1:8088")!,
                 session: session,
+                runtimeValidation: { URL(fileURLWithPath: "/test/wayfinder-router") },
                 appleProductReadiness: { true }
             )
 
@@ -439,6 +440,30 @@ final class ChatDeliveryTests: XCTestCase {
             }
             session.invalidateAndCancel()
             ChatURLProtocolStub.reset()
+        }
+    }
+
+    func testRouteRejectsUnverifiedRuntimeBeforeAnyLoopbackRequest() async {
+        ChatURLProtocolStub.install { _ in
+            XCTFail("Runtime validation must happen before the request")
+            throw URLError(.badServerResponse)
+        }
+        defer { ChatURLProtocolStub.reset() }
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [ChatURLProtocolStub.self]
+        let session = URLSession(configuration: configuration)
+        defer { session.invalidateAndCancel() }
+        let client = GatewayWayfinderClient(
+            baseURL: URL(string: "http://127.0.0.1:8088")!,
+            session: session,
+            runtimeValidation: { throw VerifiedGatewayRuntimeError.serviceNeedsRepair }
+        )
+
+        do {
+            _ = try await client.route(prompt: "Hello")
+            XCTFail("Expected the unverified runtime to be rejected")
+        } catch {
+            XCTAssertEqual(error as? VerifiedGatewayRuntimeError, .serviceNeedsRepair)
         }
     }
 
@@ -471,6 +496,7 @@ final class ChatDeliveryTests: XCTestCase {
         let client = GatewayWayfinderClient(
             baseURL: URL(string: "http://127.0.0.1:8088")!,
             session: session,
+            runtimeValidation: { URL(fileURLWithPath: "/test/wayfinder-router") },
             appleProductReadiness: { true }
         )
         let destination = ChatDestination(

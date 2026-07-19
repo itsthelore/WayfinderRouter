@@ -2,9 +2,11 @@
   "schema_version": 1,
   "implementation": "rust",
   "version": "@WAYFINDER_DESKTOP_VERSION@",
+  "target_architecture": "arm64",
   "wire_contract_version": 1,
   "config_schema_minimum": 1,
   "config_schema_maximum": 1,
   "required_commands": ["route", "serve", "service", "capabilities"],
+  "required_native_commands": ["route", "serve", "service", "capabilities", "app-setup-init", "config read-routing", "config apply-routing"],
   "credential_mechanisms": ["xpc-credential-broker-v1"]
 }
