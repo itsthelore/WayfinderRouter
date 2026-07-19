@@ -173,13 +173,16 @@ final class ChatStateTests: XCTestCase {
     func testChatWorkspaceSizingKeepsTheConversationPrimary() {
         let defaultConversationWidth = ChatWorkspaceChrome.initialWindowWidth
             - ChatWorkspaceChrome.sidebarWidth
+        let expandedInspectorConversationWidth = ChatWorkspaceChrome.initialWindowWidth
+            - ChatWorkspaceChrome.sidebarWidth
             - ChatWorkspaceChrome.inspectorWidth
         let minimumConversationWidth = ChatWorkspaceChrome.minimumWindowWidth
             - ChatWorkspaceChrome.sidebarMinimumWidth
-            - ChatWorkspaceChrome.inspectorMinimumWidth
 
+        XCTAssertFalse(ChatWorkspaceChrome.showsInspectorByDefault)
         XCTAssertGreaterThanOrEqual(defaultConversationWidth, ChatWorkspaceChrome.conversationWidth)
-        XCTAssertGreaterThanOrEqual(minimumConversationWidth, 440)
+        XCTAssertGreaterThanOrEqual(expandedInspectorConversationWidth, 640)
+        XCTAssertGreaterThanOrEqual(minimumConversationWidth, 640)
         XCTAssertLessThan(
             ChatWorkspaceChrome.sidebarWidth + ChatWorkspaceChrome.inspectorWidth,
             ChatWorkspaceChrome.initialWindowWidth / 2

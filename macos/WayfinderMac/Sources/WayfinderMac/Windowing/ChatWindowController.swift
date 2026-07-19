@@ -21,7 +21,7 @@ final class ChatWindowController {
             height: ChatWorkspaceChrome.minimumWindowHeight
         )
         window.isReleasedWhenClosed = false
-        let frameName = NSWindow.FrameAutosaveName("Wayfinder.Chat.v2")
+        let frameName = NSWindow.FrameAutosaveName("Wayfinder.Chat.v3")
         if !window.setFrameUsingName(frameName) {
             window.center()
         }
