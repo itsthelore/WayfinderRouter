@@ -208,7 +208,7 @@ pub type TransportFuture<'a, T> =
 pub trait AppServerTransport: Send {
     fn write<'a>(&'a mut self, bytes: &'a [u8]) -> TransportFuture<'a, ()>;
     fn read<'a>(&'a mut self, buffer: &'a mut [u8]) -> TransportFuture<'a, usize>;
-    fn terminate<'a>(&'a mut self) -> TransportFuture<'a, ()>;
+    fn terminate(&mut self) -> TransportFuture<'_, ()>;
 }
 
 pub trait AppServerTransportFactory: Send + Sync {

@@ -299,7 +299,12 @@ pub fn cache_key(served_model: &str, body: &Value) -> Result<String, CacheError>
     let serialized =
         serde_json::to_vec(&envelope).map_err(|error| CacheError::Json(error.to_string()))?;
     let digest = Sha256::digest(serialized);
-    Ok(digest.iter().map(|byte| format!("{byte:02x}")).collect())
+    let mut encoded = String::with_capacity(64);
+    for byte in digest {
+        encoded.push(char::from(b"0123456789abcdef"[usize::from(byte >> 4)]));
+        encoded.push(char::from(b"0123456789abcdef"[usize::from(byte & 0x0f)]));
+    }
+    Ok(encoded)
 }
 
 fn canonical_json(value: Value) -> Value {

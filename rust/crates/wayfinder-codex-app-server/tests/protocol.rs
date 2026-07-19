@@ -141,7 +141,7 @@ impl AppServerTransport for ScriptedTransport {
         })
     }
 
-    fn terminate<'a>(&'a mut self) -> TransportFuture<'a, ()> {
+    fn terminate(&mut self) -> TransportFuture<'_, ()> {
         Box::pin(async move {
             *self
                 .terminated
@@ -422,7 +422,7 @@ async fn exposes_browser_pending_then_cancels_login() -> TestResult {
     assert!(
         writes
             .iter()
-            .all(|write| write.to_string().find("chatgptAuthTokens").is_none())
+            .all(|write| !write.to_string().contains("chatgptAuthTokens"))
     );
     Ok(())
 }
@@ -597,7 +597,7 @@ async fn server_requests_are_denied_and_fail_closed() -> TestResult {
         .ok_or_else(|| io::Error::other("missing server-request denial"))?;
     assert_eq!(denial["id"], 55);
     assert_eq!(denial["error"]["code"], -32601);
-    assert!(denial.to_string().find("must-not-be-reflected").is_none());
+    assert!(!denial.to_string().contains("must-not-be-reflected"));
     Ok(())
 }
 

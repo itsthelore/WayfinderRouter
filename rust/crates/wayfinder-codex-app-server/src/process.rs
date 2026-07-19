@@ -21,9 +21,9 @@ type OwnerId = u32;
 #[cfg(not(unix))]
 type OwnerId = ();
 
-pub(crate) fn spawn_process<'a>(
-    config: &'a RuntimeConfig,
-) -> TransportFuture<'a, Box<dyn AppServerTransport>> {
+pub(crate) fn spawn_process(
+    config: &RuntimeConfig,
+) -> TransportFuture<'_, Box<dyn AppServerTransport>> {
     Box::pin(async move {
         let owner = prepare_runtime(config)?;
 
@@ -450,7 +450,7 @@ impl AppServerTransport for ProcessTransport {
         })
     }
 
-    fn terminate<'a>(&'a mut self) -> TransportFuture<'a, ()> {
+    fn terminate(&mut self) -> TransportFuture<'_, ()> {
         Box::pin(async move {
             match self.child.try_wait() {
                 Ok(Some(_)) => Ok(()),

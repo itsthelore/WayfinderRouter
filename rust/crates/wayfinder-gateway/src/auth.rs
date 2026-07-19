@@ -11,7 +11,12 @@ use subtle::ConstantTimeEq;
 #[must_use]
 pub fn hash_key(presented: &str) -> String {
     let digest = Sha256::digest(presented.as_bytes());
-    digest.iter().map(|byte| format!("{byte:02x}")).collect()
+    let mut encoded = String::with_capacity(64);
+    for byte in digest {
+        encoded.push(char::from(b"0123456789abcdef"[usize::from(byte >> 4)]));
+        encoded.push(char::from(b"0123456789abcdef"[usize::from(byte & 0x0f)]));
+    }
+    encoded
 }
 
 /// Constant-time verification against a 64-character SHA-256 hex digest.
@@ -71,7 +76,7 @@ fn parse_digest(value: &str) -> Option<[u8; 32]> {
         let high = hex_nibble(*pair.first()?)?;
         let low = hex_nibble(*pair.get(1)?)?;
         let slot = result.get_mut(index)?;
-        *slot = high << 4 | low;
+        *slot = (high << 4) | low;
     }
     Some(result)
 }
