@@ -1,8 +1,8 @@
 import Foundation
-import Testing
+import XCTest
 @testable import WayfinderMacCore
 
-struct HelperManifestTests {
+final class HelperManifestTests: XCTestCase {
     private let manifest = HelperManifest(
         schemaVersion: 1,
         implementation: "rust",
@@ -16,7 +16,7 @@ struct HelperManifestTests {
         credentialMechanisms: ["xpc-credential-broker-v1"]
     )
 
-    @Test func matchingCapabilitiesVerify() throws {
+    func testMatchingCapabilitiesVerify() throws {
         let capabilities = HelperCapabilities(
             schemaVersion: "1",
             implementation: "rust",
@@ -29,7 +29,7 @@ struct HelperManifestTests {
         try HelperVerifier.verify(capabilities, against: manifest)
     }
 
-    @Test func versionSkewAndMissingCapabilitiesFailClosed() {
+    func testVersionSkewAndMissingCapabilitiesFailClosed() {
         let capabilities = HelperCapabilities(
             schemaVersion: "1",
             implementation: "rust",
@@ -39,12 +39,12 @@ struct HelperManifestTests {
             nativeCommands: [],
             credentialMechanisms: []
         )
-        #expect(throws: HelperVerificationError.versionMismatch) {
+        assertThrows(.versionMismatch) {
             try HelperVerifier.verify(capabilities, against: manifest)
         }
     }
 
-    @Test func architectureMismatchFailsClosed() {
+    func testArchitectureMismatchFailsClosed() {
         let capabilities = HelperCapabilities(
             schemaVersion: "1",
             implementation: "rust",
@@ -55,12 +55,12 @@ struct HelperManifestTests {
             credentialMechanisms: ["xpc-credential-broker-v1"]
         )
 
-        #expect(throws: HelperVerificationError.architectureMismatch) {
+        assertThrows(.architectureMismatch) {
             try HelperVerifier.verify(capabilities, against: manifest)
         }
     }
 
-    @Test func unsupportedSchemasAndIncompleteMinimumContractFailClosed() {
+    func testUnsupportedSchemasAndIncompleteMinimumContractFailClosed() {
         let unsupportedManifest = HelperManifest(
             schemaVersion: 2,
             implementation: "rust",
@@ -82,7 +82,7 @@ struct HelperManifestTests {
             nativeCommands: HelperVerifier.requiredNativeCommands,
             credentialMechanisms: ["xpc-credential-broker-v1"]
         )
-        #expect(throws: HelperVerificationError.invalidManifest) {
+        assertThrows(.invalidManifest) {
             try HelperVerifier.verify(unsupportedCapabilities, against: unsupportedManifest)
         }
 
@@ -98,12 +98,12 @@ struct HelperManifestTests {
             requiredNativeCommands: [],
             credentialMechanisms: []
         )
-        #expect(throws: HelperVerificationError.invalidManifest) {
+        assertThrows(.invalidManifest) {
             try HelperVerifier.verify(unsupportedCapabilities, against: incompleteManifest)
         }
     }
 
-    @Test func missingRuntimeCapabilitiesFailClosedAfterVersionAgreement() {
+    func testMissingRuntimeCapabilitiesFailClosedAfterVersionAgreement() {
         let missingCommand = HelperCapabilities(
             schemaVersion: "1",
             implementation: "rust",
@@ -113,7 +113,7 @@ struct HelperManifestTests {
             nativeCommands: HelperVerifier.requiredNativeCommands,
             credentialMechanisms: ["xpc-credential-broker-v1"]
         )
-        #expect(throws: HelperVerificationError.missingCommand("capabilities")) {
+        assertThrows(.missingCommand("capabilities")) {
             try HelperVerifier.verify(missingCommand, against: manifest)
         }
 
@@ -126,7 +126,7 @@ struct HelperManifestTests {
             nativeCommands: HelperVerifier.requiredNativeCommands,
             credentialMechanisms: []
         )
-        #expect(throws: HelperVerificationError.missingCredentialMechanism("xpc-credential-broker-v1")) {
+        assertThrows(.missingCredentialMechanism("xpc-credential-broker-v1")) {
             try HelperVerifier.verify(missingCredentialMechanism, against: manifest)
         }
 
@@ -139,12 +139,12 @@ struct HelperManifestTests {
             nativeCommands: HelperVerifier.requiredNativeCommands.filter { $0 != "config apply-routing" },
             credentialMechanisms: ["xpc-credential-broker-v1"]
         )
-        #expect(throws: HelperVerificationError.missingNativeCommand("config apply-routing")) {
+        assertThrows(.missingNativeCommand("config apply-routing")) {
             try HelperVerifier.verify(missingNativeCommand, against: manifest)
         }
     }
 
-    @Test func wrongWireTypesAndMissingManifestFieldsAreRejectedDuringDecode() {
+    func testWrongWireTypesAndMissingManifestFieldsAreRejectedDuringDecode() {
         let wrongCapabilityType = Data(
             #"""
             {
@@ -158,8 +158,8 @@ struct HelperManifestTests {
             }
             """#.utf8
         )
-        #expect(throws: HelperVerificationError.invalidCapabilities) {
-            try HelperVerifier.decodeCapabilities(wrongCapabilityType)
+        assertThrows(.invalidCapabilities) {
+            _ = try HelperVerifier.decodeCapabilities(wrongCapabilityType)
         }
 
         let incompleteManifest = Data(
@@ -174,12 +174,12 @@ struct HelperManifestTests {
             }
             """#.utf8
         )
-        #expect(throws: HelperVerificationError.invalidManifest) {
-            try HelperVerifier.decodeManifest(incompleteManifest)
+        assertThrows(.invalidManifest) {
+            _ = try HelperVerifier.decodeManifest(incompleteManifest)
         }
     }
 
-    @Test func targetArchitectureDecodesFromSignedManifestKey() throws {
+    func testTargetArchitectureDecodesFromSignedManifestKey() throws {
         let data = Data(
             #"""
             {
@@ -199,10 +199,10 @@ struct HelperManifestTests {
 
         let decoded = try HelperVerifier.decodeManifest(data)
 
-        #expect(decoded.targetArchitecture == "arm64")
+        XCTAssertEqual(decoded.targetArchitecture, "arm64")
     }
 
-    @Test func targetArchitectureDecodesFromCapabilityKey() throws {
+    func testTargetArchitectureDecodesFromCapabilityKey() throws {
         let data = Data(
             #"""
             {
@@ -219,16 +219,27 @@ struct HelperManifestTests {
 
         let decoded = try HelperVerifier.decodeCapabilities(data)
 
-        #expect(decoded.targetArchitecture == "arm64")
-        #expect(decoded.nativeCommands.contains("config apply-routing"))
+        XCTAssertEqual(decoded.targetArchitecture, "arm64")
+        XCTAssertTrue(decoded.nativeCommands.contains("config apply-routing"))
     }
 
-    @Test func malformedDocumentsAreSanitized() {
-        #expect(throws: HelperVerificationError.invalidManifest) {
-            try HelperVerifier.decodeManifest(Data("secret-not-json".utf8))
+    func testMalformedDocumentsAreSanitized() {
+        assertThrows(.invalidManifest) {
+            _ = try HelperVerifier.decodeManifest(Data("secret-not-json".utf8))
         }
-        #expect(throws: HelperVerificationError.invalidCapabilities) {
-            try HelperVerifier.decodeCapabilities(Data("secret-not-json".utf8))
+        assertThrows(.invalidCapabilities) {
+            _ = try HelperVerifier.decodeCapabilities(Data("secret-not-json".utf8))
+        }
+    }
+
+    private func assertThrows(
+        _ expected: HelperVerificationError,
+        _ expression: () throws -> Void,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) {
+        XCTAssertThrowsError(try expression(), file: file, line: line) { error in
+            XCTAssertEqual(error as? HelperVerificationError, expected, file: file, line: line)
         }
     }
 }
