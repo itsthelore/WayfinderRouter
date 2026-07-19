@@ -1,8 +1,10 @@
 # Wayfinder Rust migration workspace
 
-This is the additive, parity-gated Rust implementation selected by WF-ADR-0045. Python remains
-the shipping default and compatibility oracle. The Rust capability handshake intentionally reports
-`gateway_ready: false`; no migration code changes that default implicitly.
+This is the additive, parity-gated Rust implementation selected by WF-ADR-0045. Desktop v0.1.0
+explicitly selects this gateway as the arm64 helper embedded in `Wayfinder.app`. The independently
+distributed router keeps Python as its compatibility oracle and retained fallback. The
+`gateway_ready: false` handshake remains conservative cross-distribution migration metadata; it
+does not override the Desktop product's explicit verified-helper selection.
 
 ## Verified checkpoint (2026-07-11)
 
@@ -28,9 +30,11 @@ the shipping default and compatibility oracle. The Rust capability handshake int
   translation is tested as a state machine but is not yet connected to the HTTP transport.
 - `wayfinder-service` provides deterministic pricing/ledger logic, bounded legacy command-secret
   resolution, and byte-compatible launchd/systemd unit rendering.
-- `wayfinder-cli` implements `route`, real `serve`, `service install|uninstall|status`, and the
-  versioned capability handshake. Environment credentials take precedence over bounded startup
-  `api_key_cmd` compatibility values; neither path serializes or logs the secret.
+- `wayfinder-cli` implements `route`, real `serve`, `service install|uninstall|status`, the bounded
+  Desktop setup/config operations, and the versioned capability handshake. `config read-routing`
+  and `config apply-routing` are native; other coexistence config actions remain Python-delegated.
+  Environment credentials take precedence over bounded startup `api_key_cmd` compatibility values;
+  neither path serializes or logs the secret.
 - `wayfinder-compat-tests` currently passes ten integration tests covering 21 Python golden
   prompts, eight routing boundaries, 32 routing-config cases, 74 gateway-config cases, 20 ordered
   HTTP exchanges, and byte-exact service-unit output. The seeded differential runner has also
@@ -53,10 +57,9 @@ The complete workspace suite contains temporary-loopback tests and therefore nee
 bind local sockets in restricted environments. `cargo-audit` is installed and the current lockfile
 has no known advisory; `cargo-deny` and the x86_64 macOS target are still unavailable locally.
 
-## Not ready to become the default
+## Standalone migration remains parity-gated
 
-Open parity gates include hot reload and savings persistence, live streaming/cancellation/
-backpressure (including Anthropic SSE), the remaining Python CLI surface or accepted delegation,
-static/feedback endpoints, complete Python/Rust HTTP and CLI differentials, clean-machine
-packaging, and a signed notarized arm64+x86_64 helper tested on both architectures. See the
-capability matrix and migration roadmap for the authoritative scope.
+The broader standalone migration still requires retained/delegated CLI decisions and complete
+cross-platform evidence before Python removal. Desktop v0.1.0 has a separate Apple Silicon-only
+release gate in WF-ROADMAP-0015; x86_64 and universal packaging are future claims, not blockers for
+that release.
