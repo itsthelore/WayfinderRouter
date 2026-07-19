@@ -1,0 +1,127 @@
+name: Desktop CI
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/desktop-*.yml"
+      - "macos/**"
+      - "rust/**"
+      - "designs/WF-DESIGN-0016-signed-rust-helper-integration.md"
+      - "designs/WF-DESIGN-0017-apple-foundation-models-provider.md"
+      - "designs/WF-DESIGN-0018-codex-chatgpt-provider.md"
+      - "roadmaps/WF-ROADMAP-0012-native-macos-v1-ux.md"
+      - "roadmaps/WF-ROADMAP-0015-desktop-v0.1.0-release.md"
+      - "docs/desktop-*.md"
+  pull_request:
+    paths:
+      - ".github/workflows/desktop-*.yml"
+      - "macos/**"
+      - "rust/**"
+      - "designs/WF-DESIGN-0016-signed-rust-helper-integration.md"
+      - "designs/WF-DESIGN-0017-apple-foundation-models-provider.md"
+      - "designs/WF-DESIGN-0018-codex-chatgpt-provider.md"
+      - "roadmaps/WF-ROADMAP-0012-native-macos-v1-ux.md"
+      - "roadmaps/WF-ROADMAP-0015-desktop-v0.1.0-release.md"
+      - "docs/desktop-*.md"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: desktop-ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  swift:
+    name: Swift (${{ matrix.os }})
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-14, macos-26]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: false
+      - name: Prove native Apple Silicon runner
+        run: test "$(uname -m)" = "arm64"
+      - name: Record toolchain
+        run: |
+          sw_vers
+          xcodebuild -version
+          swift --version
+      - name: Swift tests
+        run: swift test --package-path macos/WayfinderMac
+      - name: Release-mode Swift build
+        run: swift build --package-path macos/WayfinderMac --configuration release --arch arm64
+      - name: Release-script policy tests
+        shell: bash
+        run: |
+          bash -n \
+            macos/WayfinderMac/script/build_release_bundle.sh \
+            macos/WayfinderMac/script/run_with_timeout.sh \
+            macos/WayfinderMac/script/verify_release_architectures.sh \
+            macos/WayfinderMac/script/verify_release_bundle.sh \
+            macos/WayfinderMac/Tests/ReleaseScripts/test_bounded_command.sh \
+            macos/WayfinderMac/Tests/ReleaseScripts/test_release_architecture_policy.sh
+          macos/WayfinderMac/Tests/ReleaseScripts/test_bounded_command.sh
+          macos/WayfinderMac/Tests/ReleaseScripts/test_release_architecture_policy.sh
+      - name: Install the pinned Rust verification toolchain
+        if: matrix.os == 'macos-26'
+        run: |
+          rustup toolchain install 1.85.0 --profile minimal
+          rustup target add aarch64-apple-darwin --toolchain 1.85.0
+      - name: macOS Rust workspace tests
+        if: matrix.os == 'macos-26'
+        run: >-
+          cargo +1.85.0 test --manifest-path rust/Cargo.toml
+          --workspace --all-features --locked
+
+  arm64-bundle:
+    name: Ad-hoc arm64 release bundle
+    needs: swift
+    runs-on: macos-26
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: false
+      - name: Prove release host and SDK
+        run: |
+          test "$(uname -m)" = "arm64"
+          sdk_version="$(xcrun --sdk macosx --show-sdk-version)"
+          sdk_major="${sdk_version%%.*}"
+          if [[ ! "$sdk_major" =~ ^[0-9]+$ ]] || (( sdk_major < 26 )); then
+            echo "::error::Wayfinder Desktop packaging requires the macOS 26 SDK or later"
+            exit 1
+          fi
+          echo "macOS SDK $sdk_version"
+      - name: Install the Rust release toolchain
+        run: |
+          rustup toolchain install 1.85.0 --profile minimal
+          rustup target add aarch64-apple-darwin --toolchain 1.85.0
+      - name: Architecture policy tests
+        run: |
+          macos/WayfinderMac/Tests/ReleaseScripts/test_bounded_command.sh
+          macos/WayfinderMac/Tests/ReleaseScripts/test_release_architecture_policy.sh
+      - name: Build and verify ad-hoc release bundle
+        env:
+          CODESIGN_IDENTITY: "-"
+          CODESIGN_TIMESTAMP_OPTION: "--timestamp=none"
+          CLANG_MODULE_CACHE_PATH: ${{ runner.temp }}/clang-module-cache
+          DIST_DIR: ${{ runner.temp }}/wayfinder-desktop-ci
+          RUSTUP_TOOLCHAIN: 1.85.0
+          WAYFINDER_DESKTOP_BUILD_NUMBER: ${{ github.run_number }}
+        run: macos/WayfinderMac/script/build_release_bundle.sh
+      - name: Upload non-distributable build evidence
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: Wayfinder-desktop-arm64-ad-hoc-${{ github.sha }}
+          path: |
+            ${{ runner.temp }}/wayfinder-desktop-ci/Wayfinder.zip
+            ${{ runner.temp }}/wayfinder-desktop-ci/Wayfinder.zip.sha256
+          if-no-files-found: error
+          retention-days: 7

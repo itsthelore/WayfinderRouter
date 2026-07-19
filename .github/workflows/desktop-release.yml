@@ -1,0 +1,243 @@
+name: Desktop Release
+
+on:
+  push:
+    tags:
+      - "desktop-v*"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: desktop-release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  preflight:
+    name: Validate desktop tag and source
+    runs-on: macos-26
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Validate desktop tag and main ancestry
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ "${GITHUB_REF_TYPE:-}" != "tag" ]]; then
+            echo "::error::desktop releases must run from a tag"
+            exit 1
+          fi
+          if [[ ! "$GITHUB_REF_NAME" =~ ^desktop-v((0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*))(-rc\.([1-9][0-9]*))?$ ]]; then
+            echo "::error::invalid desktop release tag: $GITHUB_REF_NAME"
+            exit 1
+          fi
+          tag_version="${BASH_REMATCH[1]}"
+          desktop_version="$(tr -d '[:space:]' < macos/WayfinderMac/Packaging/DESKTOP_VERSION)"
+          if [[ "$tag_version" != "$desktop_version" ]]; then
+            echo "::error::tag version $tag_version does not match desktop version $desktop_version"
+            exit 1
+          fi
+          tag_commit="$(git rev-list -n 1 "$GITHUB_REF_NAME")"
+          if [[ "$tag_commit" != "$GITHUB_SHA" ]]; then
+            echo "::error::tag commit $tag_commit does not match workflow commit $GITHUB_SHA"
+            exit 1
+          fi
+          git fetch --no-tags origin \
+            '+refs/heads/main:refs/remotes/origin/main'
+          if ! git merge-base --is-ancestor "$GITHUB_SHA" origin/main; then
+            echo "::error::desktop releases must point to a commit on main"
+            exit 1
+          fi
+      - name: Prove Apple Silicon release SDK
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(uname -m)" = "arm64"
+          sdk_version="$(xcrun --sdk macosx --show-sdk-version)"
+          sdk_major="${sdk_version%%.*}"
+          if [[ ! "$sdk_major" =~ ^[0-9]+$ ]] || (( sdk_major < 26 )); then
+            echo "::error::Wayfinder Desktop releases require the macOS 26 SDK or later"
+            exit 1
+          fi
+          echo "macOS SDK $sdk_version"
+      - name: Install the Rust verification toolchain
+        run: |
+          rustup toolchain install 1.85.0 --profile minimal --component rustfmt,clippy
+          rustup target add aarch64-apple-darwin --toolchain 1.85.0
+      - name: Shell and architecture policy tests
+        shell: bash
+        run: |
+          bash -n \
+            macos/WayfinderMac/script/build_release_bundle.sh \
+            macos/WayfinderMac/script/run_with_timeout.sh \
+            macos/WayfinderMac/script/verify_release_architectures.sh \
+            macos/WayfinderMac/script/verify_release_bundle.sh \
+            macos/WayfinderMac/Tests/ReleaseScripts/test_bounded_command.sh \
+            macos/WayfinderMac/Tests/ReleaseScripts/test_release_architecture_policy.sh
+          macos/WayfinderMac/Tests/ReleaseScripts/test_bounded_command.sh
+          macos/WayfinderMac/Tests/ReleaseScripts/test_release_architecture_policy.sh
+      - name: Swift tests
+        run: swift test --package-path macos/WayfinderMac
+      - name: Rust formatting
+        run: cargo +1.85.0 fmt --manifest-path rust/Cargo.toml --all -- --check
+      - name: Rust workspace tests
+        run: cargo +1.85.0 test --manifest-path rust/Cargo.toml --workspace --all-features --locked
+      - name: Rust warning-denied Clippy
+        run: >-
+          cargo +1.85.0 clippy --manifest-path rust/Cargo.toml --workspace --all-targets
+          --all-features --locked -- -D warnings
+
+  release:
+    name: Sign, notarize, and draft release
+    needs: preflight
+    runs-on: macos-26
+    timeout-minutes: 90
+    environment: desktop-release
+    permissions:
+      contents: write
+    env:
+      SIGNING_KEYCHAIN: ${{ runner.temp }}/wayfinder-signing.keychain-db
+      SIGNING_CERTIFICATE: ${{ runner.temp }}/wayfinder-developer-id.p12
+      NOTARY_PRIVATE_KEY: ${{ runner.temp }}/AuthKey.p8
+      NOTARYTOOL_PROFILE: wayfinder-desktop-ci
+      NOTARYTOOL_KEYCHAIN: ${{ runner.temp }}/wayfinder-signing.keychain-db
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Reconfirm immutable release input
+        run: |
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          test "$(uname -m)" = "arm64"
+          sdk_version="$(xcrun --sdk macosx --show-sdk-version)"
+          test "${sdk_version%%.*}" -ge 26
+      - name: Install the Rust release toolchain
+        run: |
+          rustup toolchain install 1.85.0 --profile minimal
+          rustup target add aarch64-apple-darwin --toolchain 1.85.0
+      - name: Import ephemeral release credentials
+        id: signing
+        shell: bash
+        env:
+          APPLE_DEVELOPER_ID_APPLICATION_P12_BASE64: ${{ secrets.APPLE_DEVELOPER_ID_APPLICATION_P12_BASE64 }}
+          APPLE_DEVELOPER_ID_APPLICATION_P12_PASSWORD: ${{ secrets.APPLE_DEVELOPER_ID_APPLICATION_P12_PASSWORD }}
+          APPLE_NOTARY_KEY_P8_BASE64: ${{ secrets.APPLE_NOTARY_KEY_P8_BASE64 }}
+          APPLE_NOTARY_KEY_ID: ${{ secrets.APPLE_NOTARY_KEY_ID }}
+          APPLE_NOTARY_ISSUER_ID: ${{ secrets.APPLE_NOTARY_ISSUER_ID }}
+        run: |
+          set -euo pipefail
+          umask 077
+          : "${APPLE_DEVELOPER_ID_APPLICATION_P12_BASE64:?missing Developer ID certificate}"
+          : "${APPLE_DEVELOPER_ID_APPLICATION_P12_PASSWORD:?missing certificate password}"
+          : "${APPLE_NOTARY_KEY_P8_BASE64:?missing notary private key}"
+          : "${APPLE_NOTARY_KEY_ID:?missing notary key id}"
+          : "${APPLE_NOTARY_ISSUER_ID:?missing notary issuer id}"
+
+          keychain_password="$(openssl rand -hex 32)"
+          printf '%s' "$APPLE_DEVELOPER_ID_APPLICATION_P12_BASE64" | /usr/bin/base64 -D > "$SIGNING_CERTIFICATE"
+          printf '%s' "$APPLE_NOTARY_KEY_P8_BASE64" | /usr/bin/base64 -D > "$NOTARY_PRIVATE_KEY"
+          chmod 600 "$SIGNING_CERTIFICATE" "$NOTARY_PRIVATE_KEY"
+
+          security create-keychain -p "$keychain_password" "$SIGNING_KEYCHAIN"
+          security set-keychain-settings -lut 21600 "$SIGNING_KEYCHAIN"
+          security unlock-keychain -p "$keychain_password" "$SIGNING_KEYCHAIN"
+          security list-keychains -d user -s "$SIGNING_KEYCHAIN"
+          security import "$SIGNING_CERTIFICATE" \
+            -k "$SIGNING_KEYCHAIN" \
+            -P "$APPLE_DEVELOPER_ID_APPLICATION_P12_PASSWORD" \
+            -A -t cert -f pkcs12
+          security set-key-partition-list \
+            -S apple-tool:,apple:,codesign: \
+            -s -k "$keychain_password" "$SIGNING_KEYCHAIN"
+
+          identity_output="$(security find-identity -v -p codesigning "$SIGNING_KEYCHAIN")"
+          identity_count="$(printf '%s\n' "$identity_output" | \
+            awk '/"Developer ID Application:/{count += 1} END {print count + 0}')"
+          if [[ "$identity_count" != "1" ]]; then
+            echo "::error::expected exactly one Developer ID Application identity; found $identity_count"
+            exit 1
+          fi
+          identity_hash="$(printf '%s\n' "$identity_output" | \
+            awk '/"Developer ID Application:/{print $2; exit}')"
+          if [[ ! "$identity_hash" =~ ^[0-9A-F]{40}$ ]]; then
+            echo "::error::could not derive the Developer ID Application identity"
+            exit 1
+          fi
+          echo "CODESIGN_IDENTITY=$identity_hash" >> "$GITHUB_ENV"
+
+          xcrun notarytool store-credentials "$NOTARYTOOL_PROFILE" \
+            --key "$NOTARY_PRIVATE_KEY" \
+            --key-id "$APPLE_NOTARY_KEY_ID" \
+            --issuer "$APPLE_NOTARY_ISSUER_ID" \
+            --keychain "$SIGNING_KEYCHAIN"
+      - name: Build, notarize, and verify final archive
+        env:
+          CLANG_MODULE_CACHE_PATH: ${{ runner.temp }}/clang-module-cache
+          DIST_DIR: ${{ runner.temp }}/wayfinder-desktop-release
+          RUSTUP_TOOLCHAIN: 1.85.0
+          WAYFINDER_DESKTOP_BUILD_NUMBER: ${{ github.run_number }}
+        run: macos/WayfinderMac/script/build_release_bundle.sh
+      - name: Upload signed workflow evidence
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: Wayfinder-desktop-arm64-${{ github.ref_name }}
+          path: |
+            ${{ runner.temp }}/wayfinder-desktop-release/Wayfinder.zip
+            ${{ runner.temp }}/wayfinder-desktop-release/Wayfinder.zip.sha256
+          if-no-files-found: error
+          retention-days: 30
+      - name: Create or update draft GitHub release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          title="Wayfinder Desktop ${GITHUB_REF_NAME#desktop-v}"
+          core_version="${GITHUB_REF_NAME#desktop-v}"
+          core_version="${core_version%%-rc.*}"
+          notes="docs/releases/desktop-v${core_version}.md"
+          if [[ ! -f "$notes" ]]; then
+            echo "::error::missing release notes for desktop $core_version"
+            exit 1
+          fi
+          assets=(
+            "$RUNNER_TEMP/wayfinder-desktop-release/Wayfinder.zip"
+            "$RUNNER_TEMP/wayfinder-desktop-release/Wayfinder.zip.sha256"
+          )
+          prerelease_arguments=()
+          prerelease_value=false
+          if [[ "$GITHUB_REF_NAME" == *-rc.* ]]; then
+            prerelease_arguments+=(--prerelease)
+            prerelease_value=true
+          fi
+
+          if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
+            is_draft="$(gh release view "$GITHUB_REF_NAME" --json isDraft --jq .isDraft)"
+            if [[ "$is_draft" != "true" ]]; then
+              echo "::error::refusing to replace assets on a published release"
+              exit 1
+            fi
+            gh release upload "$GITHUB_REF_NAME" "${assets[@]}" --clobber
+            gh release edit "$GITHUB_REF_NAME" \
+              --draft \
+              --prerelease="$prerelease_value" \
+              --title "$title" \
+              --notes-file "$notes"
+          else
+            gh release create "$GITHUB_REF_NAME" "${assets[@]}" \
+              --verify-tag \
+              --draft \
+              "${prerelease_arguments[@]}" \
+              --title "$title" \
+              --notes-file "$notes"
+          fi
+      - name: Remove ephemeral release credentials
+        if: always()
+        shell: bash
+        run: |
+          security delete-keychain "$SIGNING_KEYCHAIN" >/dev/null 2>&1 || true
+          rm -f "$SIGNING_CERTIFICATE" "$NOTARY_PRIVATE_KEY"
