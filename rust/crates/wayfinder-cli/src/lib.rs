@@ -5,6 +5,7 @@
 mod app_setup_command;
 mod apple_foundation_live;
 mod codex_app_server;
+mod config_command;
 mod service_command;
 
 use std::collections::BTreeMap;
@@ -80,10 +81,11 @@ pub fn is_serve_command(arguments: &[OsString]) -> bool {
 /// the parity period.
 #[must_use]
 pub fn is_python_delegated_command(arguments: &[OsString]) -> bool {
-    arguments
-        .first()
-        .and_then(|argument| argument.to_str())
-        .is_some_and(|command| PYTHON_DELEGATED_COMMANDS.contains(&command))
+    let command = arguments.first().and_then(|argument| argument.to_str());
+    if command == Some("config") && config_command::is_native_config_command(arguments) {
+        return false;
+    }
+    command.is_some_and(|command| PYTHON_DELEGATED_COMMANDS.contains(&command))
 }
 
 /// Replace the Rust process boundary with the existing Python CLI contract.
@@ -145,6 +147,7 @@ pub fn run(
         }
         "route" => run_route(&arguments[1..], stdin, stdout, stderr),
         "app-setup-init" => app_setup_command::run_app_setup(&arguments[1..], stdout, stderr),
+        "config" => config_command::run_config(&arguments[1..], stdin, stdout, stderr),
         "service" => service_command::run_service(&arguments[1..], stdout, stderr),
         "capabilities" => run_capabilities(&arguments[1..], stdout, stderr),
         "apple-foundation-live-smoke" => {
@@ -190,8 +193,9 @@ fn run_capabilities(arguments: &[String], stdout: &mut dyn Write, stderr: &mut d
         "schema_version": "1",
         "implementation": "rust",
         "version": product_version(),
-        "commands": ["route", "serve", "service", "capabilities", "calibrate", "recalibrate", "webchat", "ui", "chat", "onboard", "judge", "init", "doctor", "config", "keys"],
-        "native_commands": ["route", "serve", "service", "capabilities"],
+        "target_architecture": target_architecture(),
+        "commands": ["route", "serve", "service", "capabilities", "app-setup-init", "calibrate", "recalibrate", "webchat", "ui", "chat", "onboard", "judge", "init", "doctor", "config", "keys"],
+        "native_commands": ["route", "serve", "service", "capabilities", "app-setup-init", "config read-routing", "config apply-routing"],
         "delegated_commands": PYTHON_DELEGATED_COMMANDS,
         "delegation": {"implementation": "python", "module": "wayfinder_router.cli"},
         "decision_schema_versions": ["3"],
@@ -203,6 +207,13 @@ fn run_capabilities(arguments: &[String], stdout: &mut dyn Write, stderr: &mut d
         return EXIT_CONFIG;
     }
     EXIT_OK
+}
+
+fn target_architecture() -> &'static str {
+    match std::env::consts::ARCH {
+        "aarch64" => "arm64",
+        architecture => architecture,
+    }
 }
 
 /// Run the process-owned async gateway path.
@@ -1080,7 +1091,7 @@ fn write_error(stream: &mut dyn Write, message: &str) {
 }
 
 const TOP_LEVEL_USAGE: &str = "usage: wayfinder-router [-h] [--version] COMMAND ...";
-const TOP_LEVEL_HELP: &str = "usage: wayfinder-router [-h] [--version] COMMAND ...\n\nDeterministic prompt-complexity router.\n\nNative Rust commands:\n  route          Score a prompt and recommend a model.\n  serve          Run the parity-gated local HTTP gateway.\n  service        Manage the always-on launchd/systemd user service.\n  capabilities   Emit the versioned helper capability handshake.\n\nRetained Python commands during coexistence:\n  calibrate recalibrate webchat ui chat onboard judge init doctor config keys";
+const TOP_LEVEL_HELP: &str = "usage: wayfinder-router [-h] [--version] COMMAND ...\n\nDeterministic prompt-complexity router.\n\nNative Rust commands:\n  route          Score a prompt and recommend a model.\n  serve          Run the parity-gated local HTTP gateway.\n  service        Manage the always-on launchd/systemd user service.\n  capabilities   Emit the versioned helper capability handshake.\n  app-setup-init Create a bounded desktop setup config.\n  config read-routing | apply-routing\n                 Read or replace the desktop-owned routing fragment.\n\nRetained Python commands during coexistence:\n  calibrate recalibrate webchat ui chat onboard judge init doctor config (other actions) keys";
 const ROUTE_HELP: &str = "usage: wayfinder-router route [-h] [--threshold THRESHOLD] [--json] [--explain] prompt\n\nScore a prompt and recommend a model.";
 const SERVE_HELP: &str = "usage: wayfinder-router serve [-h] [--host HOST] [--port PORT] [--dry-run] [--timeout TIMEOUT] [--config CONFIG]\n\nRun the parity-gated local HTTP gateway.";
 
@@ -1174,7 +1185,15 @@ mod tests {
         assert!(mechanisms.contains(&json!("xpc-credential-broker-v1")));
         assert_eq!(
             payload["native_commands"],
-            json!(["route", "serve", "service", "capabilities"])
+            json!([
+                "route",
+                "serve",
+                "service",
+                "capabilities",
+                "app-setup-init",
+                "config read-routing",
+                "config apply-routing"
+            ])
         );
         assert_eq!(payload["delegation"]["implementation"], "python");
         assert!(
@@ -1186,10 +1205,53 @@ mod tests {
     }
 
     #[test]
+    fn capabilities_report_canonical_target_architecture() -> Result<(), Box<dyn std::error::Error>>
+    {
+        let mut stdin = "".as_bytes();
+        let mut stdout = Vec::new();
+        let mut stderr = Vec::new();
+        let code = run(
+            vec!["capabilities".into(), "--json".into()],
+            &mut stdin,
+            &mut stdout,
+            &mut stderr,
+        );
+        assert_eq!(code, EXIT_OK, "{}", String::from_utf8_lossy(&stderr));
+        let payload: serde_json::Value = serde_json::from_slice(&stdout)?;
+        let expected = if cfg!(target_arch = "aarch64") {
+            "arm64"
+        } else {
+            std::env::consts::ARCH
+        };
+        assert_eq!(payload["target_architecture"], expected);
+        Ok(())
+    }
+
+    #[test]
     fn coexistence_command_ownership_is_explicit() {
         for command in PYTHON_DELEGATED_COMMANDS {
             assert!(is_python_delegated_command(&[OsString::from(command)]));
         }
+        for action in ["read-routing", "apply-routing"] {
+            assert!(!is_python_delegated_command(&[
+                OsString::from("config"),
+                OsString::from(action),
+            ]));
+            assert!(!is_python_delegated_command(&[
+                OsString::from("config"),
+                OsString::from("--path"),
+                OsString::from("fixture.toml"),
+                OsString::from(action),
+            ]));
+        }
+        assert!(is_python_delegated_command(&[
+            OsString::from("config"),
+            OsString::from("set"),
+        ]));
+        assert!(is_python_delegated_command(&[
+            OsString::from("config"),
+            OsString::from("--help"),
+        ]));
         assert!(!is_python_delegated_command(&[OsString::from("route")]));
         assert!(!is_python_delegated_command(&[]));
     }

@@ -14,9 +14,21 @@ public struct RoutingConfigStore: Sendable {
 
     public init(
         configURL: URL = Self.defaultConfigURL,
-        runner: @escaping CommandRunner = { arguments, stdin in
-            await RoutingConfigStore.runWayfinderRouter(arguments: arguments, stdin: stdin)
+        resolver: GatewayToolResolver = GatewayToolResolver()
+    ) {
+        self.configURL = configURL
+        self.runner = { arguments, stdin in
+            await RoutingConfigStore.runWayfinderRouter(
+                resolver: resolver,
+                arguments: arguments,
+                stdin: stdin
+            )
         }
+    }
+
+    public init(
+        configURL: URL,
+        runner: @escaping CommandRunner
     ) {
         self.configURL = configURL
         self.runner = runner
@@ -65,55 +77,39 @@ public struct RoutingConfigStore: Sendable {
         }
     }
 
-    public static func runWayfinderRouter(arguments: [String], stdin: String?) async -> RoutingCommandResult {
-        await Task.detached {
-            let process = Process()
-            process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
-            process.arguments = ["wayfinder-router"] + arguments
-
-            let stdout = Pipe()
-            let stderr = Pipe()
-            process.standardOutput = stdout
-            process.standardError = stderr
-
-            let input: Pipe?
-            if stdin != nil {
-                let pipe = Pipe()
-                process.standardInput = pipe
-                input = pipe
-            } else {
-                input = nil
-            }
-
-            do {
-                try process.run()
-                if let stdin, let data = stdin.data(using: .utf8), let input {
-                    input.fileHandleForWriting.write(data)
-                    try? input.fileHandleForWriting.close()
-                }
-            } catch {
-                return RoutingCommandResult(
-                    exitCode: 1,
-                    stdout: "",
-                    stderr: "wayfinder-router: \(error.localizedDescription)"
-                )
-            }
-
-            process.waitUntilExit()
-            let outputText = String(
-                data: stdout.fileHandleForReading.readDataToEndOfFile(),
-                encoding: .utf8
-            ) ?? ""
-            let errorText = String(
-                data: stderr.fileHandleForReading.readDataToEndOfFile(),
-                encoding: .utf8
-            )?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+    public static func runWayfinderRouter(
+        resolver: GatewayToolResolver = GatewayToolResolver(),
+        arguments: [String],
+        stdin: String?
+    ) async -> RoutingCommandResult {
+        let helper: URL
+        do {
+            helper = try await resolver.resolveGateway()
+        } catch {
             return RoutingCommandResult(
-                exitCode: process.terminationStatus,
-                stdout: outputText,
-                stderr: errorText
+                exitCode: 1,
+                stderr: "Wayfinder could not verify its bundled gateway. Reinstall Wayfinder from an official release."
             )
-        }.value
+        }
+
+        do {
+            let result = try await BoundedProcessRunner.run(
+                executable: helper,
+                arguments: arguments,
+                stdin: stdin?.data(using: .utf8),
+                timeoutNanoseconds: 10_000_000_000,
+                maximumInputBytes: 64 * 1_024,
+                maximumOutputBytes: 256 * 1_024
+            )
+            return RoutingCommandResult(
+                exitCode: result.exitCode,
+                stdout: String(data: result.stdout, encoding: .utf8) ?? "",
+                stderr: (String(data: result.stderr, encoding: .utf8) ?? "")
+                    .trimmingCharacters(in: .whitespacesAndNewlines)
+            )
+        } catch {
+            return RoutingCommandResult(exitCode: 1, stderr: error.localizedDescription)
+        }
     }
 
     private static func firstUnsupportedRoutingField(in text: String) -> String? {
