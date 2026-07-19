@@ -50,7 +50,7 @@ public final class ChatDestinationNameStore: ObservableObject {
 
     nonisolated static func normalized(_ name: String) -> String {
         let collapsed = name
-            .split(whereSeparator: \Character.isWhitespace)
+            .split(whereSeparator: { $0.isWhitespace })
             .joined(separator: " ")
         return String(collapsed.prefix(maximumNameLength))
     }
