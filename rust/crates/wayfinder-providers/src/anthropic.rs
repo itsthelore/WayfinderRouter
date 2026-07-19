@@ -129,13 +129,13 @@ fn translate_tool(tool: &Map<String, Value>) -> Value {
         .cloned()
         .unwrap_or_else(|| Value::Object(Map::new()));
     function.insert("parameters".to_owned(), parameters);
-    if let Some(description) = tool.get("description").and_then(Value::as_str)
-        && !description.is_empty()
-    {
-        function.insert(
-            "description".to_owned(),
-            Value::String(description.to_owned()),
-        );
+    if let Some(description) = tool.get("description").and_then(Value::as_str) {
+        if !description.is_empty() {
+            function.insert(
+                "description".to_owned(),
+                Value::String(description.to_owned()),
+            );
+        }
     }
     json!({"type": "function", "function": function})
 }
@@ -300,13 +300,13 @@ fn stop_reason(reason: Option<&Value>) -> &'static str {
 }
 
 fn usage(response: &Map<String, Value>, prompt: &str, completion: &str) -> (u64, u64) {
-    if let Some(usage) = response.get("usage").and_then(Value::as_object)
-        && let (Some(input), Some(output)) = (
+    if let Some(usage) = response.get("usage").and_then(Value::as_object) {
+        if let (Some(input), Some(output)) = (
             usage.get("prompt_tokens").and_then(Value::as_u64),
             usage.get("completion_tokens").and_then(Value::as_u64),
-        )
-    {
-        return (input, output);
+        ) {
+            return (input, output);
+        }
     }
     (estimate_tokens(prompt), estimate_tokens(completion))
 }
@@ -625,14 +625,14 @@ impl MessagesStreamTranslator {
         };
         for choice in choices.iter().filter_map(Value::as_object) {
             if let Some(delta) = choice.get("delta").and_then(Value::as_object) {
-                if let Some(text) = delta.get("content").and_then(Value::as_str)
-                    && !text.is_empty()
-                {
-                    let index = self.open_text(output);
-                    self.completion_chars = self
-                        .completion_chars
-                        .saturating_add(u64::try_from(text.chars().count()).unwrap_or(u64::MAX));
-                    output.push(text_delta_frame(index, text));
+                if let Some(text) = delta.get("content").and_then(Value::as_str) {
+                    if !text.is_empty() {
+                        let index = self.open_text(output);
+                        self.completion_chars = self.completion_chars.saturating_add(
+                            u64::try_from(text.chars().count()).unwrap_or(u64::MAX),
+                        );
+                        output.push(text_delta_frame(index, text));
+                    }
                 }
                 if let Some(tool_calls) = delta.get("tool_calls").and_then(Value::as_array) {
                     for tool_call in tool_calls.iter().filter_map(Value::as_object) {
@@ -640,10 +640,10 @@ impl MessagesStreamTranslator {
                     }
                 }
             }
-            if let Some(reason) = choice.get("finish_reason").and_then(Value::as_str)
-                && !reason.is_empty()
-            {
-                self.finish_reason = Some(reason.to_owned());
+            if let Some(reason) = choice.get("finish_reason").and_then(Value::as_str) {
+                if !reason.is_empty() {
+                    self.finish_reason = Some(reason.to_owned());
+                }
             }
         }
         Ok(())
@@ -679,33 +679,35 @@ impl MessagesStreamTranslator {
             position
         };
 
-        if let Some(id) = tool_call.get("id").and_then(Value::as_str)
-            && !id.is_empty()
-        {
-            let old_len = self.tools[position].id.as_ref().map_or(0, String::len);
-            self.replace_buffered_bytes(old_len, id.len())?;
-            self.tools[position].id = Some(id.to_owned());
+        if let Some(id) = tool_call.get("id").and_then(Value::as_str) {
+            if !id.is_empty() {
+                let old_len = self.tools[position].id.as_ref().map_or(0, String::len);
+                self.replace_buffered_bytes(old_len, id.len())?;
+                self.tools[position].id = Some(id.to_owned());
+            }
         }
         let function = tool_call.get("function").and_then(Value::as_object);
         if let Some(name) = function
             .and_then(|function| function.get("name"))
             .and_then(Value::as_str)
-            && !name.is_empty()
         {
-            let old_len = self.tools[position].name.len();
-            self.replace_buffered_bytes(old_len, name.len())?;
-            self.tools[position].name = name.to_owned();
+            if !name.is_empty() {
+                let old_len = self.tools[position].name.len();
+                self.replace_buffered_bytes(old_len, name.len())?;
+                self.tools[position].name = name.to_owned();
+            }
         }
         if let Some(arguments) = function
             .and_then(|function| function.get("arguments"))
             .and_then(Value::as_str)
-            && !arguments.is_empty()
         {
-            self.add_buffered_bytes(arguments.len())?;
-            self.tools[position].arguments.push_str(arguments);
-            self.completion_chars = self
-                .completion_chars
-                .saturating_add(u64::try_from(arguments.chars().count()).unwrap_or(u64::MAX));
+            if !arguments.is_empty() {
+                self.add_buffered_bytes(arguments.len())?;
+                self.tools[position].arguments.push_str(arguments);
+                self.completion_chars = self
+                    .completion_chars
+                    .saturating_add(u64::try_from(arguments.chars().count()).unwrap_or(u64::MAX));
+            }
         }
         Ok(())
     }

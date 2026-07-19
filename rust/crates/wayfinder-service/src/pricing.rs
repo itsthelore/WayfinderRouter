@@ -694,10 +694,10 @@ impl SavingsLedger {
         let mut parsed_days = BTreeMap::new();
         if let Some(days) = root.get("days").and_then(Value::as_object) {
             for (date, raw) in days {
-                if UtcDate::parse(date).is_ok()
-                    && let Some(bucket) = raw.as_object()
-                {
-                    parsed_days.insert(date.clone(), coerce_bucket(bucket));
+                if UtcDate::parse(date).is_ok() {
+                    if let Some(bucket) = raw.as_object() {
+                        parsed_days.insert(date.clone(), coerce_bucket(bucket));
+                    }
                 }
             }
         }
@@ -757,13 +757,13 @@ impl SavingsLedger {
             path: path.to_path_buf(),
             source,
         })?;
-        if let Some(parent) = path.parent()
-            && let Ok(directory) = File::open(parent)
-        {
-            directory.sync_all().map_err(|source| LedgerError::Io {
-                path: parent.to_path_buf(),
-                source,
-            })?;
+        if let Some(parent) = path.parent() {
+            if let Ok(directory) = File::open(parent) {
+                directory.sync_all().map_err(|source| LedgerError::Io {
+                    path: parent.to_path_buf(),
+                    source,
+                })?;
+            }
         }
         Ok(())
     }

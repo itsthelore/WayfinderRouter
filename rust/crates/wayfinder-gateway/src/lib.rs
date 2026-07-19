@@ -1777,21 +1777,21 @@ async fn chat_completions(
                 .iter()
                 .find(|model| model.name() == served_by)
             {
-                if served_target.provider() != ProviderKind::CodexAppServer
-                    && let Ok(key) = cache_key(served_target.provider_model(), &request_body)
-                {
-                    let _ = state.response_cache().put_at(
-                        key,
-                        CachedResponse {
-                            status: status.as_u16(),
-                            content_type: response_content_type.clone(),
-                            body: body.to_vec(),
-                            prompt_tokens: usage.prompt_tokens,
-                            completion_tokens: usage.completion_tokens,
-                            estimated: usage.estimated,
-                        },
-                        state.cache_now(),
-                    );
+                if served_target.provider() != ProviderKind::CodexAppServer {
+                    if let Ok(key) = cache_key(served_target.provider_model(), &request_body) {
+                        let _ = state.response_cache().put_at(
+                            key,
+                            CachedResponse {
+                                status: status.as_u16(),
+                                content_type: response_content_type.clone(),
+                                body: body.to_vec(),
+                                prompt_tokens: usage.prompt_tokens,
+                                completion_tokens: usage.completion_tokens,
+                                estimated: usage.estimated,
+                            },
+                            state.cache_now(),
+                        );
+                    }
                 }
             }
         }

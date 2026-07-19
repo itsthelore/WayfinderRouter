@@ -302,10 +302,10 @@ pub fn set_toml_bool(text: &str, table: &str, key: &str, value: bool) -> String 
     let mut lines: Vec<String> = text.split_inclusive('\n').map(str::to_owned).collect();
     if !text.is_empty() && !text.ends_with('\n') {
         let captured: usize = lines.iter().map(String::len).sum();
-        if captured < text.len()
-            && let Some(tail) = text.get(captured..)
-        {
-            lines.push(tail.to_owned());
+        if captured < text.len() {
+            if let Some(tail) = text.get(captured..) {
+                lines.push(tail.to_owned());
+            }
         }
     }
     let mut section = String::new();
@@ -474,11 +474,10 @@ fn replace_routing_family(existing: &str, fragment: &str) -> String {
     }
     if !existing.ends_with('\n') {
         let captured: usize = existing.split_inclusive('\n').map(str::len).sum();
-        if captured < existing.len()
-            && let Some(tail) = existing.get(captured..)
-            && !in_routing
-        {
-            kept.push_str(tail);
+        if captured < existing.len() && !in_routing {
+            if let Some(tail) = existing.get(captured..) {
+                kept.push_str(tail);
+            }
         }
     }
     if !kept.is_empty() && !kept.ends_with('\n') {

@@ -886,18 +886,18 @@ fn python_splitlines(text: &str) -> Vec<&str> {
             output.push(line);
         }
         let mut next_start = index.saturating_add(character.len_utf8());
-        if character == '\r'
-            && let Some((next_index, '\n')) = characters.peek().copied()
-        {
-            let _ = characters.next();
-            next_start = next_index.saturating_add(1);
+        if character == '\r' {
+            if let Some((next_index, '\n')) = characters.peek().copied() {
+                let _ = characters.next();
+                next_start = next_index.saturating_add(1);
+            }
         }
         start = next_start;
     }
-    if start < text.len()
-        && let Some(line) = text.get(start..)
-    {
-        output.push(line);
+    if start < text.len() {
+        if let Some(line) = text.get(start..) {
+            output.push(line);
+        }
     }
     output
 }
