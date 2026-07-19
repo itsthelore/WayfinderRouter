@@ -9,11 +9,12 @@ public enum GatewayReplacementReconciliation: Equatable, Sendable {
 /// Restarts a loaded bundled gateway once after its containing app is replaced.
 ///
 /// launchd can keep the old executable image alive when an app is replaced at the same path. That
-/// stale process can no longer authenticate newly signed nested XPC services. The bundled-helper
-/// verifier and LaunchAgent path check remain the security boundary; this marker only avoids an
-/// unnecessary restart on every ordinary app launch.
+/// stale process can no longer authenticate newly signed nested XPC services. The helper is located
+/// only at the fixed bundle-relative path, and the LaunchAgent must name that exact path before it
+/// can be restarted. Full helper authentication still happens at every execution boundary; this
+/// marker only avoids an unnecessary restart on every ordinary app launch.
 public struct GatewayReplacementReconciler: Sendable {
-    public typealias GatewayResolver = @Sendable () async throws -> URL
+    public typealias GatewayLocator = @Sendable () -> URL?
     public typealias StatusQuery = @Sendable (_ expectedGateway: URL) async -> GatewayServiceStatus
     public typealias Restarter = @Sendable (_ expectedGateway: URL) async throws -> Void
     public typealias FingerprintProvider = @Sendable (_ gateway: URL) -> String?
@@ -22,7 +23,7 @@ public struct GatewayReplacementReconciler: Sendable {
 
     private static let markerKey = "Wayfinder.GatewayInstalledFingerprint"
 
-    private let resolveGateway: GatewayResolver
+    private let locateGateway: GatewayLocator
     private let statusQuery: StatusQuery
     private let restart: Restarter
     private let fingerprintProvider: FingerprintProvider
@@ -30,10 +31,13 @@ public struct GatewayReplacementReconciler: Sendable {
     private let markerWriter: MarkerWriter
 
     public init(
-        resolver: GatewayToolResolver = GatewayToolResolver(),
+        appBundleURL: URL = Bundle.main.bundleURL,
         service: GatewayServiceController = GatewayServiceController()
     ) {
-        self.resolveGateway = { try await resolver.resolveGateway() }
+        self.locateGateway = {
+            let gateway = GatewayToolResolver.bundledHelperURL(in: appBundleURL)
+            return FileManager.default.isExecutableFile(atPath: gateway.path) ? gateway : nil
+        }
         self.statusQuery = { await service.status(expectedGateway: $0) }
         self.restart = { try await service.restart(expectedGateway: $0) }
         self.fingerprintProvider = { Self.installationFingerprint(gateway: $0) }
@@ -42,14 +46,14 @@ public struct GatewayReplacementReconciler: Sendable {
     }
 
     init(
-        resolveGateway: @escaping GatewayResolver,
+        locateGateway: @escaping GatewayLocator,
         statusQuery: @escaping StatusQuery,
         restart: @escaping Restarter,
         fingerprintProvider: @escaping FingerprintProvider,
         markerReader: @escaping MarkerReader,
         markerWriter: @escaping MarkerWriter
     ) {
-        self.resolveGateway = resolveGateway
+        self.locateGateway = locateGateway
         self.statusQuery = statusQuery
         self.restart = restart
         self.fingerprintProvider = fingerprintProvider
@@ -58,7 +62,7 @@ public struct GatewayReplacementReconciler: Sendable {
     }
 
     public func reconcile() async -> GatewayReplacementReconciliation {
-        guard let gateway = try? await resolveGateway(),
+        guard let gateway = locateGateway(),
               let fingerprint = fingerprintProvider(gateway) else {
             return .deferred
         }
