@@ -11,16 +11,22 @@ HELPER="$GATEWAY_APP/Contents/MacOS/wayfinder-router"
 CREDENTIAL_XPC="$GATEWAY_APP/Contents/XPCServices/com.wayfinder.CredentialBroker.xpc"
 FOUNDATION_XPC="$GATEWAY_APP/Contents/XPCServices/com.wayfinder.FoundationModelBroker.xpc"
 IDENTITY="${CODESIGN_IDENTITY:--}"
-TIMESTAMP_OPTION="${CODESIGN_TIMESTAMP_OPTION:---timestamp}"
-DEPLOYMENT_TARGET="14.0"
-RELEASE_ARCHS="${WAYFINDER_RELEASE_ARCHS:-arm64 x86_64}"
-SWIFT_BUILD_FLAGS=()
-if [[ "${WAYFINDER_DISABLE_SWIFTPM_SANDBOX:-0}" == "1" ]]; then
-  SWIFT_BUILD_FLAGS+=(--disable-sandbox)
+if [[ -n "${CODESIGN_TIMESTAMP_OPTION:-}" ]]; then
+  TIMESTAMP_OPTION="$CODESIGN_TIMESTAMP_OPTION"
+elif [[ "$IDENTITY" == "-" ]]; then
+  TIMESTAMP_OPTION="--timestamp=none"
+else
+  TIMESTAMP_OPTION="--timestamp"
 fi
+DEPLOYMENT_TARGET="14.0"
+RELEASE_ARCH="arm64"
+RUST_TARGET="aarch64-apple-darwin"
+DISABLE_SWIFTPM_SANDBOX="${WAYFINDER_DISABLE_SWIFTPM_SANDBOX:-0}"
 DESKTOP_VERSION_FILE="$ROOT_DIR/Packaging/DESKTOP_VERSION"
 DESKTOP_VERSION="${WAYFINDER_DESKTOP_VERSION:-$(tr -d '[:space:]' < "$DESKTOP_VERSION_FILE")}"
 DESKTOP_BUILD_NUMBER="${WAYFINDER_DESKTOP_BUILD_NUMBER:-1}"
+HELPER_VERIFY_TIMEOUT_SECONDS="${WAYFINDER_HELPER_VERIFY_TIMEOUT_SECONDS:-10}"
+NOTARYTOOL_TIMEOUT="${WAYFINDER_NOTARYTOOL_TIMEOUT:-45m}"
 
 if [[ ! "$DESKTOP_VERSION" =~ ^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]; then
   echo "WAYFINDER_DESKTOP_VERSION must be a SemVer core such as 0.1.0" >&2
@@ -30,30 +36,40 @@ if [[ ! "$DESKTOP_BUILD_NUMBER" =~ ^[1-9][0-9]*$ ]]; then
   echo "WAYFINDER_DESKTOP_BUILD_NUMBER must be a positive integer" >&2
   exit 2
 fi
-
-export MACOSX_DEPLOYMENT_TARGET="$DEPLOYMENT_TARGET"
-
-has_arch() {
-  [[ " $RELEASE_ARCHS " == *" $1 "* ]]
-}
-
-for arch in $RELEASE_ARCHS; do
-  if [[ "$arch" != "arm64" && "$arch" != "x86_64" ]]; then
-    echo "unsupported WAYFINDER_RELEASE_ARCHS value: $arch" >&2
-    exit 2
-  fi
-done
-
-if ! has_arch arm64 && ! has_arch x86_64; then
-  echo "WAYFINDER_RELEASE_ARCHS must include arm64, x86_64, or both" >&2
+if [[ ! "$HELPER_VERIFY_TIMEOUT_SECONDS" =~ ^[1-9][0-9]*$ ]] || (( HELPER_VERIFY_TIMEOUT_SECONDS > 300 )); then
+  echo "WAYFINDER_HELPER_VERIFY_TIMEOUT_SECONDS must be between 1 and 300" >&2
+  exit 2
+fi
+if [[ ! "$NOTARYTOOL_TIMEOUT" =~ ^[1-9][0-9]*[smh]?$ ]]; then
+  echo "WAYFINDER_NOTARYTOOL_TIMEOUT must be a positive notarytool duration such as 45m" >&2
+  exit 2
+fi
+if [[ -n "${NOTARYTOOL_PROFILE:-}" && "$IDENTITY" == "-" ]]; then
+  echo "NOTARYTOOL_PROFILE requires a real CODESIGN_IDENTITY" >&2
   exit 2
 fi
 
-for arch in arm64 x86_64; do
-  if has_arch "$arch"; then
-    mkdir -p "$DIST_DIR/thin/$arch"
-  fi
-done
+export MACOSX_DEPLOYMENT_TARGET="$DEPLOYMENT_TARGET"
+
+if [[ "$(uname -m)" != "$RELEASE_ARCH" ]]; then
+  echo "Wayfinder Desktop v0.1.0 release bundles must be built on Apple Silicon" >&2
+  exit 2
+fi
+
+SDK_VERSION="$(xcrun --sdk macosx --show-sdk-version)"
+SDK_MAJOR="${SDK_VERSION%%.*}"
+if [[ ! "$SDK_MAJOR" =~ ^[0-9]+$ ]] || (( SDK_MAJOR < 26 )); then
+  echo "Wayfinder Desktop v0.1.0 release bundles require the macOS 26 SDK or later" >&2
+  exit 2
+fi
+
+if [[ -n "${WAYFINDER_RELEASE_ARCHS:-}" && "$WAYFINDER_RELEASE_ARCHS" != "$RELEASE_ARCH" ]]; then
+  echo "Wayfinder Desktop v0.1.0 supports only WAYFINDER_RELEASE_ARCHS=arm64" >&2
+  exit 2
+fi
+
+rm -rf "$DIST_DIR/thin"
+mkdir -p "$DIST_DIR/thin/$RELEASE_ARCH"
 
 build_rust_slice() {
   local rust_target="$1"
@@ -64,22 +80,21 @@ build_rust_slice() {
 
 build_swift_slice() {
   local swift_arch="$1"
-  swift build --package-path "$ROOT_DIR" -c release --arch "$swift_arch" "${SWIFT_BUILD_FLAGS[@]}"
-  local bin_path
-  bin_path="$(swift build --package-path "$ROOT_DIR" -c release --arch "$swift_arch" --show-bin-path "${SWIFT_BUILD_FLAGS[@]}")"
+  local bin_path=""
+  if [[ "$DISABLE_SWIFTPM_SANDBOX" == "1" ]]; then
+    swift build --package-path "$ROOT_DIR" -c release --arch "$swift_arch" --disable-sandbox
+    bin_path="$(swift build --package-path "$ROOT_DIR" -c release --arch "$swift_arch" --show-bin-path --disable-sandbox)"
+  else
+    swift build --package-path "$ROOT_DIR" -c release --arch "$swift_arch"
+    bin_path="$(swift build --package-path "$ROOT_DIR" -c release --arch "$swift_arch" --show-bin-path)"
+  fi
   cp "$bin_path/WayfinderMac" "$DIST_DIR/thin/$swift_arch/WayfinderMac"
   cp "$bin_path/WayfinderCredentialBroker" "$DIST_DIR/thin/$swift_arch/WayfinderCredentialBroker"
   cp "$bin_path/WayfinderFoundationModelBroker" "$DIST_DIR/thin/$swift_arch/WayfinderFoundationModelBroker"
 }
 
-if has_arch arm64; then
-  build_rust_slice aarch64-apple-darwin arm64
-  build_swift_slice arm64
-fi
-if has_arch x86_64; then
-  build_rust_slice x86_64-apple-darwin x86_64
-  build_swift_slice x86_64
-fi
+build_rust_slice "$RUST_TARGET" "$RELEASE_ARCH"
+build_swift_slice "$RELEASE_ARCH"
 
 rm -rf "$APP"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Helpers" "$APP/Contents/Resources"
@@ -90,13 +105,7 @@ mkdir -p "$FOUNDATION_XPC/Contents/MacOS"
 assemble_binary() {
   local name="$1"
   local output="$2"
-  if has_arch arm64 && has_arch x86_64; then
-    lipo -create "$DIST_DIR/thin/arm64/$name" "$DIST_DIR/thin/x86_64/$name" -output "$output"
-  elif has_arch arm64; then
-    cp "$DIST_DIR/thin/arm64/$name" "$output"
-  else
-    cp "$DIST_DIR/thin/x86_64/$name" "$output"
-  fi
+  cp "$DIST_DIR/thin/$RELEASE_ARCH/$name" "$output"
 }
 
 assemble_binary wayfinder-router "$HELPER"
@@ -125,7 +134,13 @@ chmod 755 "$APP/Contents/MacOS/WayfinderMac" "$HELPER"
 chmod 755 "$CREDENTIAL_XPC/Contents/MacOS/WayfinderCredentialBroker"
 chmod 755 "$FOUNDATION_XPC/Contents/MacOS/WayfinderFoundationModelBroker"
 
-if [[ "$("$HELPER" --version)" != "wayfinder-router $DESKTOP_VERSION" ]]; then
+if ! helper_version="$(
+  "$ROOT_DIR/script/run_with_timeout.sh" "$HELPER_VERIFY_TIMEOUT_SECONDS" "$HELPER" --version
+)"; then
+  echo "embedded gateway version check failed or timed out" >&2
+  exit 1
+fi
+if [[ "$helper_version" != "wayfinder-router $DESKTOP_VERSION" ]]; then
   echo "embedded gateway version does not match desktop version $DESKTOP_VERSION" >&2
   exit 1
 fi
@@ -134,21 +149,28 @@ if ! grep -q "\"version\": \"$DESKTOP_VERSION\"" "$APP/Contents/Resources/wayfin
   exit 1
 fi
 
-for binary in \
+"$ROOT_DIR/script/verify_release_architectures.sh" \
   "$HELPER" \
   "$APP/Contents/MacOS/WayfinderMac" \
   "$CREDENTIAL_XPC/Contents/MacOS/WayfinderCredentialBroker" \
-  "$FOUNDATION_XPC/Contents/MacOS/WayfinderFoundationModelBroker"; do
-  for arch in $RELEASE_ARCHS; do
-    lipo "$binary" -verify_arch "$arch"
-  done
-done
+  "$FOUNDATION_XPC/Contents/MacOS/WayfinderFoundationModelBroker"
 
-codesign --force "$TIMESTAMP_OPTION" --options runtime --entitlements "$ROOT_DIR/Packaging/CredentialBroker.entitlements" --sign "$IDENTITY" "$CREDENTIAL_XPC"
-codesign --force "$TIMESTAMP_OPTION" --options runtime --entitlements "$ROOT_DIR/Packaging/FoundationModelBroker.entitlements" --sign "$IDENTITY" "$FOUNDATION_XPC"
-codesign --force "$TIMESTAMP_OPTION" --options runtime --identifier com.wayfinder.router.helper --entitlements "$ROOT_DIR/Packaging/Helper.entitlements" --sign "$IDENTITY" "$HELPER"
-codesign --force "$TIMESTAMP_OPTION" --options runtime --entitlements "$ROOT_DIR/Packaging/Helper.entitlements" --sign "$IDENTITY" "$GATEWAY_APP"
-codesign --force "$TIMESTAMP_OPTION" --options runtime --entitlements "$ROOT_DIR/Packaging/App.entitlements" --sign "$IDENTITY" "$APP"
+codesign --force "$TIMESTAMP_OPTION" --options runtime \
+  --entitlements "$ROOT_DIR/Packaging/CredentialBroker.entitlements" \
+  --sign "$IDENTITY" "$CREDENTIAL_XPC"
+codesign --force "$TIMESTAMP_OPTION" --options runtime \
+  --entitlements "$ROOT_DIR/Packaging/FoundationModelBroker.entitlements" \
+  --sign "$IDENTITY" "$FOUNDATION_XPC"
+codesign --force "$TIMESTAMP_OPTION" --options runtime \
+  --identifier com.wayfinder.router.helper \
+  --entitlements "$ROOT_DIR/Packaging/Helper.entitlements" \
+  --sign "$IDENTITY" "$HELPER"
+codesign --force "$TIMESTAMP_OPTION" --options runtime \
+  --entitlements "$ROOT_DIR/Packaging/Helper.entitlements" \
+  --sign "$IDENTITY" "$GATEWAY_APP"
+codesign --force "$TIMESTAMP_OPTION" --options runtime \
+  --entitlements "$ROOT_DIR/Packaging/App.entitlements" \
+  --sign "$IDENTITY" "$APP"
 codesign --verify --deep --strict --verbose=2 "$APP"
 
 if [[ "$IDENTITY" != "-" ]]; then
@@ -169,12 +191,51 @@ if [[ "$IDENTITY" != "-" ]]; then
   done
 fi
 
+if [[ "$IDENTITY" == "-" ]]; then
+  WAYFINDER_REQUIRE_DISTRIBUTION_SIGNATURE=0 \
+    "$ROOT_DIR/script/verify_release_bundle.sh" "$APP"
+else
+  WAYFINDER_REQUIRE_DISTRIBUTION_SIGNATURE=1 \
+    "$ROOT_DIR/script/verify_release_bundle.sh" "$APP"
+fi
+
+rm -f "$DIST_DIR/Wayfinder.zip" "$DIST_DIR/Wayfinder.zip.sha256"
+ditto -c -k --keepParent "$APP" "$DIST_DIR/Wayfinder.zip"
+
 if [[ -n "${NOTARYTOOL_PROFILE:-}" ]]; then
-  ditto -c -k --keepParent "$APP" "$DIST_DIR/Wayfinder.zip"
-  xcrun notarytool submit "$DIST_DIR/Wayfinder.zip" --keychain-profile "$NOTARYTOOL_PROFILE" --wait
+  notary_arguments=(--keychain-profile "$NOTARYTOOL_PROFILE")
+  if [[ -n "${NOTARYTOOL_KEYCHAIN:-}" ]]; then
+    notary_arguments+=(--keychain "$NOTARYTOOL_KEYCHAIN")
+  fi
+  xcrun notarytool submit "$DIST_DIR/Wayfinder.zip" "${notary_arguments[@]}" \
+    --wait --timeout "$NOTARYTOOL_TIMEOUT"
   xcrun stapler staple "$APP"
-  xcrun stapler validate "$APP"
-  spctl --assess --type execute --verbose=2 "$APP"
+  WAYFINDER_REQUIRE_DISTRIBUTION_SIGNATURE=1 WAYFINDER_REQUIRE_NOTARIZATION=1 \
+    "$ROOT_DIR/script/verify_release_bundle.sh" "$APP"
+
+  # The submitted ZIP predates stapling. Recreate it so the distributed app contains the ticket.
+  rm -f "$DIST_DIR/Wayfinder.zip"
+  ditto -c -k --keepParent "$APP" "$DIST_DIR/Wayfinder.zip"
+fi
+
+(
+  cd "$DIST_DIR"
+  shasum -a 256 Wayfinder.zip > Wayfinder.zip.sha256
+  shasum -a 256 -c Wayfinder.zip.sha256
+)
+
+extracted_directory="$(mktemp -d "${TMPDIR:-/tmp}/wayfinder-release-extracted.XXXXXX")"
+trap 'rm -rf "$extracted_directory"' EXIT
+ditto -x -k "$DIST_DIR/Wayfinder.zip" "$extracted_directory"
+if [[ -n "${NOTARYTOOL_PROFILE:-}" ]]; then
+  WAYFINDER_REQUIRE_DISTRIBUTION_SIGNATURE=1 WAYFINDER_REQUIRE_NOTARIZATION=1 \
+    "$ROOT_DIR/script/verify_release_bundle.sh" "$extracted_directory/Wayfinder.app"
+elif [[ "$IDENTITY" != "-" ]]; then
+  WAYFINDER_REQUIRE_DISTRIBUTION_SIGNATURE=1 \
+    "$ROOT_DIR/script/verify_release_bundle.sh" "$extracted_directory/Wayfinder.app"
+else
+  WAYFINDER_REQUIRE_DISTRIBUTION_SIGNATURE=0 \
+    "$ROOT_DIR/script/verify_release_bundle.sh" "$extracted_directory/Wayfinder.app"
 fi
 
 echo "$APP"
