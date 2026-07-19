@@ -92,6 +92,30 @@ public final class SetupState: ObservableObject {
         }
     }
 
+    public func repairService() {
+        guard !isMutating else { return }
+        isMutating = true
+        failureMessage = nil
+        progressStage = .updatingService
+        operation = Task {
+            do {
+                try await service.repairExistingService()
+                progressStage = nil
+                isMutating = false
+                NotificationCenter.default.post(name: .wayfinderSetupDidChange, object: nil)
+                await assess()
+            } catch is CancellationError {
+                progressStage = nil
+                isMutating = false
+                await assess()
+            } catch {
+                progressStage = nil
+                failureMessage = error.localizedDescription
+                isMutating = false
+            }
+        }
+    }
+
     public func cancel() { operation?.cancel() }
 }
 

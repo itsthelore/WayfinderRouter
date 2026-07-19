@@ -38,7 +38,7 @@ final class SetupWindowController: NSObject, NSWindowDelegate {
         switch step {
         case .chooseRouting:
             height = 500
-        case .credentials, .configure, .result, .requirements, .toolsMissing:
+        case .credentials, .configure, .result, .requirements, .bundledHelperInvalid, .serviceRepair:
             height = 400
         case .checking, .welcome, .existingConfiguration:
             height = 340

@@ -16,9 +16,14 @@ public struct GatewaySettingsView: View {
         health: nil
     )
 
-    private let service = GatewayServiceController()
+    private let service: GatewayServiceController
+    private let runtime: VerifiedGatewayRuntime
 
-    public init() {}
+    public init() {
+        let service = GatewayServiceController()
+        self.service = service
+        self.runtime = VerifiedGatewayRuntime(serviceController: service)
+    }
 
     public var body: some View {
         VStack(alignment: .leading, spacing: 14) {
@@ -218,7 +223,8 @@ public struct GatewaySettingsView: View {
         message = nil
         Task {
             do {
-                try await service.restart()
+                let helper = try await runtime.validatedHelper()
+                try await service.restart(expectedGateway: helper)
                 message = GatewayActionMessage(
                     text: "Gateway restart requested.",
                     tint: WayfinderTheme.local,
@@ -247,8 +253,12 @@ public struct GatewaySettingsView: View {
             isRefreshing = true
             message = nil
         }
-        let latest = await service.status()
-        status = latest
+        do {
+            let helper = try await runtime.validatedHelper()
+            status = await service.status(expectedGateway: helper)
+        } catch {
+            status = await service.statusWithoutHealthProbe()
+        }
         if showSpinner {
             message = GatewayActionMessage(
                 text: "Gateway status refreshed.",

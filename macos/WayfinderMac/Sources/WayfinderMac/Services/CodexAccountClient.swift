@@ -9,17 +9,23 @@ public protocol CodexAccountClient: Sendable {
 }
 
 public struct GatewayCodexAccountClient: CodexAccountClient {
+    public typealias RuntimeValidation = @Sendable () async throws -> Void
+
     public static let maximumResponseBytes = 64 * 1_024
 
     private let baseURL: URL
     private let session: URLSession
+    private let runtimeValidation: RuntimeValidation
 
     public init(
         baseURL: URL = URL(string: "http://127.0.0.1:8088")!,
-        session: URLSession = .shared
+        session: URLSession = .shared,
+        runtimeValidation: RuntimeValidation? = nil
     ) {
         self.baseURL = baseURL
         self.session = session
+        let runtime = VerifiedGatewayRuntime()
+        self.runtimeValidation = runtimeValidation ?? { try await runtime.validate() }
     }
 
     public func account() async throws -> CodexAccountSnapshot {
@@ -69,6 +75,7 @@ public struct GatewayCodexAccountClient: CodexAccountClient {
         guard Self.isLiteralLoopback(baseURL) else {
             throw CodexAccountClientError.nonLoopbackControlURL
         }
+        try await runtimeValidation()
 
         var request = URLRequest(url: baseURL.appending(path: path))
         request.cachePolicy = .reloadIgnoringLocalCacheData

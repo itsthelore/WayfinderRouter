@@ -1,13 +1,14 @@
 import Foundation
 
 public enum SetupStep: String, CaseIterable, Sendable {
-    case checking, toolsMissing, welcome, existingConfiguration, chooseRouting
+    case checking, bundledHelperInvalid, serviceRepair, welcome, existingConfiguration, chooseRouting
     case requirements, credentials, configure, result
 }
 
 public enum SetupAssessment: Equatable, Sendable {
     case checking
-    case toolsMissing
+    case bundledHelperInvalid
+    case serviceNeedsRepair
     case neverConfigured
     case existingConfig
     case stopped
@@ -17,7 +18,7 @@ public enum SetupAssessment: Equatable, Sendable {
 
     public var isIncomplete: Bool {
         switch self {
-        case .toolsMissing, .neverConfigured, .existingConfig, .missingKeys: true
+        case .bundledHelperInvalid, .serviceNeedsRepair, .neverConfigured, .existingConfig, .missingKeys: true
         case .checking, .stopped, .unreachableAfterSuccess, .healthy: false
         }
     }
@@ -25,7 +26,8 @@ public enum SetupAssessment: Equatable, Sendable {
     public var initialStep: SetupStep {
         switch self {
         case .checking: .checking
-        case .toolsMissing: .toolsMissing
+        case .bundledHelperInvalid: .bundledHelperInvalid
+        case .serviceNeedsRepair: .serviceRepair
         case .neverConfigured: .welcome
         case .existingConfig: .existingConfiguration
         case .missingKeys: .credentials
@@ -118,13 +120,14 @@ public struct SetupResult: Equatable, Sendable {
 }
 
 public enum SetupFailure: LocalizedError, Equatable, Sendable {
-    case toolMissing, existingConfiguration, invalidPreset, unsafeConfigPath, invalidCredentialIdentifier
+    case bundledHelperInvalid, configurationMissing, existingConfiguration, invalidPreset, unsafeConfigPath, invalidCredentialIdentifier
     case commandFailed(stage: SetupProgressStage, message: String)
     case verificationTimedOut
 
     public var errorDescription: String? {
         switch self {
-        case .toolMissing: "The wayfinder-router command is missing."
+        case .bundledHelperInvalid: "Wayfinder could not verify its bundled gateway. Reinstall Wayfinder from an official release."
+        case .configurationMissing: "Wayfinder could not find the existing gateway configuration to preserve."
         case .existingConfiguration: "A configuration already exists at this location."
         case .invalidPreset: "That routing preset is not supported."
         case .unsafeConfigPath: "The configuration path is outside Application Support."
