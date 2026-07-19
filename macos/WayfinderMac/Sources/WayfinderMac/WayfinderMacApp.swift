@@ -11,6 +11,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
     private var setupWindowController: SetupWindowController?
     private var setupObserver: NSObjectProtocol?
     private var settingsObserver: NSObjectProtocol?
+    private var setupDidChangeObserver: NSObjectProtocol?
 
     public init(
         client: any WayfinderClient,
@@ -36,18 +37,25 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
         setupObserver = NotificationCenter.default.addObserver(
             forName: .wayfinderRunSetupAssistant, object: nil, queue: .main
         ) { [weak setupWindowController] _ in
-            Task { @MainActor in setupWindowController?.reassessAndShow() }
+            Task { @MainActor [weak setupWindowController] in
+                setupWindowController?.reassessAndShow()
+            }
         }
         settingsObserver = NotificationCenter.default.addObserver(
             forName: .wayfinderOpenSettings, object: nil, queue: .main
         ) { [weak self] notification in
             let section = SettingsWindowNavigation.section(from: notification)
-            Task { @MainActor in self?.showSettingsWindow(section: section) }
+            Task { @MainActor [weak self] in
+                self?.showSettingsWindow(section: section)
+            }
         }
-        NotificationCenter.default.addObserver(
+        setupDidChangeObserver = NotificationCenter.default.addObserver(
             forName: .wayfinderSetupDidChange, object: nil, queue: .main
         ) { [weak appState] _ in
-            Task { @MainActor in appState?.refreshSetupAssessment(); appState?.refreshStats() }
+            Task { @MainActor [weak appState] in
+                appState?.refreshSetupAssessment()
+                appState?.refreshStats()
+            }
         }
         statusItemController = StatusItemController(
             appState: appState,
