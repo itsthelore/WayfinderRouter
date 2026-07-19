@@ -15,12 +15,18 @@ public final class AppState: ObservableObject {
     @Published public private(set) var isSendingMessage = false
     @Published public private(set) var setupAssessment: SetupAssessment = .checking
 
+    public let chatDestinationNameStore: ChatDestinationNameStore
+
     private let client: any WayfinderClient
     private let setupService = SetupService()
     private var chatTask: Task<Void, Never>?
 
-    public init(client: any WayfinderClient) {
+    public init(
+        client: any WayfinderClient,
+        chatDestinationNameStore: ChatDestinationNameStore? = nil
+    ) {
         self.client = client
+        self.chatDestinationNameStore = chatDestinationNameStore ?? ChatDestinationNameStore()
         self.routingStats = .empty
         self.gatewayOverview = .checking
         self.chatMessages = []
@@ -235,6 +241,16 @@ public final class AppState: ObservableObject {
         return [.automatic] + configured
     }
 
+    public func setChatDestinationDisplayName(_ name: String, for routeName: String) {
+        chatDestinationNameStore.setName(name, for: routeName)
+        updateChatDestinations(from: gatewayOverview)
+    }
+
+    public func resetChatDestinationDisplayName(for routeName: String) {
+        chatDestinationNameStore.resetName(for: routeName)
+        updateChatDestinations(from: gatewayOverview)
+    }
+
     nonisolated static func chatErrorMessage(
         _ error: Error,
         destination: ChatDestination
@@ -277,7 +293,12 @@ public final class AppState: ObservableObject {
     }
 
     private func updateChatDestinations(from overview: GatewayOverview) {
-        var destinations = Self.chatDestinations(from: overview)
+        var destinations = Self.chatDestinations(from: overview).map { destination in
+            guard let routeName = destination.routeName else { return destination }
+            return destination.withTitle(
+                chatDestinationNameStore.name(for: routeName, default: destination.title)
+            )
+        }
         if let refreshed = destinations.first(where: { $0.id == chatDestination.id }) {
             chatDestination = refreshed
         } else if !chatDestination.isAutomatic {

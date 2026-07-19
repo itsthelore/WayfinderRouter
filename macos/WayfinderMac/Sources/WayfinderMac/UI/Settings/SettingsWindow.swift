@@ -18,19 +18,21 @@ public final class SettingsWindowNavigation: ObservableObject {
 
 public struct WayfinderSettingsWindow: View {
     @ObservedObject private var navigation: SettingsWindowNavigation
+    @ObservedObject private var appState: AppState
     @State private var selectedProvider: ProviderKind = .anthropic
     @StateObject private var codexAccountState: CodexAccountSettingsState
 
     public init(
-        appState: AppState? = nil,
+        appState: AppState,
         accountClient: any CodexAccountClient = GatewayCodexAccountClient(),
         navigation: SettingsWindowNavigation = SettingsWindowNavigation()
     ) {
         self.navigation = navigation
+        self.appState = appState
         _codexAccountState = StateObject(
             wrappedValue: CodexAccountSettingsState(
                 client: accountClient,
-                onAccountStateChanged: { appState?.refreshStats() }
+                onAccountStateChanged: { appState.refreshStats() }
             )
         )
     }
@@ -54,7 +56,7 @@ public struct WayfinderSettingsWindow: View {
         case .gateway:
             GatewaySettingsView()
         case .routing:
-            RoutingSettingsView()
+            RoutingSettingsView(appState: appState)
         case .accounts:
             AccountsSettingsView(accountState: codexAccountState)
         case .keys:

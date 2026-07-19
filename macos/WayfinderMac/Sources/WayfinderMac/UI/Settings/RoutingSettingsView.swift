@@ -2,6 +2,7 @@ import AppKit
 import SwiftUI
 
 public struct RoutingSettingsView: View {
+    @ObservedObject private var appState: AppState
     @State private var state = RoutingSettingsState()
     @State private var isLoading = true
     @State private var previewPrompt = ""
@@ -12,7 +13,11 @@ public struct RoutingSettingsView: View {
     private let store: RoutingConfigStore
     private let configURL = RoutingConfigStore.defaultConfigURL
 
-    public init(store: RoutingConfigStore = RoutingConfigStore()) {
+    public init(
+        appState: AppState,
+        store: RoutingConfigStore = RoutingConfigStore()
+    ) {
+        self.appState = appState
         self.store = store
     }
 
@@ -31,6 +36,10 @@ public struct RoutingSettingsView: View {
                 }
 
                 if !isLoading {
+                    Section("Model names") {
+                        modelNamesSection
+                    }
+
                     Section("Preview") {
                             promptPreviewSection
                     }
@@ -64,6 +73,30 @@ public struct RoutingSettingsView: View {
         .task {
             await load()
         }
+    }
+
+    private var modelNamesSection: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("Choose personal names for Chat destinations on this Mac. Gateway route IDs stay unchanged.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+
+            if appState.chatDestinations.dropFirst().isEmpty {
+                Text("No Chat destinations are currently available.")
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+            } else {
+                ForEach(Array(appState.chatDestinations.dropFirst())) { destination in
+                    ChatDestinationNameRow(
+                        destination: destination,
+                        storedName: appState.chatDestinationNameStore.override(for: destination.id),
+                        onSave: { appState.setChatDestinationDisplayName($0, for: destination.id) },
+                        onReset: { appState.resetChatDestinationDisplayName(for: destination.id) }
+                    )
+                }
+            }
+        }
+        .padding(12)
     }
 
     private var header: some View {
@@ -461,6 +494,70 @@ private struct RoutingStatusMessage {
     let text: String
     let tint: Color
     let symbolName: String
+}
+
+private struct ChatDestinationNameRow: View {
+    let destination: ChatDestination
+    let storedName: String?
+    let onSave: (String) -> Void
+    let onReset: () -> Void
+
+    @State private var draft: String
+
+    init(
+        destination: ChatDestination,
+        storedName: String?,
+        onSave: @escaping (String) -> Void,
+        onReset: @escaping () -> Void
+    ) {
+        self.destination = destination
+        self.storedName = storedName
+        self.onSave = onSave
+        self.onReset = onReset
+        _draft = State(initialValue: storedName ?? destination.title)
+    }
+
+    var body: some View {
+        HStack(spacing: 10) {
+            VStack(alignment: .leading, spacing: 2) {
+                TextField("Display name", text: $draft)
+                    .textFieldStyle(.roundedBorder)
+                    .onSubmit(save)
+                    .accessibilityLabel("Display name for \(destination.id)")
+                Text("Route ID: \(destination.id) · \(destination.detail)")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+            }
+
+            Button("Save", action: save)
+                .disabled(normalizedDraft.isEmpty || normalizedDraft == destination.title)
+
+            Button("Reset") {
+                onReset()
+                draft = defaultName
+            }
+            .disabled(storedName == nil)
+        }
+        .onChange(of: storedName) { _, newValue in
+            draft = newValue ?? defaultName
+        }
+    }
+
+    private var normalizedDraft: String {
+        ChatDestinationNameStore.normalized(draft)
+    }
+
+    private var defaultName: String {
+        destination.defaultTitle
+    }
+
+    private func save() {
+        guard !normalizedDraft.isEmpty else { return }
+        onSave(normalizedDraft)
+        draft = normalizedDraft
+    }
 }
 
 private struct RoutingSliderRow: View {
