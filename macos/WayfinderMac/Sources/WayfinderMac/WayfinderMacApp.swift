@@ -29,6 +29,14 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
 
     public func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.accessory)
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            _ = await gatewayReplacementReconciler.reconcile()
+            finishLaunching()
+        }
+    }
+
+    private func finishLaunching() {
         let chatFeatureCoordinator = ChatFeatureCoordinator(
             policy: featurePolicy,
             appState: appState
@@ -67,13 +75,9 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
             onOpenSettings: { [weak self] in self?.showSettingsWindow() },
             onQuit: { NSApp.terminate(nil) }
         )
-        Task { @MainActor [weak self, weak setupWindowController] in
-            guard let self else { return }
-            _ = await gatewayReplacementReconciler.reconcile()
-            appState.refreshSetupAssessment()
-            appState.refreshStats()
-            setupWindowController?.assessAndShowIfNeeded()
-        }
+        appState.refreshSetupAssessment()
+        appState.refreshStats()
+        setupWindowController.assessAndShowIfNeeded()
         if openChatOnLaunch {
             chatFeatureCoordinator.openAction?()
         }
