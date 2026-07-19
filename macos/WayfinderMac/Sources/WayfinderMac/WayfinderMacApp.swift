@@ -5,6 +5,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
     private let appState: AppState
     private let featurePolicy: ReleaseFeaturePolicy
     private let openChatOnLaunch: Bool
+    private let gatewayReplacementReconciler: GatewayReplacementReconciler
     private var statusItemController: StatusItemController?
     private var chatFeatureCoordinator: ChatFeatureCoordinator?
     private var settingsWindowController: SettingsWindowController?
@@ -16,11 +17,13 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
     public init(
         client: any WayfinderClient,
         featurePolicy: ReleaseFeaturePolicy = .current,
-        openChatOnLaunch: Bool = false
+        openChatOnLaunch: Bool = false,
+        gatewayReplacementReconciler: GatewayReplacementReconciler = GatewayReplacementReconciler()
     ) {
         self.appState = AppState(client: client)
         self.featurePolicy = featurePolicy
         self.openChatOnLaunch = openChatOnLaunch
+        self.gatewayReplacementReconciler = gatewayReplacementReconciler
         super.init()
     }
 
@@ -64,9 +67,13 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
             onOpenSettings: { [weak self] in self?.showSettingsWindow() },
             onQuit: { NSApp.terminate(nil) }
         )
-        appState.refreshSetupAssessment()
-        appState.refreshStats()
-        setupWindowController.assessAndShowIfNeeded()
+        Task { @MainActor [weak self, weak setupWindowController] in
+            guard let self else { return }
+            _ = await gatewayReplacementReconciler.reconcile()
+            appState.refreshSetupAssessment()
+            appState.refreshStats()
+            setupWindowController?.assessAndShowIfNeeded()
+        }
         if openChatOnLaunch {
             chatFeatureCoordinator.openAction?()
         }
