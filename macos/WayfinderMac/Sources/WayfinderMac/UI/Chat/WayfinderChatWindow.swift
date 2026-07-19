@@ -29,6 +29,7 @@ public struct WayfinderChatWindow: View {
                 routeFilter: $routeFilter,
                 searchText: $searchText,
                 searchFocusRequest: searchFocusRequest,
+                onNewChat: appState.clearChat,
                 onSelectTurn: { showsInspector = true }
             )
             .navigationSplitViewColumnWidth(
@@ -40,9 +41,6 @@ public struct WayfinderChatWindow: View {
             VStack(spacing: 0) {
                 ChatToolbar(
                     title: chatTitle(in: turns),
-                    turnCount: turns.count,
-                    visibleCount: visibleTurns.count,
-                    routeFilter: routeFilter,
                     showsSidebar: showsSidebar,
                     showsInspector: showsInspector,
                     onToggleSidebar: toggleSidebar,
@@ -162,9 +160,6 @@ public struct WayfinderChatWindow: View {
 
 private struct ChatToolbar: View {
     let title: String
-    let turnCount: Int
-    let visibleCount: Int
-    let routeFilter: ChatRouteFilter
     let showsSidebar: Bool
     let showsInspector: Bool
     let onToggleSidebar: () -> Void
@@ -191,14 +186,9 @@ private struct ChatToolbar: View {
             .keyboardShortcut("f", modifiers: .command)
             .help("Search conversation (Command-F)")
 
-            VStack(alignment: .leading, spacing: 4) {
-                Text(title)
-                    .font(.headline.weight(.semibold))
-                    .lineLimit(1)
-                Text(subtitle)
-                    .font(.caption)
-                    .foregroundStyle(ChatWorkspaceChrome.secondaryText)
-            }
+            Text(title)
+                .font(.headline.weight(.semibold))
+                .lineLimit(1)
             Spacer()
             if canRetry {
                 Button(action: onRetry) {
@@ -226,16 +216,7 @@ private struct ChatToolbar: View {
         .buttonStyle(.borderless)
         .controlSize(.small)
         .padding(.horizontal, 18)
-        .frame(height: 54)
+        .frame(height: 48)
         .background(ChatWorkspaceChrome.canvas)
-    }
-
-    private var subtitle: String {
-        let base = turnCount == 1 ? "1 turn · In memory" : "\(turnCount) turns · In memory"
-        guard routeFilter != .all else {
-            return base
-        }
-        let visibleLabel = visibleCount == 1 ? "turn" : "turns"
-        return "\(visibleCount) \(routeFilter.rawValue.lowercased()) \(visibleLabel) · \(base)"
     }
 }

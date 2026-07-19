@@ -77,18 +77,7 @@ private struct AssistantTurnResponse: View {
     let onShowRouting: () -> Void
 
     var body: some View {
-        HStack(alignment: .top, spacing: 12) {
-            ZStack {
-                Circle()
-                    .fill(WayfinderTheme.local.opacity(0.13))
-                Image(systemName: "point.topleft.down.curvedto.point.bottomright.up")
-                    .font(.system(size: 12, weight: .semibold))
-                    .foregroundStyle(WayfinderTheme.local)
-            }
-            .frame(width: 28, height: 28)
-            .accessibilityHidden(true)
-
-            VStack(alignment: .leading, spacing: 12) {
+        VStack(alignment: .leading, spacing: 12) {
                 if !response.text.isEmpty {
                     Text(response.text)
                         .font(.body)
@@ -148,9 +137,8 @@ private struct AssistantTurnResponse: View {
                         action: onShowRouting
                     )
                 }
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
         }
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
 }
