@@ -1,9 +1,9 @@
 import Foundation
-import Testing
+import XCTest
 @testable import WayfinderMacCore
 
-struct AppleFoundationModelsProtocolTests {
-    @Test func availabilityCategoriesMapWithoutInferringReadiness() {
+final class AppleFoundationModelsProtocolTests: XCTestCase {
+    func testAvailabilityCategoriesMapWithoutInferringReadiness() {
         let cases: [(AppleFoundationModelsNativeAvailability, AppleFoundationModelsAvailability)] = [
             (.available, .available),
             (.deviceNotEligible, .deviceNotEligible),
@@ -12,85 +12,89 @@ struct AppleFoundationModelsProtocolTests {
             (.unknownUnavailable, .unavailable),
         ]
         for (native, expected) in cases {
-            #expect(
+            XCTAssertEqual(
                 AppleFoundationModelsAvailabilityQuery.map(
                     frameworkSupported: true,
                     native: native
-                ) == expected
+                ),
+                expected
             )
         }
     }
 
-    @Test func olderOSOrMissingFrameworkIsUnsupported() {
-        #expect(
+    func testOlderOSOrMissingFrameworkIsUnsupported() {
+        XCTAssertEqual(
             AppleFoundationModelsAvailabilityQuery.map(
                 frameworkSupported: false,
                 native: .available
-            ) == .unsupported
+            ),
+            .unsupported
         )
-        #expect(
+        XCTAssertEqual(
             AppleFoundationModelsAvailabilityQuery.map(
                 frameworkSupported: true,
                 native: nil
-            ) == .unsupported
+            ),
+            .unsupported
         )
     }
 
-    @Test func requestVersionAndIdentifierAreBounded() throws {
+    func testRequestVersionAndIdentifierAreBounded() throws {
         try AppleFoundationModelsAvailabilityRequest(requestID: "opaque-request").validate()
-        #expect(throws: AppleFoundationModelsProtocolError.unsupportedVersion) {
+        assertThrows(.unsupportedVersion) {
             try AppleFoundationModelsAvailabilityRequest(
                 protocolVersion: 2,
                 requestID: "opaque-request"
             ).validate()
         }
         for requestID in ["", String(repeating: "x", count: 129)] {
-            #expect(throws: AppleFoundationModelsProtocolError.invalidRequestID) {
+            assertThrows(.invalidRequestID) {
                 try AppleFoundationModelsAvailabilityRequest(requestID: requestID).validate()
             }
         }
     }
 
-    @Test func availabilityWireValuesAreStableAndRoundTrip() throws {
+    func testAvailabilityWireValuesAreStableAndRoundTrip() throws {
         let response = AppleFoundationModelsAvailabilityResponse(
             requestID: "opaque-request",
             availability: .modelNotReady
         )
         let data = try JSONEncoder().encode(response)
-        let object = try #require(JSONSerialization.jsonObject(with: data) as? [String: Any])
-        #expect(object["protocolVersion"] as? Int == 1)
-        #expect(object["requestID"] as? String == "opaque-request")
-        #expect(object["availability"] as? String == "model-not-ready")
-        #expect(
+        let object = try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
+        XCTAssertEqual(object["protocolVersion"] as? Int, 1)
+        XCTAssertEqual(object["requestID"] as? String, "opaque-request")
+        XCTAssertEqual(object["availability"] as? String, "model-not-ready")
+        XCTAssertEqual(
             try JSONDecoder().decode(
                 AppleFoundationModelsAvailabilityResponse.self,
                 from: data
-            ) == response
+            ),
+            response
         )
     }
 
-    @Test func protocolErrorsDoNotEchoRequestContent() {
+    func testProtocolErrorsDoNotEchoRequestContent() {
         let marker = "prompt-or-secret-marker"
         let rendered = String(describing: AppleFoundationModelsProtocolError.invalidRequestID)
-        #expect(!rendered.contains(marker))
+        XCTAssertFalse(rendered.contains(marker))
     }
 
-    @Test func malformedAndOversizedPayloadsAreRejectedDeterministically() {
-        #expect(throws: AppleFoundationModelsProtocolError.malformedPayload) {
-            try AppleFoundationModelsWireCodec.decode(
+    func testMalformedAndOversizedPayloadsAreRejectedDeterministically() {
+        assertThrows(.malformedPayload) {
+            _ = try AppleFoundationModelsWireCodec.decode(
                 AppleFoundationModelsGenerateRequest.self,
                 from: Data("not-json".utf8)
             )
         }
-        #expect(throws: AppleFoundationModelsProtocolError.requestTooLarge) {
-            try AppleFoundationModelsWireCodec.decode(
+        assertThrows(.requestTooLarge) {
+            _ = try AppleFoundationModelsWireCodec.decode(
                 AppleFoundationModelsGenerateRequest.self,
                 from: Data(repeating: 0, count: AppleFoundationModelsProtocolV1.maximumEncodedRequestBytes + 1)
             )
         }
     }
 
-    @Test func generationRequestEnforcesContentCountAndDeadlineBounds() throws {
+    func testGenerationRequestEnforcesContentCountAndDeadlineBounds() throws {
         let valid = AppleFoundationModelsGenerateRequest(
             requestID: "request-1",
             instructions: "Answer briefly.",
@@ -98,7 +102,7 @@ struct AppleFoundationModelsProtocolTests {
             timeoutMilliseconds: 1_000
         )
         try valid.validate()
-        #expect(valid.normalizedPrompt == "user:\nHello")
+        XCTAssertEqual(valid.normalizedPrompt, "user:\nHello")
 
         let cases: [(AppleFoundationModelsGenerateRequest, AppleFoundationModelsProtocolError)] = [
             (.init(requestID: "r", instructions: String(repeating: "x", count: AppleFoundationModelsProtocolV1.maximumInstructionsBytes + 1), messages: [.init(role: .user, content: "x")], timeoutMilliseconds: 1), .instructionsTooLarge),
@@ -110,19 +114,19 @@ struct AppleFoundationModelsProtocolTests {
             (.init(requestID: "r", messages: [.init(role: .user, content: "x")], timeoutMilliseconds: AppleFoundationModelsProtocolV1.maximumTimeoutMilliseconds + 1), .invalidTimeout),
         ]
         for (request, expected) in cases {
-            #expect(throws: expected) { try request.validate() }
+            assertThrows(expected) { try request.validate() }
         }
     }
 
-    @Test func responseChunkAndQueueBoundsAreExplicit() throws {
-        #expect(throws: AppleFoundationModelsProtocolError.responseTooLarge) {
-            try AppleFoundationModelsGenerateResponse(
+    func testResponseChunkAndQueueBoundsAreExplicit() throws {
+        assertThrows(.responseTooLarge) {
+            _ = try AppleFoundationModelsGenerateResponse(
                 requestID: "r",
                 content: String(repeating: "x", count: AppleFoundationModelsProtocolV1.maximumAccumulatedResponseBytes + 1)
             )
         }
-        #expect(throws: AppleFoundationModelsProtocolError.chunkTooLarge) {
-            try AppleFoundationModelsStreamEvent(
+        assertThrows(.chunkTooLarge) {
+            _ = try AppleFoundationModelsStreamEvent(
                 requestID: "r",
                 sequence: 0,
                 kind: .chunk,
@@ -133,14 +137,14 @@ struct AppleFoundationModelsProtocolTests {
         for sequence in 0..<AppleFoundationModelsProtocolV1.maximumQueuedChunks {
             try queue.append(.init(requestID: "r", sequence: sequence, kind: .chunk, content: "x"))
         }
-        #expect(throws: AppleFoundationModelsProtocolError.queueFull) {
+        assertThrows(.queueFull) {
             try queue.append(.init(requestID: "r", sequence: 99, kind: .chunk, content: "x"))
         }
-        #expect(queue.drain().count == AppleFoundationModelsProtocolV1.maximumQueuedChunks)
-        #expect(queue.drain().isEmpty)
+        XCTAssertEqual(queue.drain().count, AppleFoundationModelsProtocolV1.maximumQueuedChunks)
+        XCTAssertTrue(queue.drain().isEmpty)
     }
 
-    @Test func callerPolicyRejectsCopiedUnsignedAndWrongIdentityHelpers() throws {
+    func testCallerPolicyRejectsCopiedUnsignedAndWrongIdentityHelpers() throws {
         let policy = AppleFoundationModelsCallerPolicy(expectedTeamIdentifier: "TEAM123")
         try policy.authorize(.init(
             identifier: AppleFoundationModelsCallerPolicy.helperIdentifier,
@@ -152,13 +156,13 @@ struct AppleFoundationModelsProtocolTests {
             AppleFoundationModelsCallerIdentity(identifier: AppleFoundationModelsCallerPolicy.helperIdentifier, teamIdentifier: "WRONG", isPlatformSigned: true),
             AppleFoundationModelsCallerIdentity(identifier: AppleFoundationModelsCallerPolicy.helperIdentifier, teamIdentifier: "TEAM123", isPlatformSigned: false),
         ] {
-            #expect(throws: AppleFoundationModelsProtocolError.unauthorizedCaller) {
+            assertThrows(.unauthorizedCaller) {
                 try policy.authorize(identity)
             }
         }
     }
 
-    @Test func versionSkewAndErrorsNeverContainBodyContent() throws {
+    func testVersionSkewAndErrorsNeverContainBodyContent() throws {
         let marker = "private-prompt-marker"
         let request = AppleFoundationModelsGenerateRequest(
             protocolVersion: 99,
@@ -166,7 +170,7 @@ struct AppleFoundationModelsProtocolTests {
             messages: [.init(role: .user, content: marker)],
             timeoutMilliseconds: 1
         )
-        #expect(throws: AppleFoundationModelsProtocolError.unsupportedVersion) {
+        assertThrows(.unsupportedVersion) {
             try request.validate()
         }
         for error in [
@@ -176,7 +180,18 @@ struct AppleFoundationModelsProtocolTests {
             .responseTooLarge,
             .timedOut,
         ] {
-            #expect(!String(describing: error).contains(marker))
+            XCTAssertFalse(String(describing: error).contains(marker))
+        }
+    }
+
+    private func assertThrows(
+        _ expected: AppleFoundationModelsProtocolError,
+        _ expression: () throws -> Void,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) {
+        XCTAssertThrowsError(try expression(), file: file, line: line) { error in
+            XCTAssertEqual(error as? AppleFoundationModelsProtocolError, expected, file: file, line: line)
         }
     }
 }
