@@ -15,10 +15,94 @@ final class ChatDeliveryTests: XCTestCase {
         XCTAssertEqual(ChatDestination.automatic.gatewayModelValue, "auto")
         XCTAssertTrue(ChatDestination.automatic.isAutomatic)
         XCTAssertEqual(destination.gatewayModelValue, "chatgpt-sol")
-        XCTAssertEqual(destination.title, "chatgpt-sol")
-        XCTAssertEqual(destination.detail, "ChatGPT · gpt-5.6-sol")
+        XCTAssertEqual(destination.title, "GPT-5.6 Sol")
+        XCTAssertEqual(destination.detail, "ChatGPT · GPT-5.6 Sol")
         XCTAssertFalse(destination.isAutomatic)
         XCTAssertTrue(destination.isChatGPTAccount)
+    }
+
+    func testAppleChatDestinationUsesFriendlyLocalPresentation() {
+        let destination = ChatDestination(endpoint: EndpointDisplayStatus(
+            name: "apple-local",
+            providerName: "Apple Foundation Models",
+            modelName: "system-default",
+            state: .ready
+        ))
+
+        XCTAssertEqual(destination.title, "Apple Local")
+        XCTAssertEqual(destination.defaultTitle, "Apple Local")
+        XCTAssertEqual(destination.detail, "Apple Foundation Models · This Mac")
+        XCTAssertEqual(destination.gatewayModelValue, "apple-local")
+    }
+
+    @MainActor
+    func testPersonalDestinationNamePersistsWithoutChangingGatewayAlias() throws {
+        let suiteName = "ChatDestinationNameStoreTests.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let store = ChatDestinationNameStore(defaults: defaults)
+
+        store.setName("  Mac   Local  ", for: "apple-local")
+        let reloaded = ChatDestinationNameStore(defaults: defaults)
+        let destination = ChatDestination(endpoint: EndpointDisplayStatus(
+            name: "apple-local",
+            providerName: "Apple Foundation Models",
+            modelName: "system-default",
+            state: .ready
+        )).withTitle(reloaded.name(for: "apple-local", default: "Apple Local"))
+
+        XCTAssertEqual(destination.title, "Mac Local")
+        XCTAssertEqual(destination.defaultTitle, "Apple Local")
+        XCTAssertEqual(destination.gatewayModelValue, "apple-local")
+
+        reloaded.resetName(for: "apple-local")
+        XCTAssertEqual(reloaded.name(for: "apple-local", default: destination.defaultTitle), "Apple Local")
+    }
+
+    func testPersonalDestinationNamesAreBoundedAndBlankNamesReset() async throws {
+        await MainActor.run {
+            let suiteName = "ChatDestinationNameStoreTests.\(UUID().uuidString)"
+            let defaults = UserDefaults(suiteName: suiteName)!
+            defer { defaults.removePersistentDomain(forName: suiteName) }
+            let store = ChatDestinationNameStore(defaults: defaults)
+
+            store.setName(String(repeating: "x", count: 80), for: "apple-local")
+            XCTAssertEqual(store.override(for: "apple-local")?.count, ChatDestinationNameStore.maximumNameLength)
+
+            store.setName("   \n\t", for: "apple-local")
+            XCTAssertNil(store.override(for: "apple-local"))
+        }
+    }
+
+    @MainActor
+    func testAppStateAppliesPersonalNameWhenRefreshingDestinations() async throws {
+        let suiteName = "ChatDestinationNameStoreTests.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let nameStore = ChatDestinationNameStore(defaults: defaults)
+        nameStore.setName("Mac Local", for: "apple-local")
+        let overview = GatewayOverview(
+            gateway: .running(detail: "ready"),
+            hosted: .ready(detail: "ready"),
+            endpoints: [EndpointDisplayStatus(
+                name: "apple-local",
+                providerName: "Apple Foundation Models",
+                modelName: "system-default",
+                state: .ready
+            )],
+            routingStats: .emptyForChatTests,
+            updatedAt: Date()
+        )
+        let state = AppState(
+            client: OverviewClient(overview: overview),
+            chatDestinationNameStore: nameStore
+        )
+
+        state.refreshStats()
+        try await waitUntil { !state.isRefreshingStats }
+
+        XCTAssertEqual(state.chatDestinations.last?.title, "Mac Local")
+        XCTAssertEqual(state.chatDestinations.last?.gatewayModelValue, "apple-local")
     }
 
     func testChatDestinationListOmitsUnadvertisedCodexRoutesAndReservesAuto() {

@@ -69,6 +69,7 @@ public struct ChatDestination: Identifiable, Hashable, Sendable {
 
     public let routeName: String?
     public let title: String
+    public let defaultTitle: String
     public let detail: String
     public let providerName: String?
     public let isAvailable: Bool
@@ -81,26 +82,38 @@ public struct ChatDestination: Identifiable, Hashable, Sendable {
     public init(
         routeName: String?,
         title: String,
+        defaultTitle: String? = nil,
         detail: String,
         providerName: String? = nil,
         isAvailable: Bool = true
     ) {
         self.routeName = routeName
         self.title = title
+        self.defaultTitle = defaultTitle ?? title
         self.detail = detail
         self.providerName = providerName
         self.isAvailable = isAvailable
     }
 
     public init(endpoint: EndpointDisplayStatus) {
+        let presentation = Self.defaultPresentation(for: endpoint)
         self.init(
             routeName: endpoint.name,
-            title: endpoint.name,
-            detail: [endpoint.providerName, endpoint.modelName]
-                .compactMap { $0 }
-                .joined(separator: " · "),
+            title: presentation.title,
+            detail: presentation.detail,
             providerName: endpoint.providerName,
             isAvailable: endpoint.isChatDestinationAvailable
+        )
+    }
+
+    public func withTitle(_ title: String) -> Self {
+        Self(
+            routeName: routeName,
+            title: title,
+            defaultTitle: defaultTitle,
+            detail: detail,
+            providerName: providerName,
+            isAvailable: isAvailable
         )
     }
 
@@ -108,9 +121,35 @@ public struct ChatDestination: Identifiable, Hashable, Sendable {
         Self(
             routeName: routeName,
             title: title,
+            defaultTitle: defaultTitle,
             detail: detail,
             providerName: providerName,
             isAvailable: isAvailable
+        )
+    }
+
+    private static func defaultPresentation(
+        for endpoint: EndpointDisplayStatus
+    ) -> (title: String, detail: String) {
+        if endpoint.providerName == "Apple Foundation Models" {
+            return ("Apple Local", "Apple Foundation Models · This Mac")
+        }
+
+        if endpoint.providerName == "ChatGPT" {
+            let modelTitle = endpoint.modelName?
+                .replacingOccurrences(of: "gpt-", with: "GPT-")
+                .replacingOccurrences(of: "-sol", with: " Sol")
+            return (
+                modelTitle ?? "ChatGPT",
+                ["ChatGPT", modelTitle].compactMap { $0 }.joined(separator: " · ")
+            )
+        }
+
+        return (
+            endpoint.name,
+            [endpoint.providerName, endpoint.modelName]
+                .compactMap { $0 }
+                .joined(separator: " · ")
         )
     }
 }
