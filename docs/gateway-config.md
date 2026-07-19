@@ -53,8 +53,11 @@ Wayfinder never returns or brokers the account tokens. The managed runtime uses 
 Wayfinder-owned Codex home and empty workspace with tool-bearing features disabled. Development
 builds may use an explicitly selected or colocated helper. Release builds reject unverified sibling
 executables; the fixed ChatGPT-app fallback is accepted only when its runtime and signing checks
-pass. A distributable desktop build must not claim this provider is self-contained until it bundles
-a pinned, licensed, architecture-correct, nested-signed helper and verifies its recorded digest. See
+pass. Desktop v0.1.0 therefore requires the separately installed, correctly signed app at
+`/Applications/ChatGPT.app`; it does not bundle or redistribute Codex and is intentionally not
+self-contained for this provider. Bundling Codex later would require a separate reviewed
+release decision covering licensing, pinning, architecture, nested signing, version, and digest
+verification. See
 [WF-DESIGN-0018](../designs/WF-DESIGN-0018-codex-chatgpt-provider.md) and the official
 [Codex app-server](https://learn.chatgpt.com/docs/app-server),
 [authentication](https://learn.chatgpt.com/docs/auth#openai-authentication), and

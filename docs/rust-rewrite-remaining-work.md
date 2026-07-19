@@ -1,6 +1,6 @@
 # Rust Rewrite: Remaining Work
 
-Status snapshot: 2026-07-13
+Status updated: 2026-07-19
 
 This is the ordered execution backlog for reaching full Python parity with a Rust helper natively
 embedded in Wayfinder's Swift macOS app. Authoritative contracts remain:
@@ -18,31 +18,33 @@ embedded in Wayfinder's Swift macOS app. Authoritative contracts remain:
 - Retry/failover/circuit breakers, offline-locality enforcement, exact cache, budgets, rate limits,
   virtual keys, bounded metrics, recent metadata, and last-good reload.
 - Versioned atomic savings persistence with last-good recovery and corruption quarantine.
-- Native Rust `route`, `serve`, `service`, and `capabilities`; explicit Python delegation for the
-  remaining coexistence commands.
-- Swift credential-broker XPC service, bounded macOS Rust XPC client, helper manifest models,
-  bundled-helper discovery, and arm64/universal packaging inputs.
+- Native Rust `route`, `serve`, `service`, `capabilities`, `app-setup-init`, and Desktop-owned
+  `config read-routing` / `config apply-routing`; explicit Python delegation for the remaining
+  coexistence commands and config actions.
+- Swift credential-broker and Foundation Models XPC services, bounded macOS Rust XPC clients, helper
+  manifest/capability validation, bundled-helper discovery, and arm64 release packaging.
+- Native Desktop Chat and the opt-in isolated ChatGPT account provider through verified
+  `/Applications/ChatGPT.app`.
 
-Rust remains non-default and reports `gateway_ready: false`.
+Desktop v0.1.0 explicitly selects the verified embedded Rust gateway. The standalone migration
+metadata remains conservative and reports `gateway_ready: false`; Python remains runnable and is not
+removed.
 
-## P0 — complete the Apple Silicon embedded product path
+## P0 — finish the Apple Silicon Desktop v0.1.0 release gate
 
-1. Implement the Apple Foundation Models provider described in
-   [`apple-foundation-models-handoff.md`](apple-foundation-models-handoff.md), capability-detected
-   on macOS 26 rather than assumed on every Mac.
-2. Run authenticated end-to-end credential-broker resolution with a signed arm64 helper and XPC
-   service; test missing, denied, locked, rotation, app-closed, wrong-caller, and service-crash cases.
-3. Make app startup/setup execute the helper capability command and verify implementation, version,
-   commands, config schema, wire contract, architecture, and credential mechanisms against the
-   signed manifest. Mismatch must be a visible repair state, never PATH fallback.
-4. Build the complete arm64 `.app`, embed the helper and XPC services at stable paths, sign inner
-   code before the app with hardened runtime, and validate designated requirements.
-5. Finish launchd backend switching so Python/Homebrew and bundled Rust cannot simultaneously own
-   `com.wayfinder-router.gateway` or port 8088.
-6. Implement signed app update and automatic rollback: stage, verify, quiesce, promote, bootstrap,
-   health/capability check, restore previous bundle on failure, and preserve config/ledger/Keychain.
-7. Run clean-account Apple Silicon install, interrupted install, restart, login/logout, update,
-   forced rollback, Keychain preservation, and app-closed gateway tests.
+The provider, authenticated XPC boundaries, architecture/version handshake, embedded arm64 app,
+launchd coexistence, and deterministic ad-hoc bundle verification are implemented.
+
+1. Build with the real Developer ID Application identity, notarize, staple, and verify the final
+   extracted ZIP.
+2. Run clean-account Apple Silicon install, interrupted setup, restart, login/logout, manual
+   replacement, failure-triggered rollback, Keychain preservation, and app-closed gateway tests.
+3. Re-run Apple Foundation Models delivery and ChatGPT/Sol isolation evidence against that exact
+   signed production artifact.
+4. Complete the native fidelity and accessibility checklist with no open P0/P1 findings.
+
+Desktop v0.1.0 has no automatic updater. Replacement and rollback operate on a complete verified app
+bundle and never delete config, history, ledger/cache state, or Keychain items.
 
 ## P0 — close behavioral and security parity
 

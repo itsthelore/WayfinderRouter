@@ -14,6 +14,12 @@ Accepted
 > Native Swift v0.1.0 scope amendment (WF-ROADMAP-0012): Chat ships as a focused, dedicated native
 > window over the bundled gateway while the menu-bar popover remains compact. This roadmap remains
 > the historical Tauri delivery plan; WF-ROADMAP-0012 governs the shipping native Swift UX.
+>
+> Desktop v0.1.0 release amendment (WF-ROADMAP-0015): the current native release is Apple
+> Silicon-only and publishes a signed, notarized, stapled app in a ZIP. The universal DMG,
+> Tauri updater, Homebrew cask, and physical Intel gates below are historical or follow-up work, not
+> requirements or claims for v0.1.0. ChatGPT account routing requires a separately installed verified
+> ChatGPT app; Wayfinder does not bundle Codex.
 
 ## Context
 

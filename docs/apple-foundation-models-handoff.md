@@ -9,6 +9,12 @@ Apple Silicon Macs. It must be capability-detected, not assumed: the Foundation 
 starts at macOS 26 and availability also depends on Apple Intelligence device eligibility, region,
 language, model download/readiness, and current system state.
 
+Implementation note (2026-07-19): the provider and bounded authenticated inference XPC path are now
+implemented. On an eligible, never-configured Mac, Setup preselects Apple Local only after a live
+`available` response and still requires confirmation. Existing configuration and route ladders are
+unchanged, and Chat still opens on `Automatic`. Final Developer ID clean-machine evidence remains a
+Desktop v0.1.0 release gate under WF-ROADMAP-0015.
+
 When available, a new installation should prefer Apple Foundation Models for the local tier. When
 unavailable, WAYFINDER must retain the configured Ollama/OpenAI-compatible local provider or show a
 clear no-local-provider state. It must never silently turn an offline request into cloud egress.
@@ -187,9 +193,9 @@ Real Apple Silicon tests:
 - signed genuine helper accepted and unsigned/copied/wrong-identity callers rejected;
 - app update and rollback with configuration preserved.
 
-## Exit gate
+## Original exit gate and remaining release evidence
 
-Do not make Apple Foundation Models the preferred local default until:
+The availability-gated new-setup preference must retain these gates:
 
 - availability-based selection is truthful and reversible;
 - buffered and streaming public API fixtures pass;

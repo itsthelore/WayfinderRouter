@@ -24,6 +24,12 @@ Accepted
 > text size. Chat ships in `desktop-v0.1.0` as a dedicated native window over the same bundled
 > gateway; it never scores, calls a provider directly, or owns credentials. The service-first
 > lifecycle, Keychain boundary, semantic route colors, and privacy ruling below are unchanged.
+>
+> Desktop v0.1.0 release amendment (WF-ROADMAP-0015): the native product ships for Apple Silicon
+> only, with an arm64 Rust gateway inside the signed app. The distribution artifact is a signed,
+> notarized, stapled app in a ZIP; the universal DMG and automatic-updater decisions below remain
+> historical Tauri targets, not v0.1.0 requirements. The optional ChatGPT account provider requires
+> the separately installed verified ChatGPT app. Wayfinder does not bundle Codex in this release.
 
 ## Category
 
@@ -90,7 +96,7 @@ honest statement of our posture is an app that *provably does less*.
    left Apple security support; June ships 14+ too). Windows/Linux are non-goals for v1 — the shared
    core stays portable, the shell does not.
 
-7. **Distribution follows June's playbook, minus its backend.** Signed + notarized + stapled
+7. **Historical Tauri distribution decision.** Signed + notarized + stapled
    universal DMG; the Tauri updater with `createUpdaterArtifacts` and a keypair whose private key is
    custodied from day one (its loss permanently bricks auto-update); releases on a `desktop-v*` tag
    lane (verified: matches neither of `release.yml`'s globs, so it cannot fire the PyPI publish);
@@ -98,6 +104,10 @@ honest statement of our posture is an app that *provably does less*.
    gateway into the app) is **deferred**: PyInstaller's self-extraction interacts badly with the
    hardened runtime notarization requires, and universal2 Python builds are their own fight — the
    service-first model makes the sidecar unnecessary for v1.
+
+   The native Swift v0.1.0 release does not implement that Tauri lane. WF-ROADMAP-0015 instead
+   requires one thin arm64 app, notarized and stapled before a final ZIP is produced and verified.
+   DMG packaging, Intel/universal support, and automatic updates are deferred.
 
 8. **The privacy story is told honestly.** A "verify-lite" panel states exactly what is true: the
    decision is computed locally with no model call and no key in the app; prompts go only to the
@@ -146,8 +156,9 @@ honest statement of our posture is an app that *provably does less*.
   every run; divergence fails the build.
 - **Shell-out surface.** `service install` / `launchctl` / `security` invocations are privileged
   glue. Mitigation: exact commands only, scoped in Tauri capabilities; no arbitrary shell.
-- **Updater key custody.** One private key, permanent consequences. Mitigation: generated once,
-  stored in the password manager + CI secret, documented in `docs/RELEASE-desktop.md`.
+- **Historical Tauri updater key custody.** One private key, permanent consequences. Mitigation for
+  any future updater adoption: generate it once, store it in the password manager and CI secret, and
+  document recovery before enabling updates. Desktop v0.1.0 has no automatic updater.
 
 ## Alternatives Considered
 
@@ -177,8 +188,10 @@ menu-bar utility and keeps the binary small.
 - The app renders correct decisions with the gateway up, degraded, decision-only, offline, and
   unreachable — and in the last case is unmissably labelled a preview.
 - `rg -i "api[_-]?key" clients/desktop/src` finds no key handling outside the Keychain glue command.
-- A signed, notarized DMG installs on a clean macOS 14 machine, passes Gatekeeper, and updates
-  in place from the previous release.
+- The current native release gate is a signed, notarized, stapled arm64 app extracted from the final
+  ZIP on a clean Apple Silicon Mac, passing Gatekeeper and the WF-ROADMAP-0015 evidence matrix.
+- The signed universal DMG and in-place updater remain historical Tauri success measures and are not
+  claimed for Desktop v0.1.0.
 - The Python suite and the deterministic core are untouched by the entire `clients/` tree.
 
 ## Related
@@ -188,3 +201,5 @@ menu-bar utility and keeps the binary small.
 - WF-ADR-0038 (the service this app is a client of) · WF-ADR-0039 (the offline mode it surfaces)
 - WF-ADR-0020 (the decision-first design language the popover inherits)
 - WF-DESIGN-0012 (the popover design contract) · WF-ROADMAP-0009 (the delivery plan)
+- WF-DESIGN-0018 (external verified ChatGPT-app provider boundary)
+- WF-ROADMAP-0015 (Apple Silicon desktop v0.1.0 release contract)

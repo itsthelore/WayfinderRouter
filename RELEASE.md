@@ -1,13 +1,16 @@
-# Releasing Wayfinder
+# Releasing the standalone Wayfinder router
 
-How a Wayfinder release is cut. The process is deliberately small and mechanical: the version is
-single-sourced, the changelog *is* the release notes, and **pushing a tag does the publish**. Follow
-the checklist in order and the automation cannot publish a mismatched build — it verifies the tag
-against the package version and refuses on a mismatch.
+This guide governs standalone `wayfinder-router` PyPI releases. That product uses CalVer and bare
+numeric tags. Wayfinder Desktop uses SemVer, `desktop-v*` tags, and the separate procedure in
+`macos/WayfinderMac/Packaging/RELEASE.md`.
+
+The router process is deliberately small and mechanical: its version is single-sourced, its
+changelog section supplies the release notes, and pushing a matching tag publishes through the
+release workflow.
 
 ## Versioning
 
-Wayfinder uses **CalVer**, `YYYY.MM.MICRO`:
+The standalone router uses **CalVer**, `YYYY.MM.MICRO`:
 
 - `YYYY` — the year (e.g. `2026`).
 - `MM` — the calendar month of the release (`6` = June, `7` = July). Not zero-padded.
@@ -16,9 +19,8 @@ Wayfinder uses **CalVer**, `YYYY.MM.MICRO`:
 
 Examples: `2026.6.10` is the tenth release in June 2026; `2026.7.0` is the first in July.
 
-The number says **when**, not **how big**. A release's *theme* — "the feedback release", "the macOS
-release" — is carried by the one-line summary under its changelog header, never by the version. So a
-headline feature release and a one-line fix can share a month; the changelog says which is which.
+The number says **when**, not **how big**. A router release's theme is carried by the one-line
+summary under its changelog header, never by the version.
 
 Tags are **bare** CalVer (`2026.7.0`); the changelog headers carry a cosmetic `v` (`## v2026.7.0`).
 The publish workflow accepts either form (`2026.7.0` or `v2026.7.0`) — we tag bare to match
@@ -40,14 +42,14 @@ constant is therefore step one, and the tag must match it byte-for-byte.
 
 ## What goes into a release
 
-Everything user-visible lands under `## Unreleased` in `CHANGELOG.md` as it merges — a theme line plus
-the usual `### Added` / `### Changed` / `### Fixed` groupings. Cutting a release is mostly *closing*
-that section. If `## Unreleased` is empty, there is nothing to release. Keep entries about **user
-impact**, not implementation — link the ADR for the detail.
+Standalone-router changes land under `## Standalone router — Unreleased` in `CHANGELOG.md`.
+Desktop entries remain in their independent Desktop section and are never consumed by a router
+release. Keep entries about **user impact**, not implementation, and link the ADR for detail.
 
 ## Cutting a release
 
-From a clean, up-to-date `main`:
+Start from a clean, up-to-date `main`, then create a `codex/release-*` branch. Never commit the
+release cut directly to the protected branch.
 
 1. **Green gate.** Install the dev/optional deps and run the gate locally (mirrors CI):
 
@@ -68,8 +70,9 @@ From a clean, up-to-date `main`:
    __version__ = "<new>"
    ```
 
-4. **Roll the changelog** in `CHANGELOG.md`: rename `## Unreleased` to `## v<new> — <YYYY-MM-DD>`
-   (today's date), keeping its theme line and entries, then add a fresh empty `## Unreleased` above it.
+4. **Roll only the standalone-router changelog** in `CHANGELOG.md`: rename
+   `## Standalone router — Unreleased` to `## v<new> — <YYYY-MM-DD>` (today's date), then add a
+   fresh empty `## Standalone router — Unreleased` above it. Leave Desktop release notes untouched.
 
 5. **Commit both files together** with a `chore(release)` subject, a `[release:<new>]` trailer, and a
    body (every commit carries a descriptive body):
@@ -83,11 +86,16 @@ From a clean, up-to-date `main`:
    MSG
    ```
 
-6. **Tag the release commit** (annotated, bare, matching `__version__` exactly) and push:
+6. **Push the release branch and open a pull request.** Merge only after required checks and review
+   pass.
+
+7. **Sync local `main`, then tag the reviewed merge commit** (annotated, bare, matching
+   `__version__` exactly) and push the tag:
 
    ```sh
+   git switch main
+   git pull --ff-only
    git tag -a <new> -m "v<new>"      # e.g. 2026.7.0
-   git push origin main
    git push origin <new>
    ```
 
