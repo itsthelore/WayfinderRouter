@@ -7,6 +7,7 @@ public struct ChatSidebarView: View {
     @Binding var routeFilter: ChatRouteFilter
     @Binding var searchText: String
     let searchFocusRequest: Int
+    let onNewChat: () -> Void
     let onSelectTurn: () -> Void
 
     public init(
@@ -16,6 +17,7 @@ public struct ChatSidebarView: View {
         routeFilter: Binding<ChatRouteFilter>,
         searchText: Binding<String>,
         searchFocusRequest: Int = 0,
+        onNewChat: @escaping () -> Void = {},
         onSelectTurn: @escaping () -> Void = {}
     ) {
         self.turns = turns
@@ -24,6 +26,7 @@ public struct ChatSidebarView: View {
         self._routeFilter = routeFilter
         self._searchText = searchText
         self.searchFocusRequest = searchFocusRequest
+        self.onNewChat = onNewChat
         self.onSelectTurn = onSelectTurn
     }
 
@@ -33,10 +36,21 @@ public struct ChatSidebarView: View {
 
             SearchField(text: $searchText, focusRequest: searchFocusRequest)
                 .padding(.horizontal, 12)
-                .padding(.bottom, 14)
+                .padding(.bottom, 10)
+
+            Button(action: onNewChat) {
+                Label("New chat", systemImage: "square.and.pencil")
+                    .font(.callout.weight(.medium))
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityHint("Clears the current in-memory conversation.")
+            .padding(.horizontal, 14)
+            .padding(.vertical, 9)
 
             HStack {
-                Text("Conversation")
+                Text("This chat")
                     .font(.caption2.weight(.semibold))
                     .textCase(.uppercase)
                     .tracking(0.7)

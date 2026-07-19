@@ -13,9 +13,9 @@ enum ChatWorkspaceChrome {
     static let sidebarMinimumWidth: CGFloat = 210
     static let sidebarWidth: CGFloat = 232
     static let sidebarMaximumWidth: CGFloat = 280
-    static let inspectorMinimumWidth: CGFloat = 290
-    static let inspectorWidth: CGFloat = 320
-    static let inspectorMaximumWidth: CGFloat = 390
+    static let inspectorMinimumWidth: CGFloat = 260
+    static let inspectorWidth: CGFloat = 296
+    static let inspectorMaximumWidth: CGFloat = 340
     static let conversationWidth: CGFloat = 760
     static let composerWidth: CGFloat = 780
     static let initialWindowWidth: CGFloat = 1_320
