@@ -11,6 +11,11 @@ tags: [rust, migration, gateway, router, compatibility, macos, security, packagi
 
 In progress. Discovery and architecture are complete; Rust is not the default backend.
 
+> Desktop v0.1.0 release amendment (WF-ROADMAP-0015): the native desktop product explicitly embeds
+> and selects the Rust gateway, but only as a thin arm64 helper on Apple Silicon. This does not select
+> Rust as the default for standalone, Homebrew, container, or PyPI installations and does not permit
+> Python removal. Universal/Intel distribution remains a later migration gate.
+
 ## Objective
 
 Deliver a production-ready Rust implementation of Wayfinder's deterministic router, local gateway,
@@ -179,13 +184,13 @@ Status: Apple Silicon implementation path complete; signed-platform exit evidenc
 SwiftPM app now includes a fixed resolve-only Security.framework credential broker, a bounded
 macOS-only Rust XPC client wired as the mandatory credential source for bundled helpers, typed helper
 manifest/capability validation, bundled-helper-first discovery, production plist/entitlement
-inputs, and an inner-to-outer universal build/sign/notarize pipeline. Physical Apple Silicon and
-Intel install/update/rollback tests and release identities remain required before this phase can be
-marked complete.
+inputs, and an inner-to-outer build/sign/notarize pipeline. Desktop v0.1.0 requires a thin arm64
+artifact plus physical Apple Silicon install/update/rollback evidence and release identities.
+Universal assembly and physical Intel evidence remain required only before a later universal claim.
 
 Deliver:
 
-- universal arm64/x86_64 nested helper;
+- arm64 nested helper for Desktop v0.1.0; universal arm64/x86_64 packaging is deferred;
 - Swift XPC credential broker and authenticated Rust client, or a separately accepted alternative;
 - stable helper manifest/capability/version handshake;
 - production app target, entitlements, nested signing, notarization/stapling, update, rollback;
@@ -194,7 +199,8 @@ Deliver:
 
 Exit:
 
-- signed real-Mac Apple Silicon and Intel tests in WF-DESIGN-0016 pass;
+- signed real-Mac Apple Silicon tests in WF-DESIGN-0016 pass for Desktop v0.1.0;
+- physical Intel tests pass before any later Intel or universal-support claim;
 - Swift tests remain green and the native app never computes routes/authors config/supervises the
   gateway;
 - no secret appears in argv/logs/state/accessibility/crash output;
@@ -256,11 +262,13 @@ summary always states:
 
 ## Current recommendation
 
-Proceed with the remaining Phase 2 and later gates behind explicit development selection. Rust is
-not ready for opt-in gateway traffic or default use.
+Proceed with the signed Apple Silicon desktop release gates in WF-ROADMAP-0015. The bundled Rust
+gateway is selected only inside that desktop product; broader standalone default selection and
+Python removal remain future reviewed decisions.
 
 ## Related
 
 - WF-ADR-0045
 - WF-DESIGN-0016
+- WF-ROADMAP-0015
 - `docs/rust-migration-capability-matrix.md`

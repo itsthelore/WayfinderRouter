@@ -4,27 +4,30 @@ User-visible changes to Wayfinder, by release. Follows the spirit of
 [Keep a Changelog](https://keepachangelog.com/): user impact over implementation
 details, release history over commit history.
 
-## Unreleased
+## Desktop v0.1.0 — Unreleased
 
 ### Added
 
 - **Opt-in ChatGPT account routing for Desktop Chat** (WF-DESIGN-0018,
-  WF-ROADMAP-0012). The Rust gateway can now run an isolated, bounded Codex app-server provider and
-  deliver text-only Chat through models available to an eligible signed-in ChatGPT account. Native
-  Settings keeps this under Accounts, separate from OpenAI Platform keys, and receives only
-  normalized account/model state—never tokens. The provider must be explicitly added as
-  `codex-app-server`; signing in does not change Automatic routing, make it a preferred hosted
-  destination, or expand the credential broker. Offline mode excludes it, and a pinned ChatGPT
+  WF-ROADMAP-0012, WF-ROADMAP-0015). The Rust gateway can now run an isolated, bounded Codex
+  app-server provider and deliver text-only Chat through models available to an eligible signed-in
+  ChatGPT account. Native Settings keeps this under Accounts, separate from OpenAI Platform keys,
+  and receives only normalized account/model state—never tokens. The provider must be explicitly
+  added as `codex-app-server`; signing in does not change Automatic routing, make it a preferred
+  hosted destination, or expand the credential broker. Offline mode excludes it, and a pinned ChatGPT
   destination fails visibly instead of falling back. Development builds can use an explicitly
   selected helper; release builds reject unverified sibling executables, and the ChatGPT-app
   fallback must pass runtime and signing validation. Concurrent turns report a bounded Busy state
-  without poisoning provider health. A public bundle remains gated on shipping a pinned, licensed,
-  architecture-correct, nested-signed helper.
+  without poisoning provider health. Desktop v0.1.0 requires a separately installed, compatible,
+  correctly signed `/Applications/ChatGPT.app` and does not bundle or redistribute the Codex
+  executable; a self-contained provider is explicitly deferred.
 
-- **Wayfinder Desktop v0.1.0 Chat** (WF-ADR-0042, WF-ROADMAP-0012). The native macOS app now
-  includes a dedicated, thread-first Chat window that streams replies through the bundled Rust
-  gateway. The complete conversation stays central while the authoritative provider, mode, score,
-  explanation, and routing signals live in a persistent, collapsible inspector on the right.
+- **Wayfinder Desktop v0.1.0 Chat** (WF-ADR-0042, WF-ROADMAP-0012, WF-ROADMAP-0015). The native
+  macOS app now includes a dedicated, thread-first Chat window that streams replies through the
+  bundled arm64 Rust gateway. This first desktop release supports Apple Silicon on macOS 14 or
+  later; Intel and a universal artifact are deferred. The complete conversation stays central while
+  the authoritative provider, mode, score, explanation, and routing signals live in a persistent,
+  collapsible inspector on the right.
   Navigator filters never remove messages from the transcript. Conversations remain in memory for
   this release; Stop, contextual Retry, New Chat, bounded request history, and actionable delivery
   failures are included. The app uses its own SemVer release line (`0.1.0`) while the bundled router
@@ -34,12 +37,18 @@ details, release history over commit history.
 - **Apple Foundation Models availability contract** (WF-DESIGN-0017). The native macOS package now
   capability-detects `SystemLanguageModel.default` on macOS 26 and distinguishes available,
   device-ineligible, Apple Intelligence disabled, model-not-ready, unsupported, and sanitized
-  unavailable states through a bounded versioned protocol. Availability alone does not change the
-  preferred local provider, and existing Ollama/manual local configuration remains unchanged.
+  unavailable states through a bounded versioned protocol. On an eligible, never-configured Mac,
+  Setup preselects Apple Local only after a live `available` response and still requires user
+  confirmation. Existing configuration and route ladders remain unchanged, and Chat opens on
+  `Automatic`.
 
 - **Apple Foundation Models delivery boundary** (WF-ROADMAP-0014). Eligible `apple-local` requests
   use a separate authenticated, bounded inference XPC service inside the native bundle. Delivery is
-  capability-gated; it does not make Apple the preferred default or broaden the credential broker.
+  capability-gated and does not broaden the credential broker or make Apple a global Automatic route.
+
+## Standalone router — Unreleased
+
+### Added
 
 - **Decision-only replies when no model is configured** (WF-ADR-0042). A running gateway with no
   `[gateway.models]` now answers `/v1/chat/completions` with the routing **decision** (HTTP 200,

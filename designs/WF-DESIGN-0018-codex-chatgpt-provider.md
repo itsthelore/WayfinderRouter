@@ -11,6 +11,13 @@ tags: [gateway, rust, macos, codex, chatgpt, oauth, provider, chat]
 
 Accepted
 
+> Desktop v0.1.0 release amendment (WF-ROADMAP-0015): the provider ships as an opt-in destination
+> that depends on the separately installed, correctly signed ChatGPT app at
+> `/Applications/ChatGPT.app`. Wayfinder v0.1.0 does not bundle or redistribute Codex and does not
+> claim this provider is self-contained. Release discovery ignores development overrides and rejects
+> colocated or sibling executables; only the fixed ChatGPT-app runtime may pass the production trust
+> checks. A bundled runtime remains possible only through a later reviewed packaging decision.
+
 ## Summary
 
 Wayfinder adds an explicit `codex-app-server` gateway provider for people who want to use the
@@ -53,10 +60,13 @@ For `codex-app-server` models:
 The gateway launches a version-compatible `codex app-server --listen stdio://` child only when a
 Codex model or account operation is used. Development builds may use an explicitly configured or
 colocated helper. Release builds accept only the separately verified helper installed with the
-ChatGPT app; an executable placed beside the gateway is never sufficient production trust. A
-distributable Wayfinder build does not claim this provider is self-contained until the release
-bundle contains a pinned, licensed, architecture-correct, nested-signed helper and records and
-verifies its version and digest.
+ChatGPT app; an executable placed beside the gateway is never sufficient production trust.
+
+Desktop v0.1.0 deliberately ships that external dependency: the app does not contain Codex and the
+provider is unavailable when the verified ChatGPT installation is absent or incompatible. A future
+self-contained Wayfinder build would require a separate reviewed decision covering licensing,
+pinning, architecture, nested signing, and recorded version/digest verification; it is not a v0.1.0
+release gate.
 
 The child receives:
 
@@ -155,11 +165,11 @@ ChatGPT-authenticated requests leave the Mac and follow the signed-in ChatGPT wo
 Offline mode disables this provider. Wayfinder does not claim these calls are private/local and does
 not equate ChatGPT subscription authentication with general OpenAI API access.
 
-Release acceptance requires adversarial live evidence against the exact helper build: prompts must
-not read outside the empty workspace, execute commands, mutate files, access tools, or make
-sandboxed network calls. If that cannot be proven, the adapter does not ship as an ordinary Chat
-provider and must instead become an explicit Codex-agent surface with its own activity and approval
-UX.
+Release acceptance requires adversarial live evidence against the exact helper build supplied by
+the supported ChatGPT app: prompts must not read outside the empty workspace, execute commands,
+mutate files, access tools, or make sandboxed network calls. If that cannot be proven, the adapter
+does not ship as an ordinary Chat provider and must instead become an explicit Codex-agent surface
+with its own activity and approval UX.
 
 ## Explicit non-goals
 
@@ -168,7 +178,10 @@ UX.
 - Extending `WayfinderCredentialBroker` or sharing `~/.codex` state.
 - Exposing Codex tools, approvals, filesystem actions, plans, or agent activity in v0.1.0 Chat.
 - Treating a ChatGPT subscription as authorization for arbitrary OpenAI REST API calls.
-- Shipping an unpinned helper or silently accepting incompatible app-server schemas.
+- Bundling or redistributing an unpinned helper, or silently accepting incompatible app-server
+  schemas.
+- Claiming that Desktop v0.1.0 includes Codex or works with this provider when the separately
+  installed verified ChatGPT app is absent.
 
 ## Verification
 
@@ -190,3 +203,4 @@ isolation cases above.
 - OpenAI permission profiles: https://learn.chatgpt.com/docs/permissions
 - WF-ADR-0042 (one backend, thin native client)
 - WF-ROADMAP-0012 (focused native Chat and routing inspector)
+- WF-ROADMAP-0015 (Apple Silicon desktop v0.1.0 release contract)

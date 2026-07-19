@@ -11,6 +11,13 @@ tags: [config, gateway, cli, desktop, keys, keychain, seam, onboarding]
 
 Accepted
 
+> Desktop v0.1.0 amendment (2026-07-19): the single-writer boundary remains the gateway CLI, but
+> its Desktop-owned `config read-routing` and `config apply-routing` operations are now native Rust
+> commands in the bundled gateway. They reuse `wayfinder-config` validation, preserve non-routing
+> content, enforce bounded UTF-8 inputs, and replace the file atomically. Other `config` actions
+> remain explicitly delegated during standalone Python/Rust coexistence. Swift still never writes
+> TOML directly.
+
 > Drafted with WF-ROADMAP-0009 Phase 4 (desktop onboarding & keys), whose first-run flow is the
 > seam's first consumer. Originally Proposed pending the first real `config set` need — which
 > arrived immediately: the desktop's offline toggle had to become **global** (the popover

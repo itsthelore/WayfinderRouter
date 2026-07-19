@@ -43,9 +43,10 @@ macos/
 This is a Swift Package executable with a production bundle assembly path. It creates a native `NSStatusItem`,
 opens a transient AppKit panel, hosts SwiftUI with `NSHostingController`, and opens native Settings
 through an AppKit-owned `NSWindow`. Chat ships in v0.1.0 as a dedicated thin-client window over the
-same gateway. `script/build_release_bundle.sh` assembles the app, universal Rust helper, credential-broker
-XPC service, signed manifest, hardened-runtime signatures, and optional notarization/stapling.
-`Packaging/RELEASE.md` defines the physical-Mac release and rollback evidence.
+same gateway. Desktop v0.1.0 is Apple Silicon-only: `script/build_release_bundle.sh` assembles the
+app, arm64 Rust helper, credential-broker and Foundation Models XPC services, signed manifest,
+hardened-runtime signatures, and optional notarization/stapling. Intel and a universal artifact are
+deferred. `Packaging/RELEASE.md` defines the physical-Mac release and rollback evidence.
 
 ## Native v0.1.0 Surfaces
 
@@ -74,6 +75,11 @@ opening **Settings → Accounts** to sign in. The destination appears in Chat on
 model is present in the runtime catalog; `Automatic` remains the default, and a pinned unavailable
 destination never silently falls back.
 
+Desktop v0.1.0 requires a separately installed, correctly signed ChatGPT app at
+`/Applications/ChatGPT.app`. Wayfinder does not bundle or redistribute its Codex executable. Release
+builds ignore development helper overrides and reject colocated, sibling, unsigned, wrong-identity,
+or incompatible runtimes, so ChatGPT account routing is unavailable when the verified app is absent.
+
 The Swift app receives only bounded account status, display identity, and model names through the
 literal-loopback control API. It never reads Codex auth files or receives tokens. OpenAI Platform
 keys remain under **Keys**, and the existing credential broker is unchanged. ChatGPT-authenticated
@@ -98,6 +104,8 @@ The first UI patch ran with `MockWayfinderClient` so the menu-bar, chat, and set
 - The release script assembles and signs the production `.app`; public distribution still requires
   the real Developer ID identity, notarization, stapling, and the physical-Mac evidence matrix in
   `Packaging/RELEASE.md`.
+- Desktop v0.1.0 supports Apple Silicon only. Its optional ChatGPT account destination depends on the
+  separately installed verified ChatGPT app and is not a self-contained bundled runtime.
 - Provider-key writes and reads stay behind the existing narrow Keychain and authenticated XPC
   boundaries. Chat does not broaden either broker.
 - The bundled gateway remains the routing source of truth, matching WF-ADR-0042.

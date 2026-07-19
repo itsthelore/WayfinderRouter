@@ -11,6 +11,11 @@ tags: [desktop, macos, swiftui, menu-bar, settings, v1, ux, accessibility, chat]
 
 Accepted
 
+> Desktop v0.1.0 release amendment (WF-ROADMAP-0015): this UX ships first on Apple Silicon with an
+> arm64 bundled gateway. Intel and universal distribution are deferred. The optional ChatGPT account
+> destination is included, but it requires the separately installed verified ChatGPT app; Wayfinder
+> does not bundle Codex or claim that provider is self-contained.
+
 ## Decision summary
 
 The native Swift app ships v1 as a **small, calm menu-bar utility with a compact native Settings
@@ -29,10 +34,12 @@ without filtering the transcript, and a persistent but collapsible right inspect
 mode, score, explanation, and routing signals. Completed replies carry only a quiet routing receipt
 that selects the inspector; they do not repeat the decision as an inline dashboard card.
 
-An optional ChatGPT-authenticated destination may be added through the separate gateway-owned
+An optional ChatGPT-authenticated destination ships through the separate gateway-owned
 `codex-app-server` provider in WF-DESIGN-0018. Account UI belongs in Settings, destination choice is
 compact composer chrome, and detailed provider/model/access data remains in the right inspector.
-Signing in does not change `Automatic`, provider defaults, or routing configuration.
+Signing in does not change `Automatic`, provider defaults, or routing configuration. Desktop v0.1.0
+depends on the separately installed verified ChatGPT app and does not redistribute its Codex
+runtime.
 
 This roadmap intentionally changes three accepted assumptions that currently pull implementation
 back toward the wrong result:
@@ -205,8 +212,8 @@ Build a screenshot-and-accessibility review loop before packaging:
 - Full keyboard pass: open/close popover, move through rows, open Settings, change sections, edit
   supported settings, cancel destructive actions, quit.
 - Reduced Motion removes nonessential transitions.
-- Run clean SwiftPM build/tests, then build and launch the staged `.app` bundle on macOS 14 and the
-  current macOS release.
+- Run clean SwiftPM build/tests, then build and launch the staged arm64 `.app` bundle on Apple
+  Silicon at the macOS 14 deployment floor and the current macOS release.
 
 **Release gate:** no P0/P1 findings in the native fidelity checklist; all state-matrix, Chat,
 streaming/cancellation, and service tests green; signed/notarized packaging work may proceed.
@@ -275,4 +282,5 @@ Until that contract passes, `desktop-v0.1.0` is not release-ready.
 - WF-ADR-0042 (desktop architecture; native v0.1.0 Chat contract accepted)
 - WF-DESIGN-0014 (accepted flat-list popover direction)
 - WF-ROADMAP-0009 (desktop delivery; superseded by this native v1 roadmap)
+- WF-ROADMAP-0015 (Apple Silicon desktop v0.1.0 release contract)
 - WF-DESIGN-0015 (Settings/config seam)

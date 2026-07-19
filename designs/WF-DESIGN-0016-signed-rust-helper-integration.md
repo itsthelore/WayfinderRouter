@@ -9,15 +9,17 @@ tags: [macos, rust, helper, launchd, xpc, keychain, signing, update, rollback]
 
 ## Status
 
-Accepted as the migration target; implementation and release verification are pending.
+Implemented for the Apple Silicon desktop path; Developer ID release verification remains pending.
+Universal/Intel distribution is deferred beyond Desktop v0.1.0 by WF-ROADMAP-0015.
 
 ## Context
 
-The native Swift app already treats the gateway as the source of truth and the per-user launchd
-job as its owner. It probes loopback HTTP, renders gateway facts, invokes fixed CLI/config/service
-verbs, and manages Keychain writes. The Python gateway is currently discovered outside the app;
-there is no production `.app` target, bundled helper, XPC service, entitlement set, universal
-artifact, or notarized update path.
+The native Swift app treats the gateway as the source of truth and the per-user launchd job as its
+owner. It probes loopback HTTP, renders gateway facts, invokes fixed CLI/config/service verbs, and
+manages Keychain writes. When this design was accepted, the Python gateway was discovered outside
+the app and there was no production bundle or signed helper path. The implemented desktop topology
+now embeds an arm64 Rust gateway and two narrow Swift XPC services inside the production app;
+Developer ID signing, notarization, and clean-machine release evidence remain the open release gate.
 
 WF-ADR-0045 selects one Rust `wayfinder-router` executable as the eventual nested helper while
 retaining Python as an explicit fallback through the parity period. This design makes the process,
@@ -32,15 +34,18 @@ rather than provider uptime, and offline is the only state allowed to promise no
 
 ```text
 Wayfinder.app
-  Contents/MacOS/Wayfinder                         SwiftUI/AppKit UI
-  Contents/Helpers/wayfinder-router                universal Rust helper
-  Contents/XPCServices/
-    com.wayfinder.CredentialBroker.xpc             Swift/Security.framework broker
+  Contents/MacOS/WayfinderMac                      SwiftUI/AppKit UI
+  Contents/Helpers/WayfinderGateway.app
+    Contents/MacOS/wayfinder-router                arm64 Rust gateway for v0.1.0
+    Contents/XPCServices/
+      com.wayfinder.CredentialBroker.xpc           Swift/Security.framework broker
+      com.wayfinder.FoundationModelBroker.xpc      Swift/FoundationModels broker
   Contents/Resources/wayfinder-helper.json         version/capability manifest
 
 launchd user domain
   com.wayfinder-router.gateway                     owns the Rust helper
   com.wayfinder.CredentialBroker                   on-demand XPC service
+  com.wayfinder.FoundationModelBroker              on-demand XPC service
 
 public local data plane
   http://127.0.0.1:8088                            existing gateway API
@@ -60,6 +65,7 @@ gateway and remains its only supervisor.
 | Config and service mutation | fixed `wayfinder-router` CLI verbs |
 | Public integration protocol | loopback HTTP |
 | Credential value transport to the helper | authenticated XPC only for the bundled production path |
+| Apple Foundation Models availability and inference | separate authenticated Foundation Models XPC service |
 | Signing/notarization/update promotion | release tooling, outside both runtime processes |
 
 Swift does not write TOML or launchd plists and does not spawn/supervise `serve` directly. Rust does
@@ -170,33 +176,37 @@ unified logging, crash breadcrumbs, screenshots, or setup restoration.
 - Headless non-app installs continue to use environment/legacy reference mechanisms until an
   equivalent approved secret-store integration is configured.
 
-## Signing and universal artifact order
+## Signing and Desktop v0.1.0 arm64 artifact order
 
-Release production follows this order:
+Desktop v0.1.0 release production follows this order:
 
-1. Build and test the Rust helper separately for `aarch64-apple-darwin` and
-   `x86_64-apple-darwin` with `MACOSX_DEPLOYMENT_TARGET=14.0`.
-2. Verify both thin helpers, including dependency/audit/license gates and target-specific smoke
-   tests.
-3. Combine them with `lipo` and verify both slices and the expected build/version metadata.
-4. Build the Swift app and XPC service for both architectures.
-5. Embed the universal helper and the XPC service at their stable paths.
-6. Sign inner code first: Rust helper, XPC service, frameworks/libraries, then the outer app with
+1. Build and test the Rust helper for `aarch64-apple-darwin` with
+   `MACOSX_DEPLOYMENT_TARGET=14.0`.
+2. Verify the thin helper, including dependency/audit/license gates and target-specific smoke tests.
+3. Build the Swift app and both XPC services for arm64.
+4. Embed the arm64 helper and XPC services at their stable paths inside the containing gateway app.
+5. Verify every final executable reports exactly arm64 and that expected build/version/architecture
+   metadata agrees.
+6. Sign inner code first: Rust helper, XPC services, containing gateway app,
+   frameworks/libraries, then the outer app with
    hardened runtime and the minimum required entitlements.
 7. Verify the nested designated requirements and Keychain/XPC entitlement relationship.
-8. Notarize, staple, and validate the app and distribution container.
-9. Install on clean Apple Silicon and Intel Macs and exercise setup, headless credential read,
-   gateway calls, app exit, helper crash/restart, rotation, update, and rollback.
+8. Notarize, staple, and validate the app; checksum and verify the final ZIP after extraction.
+9. Install the final extracted ZIP on a clean Apple Silicon Mac and exercise setup, headless
+   credential read, gateway calls, app exit, helper crash/restart, rotation, replacement, and
+   rollback.
 
-An arm64 helper running under Rosetta is not evidence of a correct x86_64 slice. Both architectures
-must be built and exercised.
+The originally accepted universal target remains future work. Before claiming Intel or universal
+support, build and verify a real x86_64 slice, assemble both architectures, and exercise the result
+on physical Intel hardware; Rosetta is not Intel evidence.
 
-## Update and rollback
+## Replacement and rollback
 
-The updater operates on signed app artifacts, not an independently downloaded executable:
+Desktop v0.1.0 has no automatic updater. Manual replacement and release tooling operate on signed
+app artifacts, never an independently downloaded helper executable:
 
 1. download to staging and verify signature, notarization ticket, version policy, helper manifest,
-   and both architectures;
+   and the release's declared architecture (`arm64` for v0.1.0);
 2. ask the current service seam to quiesce and boot out the selected job;
 3. atomically promote the verified app bundle;
 4. bootstrap the job from the new stable helper path;
@@ -231,9 +241,9 @@ Unit/contract tests:
 - native readiness wording and implementation identity;
 - config and user-state byte preservation through switch/update/rollback.
 
-Real signed-Mac tests:
+Real signed-Mac tests for Desktop v0.1.0:
 
-- Apple Silicon and Intel launch, health, streaming, cancellation, and restart;
+- Apple Silicon launch, health, streaming, cancellation, and restart;
 - app closed while the on-demand XPC broker resolves a key;
 - wrong-team, unsigned, copied, and stale helper rejected by the broker;
 - locked Keychain, denied consent, missing item, rotation, and logout/login;
@@ -241,6 +251,9 @@ Real signed-Mac tests:
 - interrupted install/update and automatic rollback;
 - `codesign --verify --deep --strict`, Gatekeeper assessment, stapler validation, and clean-user
   first-run recovery.
+
+Physical Intel testing remains required before a later Intel or universal-support claim, not before
+the Apple Silicon-only v0.1.0 release.
 
 ## Non-goals
 
@@ -259,5 +272,6 @@ Real signed-Mac tests:
 - WF-ADR-0042 (thin native client)
 - WF-ADR-0044 (CLI-owned config seam)
 - WF-ADR-0045 (Rust workspace/helper architecture)
+- WF-ROADMAP-0015 (Apple Silicon desktop v0.1.0 release contract)
 - WF-DESIGN-0015 (current setup and Keychain design)
 - `docs/rust-migration-capability-matrix.md`

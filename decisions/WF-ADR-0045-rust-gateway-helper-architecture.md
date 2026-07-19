@@ -11,6 +11,12 @@ tags: [rust, gateway, router, helper, macos, compatibility, security, packaging]
 
 Accepted for staged implementation; Rust is not yet accepted as the default backend.
 
+> Desktop v0.1.0 release amendment (WF-ROADMAP-0015): the native app explicitly ships its bundled
+> Rust gateway as a thin arm64 helper on Apple Silicon. This desktop-product selection does not make
+> Rust the default for standalone, Homebrew, container, or PyPI installations and does not authorize
+> Python removal. The originally accepted universal arm64/x86_64 artifact remains a future broader
+> distribution gate rather than a requirement for the first desktop release.
+
 ## Category
 
 Architecture
@@ -180,17 +186,21 @@ The server binds to loopback by default. A non-loopback bind remains explicit an
 warning; release policy may require gateway authentication for it after a separate compatibility
 decision.
 
-### 8. macOS uses a separately running, universal, signed nested helper
+### 8. macOS uses a separately running, signed nested helper
 
 Wayfinder.app remains SwiftUI/AppKit. The Rust executable is nested at a stable bundle path, signed
 as nested code before the containing app, and run as the per-user launchd service. App exit does not
 stop it; helper failure does not crash the UI process.
 
-Release builds compile `aarch64-apple-darwin` and `x86_64-apple-darwin` with the app's macOS 14
-deployment target, verify each slice independently, combine them as a universal Mach-O, then sign,
+Desktop v0.1.0 release builds compile only `aarch64-apple-darwin` and arm64 Swift products with the
+app's macOS 14 deployment target. They verify that each final executable is exactly arm64, then sign,
 notarize, staple, and validate the outer artifact. Update and rollback boot out the selected job,
 atomically promote a verified helper/app, and re-bootstrap it. They never delete user config,
 ledger, cache policy, or Keychain items implicitly.
+
+The broader distribution target still requires separately verified arm64 and x86_64 slices,
+universal assembly, and physical Intel evidence before any universal-support claim. Desktop v0.1.0
+does not make that claim.
 
 Bundled, Homebrew, and legacy Python installations share a capability/version handshake and an
 explicit backend selection during migration. Only one implementation may own
@@ -207,10 +217,12 @@ preservation, and readiness meaning are not nondeterminism.
 Shadow comparison never duplicates a real provider call. It uses recorded streams, fake local
 providers, or compares the pure decision before a single selected backend performs delivery.
 
-Rust default selection and Python removal are separate future decisions. The default gate includes
-the full capability matrix, Python and Rust tests, formatting/clippy/audit/deny, Swift tests,
-clean-machine setup, local/hosted/hybrid/offline flows, streaming/cancellation, universal signed
-artifacts on real Apple Silicon and Intel Macs, and a tested rollback.
+Rust default selection and Python removal are separate future decisions. The standalone/default gate
+includes the full capability matrix, Python and Rust tests, formatting/clippy/audit/deny, Swift
+tests, clean-machine setup, local/hosted/hybrid/offline flows, streaming/cancellation, universal
+signed artifacts on real Apple Silicon and Intel Macs, and a tested rollback. That future gate does
+not prevent the narrower arm64 Rust helper from shipping inside the Apple Silicon-only desktop
+product under WF-ROADMAP-0015.
 
 ## Consequences
 
@@ -232,8 +244,9 @@ artifacts on real Apple Silicon and Intel Macs, and a tested rollback.
   a substantial differential test matrix.
 - A one-binary CLI means optional UI/TUI commands either need Rust implementations or an explicit
   coexistence/delegation story before full CLI parity.
-- The XPC broker, universal artifact, signing, notarization, update, and real-Intel gates require
-  Apple-specific release work beyond a normal Cargo build.
+- The XPC brokers, signing, notarization, update, and clean-Apple-Silicon gates require
+  Apple-specific release work beyond a normal Cargo build. Universal assembly and real-Intel proof
+  remain additional future work.
 - Security bounds and truthful offline enforcement intentionally reject some currently accepted
   pathological or misleading configurations; each needs a written migration path.
 
@@ -298,7 +311,8 @@ cargo deny --manifest-path rust/Cargo.toml check
 python -m pytest -q
 python compatibility tests
 swift test (macos/WayfinderMac)
-universal release build + codesign/spctl/stapler verification
+arm64 desktop release build + codesign/spctl/stapler verification
+future universal release build + physical Intel verification before a universal claim
 ```
 
 The exact commands evolve with the workspace, but none of the named gate classes may be silently
@@ -313,3 +327,4 @@ omitted from a default-readiness recommendation.
 - WF-ADR-0038/0039 (service and offline delivery)
 - WF-ADR-0042/0044 (thin native client and CLI-owned configuration)
 - `docs/rust-migration-capability-matrix.md`
+- WF-ROADMAP-0015 (Apple Silicon desktop v0.1.0 release contract)

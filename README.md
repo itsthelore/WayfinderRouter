@@ -141,11 +141,20 @@ that takes a Bearer key.</sub>
 
 </div>
 
+### Wayfinder Desktop v0.1.0
+
+The first native desktop release is an **Apple Silicon-only** app for macOS 14 or later. It ships
+focused Chat over the embedded arm64 Rust gateway and uses the independent `desktop-v0.1.0` tag;
+the standalone router keeps its CalVer/PyPI release line. Intel, a universal binary, DMG packaging,
+and automatic updates are later desktop work.
+
 ### Use a ChatGPT Codex account in Desktop Chat (opt-in)
 
 The native desktop app can route Chat through an eligible ChatGPT Codex account without an OpenAI
 Platform API key. This is a separate `codex-app-server` provider—not a bearer token for arbitrary
-OpenAI API calls—and it is never enabled as a default route.
+OpenAI API calls—and it is never enabled as a default route. Desktop v0.1.0 requires the separately
+installed, correctly signed app at `/Applications/ChatGPT.app`; Wayfinder does not bundle or
+redistribute the Codex executable and does not claim that this provider is self-contained.
 
 Add the route to the desktop gateway config, restart the gateway, then use **Settings → Accounts**
 to sign in:
@@ -161,9 +170,10 @@ The account route appears in Chat only when that model is advertised by the isol
 Signing in does not change `Automatic` or any existing route ladder. Requests are hosted and leave
 the Mac; Offline mode disables the provider. Wayfinder receives normalized account state and model
 names, never account tokens, and does not broaden its credential broker. Development builds can use
-an explicitly selected or colocated helper. Release builds reject unverified sibling executables;
-the fixed ChatGPT-app fallback is accepted only when its runtime and signing checks pass. Public
-distribution remains gated on a pinned, licensed, architecture-correct, nested-signed helper. See the
+an explicitly selected or colocated helper. Release builds ignore those development paths and accept
+only the fixed ChatGPT-app runtime after its location, runtime compatibility, and signing checks
+pass. A future self-contained release would require a separate reviewed decision covering licensing,
+pinning, architecture, nested signing, version, and digest verification. See the
 [provider design](designs/WF-DESIGN-0018-codex-chatgpt-provider.md) for the full boundary.
 
 ## Quickstart

@@ -9,7 +9,10 @@ tags: [macos, foundation-models, xpc, rust, provider, offline, privacy]
 
 ## Status
 
-Accepted implementation amendment. Apple Foundation Models remains gated and is not yet a default.
+Implemented as an availability-gated provider. On an eligible, never-configured Apple Silicon Mac,
+Setup preselects the Apple Local preset only after a live `available` response. This is not a global
+route default: existing configuration and route ladders remain unchanged, and Chat still opens on
+`Automatic`.
 
 ## Decision
 
@@ -46,10 +49,10 @@ Availability is a runtime fact, not an OS-version inference. The native service 
 - `unsupported` for older OS or builds without the framework; and
 - `unavailable` for unknown future or sanitized service failures.
 
-New setup may offer and explicitly select `apple-local` only after an `available` response.
-Existing configuration is never rewritten implicitly. Device ineligibility retains Ollama/manual
-local setup. Model-not-ready is temporary readiness state, not provider downtime. Non-macOS and
-macOS 14–15 continue without this provider.
+New setup may offer and preselect `apple-local` only after an `available` response, and the user must
+still confirm configuration. Existing configuration is never rewritten implicitly. Device
+ineligibility retains Ollama/manual local setup. Model-not-ready is temporary readiness state, not
+provider downtime. Non-macOS and macOS 14–15 continue without this provider.
 
 ## Configuration identity
 
@@ -103,11 +106,12 @@ session transcripts.
 
 ## Rollout gate
 
-Apple Foundation Models does not become the preferred local default until buffered and streaming
-public API fixtures, cancellation, bounds, accounting, breaker/cache/offline semantics, signed
-caller authentication, app-closed inference, update/rollback preservation, and clean Apple Silicon
-evidence all pass. Ollama/manual local setup remains supported. This decision does not select Rust
-as the default gateway or remove Python.
+The provider's implementation gates cover buffered and streaming public API fixtures, cancellation,
+bounds, accounting, breaker/cache/offline semantics, and signed caller authentication. Desktop
+v0.1.0 still requires final signed app-closed inference and clean Apple Silicon release evidence.
+The accepted setup preference is limited to never-configured Macs with confirmed live availability;
+Ollama/manual local setup remains supported, existing configuration is preserved, and no global
+`Automatic` route is changed. This decision does not remove the standalone Python distribution.
 
 ## Related
 

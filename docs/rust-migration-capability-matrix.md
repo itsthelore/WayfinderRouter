@@ -4,6 +4,14 @@ Status: discovery baseline, 2026-07-11
 Python baseline: `cea7d98833a4f54e3c2ebf2588fc2fc5adbad7cd` plus the preserved dirty worktree described below
 Rust parity: Phases 1–3 complete; operations, CLI, and distribution gates remain
 
+> Current Desktop amendment (2026-07-19): this document preserves the 2026-07-11 discovery baseline.
+> WF-ROADMAP-0015 supersedes its native packaging/default rows for Desktop v0.1.0. The Desktop app
+> explicitly selects a bundled arm64 Rust gateway with authenticated credential and Foundation
+> Models XPC services; Developer ID/notarization and clean-machine evidence remain. Python stays
+> runnable for standalone/rollback use, while Intel and universal evidence remain future gates.
+> Conservative `gateway_ready: false` migration metadata does not override Desktop's explicit
+> verified-helper selection.
+
 This is the compatibility contract for the Python-to-Rust migration. It is intentionally
 evidence-first: a Rust module is not considered compatible merely because it has an analogous
 type or endpoint. Parity requires the relevant differential, golden, or contract tests to pass.

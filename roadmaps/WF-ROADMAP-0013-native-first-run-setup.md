@@ -5,17 +5,24 @@ type: roadmap
 tags: [desktop, macos, swiftui, onboarding, first-run, homebrew, service, keychain, accessibility]
 ---
 
-# Roadmap: ship a guided native first-run setup for the Homebrew-installed macOS app
+# Roadmap: ship a guided native first-run setup for the macOS app
 
 ## Status
 
-Proposed
+Implemented for the bundled Apple Silicon Desktop v0.1.0 path. Homebrew/Intel distribution remains
+proposed follow-up work.
+
+> Desktop v0.1.0 release amendment (WF-ROADMAP-0015): the implemented Setup Assistant ships in the
+> Apple Silicon-only app with its arm64 Rust gateway already bundled. The Homebrew cask/formula,
+> universal artifact, and physical Intel distribution phases below remain proposed follow-up work;
+> they are not v0.1.0 installation requirements. For this release, bundled-helper discovery takes
+> precedence while the explicit legacy/Homebrew fallback remains available.
 
 ## Decision summary
 
-The native macOS app needs a focused, dismissible **Setup Assistant** for first run and recovery.
-Homebrew installs the app and gateway tooling; the assistant configures this user’s routing,
-credentials, and launch agent through the existing gateway CLI seams. A new user must not need to
+The native macOS app provides a focused, dismissible **Setup Assistant** for first run and recovery.
+Desktop v0.1.0 embeds the arm64 Rust gateway; the assistant configures this user's routing,
+credentials, and launch agent through the fixed gateway CLI seams. A new user must not need to
 discover terminal commands, edit TOML, or infer why a menu-bar icon says “Not Installed.”
 
 This is not a permanent onboarding dashboard and it does not live inside the 340 pt popover. It is
@@ -24,7 +31,8 @@ Settings, and disappears from the normal path after success.
 
 The assistant preserves the existing product boundaries:
 
-- the Homebrew cask installs `Wayfinder.app` and depends on the `wayfinder-router` formula;
+- Desktop v0.1.0 installs as one app with its arm64 Rust gateway embedded; Homebrew/Python remains an
+  explicit rollback or later distribution path;
 - the gateway CLI remains the only config author (WF-ADR-0044);
 - the service remains launchd-owned and the app never supervises it (WF-ADR-0042/0038);
 - credentials go directly to Keychain and never persist in Swift state, argv, logs, or files;
@@ -34,7 +42,7 @@ The assistant preserves the existing product boundaries:
 
 ## Outcomes
 
-- `brew install --cask wayfinder` leads to a usable router without requiring further terminal work.
+- Installing `Wayfinder.app` leads to a usable bundled router without requiring terminal work.
 - A new user understands what Wayfinder does, chooses an appropriate routing preset, supplies only
   required credentials, and reaches a truthful ready/degraded state in a few minutes.
 - Existing users and hand-authored configurations are detected and preserved.
@@ -87,12 +95,18 @@ been healthy. That is an operational failure, not first run.
 
 Present native radio rows with a title, one-line behavior summary, and requirements:
 
-1. **Hybrid — Recommended**: local endpoint plus a hosted fallback; requires the relevant local
+1. **Apple Foundation Models**: shown and preselected only on an eligible, never-configured Mac after
+   a live `available` response; requires no provider key and still requires user confirmation.
+2. **Hybrid — Recommended** when Apple is unavailable: local endpoint plus a hosted fallback;
+   requires the relevant local
    runtime and one hosted-provider key.
-2. **Local only**: configured local endpoint; no provider key; explicitly eligible for the
+3. **Local only**: configured local endpoint; no provider key; explicitly eligible for the
    nothing-leaves-this-Mac claim when offline delivery is enforced.
-3. **OpenAI**: hosted cost/capability tiers; requires an OpenAI key.
-4. **Gemini**: hosted cost/capability tiers; requires a Gemini key.
+4. **OpenAI**: hosted cost/capability tiers; requires an OpenAI key.
+5. **Gemini**: hosted cost/capability tiers; requires a Gemini key.
+
+Existing configurations are never rewritten, and setup preference never changes Chat's initial
+`Automatic` destination or any existing route ladder.
 
 Preset identifiers and descriptions must come from a gateway-owned machine-readable surface or a
 versioned shared contract. The app must not independently recreate preset TOML or routing rules.
@@ -162,7 +176,7 @@ When setup is incomplete, the popover renders:
 1. Header — Wayfinder / Not Set Up.
 2. Routing — No routing history.
 3. Endpoint Status — Unavailable or the truthful configured summary.
-4. Disabled Chat — Coming later.
+4. Chat — opens the retained dedicated Chat window when the gateway is available.
 5. **Set Up Wayfinder…**.
 6. Settings….
 7. Quit Wayfinder.
@@ -249,12 +263,13 @@ set-up-later, and existing-config handling.
 
 - Add an explicit setup presentation model derived from setup assessment plus gateway truth.
 - Show `Set Up Wayfinder…` only when setup is incomplete or explicitly deferred.
-- Keep Chat technically blocked and retain the 340×420 pt sizing contract.
+- Keep Chat out of the setup surface; open the retained dedicated Chat window and preserve the
+  340×420 pt popover sizing contract.
 - Ensure setup state never removes Settings or Quit and never adds raw diagnostic rows.
 - Refresh gateway/setup assessment when the assistant completes or closes.
 
-**Tests:** measure incomplete, deferred, degraded, and complete popovers; prove no clipping, scroll,
-Chat route, or stale setup action.
+**Tests:** measure incomplete, deferred, degraded, and complete popovers; prove no clipping, stale
+setup action, or duplicate setup/Chat presentation.
 
 ### Phase 5 — Homebrew and clean-machine release gate
 
@@ -282,14 +297,15 @@ accessibility findings remain.
 - Popover integration: `Models/PopoverPresentation.swift`,
   `UI/MenuBarPopover/WayfinderPopoverView.swift`.
 - Settings recovery entry: `UI/Settings/GatewaySettingsView.swift`.
-- Packaging: Homebrew tap formula/cask definitions and the existing signed app release workflow.
+- Packaging: the signed embedded-app release workflow; Homebrew formula/cask definitions remain
+  follow-up distribution work.
 - Verification: `Tests/WayfinderMacTests/` plus clean-machine setup screenshots/checklist.
 
 ## Success measures
 
 - Median clean first run reaches configured gateway state in under three minutes, excluding
   third-party runtime downloads.
-- No terminal command or TOML edit is required after the Homebrew install command.
+- No terminal command or TOML edit is required after installing the app.
 - Local-only setup completes without requesting a hosted-provider key.
 - Existing configs survive setup, repair, upgrade, and cask reinstall byte-for-byte unless the
   gateway CLI performs an explicit validated mutation requested by the user.
