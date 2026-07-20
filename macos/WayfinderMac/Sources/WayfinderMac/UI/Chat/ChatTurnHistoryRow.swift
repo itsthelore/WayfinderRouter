@@ -3,25 +3,19 @@ import SwiftUI
 public struct ChatTurnHistoryRow: View {
     let turn: ChatTurn
     let isLast: Bool
-    let isSelected: Bool
     let canRetry: Bool
     let onRetry: () -> Void
-    let onShowRouting: () -> Void
 
     public init(
         turn: ChatTurn,
         isLast: Bool,
-        isSelected: Bool,
         canRetry: Bool,
-        onRetry: @escaping () -> Void,
-        onShowRouting: @escaping () -> Void
+        onRetry: @escaping () -> Void
     ) {
         self.turn = turn
         self.isLast = isLast
-        self.isSelected = isSelected
         self.canRetry = canRetry
         self.onRetry = onRetry
-        self.onShowRouting = onShowRouting
     }
 
     public var body: some View {
@@ -30,11 +24,10 @@ public struct ChatTurnHistoryRow: View {
 
             if let response = turn.response {
                 AssistantTurnResponse(
+                    turn: turn,
                     response: response,
-                    isSelected: isSelected,
                     canRetry: canRetry,
-                    onRetry: onRetry,
-                    onShowRouting: onShowRouting
+                    onRetry: onRetry
                 )
             } else {
                 PendingRouteStrip()
@@ -70,11 +63,10 @@ public struct ChatTurnHistoryRow: View {
 }
 
 private struct AssistantTurnResponse: View {
+    let turn: ChatTurn
     let response: ChatMessage
-    let isSelected: Bool
     let canRetry: Bool
     let onRetry: () -> Void
-    let onShowRouting: () -> Void
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -132,9 +124,8 @@ private struct AssistantTurnResponse: View {
 
                 if let decision = response.decision {
                     RoutingReceiptButton(
-                        decision: decision,
-                        isSelected: isSelected,
-                        action: onShowRouting
+                        turn: turn,
+                        decision: decision
                     )
                 }
         }
@@ -144,21 +135,21 @@ private struct AssistantTurnResponse: View {
 }
 
 private struct RoutingReceiptButton: View {
+    let turn: ChatTurn
     let decision: RoutingDecision
-    let isSelected: Bool
-    let action: () -> Void
+    @State private var showsRoutingDetails = false
 
     var body: some View {
-        Button(action: action) {
+        Button {
+            showsRoutingDetails.toggle()
+        } label: {
             HStack(spacing: 6) {
                 Image(systemName: decision.route.symbolName)
                     .foregroundStyle(decision.route.accentColor)
                 Text(decision.routeSummary)
                     .fontWeight(.semibold)
-                Text("Routing details")
-                    .foregroundStyle(ChatWorkspaceChrome.secondaryText)
-                Image(systemName: "chevron.right")
-                    .font(.caption2.weight(.semibold))
+                Image(systemName: "info.circle")
+                    .font(.caption.weight(.semibold))
                     .foregroundStyle(ChatWorkspaceChrome.tertiaryText)
             }
             .font(.caption)
@@ -166,9 +157,21 @@ private struct RoutingReceiptButton: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .foregroundStyle(isSelected ? decision.route.accentColor : .primary)
+        .foregroundStyle(decision.route.accentColor)
         .accessibilityLabel("\(decision.routeSummary). Show routing details.")
-        .help("Show this turn in the routing inspector")
+        .help("Show routing details")
+        .onHover { hovering in
+            if hovering {
+                showsRoutingDetails = true
+            }
+        }
+        .popover(isPresented: $showsRoutingDetails, arrowEdge: .bottom) {
+            RoutingOutputsPanel(
+                turn: turn,
+                onClose: { showsRoutingDetails = false }
+            )
+            .frame(width: 400, height: 560)
+        }
     }
 }
 

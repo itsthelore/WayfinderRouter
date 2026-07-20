@@ -13,16 +13,12 @@ enum ChatWorkspaceChrome {
     static let sidebarMinimumWidth: CGFloat = 210
     static let sidebarWidth: CGFloat = 220
     static let sidebarMaximumWidth: CGFloat = 260
-    static let inspectorMinimumWidth: CGFloat = 260
-    static let inspectorWidth: CGFloat = 296
-    static let inspectorMaximumWidth: CGFloat = 340
     static let conversationWidth: CGFloat = 760
     static let composerWidth: CGFloat = 780
     static let initialWindowWidth: CGFloat = 1_180
     static let initialWindowHeight: CGFloat = 720
     static let minimumWindowWidth: CGFloat = 900
     static let minimumWindowHeight: CGFloat = 580
-    static let showsInspectorByDefault = false
 }
 
 public enum ChatRouteFilter: String, CaseIterable, Identifiable {
