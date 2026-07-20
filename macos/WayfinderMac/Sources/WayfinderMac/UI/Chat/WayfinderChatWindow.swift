@@ -6,7 +6,6 @@ public struct WayfinderChatWindow: View {
     @State private var routeFilter: ChatRouteFilter = .all
     @State private var searchText = ""
     @State private var columnVisibility: NavigationSplitViewVisibility = .all
-    @State private var showsInspector = ChatWorkspaceChrome.showsInspectorByDefault
     @State private var followsLatestTurn = true
     @State private var searchFocusRequest = 0
 
@@ -41,10 +40,8 @@ public struct WayfinderChatWindow: View {
                 ChatToolbar(
                     title: chatTitle(in: turns),
                     showsSidebar: showsSidebar,
-                    showsInspector: showsInspector,
                     onToggleSidebar: toggleSidebar,
                     onFocusSearch: focusSearch,
-                    onToggleInspector: { showsInspector.toggle() },
                     canRetry: appState.canRetryChat,
                     canClear: appState.canClearChat,
                     onRetry: retryLastTurn,
@@ -55,11 +52,7 @@ public struct WayfinderChatWindow: View {
                     turns: workspace.transcriptTurns,
                     selectedTurnID: $selectedTurnID,
                     canRetry: appState.canRetryChat,
-                    onRetry: retryLastTurn,
-                    onOpenRouting: { turn in
-                        selectedTurnID = turn.id
-                        showsInspector = true
-                    }
+                    onRetry: retryLastTurn
                 )
                 ChatComposerView(
                     draft: $appState.chatDraft,
@@ -75,17 +68,6 @@ public struct WayfinderChatWindow: View {
                 )
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .inspector(isPresented: $showsInspector) {
-                RoutingOutputsPanel(
-                    turn: selectedTurn(in: turns),
-                    onClose: { showsInspector = false }
-                )
-                .inspectorColumnWidth(
-                    min: ChatWorkspaceChrome.inspectorMinimumWidth,
-                    ideal: ChatWorkspaceChrome.inspectorWidth,
-                    max: ChatWorkspaceChrome.inspectorMaximumWidth
-                )
-            }
         }
         .navigationSplitViewStyle(.prominentDetail)
         .frame(
@@ -121,7 +103,11 @@ public struct WayfinderChatWindow: View {
     }
 
     private func toggleSidebar() {
-        columnVisibility = showsSidebar ? .detailOnly : .all
+        if showsSidebar {
+            columnVisibility = .detailOnly
+        } else {
+            columnVisibility = .all
+        }
     }
 
     private func focusSearch() {
@@ -149,21 +135,13 @@ public struct WayfinderChatWindow: View {
         return firstPrompt
     }
 
-    private func selectedTurn(in turns: [ChatTurn]) -> ChatTurn? {
-        guard let selectedTurnID else {
-            return nil
-        }
-        return turns.first { $0.id == selectedTurnID }
-    }
 }
 
 private struct ChatToolbar: View {
     let title: String
     let showsSidebar: Bool
-    let showsInspector: Bool
     let onToggleSidebar: () -> Void
     let onFocusSearch: () -> Void
-    let onToggleInspector: () -> Void
     let canRetry: Bool
     let canClear: Bool
     let onRetry: () -> Void
@@ -197,13 +175,6 @@ private struct ChatToolbar: View {
                 .keyboardShortcut("r", modifiers: .command)
                 .help("Retry the last response")
             }
-            Button(action: onToggleInspector) {
-                Image(systemName: "sidebar.right")
-                    .symbolVariant(showsInspector ? .fill : .none)
-            }
-            .accessibilityLabel(showsInspector ? "Hide routing inspector" : "Show routing inspector")
-            .keyboardShortcut("i", modifiers: [.command, .control])
-            .help(showsInspector ? "Hide routing inspector" : "Show routing inspector")
             Button(action: onClear) {
                 Image(systemName: "square.and.pencil")
             }
