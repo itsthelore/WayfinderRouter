@@ -5,7 +5,6 @@ public struct ChatConversationView: View {
     @Binding var selectedTurnID: UUID?
     let canRetry: Bool
     let onRetry: () -> Void
-    let onOpenRouting: (ChatTurn) -> Void
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var isNearBottom = true
 
@@ -13,14 +12,12 @@ public struct ChatConversationView: View {
         turns: [ChatTurn],
         selectedTurnID: Binding<UUID?>,
         canRetry: Bool = false,
-        onRetry: @escaping () -> Void = {},
-        onOpenRouting: @escaping (ChatTurn) -> Void = { _ in }
+        onRetry: @escaping () -> Void = {}
     ) {
         self.turns = turns
         self._selectedTurnID = selectedTurnID
         self.canRetry = canRetry
         self.onRetry = onRetry
-        self.onOpenRouting = onOpenRouting
     }
 
     public var body: some View {
@@ -37,13 +34,8 @@ public struct ChatConversationView: View {
                                     ChatTurnHistoryRow(
                                         turn: turn,
                                         isLast: index == turns.count - 1,
-                                        isSelected: selectedTurnID == turn.id,
                                         canRetry: canRetry && index == turns.count - 1,
-                                        onRetry: onRetry,
-                                        onShowRouting: {
-                                            selectedTurnID = turn.id
-                                            onOpenRouting(turn)
-                                        }
+                                        onRetry: onRetry
                                     )
                                     .id(turn.id)
                                 }
