@@ -163,6 +163,7 @@ def _cmd_calibrate(args: argparse.Namespace) -> int:
             iterations=args.iterations,
             l2=args.l2,
             objective=args.objective,
+            quality_penalty=args.quality_penalty,
             costs=costs,
             target_savings=args.target_savings,
             weights=weights,
@@ -1161,17 +1162,26 @@ def build_parser() -> argparse.ArgumentParser:
     )
     p_cal.add_argument(
         "--objective",
-        choices=["accuracy", "knee", "cost-quality"],
+        choices=["accuracy", "min-cost", "knee", "cost-quality"],
         default="accuracy",
-        help="threshold mode: maximize accuracy (default); 'knee' for the cost-aware "
-        "knee (quality x savings, no target needed); or 'cost-quality' for accuracy at "
-        "a --target-savings.",
+        help="threshold mode: maximize accuracy (default); 'min-cost' to minimize "
+        "expected money + a --quality-penalty for botched cheap-routes (real prices "
+        "steer the cut); 'knee' for the cost knee (quality x savings, no target, but "
+        "ratio-invariant); or 'cost-quality' for accuracy at a --target-savings.",
     )
     p_cal.add_argument(
         "--target-savings",
         type=float,
         default=None,
         help="Cost saved vs always-routing-high to hold, 0.0-1.0 (cost-quality objective).",
+    )
+    p_cal.add_argument(
+        "--quality-penalty",
+        type=float,
+        default=None,
+        help="min-cost objective: cost (in --costs units) of the cheap model botching a "
+        "prompt that belonged on the strong one. Defaults to the high-arm cost (a wrong "
+        "answer ~ one strong-model redo); raise it when a bad answer costs more.",
     )
     p_cal.add_argument(
         "--costs",
