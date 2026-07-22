@@ -2,15 +2,16 @@
 
 Wayfinder's first native desktop release is a focused Apple Silicon menu-bar app with its Rust
 gateway built in. It keeps routing visible without turning the popover into a dashboard, and adds a
-dedicated thread-first Chat window with detailed routing information in a collapsible right-hand
-inspector.
+dedicated thread-first Chat window where routing details stay secondary in a per-response popover.
 
 ## Included
 
 - Native menu-bar status, setup, Settings, endpoint readiness, routing controls, Offline mode, and
   Keychain-backed provider configuration.
-- Focused Chat with streaming, Stop, Retry, New Chat, bounded in-memory history, explicit destination
-  selection, and truthful failure/recovery states.
+- Focused Chat with streaming, Stop, Retry, New Chat, locally persisted conversation history,
+  explicit destination selection, personal destination names, and truthful failure/recovery states.
+- A consolidated Connections screen for ChatGPT account access and API-key providers, including
+  one-click ChatGPT route configuration before the native sign-in flow.
 - The arm64 Rust gateway and authenticated Credential Broker and Foundation Model Broker XPC services
   inside the desktop app, all on the same `0.1.0` product version.
 - Apple Foundation Models as an on-device provider on eligible macOS 26+ Apple Silicon systems where
@@ -46,7 +47,8 @@ keys remain a separate provider path, and Wayfinder never imports ChatGPT tokens
 
 ## Current boundaries
 
-- Conversations are kept in memory for this release.
+- Conversation history is stored locally on this Mac. It is not synced or sent anywhere merely by
+  being retained.
 - Chat remains a thin client over the bundled gateway; it is not an agent, tool runner, filesystem
   client, or credential owner.
 - The ChatGPT provider depends on verified `/Applications/ChatGPT.app` and is not self-contained.
