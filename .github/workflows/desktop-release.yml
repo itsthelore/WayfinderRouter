@@ -99,16 +99,21 @@ jobs:
     permissions:
       contents: write
     env:
-      SIGNING_KEYCHAIN: ${{ runner.temp }}/wayfinder-signing.keychain-db
-      SIGNING_CERTIFICATE: ${{ runner.temp }}/wayfinder-developer-id.p12
-      NOTARY_PRIVATE_KEY: ${{ runner.temp }}/AuthKey.p8
       NOTARYTOOL_PROFILE: wayfinder-desktop-ci
-      NOTARYTOOL_KEYCHAIN: ${{ runner.temp }}/wayfinder-signing.keychain-db
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
         with:
           fetch-depth: 0
           persist-credentials: false
+      - name: Set ephemeral release paths
+        shell: bash
+        run: |
+          {
+            echo "SIGNING_KEYCHAIN=$RUNNER_TEMP/wayfinder-signing.keychain-db"
+            echo "SIGNING_CERTIFICATE=$RUNNER_TEMP/wayfinder-developer-id.p12"
+            echo "NOTARY_PRIVATE_KEY=$RUNNER_TEMP/AuthKey.p8"
+            echo "NOTARYTOOL_KEYCHAIN=$RUNNER_TEMP/wayfinder-signing.keychain-db"
+          } >> "$GITHUB_ENV"
       - name: Reconfirm immutable release input
         run: |
           test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
