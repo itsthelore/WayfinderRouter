@@ -178,6 +178,23 @@ offline (WF-ADR-0001).
   `X-Wayfinder-Sticky` / `X-Wayfinder-Sticky-Cooldown` headers — so what the status bar shows is what
   routes, identically across both backends. Still pure and offline (WF-ADR-0001).
 
+- **Decision-only replies when no model is configured** (WF-ADR-0042). A running gateway with no
+  `[gateway.models]` now answers `/v1/chat/completions` with the routing **decision** (HTTP 200,
+  `{"wayfinder": {…}}` and an `x-wayfinder-router-decision-only: true` header) instead of a `500` — so
+  you see real routing the moment the gateway starts, before wiring any backend, and a client can
+  render decisions while a local model is still warming up. Only delivery is skipped; the decision is
+  computed offline and is identical to `--dry-run` (WF-ADR-0001). A genuine outage (models configured
+  but all cooling down) still returns its `503`.
+
+- **`serve --config` / `WAYFINDER_CONFIG`** (WF-ADR-0042). Point the gateway at a specific
+  `wayfinder-router.toml` instead of relying on the working-directory search: `wayfinder-router serve
+  --config <path>` (or set `WAYFINDER_CONFIG`). `service install --config <path>` bakes it into the
+  launchd / systemd unit, so a service-managed gateway loads a fixed file regardless of where it was
+  launched — and a desktop app and the service can share one well-known config. Precedence is
+  `--config` → `WAYFINDER_CONFIG` → the existing cwd walk-up → built-in defaults; an
+  explicitly-configured-but-missing file is a clear "not found" (never a silent fallback to some other
+  file). Fully backward-compatible — unset means the unchanged behavior.
+
 ## v2026.6.10 — 2026-06-29
 
 The **feedback release** — features driven by post-launch feedback.
