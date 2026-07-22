@@ -3,24 +3,28 @@ import SwiftUI
 
 public struct AccountsSettingsView: View {
     @ObservedObject private var accountState: CodexAccountSettingsState
+    private let embedded: Bool
     @State private var confirmSignOut = false
 
-    public init(accountState: CodexAccountSettingsState) {
+    public init(accountState: CodexAccountSettingsState, embedded: Bool = false) {
         self.accountState = accountState
+        self.embedded = embedded
     }
 
     public var body: some View {
         VStack(alignment: .leading, spacing: 14) {
-            VStack(alignment: .leading, spacing: 6) {
-                Text("Accounts")
-                    .font(.title3.weight(.semibold))
-                Text("Connect services that use an account rather than a provider API key.")
-                    .font(.callout)
-                    .foregroundStyle(.secondary)
+            if !embedded {
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("Accounts")
+                        .font(.title3.weight(.semibold))
+                    Text("Connect services that use an account rather than a provider API key.")
+                        .font(.callout)
+                        .foregroundStyle(.secondary)
+                }
             }
 
             Form {
-                Section("ChatGPT") {
+                Section(embedded ? "Account" : "ChatGPT") {
                     accountContent
                 }
 
@@ -34,9 +38,9 @@ public struct AccountsSettingsView: View {
             }
             .formStyle(.grouped)
         }
-        .padding(.horizontal, 28)
-        .padding(.top, 24)
-        .padding(.bottom, 16)
+        .padding(.horizontal, embedded ? 0 : 28)
+        .padding(.top, embedded ? 0 : 24)
+        .padding(.bottom, embedded ? 0 : 16)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .task {
             if accountState.state == .checking {
@@ -67,6 +71,21 @@ public struct AccountsSettingsView: View {
                 symbol: "person.crop.circle.badge.clock",
                 showsProgress: true
             )
+        case .needsConfiguration:
+            VStack(alignment: .leading, spacing: 12) {
+                statusRow(
+                    title: "Connect ChatGPT",
+                    detail: "Wayfinder will add ChatGPT as an available destination without changing Automatic routing.",
+                    symbol: "person.crop.circle.badge.plus"
+                )
+                HStack(spacing: 8) {
+                    Button("Connect ChatGPT") { configureAndBeginBrowserLogin() }
+                        .buttonStyle(.borderedProminent)
+                        .disabled(accountState.isPerformingAction)
+                    actionProgress
+                    Spacer()
+                }
+            }
         case .signedOut:
             signedOutContent
         case .awaitingBrowser(let login):
@@ -317,6 +336,14 @@ public struct AccountsSettingsView: View {
     private func beginBrowserLogin() {
         Task {
             if let url = await accountState.beginLogin(flow: .browser) {
+                NSWorkspace.shared.open(url)
+            }
+        }
+    }
+
+    private func configureAndBeginBrowserLogin() {
+        Task {
+            if let url = await accountState.configureAndBeginLogin() {
                 NSWorkspace.shared.open(url)
             }
         }

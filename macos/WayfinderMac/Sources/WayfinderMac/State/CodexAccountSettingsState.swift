@@ -2,6 +2,7 @@ import Foundation
 
 public enum CodexAccountViewState: Equatable, Sendable {
     case checking
+    case needsConfiguration
     case signedOut
     case awaitingBrowser(CodexPendingLogin)
     case awaitingDeviceCode(CodexPendingLogin)
@@ -36,6 +37,7 @@ public final class CodexAccountSettingsState: ObservableObject {
     @Published public private(set) var modelCatalogError: String?
 
     private let client: any CodexAccountClient
+    private let configurator: any ChatGPTProviderConfigurator
     private let automaticallyPollLogin: Bool
     private let pollIntervalNanoseconds: UInt64
     private let maximumPollCount: Int
@@ -44,12 +46,14 @@ public final class CodexAccountSettingsState: ObservableObject {
 
     public init(
         client: any CodexAccountClient = GatewayCodexAccountClient(),
+        configurator: any ChatGPTProviderConfigurator = LocalChatGPTProviderConfigurator(),
         automaticallyPollLogin: Bool = true,
         pollIntervalNanoseconds: UInt64 = 1_000_000_000,
         maximumPollCount: Int = 300,
         onAccountStateChanged: @escaping @MainActor () -> Void = {}
     ) {
         self.client = client
+        self.configurator = configurator
         self.automaticallyPollLogin = automaticallyPollLogin
         self.pollIntervalNanoseconds = pollIntervalNanoseconds
         self.maximumPollCount = maximumPollCount
@@ -67,7 +71,28 @@ public final class CodexAccountSettingsState: ObservableObject {
             let snapshot = try await client.account()
             await apply(snapshot, startPolling: true)
         } catch {
+            if case CodexAccountClientError.gatewayStatus(404) = error {
+                state = .needsConfiguration
+            } else {
+                state = .failed(message: Self.message(for: error))
+            }
+        }
+    }
+
+    @discardableResult
+    public func configureAndBeginLogin() async -> URL? {
+        guard !isPerformingAction else { return nil }
+        isPerformingAction = true
+        defer { isPerformingAction = false }
+        do {
+            try await configurator.configure()
+            let snapshot = try await client.beginLogin(flow: .browser)
+            await apply(snapshot, startPolling: true)
+            if case .awaitingBrowser(let login) = state { return login.url }
+            return nil
+        } catch {
             state = .failed(message: Self.message(for: error))
+            return nil
         }
     }
 

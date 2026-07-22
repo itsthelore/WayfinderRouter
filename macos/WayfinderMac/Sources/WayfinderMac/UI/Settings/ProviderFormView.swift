@@ -48,7 +48,7 @@ public struct ProviderFormView: View {
                 ExistingKeyRow(title: "Provider", value: detail.providerName, symbolName: "building.2")
                 ExistingKeyRow(title: "Models", value: detail.modelSummary, symbolName: "cpu")
                 ProviderModelListRow(models: detail.models)
-                ExistingKeyRow(title: "Key env var", value: detail.keyEnvironmentVariable ?? "none", symbolName: "terminal")
+                ExistingKeyRow(title: "API key variable", value: detail.keyEnvironmentVariable ?? "none", symbolName: "terminal")
                 ExistingKeyRow(title: "Status", value: effectiveStatus.title, symbolName: effectiveStatus.symbolName, status: effectiveStatus)
             }
 

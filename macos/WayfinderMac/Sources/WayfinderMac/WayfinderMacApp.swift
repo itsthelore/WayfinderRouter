@@ -90,7 +90,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
         false
     }
 
-    private func showSettingsWindow(section: SettingsSection = .gateway) {
+    private func showSettingsWindow(section: SettingsSection = .connections) {
         settingsWindowController?.show(section: section)
     }
 }

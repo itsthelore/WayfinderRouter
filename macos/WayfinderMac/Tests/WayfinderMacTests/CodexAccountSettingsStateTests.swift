@@ -4,6 +4,29 @@ import XCTest
 
 final class CodexAccountSettingsStateTests: XCTestCase {
     @MainActor
+    func testMissingRouteBecomesOneClickConfigurationThenBrowserLogin() async {
+        let login = CodexPendingLogin(
+            id: "configured-login",
+            flow: .browser,
+            url: URL(string: "https://auth.openai.com/start")!
+        )
+        let client = MissingRouteCodexClient(login: login)
+        let configurator = RecordingChatGPTConfigurator()
+        let state = CodexAccountSettingsState(
+            client: client,
+            configurator: configurator,
+            automaticallyPollLogin: false
+        )
+
+        await state.refresh()
+        XCTAssertEqual(state.state, .needsConfiguration)
+        let authorizationURL = await state.configureAndBeginLogin()
+        XCTAssertEqual(authorizationURL, login.url)
+        XCTAssertEqual(state.state, .awaitingBrowser(login))
+        let configurationCalls = await configurator.callCount()
+        XCTAssertEqual(configurationCalls, 1)
+    }
+    @MainActor
     func testBrowserLoginCanBeCancelledWithoutExposingAnythingButLoginID() async {
         let login = CodexPendingLogin(
             id: "browser-login",
@@ -111,6 +134,22 @@ final class CodexAccountSettingsStateTests: XCTestCase {
         await state.signOut()
         XCTAssertEqual(refreshCount, 2)
     }
+}
+
+private actor RecordingChatGPTConfigurator: ChatGPTProviderConfigurator {
+    private var calls = 0
+    func configure() async throws { calls += 1 }
+    func callCount() -> Int { calls }
+}
+
+private actor MissingRouteCodexClient: CodexAccountClient {
+    let login: CodexPendingLogin
+    init(login: CodexPendingLogin) { self.login = login }
+    func account() async throws -> CodexAccountSnapshot { throw CodexAccountClientError.gatewayStatus(404) }
+    func models() async throws -> CodexModelsResponse { CodexModelsResponse(models: []) }
+    func beginLogin(flow: CodexLoginFlow) async throws -> CodexAccountSnapshot { .awaitingBrowser(login) }
+    func cancelLogin(id: String) async throws -> CodexAccountSnapshot { .signedOut }
+    func logout() async throws -> CodexAccountSnapshot { .signedOut }
 }
 
 private actor ScriptedCodexAccountClient: CodexAccountClient {

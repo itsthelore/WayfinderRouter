@@ -167,14 +167,14 @@ final class ChatDeliveryTests: XCTestCase {
                 WayfinderClientError.chatAccountNotReady,
                 destination: destination
             ),
-            .accounts
+            .connections
         )
         XCTAssertEqual(
             AppState.chatRecoverySettingsSection(
                 WayfinderClientError.chatAccountNotReady,
                 destination: .automatic
             ),
-            .accounts
+            .connections
         )
         XCTAssertEqual(
             AppState.chatRecoverySettingsSection(

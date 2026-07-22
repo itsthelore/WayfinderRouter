@@ -313,9 +313,9 @@ public final class AppState: ObservableObject {
         }
         switch clientError {
         case .chatAccountNotReady:
-            return .accounts
+            return .connections
         case .gatewayStatus(503, _) where destination.isChatGPTAccount:
-            return .accounts
+            return .connections
         default:
             return .gateway
         }
@@ -386,12 +386,9 @@ public final class AppState: ObservableObject {
 }
 
 public enum SettingsSection: String, CaseIterable, Codable, Identifiable, Sendable {
+    case connections = "Connections"
     case gateway = "Gateway"
     case routing = "Routing"
-    case accounts = "Accounts"
-    case keys = "Keys"
-    case privacy = "Privacy"
-    case help = "Help"
     case about = "About"
 
     public var id: String { rawValue }
@@ -402,23 +399,37 @@ public enum SettingsSection: String, CaseIterable, Codable, Identifiable, Sendab
             return "server.rack"
         case .routing:
             return "point.topleft.down.curvedto.point.bottomright.up"
-        case .accounts:
-            return "person.crop.circle"
-        case .keys:
-            return "key"
-        case .privacy:
-            return "shield"
-        case .help:
-            return "questionmark.circle"
+        case .connections:
+            return "link"
         case .about:
             return "info.circle"
         }
+    }
+
+    public init(from decoder: Decoder) throws {
+        let value = try decoder.singleValueContainer().decode(String.self)
+        switch value {
+        case "Gateway": self = .gateway
+        case "Routing": self = .routing
+        case "Connections", "Accounts", "Keys": self = .connections
+        case "About", "Help", "Privacy": self = .about
+        default:
+            throw DecodingError.dataCorruptedError(
+                in: try decoder.singleValueContainer(),
+                debugDescription: "Unknown settings section"
+            )
+        }
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.singleValueContainer()
+        try container.encode(rawValue)
     }
 }
 
 public enum ProviderKind: String, CaseIterable, Identifiable, Sendable {
     case anthropic = "Anthropic"
-    case openAI = "OpenAI"
+    case openAI = "OpenAI API"
     case googleGemini = "Google Gemini"
     case ollama = "Ollama"
     case lmStudio = "LM Studio"
