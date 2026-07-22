@@ -26,7 +26,7 @@ final class SettingsWindowController {
         self.navigation = navigation
     }
 
-    func show(section: SettingsSection = .gateway) {
+    func show(section: SettingsSection = .connections) {
         navigation.select(section)
         window.makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)

@@ -13,12 +13,27 @@ public struct KeysSettingsView: View {
                 VStack(alignment: .leading, spacing: 6) {
                     Text("Keys")
                         .font(.title3.weight(.semibold))
-                    Text("Provider credentials are read by the gateway.")
+                    Text("API keys for provider routes. Account sign-in is managed separately.")
                         .font(.callout)
                         .foregroundStyle(.secondary)
                 }
 
                 ProviderTabRow(selected: $selectedProvider)
+
+                if selectedProvider == .openAI {
+                    Label {
+                        Text("ChatGPT subscription access is connected under Accounts and does not use an OpenAI API key.")
+                    } icon: {
+                        Image(systemName: "person.crop.circle")
+                    }
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 10)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .background(WayfinderTheme.panel.opacity(0.46))
+                    .accessibilityElement(children: .combine)
+                }
 
                 ProviderFormView(provider: selectedProvider)
 

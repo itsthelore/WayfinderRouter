@@ -148,6 +148,9 @@ pub fn run(
         "route" => run_route(&arguments[1..], stdin, stdout, stderr),
         "app-setup-init" => app_setup_command::run_app_setup(&arguments[1..], stdout, stderr),
         "config" => config_command::run_config(&arguments[1..], stdin, stdout, stderr),
+        "app-configure-chatgpt" => {
+            app_setup_command::run_configure_chatgpt(&arguments[1..], stdout, stderr)
+        }
         "service" => service_command::run_service(&arguments[1..], stdout, stderr),
         "capabilities" => run_capabilities(&arguments[1..], stdout, stderr),
         "apple-foundation-live-smoke" => {

@@ -4,6 +4,7 @@ import SwiftUI
 public struct GatewaySettingsView: View {
     @State private var isRestarting = false
     @State private var isRefreshing = false
+    @State private var isShowingIntegrationDetails = false
     @State private var message: GatewayActionMessage?
     @State private var status = GatewayServiceStatus(
         installed: false,
@@ -30,27 +31,40 @@ public struct GatewaySettingsView: View {
             VStack(alignment: .leading, spacing: 6) {
                 Text("Gateway")
                     .font(.title3.weight(.semibold))
-                Text("Apps connect to this local router. Wayfinder routes each request to a configured endpoint.")
+                Text("The local service that routes requests between your connections.")
                     .font(.callout)
                     .foregroundStyle(.secondary)
             }
 
             Form {
-                Section("Status and connections") {
-                gatewayStatusSection
-                }
+                Section("Service") {
+                    GatewayValueRow(
+                        title: "Status",
+                        value: serviceSummary,
+                        symbolName: statusSymbolName,
+                        tint: statusTint
+                    )
 
-                Section("Setup") {
-                    Button("Run Setup Assistant…") {
-                        NotificationCenter.default.post(name: .wayfinderRunSetupAssistant, object: nil)
+                    HStack(spacing: 8) {
+                        Button(isRestarting ? "Restarting…" : "Restart") { restartGateway() }
+                            .disabled(isRestarting || isRefreshing)
+                        Button(isRefreshing ? "Refreshing…" : "Refresh") { refreshStatus() }
+                            .disabled(isRefreshing || isRestarting)
+                        Spacer()
+                        Button("Run Setup Assistant…") {
+                            NotificationCenter.default.post(name: .wayfinderRunSetupAssistant, object: nil)
+                        }
                     }
-                    Text("Recheck tools, routing configuration, credentials, and the gateway service.")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
+
+                    if message != nil {
+                        InlineGatewayMessage(message: message)
+                    }
                 }
 
-                Section("Use with apps") {
-                GatewayExplainerSection()
+                Section {
+                    DisclosureGroup("Integration details", isExpanded: $isShowingIntegrationDetails) {
+                        integrationDetails
+                    }
                 }
             }
             .formStyle(.grouped)
@@ -64,16 +78,8 @@ public struct GatewaySettingsView: View {
         }
     }
 
-    private var gatewayStatusSection: some View {
+    private var integrationDetails: some View {
         VStack(spacing: 0) {
-            GatewayValueRow(
-                title: "Service",
-                value: status.statusSummary,
-                detail: status.health?.detailSummary ?? GatewayServiceController.launchdLabel,
-                symbolName: statusSymbolName,
-                tint: statusTint
-            )
-
             GatewayValueRow(
                 title: "Local Router",
                 value: status.launchConfiguration.localRouterURL,
@@ -110,8 +116,6 @@ public struct GatewaySettingsView: View {
                 onCopy: showCopiedRouteName
             )
 
-            GatewayDiagnosticsDivider()
-
             GatewayValueRow(
                 title: "Health Check",
                 value: status.launchConfiguration.healthURLString,
@@ -130,53 +134,25 @@ public struct GatewaySettingsView: View {
                 onCopy: showCopiedMessage
             )
 
-            Divider()
-
-            HStack(spacing: 8) {
-                Button {
-                    restartGateway()
-                } label: {
-                    HStack(spacing: 6) {
-                        ProgressView()
-                            .controlSize(.small)
-                            .opacity(isRestarting ? 1 : 0)
-                            .frame(width: 14, height: 14)
-                        Text("Restart Gateway")
-                    }
-                    .frame(minWidth: 132)
-                }
-                .disabled(isRestarting || isRefreshing)
-
-                Button {
-                    refreshStatus()
-                } label: {
-                    HStack(spacing: 6) {
-                        ProgressView()
-                            .controlSize(.small)
-                            .opacity(isRefreshing ? 1 : 0)
-                            .frame(width: 14, height: 14)
-                        Text("Refresh Status")
-                    }
-                    .frame(minWidth: 124)
-                }
-                .disabled(isRefreshing || isRestarting)
-
-                Button {
-                    revealConfig()
-                } label: {
-                    Text("Show Config")
-                }
-
+            HStack {
+                Button("Show Config") { revealConfig() }
                 Spacer()
             }
             .padding(.horizontal, 12)
-            .frame(height: 46)
-
-            Divider()
-            InlineGatewayMessage(message: message)
-                .padding(.horizontal, 12)
-                .frame(height: 38)
+            .padding(.vertical, 8)
         }
+    }
+
+    private var serviceSummary: String {
+        if let health = status.health {
+            let count = health.models.count
+            let models = "\(count) model\(count == 1 ? "" : "s")"
+            if health.offline { return "Offline · \(models)" }
+            if health.status == "ok" { return "Running · \(models)" }
+            return "Needs attention · \(models)"
+        }
+        if !status.installed { return "Not installed" }
+        return status.loaded ? "Starting…" : "Stopped"
     }
 
     private var configPath: String {

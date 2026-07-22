@@ -2,56 +2,47 @@ import XCTest
 @testable import WayfinderMacCore
 
 final class SettingsSectionTests: XCTestCase {
-    func testHelpIsSeparateFromAboutAndOrderedBeforeIt() {
-        let sections = SettingsSection.allCases
-
-        XCTAssertTrue(sections.contains(.help))
-        XCTAssertTrue(sections.contains(.about))
-        XCTAssertNotEqual(SettingsSection.help.rawValue, SettingsSection.about.rawValue)
-        XCTAssertLessThan(
-            sections.firstIndex(of: .help) ?? sections.endIndex,
-            sections.firstIndex(of: .about) ?? sections.endIndex
-        )
+    func testOpenAIPlatformKeysRemainDistinctFromChatGPTAccountAccess() {
+        XCTAssertEqual(ProviderKind.openAI.rawValue, "OpenAI API")
+        XCTAssertEqual(ProviderKind.openAI.credentialDetail.displayName, "OpenAI Platform API")
+        XCTAssertEqual(CredentialStatus.keyMissing.title, "Not connected")
     }
-
     func testOnlyShippedSettingsSectionsAreListed() {
         XCTAssertEqual(
             SettingsSection.allCases,
-            [.gateway, .routing, .accounts, .keys, .privacy, .help, .about]
+            [.connections, .gateway, .routing, .about]
         )
     }
 
-    func testAccountsIsSeparateFromKeys() {
-        XCTAssertEqual(SettingsSection.accounts.rawValue, "Accounts")
-        XCTAssertEqual(SettingsSection.accounts.symbolName, "person.crop.circle")
-        XCTAssertLessThan(
-            SettingsSection.allCases.firstIndex(of: .accounts)!,
-            SettingsSection.allCases.firstIndex(of: .keys)!
-        )
+    func testAccountsAndKeysAreConsolidatedAsConnections() {
+        XCTAssertEqual(SettingsSection.connections.rawValue, "Connections")
+        XCTAssertEqual(SettingsSection.connections.symbolName, "link")
+        XCTAssertEqual(ConnectionKind.allCases.first, .chatGPT)
+        XCTAssertEqual(ConnectionKind.openAI.provider, .openAI)
     }
 
-    func testSettingsNotificationDeepLinksToAccountsAndDefaultsToGateway() {
+    func testSettingsNotificationDeepLinksToConnectionsAndDefaultsToConnections() {
         let accounts = Notification(
             name: .wayfinderOpenSettings,
-            object: SettingsSection.accounts
+            object: SettingsSection.connections
         )
-        XCTAssertEqual(SettingsWindowNavigation.section(from: accounts), .accounts)
+        XCTAssertEqual(SettingsWindowNavigation.section(from: accounts), .connections)
         XCTAssertEqual(
             SettingsWindowNavigation.section(
                 from: Notification(name: .wayfinderOpenSettings)
             ),
-            .gateway
+            .connections
         )
 
         let navigation = SettingsWindowNavigation()
         navigation.select(SettingsWindowNavigation.section(from: accounts))
-        XCTAssertEqual(navigation.selectedSection, .accounts)
+        XCTAssertEqual(navigation.selectedSection, .connections)
     }
 
-    func testHelpSectionUsesExpectedLabelAndSymbol() {
-        XCTAssertEqual(SettingsSection.help.rawValue, "Help")
-        XCTAssertEqual(SettingsSection.help.symbolName, "questionmark.circle")
+    func testAboutConsolidatesLegacyHelpAndPrivacyNavigation() throws {
         XCTAssertEqual(SettingsSection.about.rawValue, "About")
         XCTAssertEqual(SettingsSection.about.symbolName, "info.circle")
+        XCTAssertEqual(try JSONDecoder().decode(SettingsSection.self, from: Data(#""Help""#.utf8)), .about)
+        XCTAssertEqual(try JSONDecoder().decode(SettingsSection.self, from: Data(#""Privacy""#.utf8)), .about)
     }
 }

@@ -32,9 +32,9 @@ public enum CredentialStatus: Equatable, Sendable {
         case .unknown:
             return "Checking"
         case .keyMissing:
-            return "Key missing"
+            return "Not connected"
         case .keyPresent:
-            return "Key present"
+            return "Connected"
         case .local:
             return "Local"
         case .comingSoon:
@@ -87,8 +87,8 @@ public extension ProviderKind {
             )
         case .openAI:
             return ProviderCredentialDetail(
-                displayName: "OpenAI",
-                providerName: "openai",
+                displayName: "OpenAI Platform API",
+                providerName: "OpenAI API",
                 baseURL: "https://api.openai.com/v1",
                 models: [
                     "gpt-4o-mini",
