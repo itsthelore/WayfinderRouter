@@ -7,6 +7,8 @@ WF-ADR-0046. This workspace contains:
   compatibility filtering, scoring, tier selection, and route planning;
 - `wayfinder-runtime-contracts` — secret-free requests, destination snapshots,
   exclusion reasons, plans, explanations, and receipts;
+- `wayfinder-apple-ffi` — the bounded generated Swift bridge over the
+  authoritative routing core;
 - `wayfinder-config` — typed routing/gateway configuration and preserved
   mutations;
 - `wayfinder-providers` — bounded provider clients and streaming translation;
@@ -48,13 +50,14 @@ internal HTTP server.
 WF-ADR-0048 defines the extracted `wayfinder-routing-core` and
 `wayfinder-runtime-contracts` as the shared routing authority. The gateway
 already consumes that core, and dependency-boundary plus golden-corpus tests
-protect its portability. The generated Swift bridge will consume these same
-crates and fixtures in its own pull request. The pure core may not perform
-filesystem, Keychain, process, provider, HTTP-server, UI, or Apple-framework
-work.
+protect its portability. `wayfinder-apple-ffi` exposes bounded generated Swift
+score-and-plan calls over that same core, and the Apple build scripts assemble
+macOS, iOS-device, and iOS-simulator XCFramework slices. The pure core may not
+perform filesystem, Keychain, process, provider, HTTP-server, UI, or
+Apple-framework work.
 
-The bridge/XCFramework, provider execution choice, iOS shell, auth, Apple
-model, and pairing remain separate pull requests under WF-ROADMAP-0016.
+Provider execution choice, the iOS shell, auth, Apple model, and pairing remain
+separate pull requests under WF-ROADMAP-0016.
 
 ## Governing documents
 

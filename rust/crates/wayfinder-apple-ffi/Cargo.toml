@@ -1,0 +1,30 @@
+[package]
+name = "wayfinder-apple-ffi"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[lib]
+crate-type = ["lib", "staticlib"]
+
+[features]
+bindgen = ["uniffi/cli"]
+
+[dependencies]
+thiserror.workspace = true
+uniffi.workspace = true
+wayfinder-routing-core = { path = "../wayfinder-routing-core" }
+
+[dev-dependencies]
+serde_json.workspace = true
+
+[[bin]]
+name = "uniffi-bindgen-swift"
+path = "src/bin/uniffi-bindgen-swift.rs"
+required-features = ["bindgen"]
+
+[lints]
+workspace = true

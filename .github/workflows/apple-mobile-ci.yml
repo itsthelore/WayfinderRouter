@@ -1,0 +1,64 @@
+name: Apple Mobile CI
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/apple-mobile-ci.yml"
+      - "apple/**"
+      - "rust/**"
+      - "decisions/WF-ADR-0048-shared-routing-core-apple-embedding.md"
+      - "roadmaps/WF-ROADMAP-0016-native-mobile-v0.2.md"
+  pull_request:
+    paths:
+      - ".github/workflows/apple-mobile-ci.yml"
+      - "apple/**"
+      - "rust/**"
+      - "decisions/WF-ADR-0048-shared-routing-core-apple-embedding.md"
+      - "roadmaps/WF-ROADMAP-0016-native-mobile-v0.2.md"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: apple-mobile-ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  routing-bridge:
+    name: Rust / Swift routing bridge
+    runs-on: macos-26
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: false
+      - name: Prove Apple Silicon and record toolchain
+        run: |
+          test "$(uname -m)" = "arm64"
+          xcodebuild -version
+          swift --version
+      - name: Install the pinned Rust toolchain and Apple targets
+        run: |
+          rustup toolchain install 1.85.0 --profile minimal --component rustfmt,clippy
+          rustup target add \
+            aarch64-apple-darwin \
+            aarch64-apple-ios \
+            aarch64-apple-ios-sim \
+            --toolchain 1.85.0
+      - name: Validate bridge scripts
+        run: |
+          bash -n \
+            apple/scripts/build_routing_xcframework.sh \
+            apple/scripts/test_routing_bridge.sh
+      - name: Rust bridge tests
+        env:
+          RUSTUP_TOOLCHAIN: 1.85.0
+        run: >-
+          cargo test --manifest-path rust/Cargo.toml
+          --package wayfinder-apple-ffi --all-features --locked
+      - name: Assemble and test Apple bridge
+        env:
+          RUSTUP_TOOLCHAIN: 1.85.0
+        run: apple/scripts/test_routing_bridge.sh

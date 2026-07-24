@@ -169,8 +169,10 @@ Exit:
 
 Implementation note: the pure routing crate and typed runtime-contract crate
 are extracted, and current gateway/compatibility consumers use the renamed
-core. Swift bindings, XCFramework assembly, and simulator/device bridge proof
-remain before this phase's exit gate is complete.
+core. A generated UniFFI bridge and local XCFramework now compile for Apple
+Silicon macOS, arm64 iOS devices, and arm64 iOS Simulator, with Swift contract
+tests running on macOS. Runtime execution on a real iOS device remains before
+the phase exit gate is complete.
 
 - isolate pure routing and runtime-contract crates;
 - remove host/server assumptions from route planning;
