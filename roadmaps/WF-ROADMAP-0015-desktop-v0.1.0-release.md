@@ -129,7 +129,8 @@ and honest about its supported platform and external provider dependency.
 - Expanding `WayfinderCredentialBroker` or moving gateway/provider ownership into Swift.
 - A DMG, Homebrew cask, Sparkle/Tauri updater, Mac App Store package, or automatic promotion.
 - Standalone package-manager distribution; any future channel needs its own native support contract.
-- iOS implementation; that begins as a separate roadmap after the desktop release gate closes.
+- iOS implementation; it is governed separately by WF-ROADMAP-0016 and does not change this
+  desktop release gate.
 
 ## Verification record
 
@@ -148,3 +149,4 @@ Repository evidence lives in:
 - WF-DESIGN-0018 — ChatGPT-authenticated Codex app-server provider
 - WF-ADR-0042 — thin native desktop client over one gateway
 - WF-ADR-0045 — Rust gateway/helper architecture
+- WF-ROADMAP-0016 — standalone native iPhone/iPad v0.2

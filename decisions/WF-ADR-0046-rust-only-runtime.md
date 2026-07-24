@@ -53,3 +53,10 @@ contract and its own tests; a hidden compatibility fallback is not allowed.
 The deterministic decision path remains offline, keyless, and free of delivery
 dependencies (WF-ADR-0001). This decision does not broaden the credential broker,
 change Automatic routing preferences, or make Apple a global default.
+
+## Mobile amendment
+
+WF-ADR-0047 and WF-ADR-0048 extend the Rust-only decision to native mobile:
+Wayfinder extracts a pure routing library from this workspace and embeds it in
+iPhone and iPad rather than running the gateway executable or recreating the
+algorithm in Swift. The macOS product remains gateway-first.

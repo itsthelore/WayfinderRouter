@@ -1,65 +1,61 @@
-# Wayfinder Rust migration workspace
+# Wayfinder Rust workspace
 
-This is the additive, parity-gated Rust implementation selected by WF-ADR-0045. Desktop v0.1.0
-explicitly selects this gateway as the arm64 helper embedded in `Wayfinder.app`. The independently
-distributed router keeps Python as its compatibility oracle and retained fallback. The
-`gateway_ready: false` handshake remains conservative cross-distribution migration metadata; it
-does not override the Desktop product's explicit verified-helper selection.
+Rust is Wayfinder's sole production router and gateway runtime under
+WF-ADR-0046. This workspace contains:
 
-## Verified checkpoint (2026-07-11)
+- `wayfinder-core` — deterministic feature extraction, scoring, tiers, and
+  explanations;
+- `wayfinder-config` — typed routing/gateway configuration and preserved
+  mutations;
+- `wayfinder-providers` — bounded provider clients and streaming translation;
+- `wayfinder-gateway` — Axum data plane, policy, reliability, limits, metrics,
+  and provider orchestration;
+- `wayfinder-service` — service units, pricing/ledger logic, and secret seams;
+- `wayfinder-cli` — the `wayfinder-router` executable;
+- macOS XPC clients for credentials and Apple Foundation Models;
+- checked fixtures retained as immutable migration evidence.
 
-- `wayfinder-core` implements deterministic feature extraction, scoring, explanations, tiers,
-  classifier inference, schema-version-3 decisions, and all ten stock lexicon profiles.
-- `wayfinder-config` implements routing and gateway TOML discovery, parsing, validation, emission,
-  and line-preserving supported mutations. Strict ascending tier order matches the current Python
-  product contract; legacy sorting remains available only for explicit migration tooling.
-- `wayfinder-gateway` provides bounded Axum health, metrics, model/profile/recent/savings/config,
-  dry-run/decision-only chat, and buffered OpenAI-compatible delivery. Request-scoped tuning,
-  route scope, sticky routing, slash directives, offline fail-closed delivery, prompt-free recent
-  state, in-memory cost accounting, constant-time virtual-key authentication, model allowlists,
-  global/per-key RPM and TPM, global/per-key spend budgets, rate and budget headers, key
-  attribution, the opt-in bounded exact-response cache, and buffered retry/fallback/circuit-breaker
-  delivery are covered. Buffered Anthropic `/v1/messages` and `/messages` requests reuse that same
-  chat path. Request-atomic last-good config reload, bounded graceful drain, and real-process HTTP
-  lifecycle coverage complete the Phase 2 skeleton. Phase 3 adds pre-commit upstream status
-  handling, pre-first-byte plan failover, cancellation-safe OpenAI SSE, and incremental Anthropic
-  Messages SSE translation. Several operational policies are not yet fully parity-gated, so this is
-  not a replacement gateway.
-- `wayfinder-providers` provides a hardened Reqwest buffered client, bounded SSE decoding,
-  reliability policy primitives, and buffered plus streaming Anthropic translation. Streaming
-  translation is tested as a state machine but is not yet connected to the HTTP transport.
-- `wayfinder-service` provides deterministic pricing/ledger logic, bounded legacy command-secret
-  resolution, and byte-compatible launchd/systemd unit rendering.
-- `wayfinder-cli` implements `route`, real `serve`, `service install|uninstall|status`, the bounded
-  Desktop setup/config operations, and the versioned capability handshake. `config read-routing`
-  and `config apply-routing` are native; other coexistence config actions remain Python-delegated.
-  Environment credentials take precedence over bounded startup `api_key_cmd` compatibility values;
-  neither path serializes or logs the secret.
-- `wayfinder-compat-tests` currently passes ten integration tests covering 21 Python golden
-  prompts, eight routing boundaries, 32 routing-config cases, 74 gateway-config cases, 20 ordered
-  HTTP exchanges, and byte-exact service-unit output. The seeded differential runner has also
-  passed 506 generated prompts.
+The runtime never launches or delegates to Python. Unsupported legacy commands
+fail closed.
 
-Focused checkpoint evidence:
+## Build and test
 
 ```sh
 cargo fmt --manifest-path rust/Cargo.toml --all -- --check
-cargo clippy --manifest-path rust/Cargo.toml --workspace --all-targets \
-  --all-features --locked --offline -- -D warnings
-cargo test --manifest-path rust/Cargo.toml -p wayfinder-compat-tests \
-  --all-features --locked --offline
-cargo test --manifest-path rust/Cargo.toml -p wayfinder-providers \
-  --locked --offline anthropic::tests
-cargo audit --file rust/Cargo.lock --no-fetch
+cargo test --manifest-path rust/Cargo.toml --workspace --all-features --locked
+cargo clippy --manifest-path rust/Cargo.toml \
+  --workspace --all-targets --all-features --locked -- -D warnings
 ```
 
-The complete workspace suite contains temporary-loopback tests and therefore needs permission to
-bind local sockets in restricted environments. `cargo-audit` is installed and the current lockfile
-has no known advisory; `cargo-deny` and the x86_64 macOS target are still unavailable locally.
+Build the executable:
 
-## Standalone migration remains parity-gated
+```sh
+cargo build \
+  --manifest-path rust/Cargo.toml \
+  --package wayfinder-cli \
+  --bin wayfinder-router \
+  --locked
+```
 
-The broader standalone migration still requires retained/delegated CLI decisions and complete
-cross-platform evidence before Python removal. Desktop v0.1.0 has a separate Apple Silicon-only
-release gate in WF-ROADMAP-0015; x86_64 and universal packaging are future claims, not blockers for
-that release.
+## Apple-platform direction
+
+Wayfinder Desktop continues to embed `wayfinder-router` as a separately running
+signed helper. Native iPhone and iPad v0.2 does not run that executable or an
+internal HTTP server.
+
+WF-ADR-0048 extracts a pure `wayfinder-routing-core` and typed runtime contracts
+from this workspace. The gateway and generated Swift bridge will consume the
+same core and golden fixtures. The pure core may not perform filesystem,
+Keychain, process, provider, HTTP-server, UI, or Apple-framework work.
+
+The extraction, bridge/XCFramework, provider execution choice, iOS shell, auth,
+Apple model, and pairing remain separate pull requests under
+WF-ROADMAP-0016.
+
+## Governing documents
+
+- `decisions/WF-ADR-0046-rust-only-runtime.md`
+- `decisions/WF-ADR-0048-shared-routing-core-apple-embedding.md`
+- `roadmaps/WF-ROADMAP-0014-rust-gateway-migration.md`
+- `roadmaps/WF-ROADMAP-0016-native-mobile-v0.2.md`
+- `docs/apple-platform-capability-matrix.md`

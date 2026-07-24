@@ -8,6 +8,9 @@ Rust parity: Phases 1–3 complete; operations, CLI, and distribution gates rema
 > distribution guidance. WF-ADR-0046 completes the Rust-only cutover, removes the legacy package
 > and fallback, and sets `gateway_ready: true`. Historical rows below remain migration evidence.
 >
+> Mobile amendment (2026-07-24): WF-ADR-0048 and WF-ROADMAP-0016 govern pure-core extraction and
+> native iOS embedding. No Python-era row in this matrix is a mobile requirement.
+>
 > Current Desktop amendment (2026-07-19): this document preserves the 2026-07-11 discovery baseline.
 > WF-ROADMAP-0015 supersedes its native packaging/default rows for Desktop v0.1.0. The Desktop app
 > explicitly selects a bundled arm64 Rust gateway with authenticated credential and Foundation

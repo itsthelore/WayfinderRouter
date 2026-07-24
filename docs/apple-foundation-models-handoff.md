@@ -2,6 +2,13 @@
 
 Status snapshot: 2026-07-13
 
+> Scope amendment (2026-07-24): this handoff remains the implementation record
+> for the macOS gateway/XPC provider. It does not define the mobile topology.
+> Native iPhone and iPad v0.2 uses the same typed provider and availability
+> truth but executes Foundation Models in-process behind a Swift actor, embeds
+> the shared Rust routing core, and does not require a Mac. See WF-ADR-0047,
+> WF-ADR-0048, WF-DESIGN-0019, and WF-ROADMAP-0016.
+
 ## Goal
 
 Add Apple's on-device `SystemLanguageModel` as WAYFINDER's preferred local provider on eligible
@@ -204,4 +211,5 @@ The availability-gated new-setup preference must retain these gates:
 - Ollama/manual local configuration remains usable;
 - the capability matrix links direct evidence.
 
-This feature does not by itself permit Rust to become the default backend or Python to be removed.
+Rust subsequently became the sole router and gateway runtime under WF-ADR-0046.
+That cutover does not change the macOS XPC security boundary described here.

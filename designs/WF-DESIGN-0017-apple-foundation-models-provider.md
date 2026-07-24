@@ -14,6 +14,11 @@ Setup preselects the Apple Local preset only after a live `available` response. 
 route default: existing configuration and route ladders remain unchanged, and Chat still opens on
 `Automatic`.
 
+> Mobile amendment (WF-ROADMAP-0016): this document remains authoritative for the macOS XPC
+> topology. iPhone and iPad use the same provider identity and normalized availability semantics,
+> but call Foundation Models in-process behind a Swift actor. Mobile never requires the macOS
+> gateway or inference XPC service.
+
 ## Decision
 
 WAYFINDER will represent Apple's on-device system model as the typed provider kind
@@ -111,7 +116,7 @@ bounds, accounting, breaker/cache/offline semantics, and signed caller authentic
 v0.1.0 still requires final signed app-closed inference and clean Apple Silicon release evidence.
 The accepted setup preference is limited to never-configured Macs with confirmed live availability;
 Ollama/manual local setup remains supported, existing configuration is preserved, and no global
-`Automatic` route is changed. This decision does not remove the standalone Python distribution.
+`Automatic` route is changed.
 
 ## Related
 
@@ -120,3 +125,6 @@ Ollama/manual local setup remains supported, existing configuration is preserved
 - WF-ADR-0039
 - `docs/apple-foundation-models-handoff.md`
 - `docs/rust-migration-capability-matrix.md`
+- WF-ADR-0047
+- WF-ADR-0048
+- WF-ROADMAP-0016

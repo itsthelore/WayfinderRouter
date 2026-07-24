@@ -30,6 +30,13 @@ Accepted
 > notarized, stapled app in a ZIP; the universal DMG and automatic-updater decisions below remain
 > historical Tauri targets, not v0.1.0 requirements. The optional ChatGPT account provider requires
 > the separately installed verified ChatGPT app. Wayfinder does not bundle Codex in this release.
+>
+> Rust-only amendment (WF-ADR-0046): Python, PyPI, and delegated-command language below records the
+> migration history. Rust is now the sole production router and gateway.
+>
+> Mobile amendment (WF-ADR-0047/0048): this ADR remains the macOS constitution. Native iPhone and
+> iPad are independently useful, embed the shared pure routing core, own their credentials and
+> threads, and do not run or require this desktop gateway. That is not a second routing algorithm.
 
 ## Category
 
@@ -203,3 +210,5 @@ menu-bar utility and keeps the binary small.
 - WF-DESIGN-0012 (the popover design contract) · WF-ROADMAP-0009 (the delivery plan)
 - WF-DESIGN-0018 (external verified ChatGPT-app provider boundary)
 - WF-ROADMAP-0015 (Apple Silicon desktop v0.1.0 release contract)
+- WF-ADR-0046 (Rust-only runtime)
+- WF-ADR-0047 / WF-ADR-0048 (native mobile independence and shared routing core)

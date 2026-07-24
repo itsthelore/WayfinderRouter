@@ -17,6 +17,11 @@ Accepted
 > claim this provider is self-contained. Release discovery ignores development overrides and rejects
 > colocated or sibling executables; only the fixed ChatGPT-app runtime may pass the production trust
 > checks. A bundled runtime remains possible only through a later reviewed packaging decision.
+>
+> Mobile amendment (WF-ROADMAP-0016): ChatGPT/Codex is not a native iOS account provider. OpenAI
+> Platform remains a separate direct API-key provider. Until an official permitted mobile account
+> execution contract exists, iPhone and iPad may access this destination only through an explicitly
+> paired Mac, where it is labelled `hosted via <Mac>`. No Codex credential or helper moves to iOS.
 
 ## Summary
 
@@ -204,3 +209,4 @@ isolation cases above.
 - WF-ADR-0042 (one backend, thin native client)
 - WF-ROADMAP-0012 (focused native Chat and routing inspector)
 - WF-ROADMAP-0015 (Apple Silicon desktop v0.1.0 release contract)
+- WF-ROADMAP-0016 (standalone native mobile and optional paired-host contract)
