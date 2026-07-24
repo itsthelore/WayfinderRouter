@@ -2,6 +2,7 @@ import SwiftUI
 
 struct DestinationsView: View {
   @Environment(AppModel.self) private var appModel
+  var openSidebar: (() -> Void)?
 
   var body: some View {
     List {
@@ -22,6 +23,11 @@ struct DestinationsView: View {
       }
     }
     .navigationTitle("Destinations")
+    .toolbar {
+      if let openSidebar {
+        SidebarToolbarButton(action: openSidebar)
+      }
+    }
   }
 
   private func destinationRow(

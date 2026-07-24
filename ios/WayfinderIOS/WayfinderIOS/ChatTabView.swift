@@ -1,84 +1,48 @@
 import SwiftUI
 
 struct ChatTabView: View {
-  @Environment(\.horizontalSizeClass) private var horizontalSizeClass
+  var openSidebar: (() -> Void)?
 
   var body: some View {
-    if horizontalSizeClass == .regular {
-      NavigationSplitView {
-        MobileSidebarView()
-      } detail: {
-        NavigationStack {
-          ChatView()
-        }
-      }
-    } else {
-      NavigationStack {
-        ChatView()
-      }
+    NavigationStack {
+      ChatView(openSidebar: openSidebar)
     }
-  }
-}
-
-private struct MobileSidebarView: View {
-  @Environment(AppModel.self) private var appModel
-
-  var body: some View {
-    List {
-      Section("Threads") {
-        ContentUnavailableView(
-          "No threads yet",
-          systemImage: "bubble.left.and.bubble.right",
-          description: Text("Completed conversations will appear here.")
-        )
-      }
-
-      Section("Routing candidates") {
-        ForEach(appModel.destinations) { destination in
-          Label {
-            VStack(alignment: .leading, spacing: 2) {
-              Text(destination.displayName)
-              Text(destination.boundaryLabel)
-                .font(.caption)
-                .foregroundStyle(.secondary)
-            }
-          } icon: {
-            Image(
-              systemName: destination.boundary == .onDevice
-                ? "iphone"
-                : "cloud"
-            )
-          }
-        }
-      }
-    }
-    .navigationTitle("Wayfinder")
   }
 }
 
 struct ChatView: View {
   @Environment(AppModel.self) private var appModel
   @FocusState private var composerFocused: Bool
+  @State private var presentedReceipt: RoutePreview?
+
+  var openSidebar: (() -> Void)?
 
   var body: some View {
     @Bindable var appModel = appModel
 
-    VStack(spacing: 0) {
-      ScrollView {
-        VStack(spacing: 24) {
-          if case .idle = appModel.routePreviewState {
-            ChatEmptyState()
-              .padding(.top, 72)
-          } else {
-            RoutePreviewCard(state: appModel.routePreviewState)
-              .padding(.top, 24)
-          }
+    ScrollView {
+      LazyVStack(spacing: 26) {
+        if let prompt = appModel.submittedPrompt {
+          ConversationPreview(
+            prompt: prompt,
+            routeState: appModel.routePreviewState,
+            showReceipt: { presentedReceipt = $0 }
+          )
+        } else {
+          ChatEmptyState(useSuggestion: useSuggestion)
+            .containerRelativeFrame(.vertical) { length, _ in
+              max(300, length * 0.62)
+            }
         }
-        .frame(maxWidth: 720)
-        .frame(maxWidth: .infinity)
-        .padding(.horizontal, 20)
       }
-
+      .frame(maxWidth: 760)
+      .frame(maxWidth: .infinity)
+      .padding(.horizontal, 20)
+      .padding(.bottom, 24)
+    }
+    .scrollDismissesKeyboard(.interactively)
+    .background(Color(uiColor: .systemBackground))
+    .safeAreaInset(edge: .bottom, spacing: 0) {
       ComposerView(
         draft: $appModel.draft,
         privacyPosture: $appModel.privacyPosture,
@@ -86,78 +50,211 @@ struct ChatView: View {
         submit: appModel.previewRoute
       )
       .focused($composerFocused)
-      .frame(maxWidth: 760)
-      .padding(.horizontal, 16)
-      .padding(.vertical, 12)
+      .frame(maxWidth: 780)
+      .padding(.horizontal, 12)
+      .padding(.top, 8)
+      .padding(.bottom, 8)
+      .frame(maxWidth: .infinity)
+      .background(.ultraThinMaterial)
     }
-    .background(Color(uiColor: .systemGroupedBackground))
-    .navigationTitle("New chat")
+    .navigationTitle("Wayfinder")
     .navigationBarTitleDisplayMode(.inline)
+    .toolbar {
+      if let openSidebar {
+        SidebarToolbarButton(action: openSidebar)
+      }
+
+      ToolbarItem(placement: .principal) {
+        Menu {
+          Button("Automatic — Wayfinder chooses") {}
+            .disabled(true)
+          Divider()
+          Text(appModel.privacyPosture.title)
+        } label: {
+          HStack(spacing: 5) {
+            Text("Wayfinder")
+              .font(.headline)
+            Image(systemName: "chevron.down")
+              .font(.caption2.weight(.bold))
+              .foregroundStyle(.secondary)
+          }
+        }
+        .accessibilityLabel("Wayfinder routing mode")
+        .accessibilityValue("Automatic")
+      }
+
+      ToolbarItemGroup(placement: .topBarTrailing) {
+        Button {
+          appModel.startNewChat()
+          composerFocused = true
+        } label: {
+          Image(systemName: "square.and.pencil")
+        }
+        .accessibilityLabel("New chat")
+      }
+    }
+    .sheet(item: $presentedReceipt) { receipt in
+      RouteReceiptSheet(receipt: receipt)
+        .presentationDetents([.medium])
+        .presentationDragIndicator(.visible)
+    }
     .onChange(of: appModel.draft) {
+      guard
+        let prompt = appModel.submittedPrompt,
+        appModel.draft.trimmingCharacters(in: .whitespacesAndNewlines) != prompt
+      else { return }
+
+      appModel.submittedPrompt = nil
       appModel.clearPreview()
     }
+  }
+
+  private func useSuggestion(_ prompt: String) {
+    appModel.draft = prompt
+    composerFocused = true
   }
 }
 
 private struct ChatEmptyState: View {
+  let useSuggestion: (String) -> Void
+
+  private let suggestions = [
+    "Help me plan a focused workday",
+    "Explain a difficult idea simply",
+    "Draft a thoughtful reply",
+  ]
+
   var body: some View {
-    ContentUnavailableView {
-      Label(
-        "Where should this request run?",
-        systemImage: "point.3.connected.trianglepath.dotted"
-      )
-    } description: {
-      Text(
-        "Write a message and Wayfinder will preview the route chosen by its embedded Rust core."
-      )
+    VStack(spacing: 22) {
+      WayfinderMark()
+        .font(.system(size: 30, weight: .semibold))
+
+      Text("What can I help with?")
+        .font(.title2.weight(.semibold))
+        .multilineTextAlignment(.center)
+
+      ScrollView(.horizontal, showsIndicators: false) {
+        HStack(spacing: 10) {
+          ForEach(suggestions, id: \.self) { suggestion in
+            Button(suggestion) {
+              useSuggestion(suggestion)
+            }
+            .buttonStyle(.bordered)
+            .buttonBorderShape(.capsule)
+            .tint(.primary)
+          }
+        }
+        .padding(.horizontal, 2)
+      }
+      .frame(maxWidth: 560)
     }
+    .frame(maxWidth: .infinity, maxHeight: .infinity)
+    .padding(.top, 32)
   }
 }
 
-private struct RoutePreviewCard: View {
-  let state: RoutePreviewState
+private struct ConversationPreview: View {
+  let prompt: String
+  let routeState: RoutePreviewState
+  let showReceipt: (RoutePreview) -> Void
 
   var body: some View {
-    Group {
-      switch state {
+    VStack(spacing: 26) {
+      HStack {
+        Spacer(minLength: 48)
+        Text(prompt)
+          .padding(.horizontal, 16)
+          .padding(.vertical, 11)
+          .background(
+            Color(uiColor: .secondarySystemBackground),
+            in: RoundedRectangle(cornerRadius: 20)
+          )
+      }
+      .accessibilityElement(children: .combine)
+      .accessibilityLabel("You")
+      .accessibilityValue(prompt)
+
+      switch routeState {
       case .idle:
         EmptyView()
       case .routed(let preview):
-        VStack(alignment: .leading, spacing: 14) {
-          Label("Route calculated on this device", systemImage: "checkmark.circle.fill")
-            .font(.headline)
-            .foregroundStyle(WayfinderTheme.accent)
-
-          Text(preview.destinationName)
-            .font(.title2.weight(.semibold))
-
-          LabeledContent("Execution boundary", value: preview.executionSummary)
-          LabeledContent("Routing tier", value: preview.recommendation)
-          LabeledContent(
-            "Deterministic score",
-            value: preview.score.formatted(.number.precision(.fractionLength(2)))
-          )
-
-          Divider()
-
+        VStack(alignment: .leading, spacing: 12) {
           Text(
-            "Routing preview only. No provider was contacted and no message left this device."
+            "Wayfinder calculated where this message would run. This preview did not contact a model."
           )
-          .font(.footnote)
-          .foregroundStyle(.secondary)
+          .frame(maxWidth: .infinity, alignment: .leading)
+
+          Button {
+            showReceipt(preview)
+          } label: {
+            HStack(spacing: 7) {
+              Image(systemName: boundaryImage(for: preview))
+                .foregroundStyle(WayfinderTheme.accent)
+              Text("Would run \(preview.executionSummary.lowercased())")
+                .fontWeight(.medium)
+              Image(systemName: "info.circle")
+                .foregroundStyle(.secondary)
+            }
+            .font(.footnote)
+          }
+          .buttonStyle(.plain)
+          .accessibilityHint("Shows routing details")
         }
-        .padding(20)
-        .background(.background, in: RoundedRectangle(cornerRadius: 20))
-        .overlay {
-          RoundedRectangle(cornerRadius: 20)
-            .stroke(Color(uiColor: .separator).opacity(0.35))
-        }
+        .frame(maxWidth: .infinity, alignment: .leading)
       case .unavailable(let message):
-        ContentUnavailableView(
-          "No eligible route",
-          systemImage: "exclamationmark.triangle",
-          description: Text(message)
-        )
+        Label {
+          Text(message)
+        } icon: {
+          Image(systemName: "exclamationmark.triangle.fill")
+            .foregroundStyle(.orange)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .accessibilityElement(children: .combine)
+      }
+    }
+    .padding(.top, 24)
+  }
+
+  private func boundaryImage(for preview: RoutePreview) -> String {
+    preview.destinationID == "device-preview" ? "iphone" : "cloud"
+  }
+}
+
+private struct RouteReceiptSheet: View {
+  @Environment(\.dismiss) private var dismiss
+  let receipt: RoutePreview
+
+  var body: some View {
+    NavigationStack {
+      List {
+        Section {
+          LabeledContent("Destination", value: receipt.destinationName)
+          LabeledContent("Runs", value: receipt.executionSummary)
+          LabeledContent("Routing tier", value: receipt.recommendation)
+          LabeledContent(
+            "Score",
+            value: receipt.score.formatted(.number.precision(.fractionLength(2)))
+          )
+        }
+
+        Section {
+          Label(
+            "No provider was contacted and no message left this device.",
+            systemImage: "checkmark.shield"
+          )
+          .foregroundStyle(.secondary)
+        } header: {
+          Text("This build slice")
+        }
+      }
+      .navigationTitle("Routing details")
+      .navigationBarTitleDisplayMode(.inline)
+      .toolbar {
+        ToolbarItem(placement: .confirmationAction) {
+          Button("Done") {
+            dismiss()
+          }
+        }
       }
     }
   }
@@ -170,7 +267,7 @@ private struct ComposerView: View {
   let submit: () -> Void
 
   var body: some View {
-    VStack(alignment: .leading, spacing: 12) {
+    VStack(alignment: .leading, spacing: 10) {
       TextField("Message Wayfinder", text: $draft, axis: .vertical)
         .lineLimit(1...6)
         .textFieldStyle(.plain)
@@ -183,7 +280,27 @@ private struct ComposerView: View {
           }
         }
 
-      HStack {
+      HStack(spacing: 10) {
+        Menu {
+          Button("Attachments are not available in this build") {}
+            .disabled(true)
+        } label: {
+          Image(systemName: "plus")
+            .frame(width: 32, height: 32)
+            .background(
+              Color(uiColor: .tertiarySystemFill),
+              in: Circle()
+            )
+        }
+        .accessibilityLabel("Add")
+        .accessibilityHint("Attachments are not available in this build")
+
+        Label("Automatic", systemImage: "point.3.connected.trianglepath.dotted")
+          .font(.subheadline.weight(.medium))
+          .foregroundStyle(.secondary)
+
+        Spacer(minLength: 8)
+
         Menu {
           Picker("Privacy", selection: $privacyPosture) {
             ForEach(PrivacyPostureOption.allCases) { posture in
@@ -191,29 +308,37 @@ private struct ComposerView: View {
             }
           }
         } label: {
-          Label(privacyPosture.title, systemImage: "hand.raised")
-            .font(.subheadline.weight(.medium))
+          Image(systemName: "hand.raised")
+            .frame(width: 32, height: 32)
         }
-
-        Spacer()
+        .accessibilityLabel("Privacy")
+        .accessibilityValue(privacyPosture.title)
 
         Button(action: submit) {
           Image(systemName: "arrow.up")
             .font(.headline)
+            .foregroundStyle(canSubmit ? Color.white : Color.secondary)
             .frame(width: 34, height: 34)
+            .background(
+              canSubmit ? WayfinderTheme.accent : Color(uiColor: .tertiarySystemFill),
+              in: Circle()
+            )
         }
-        .buttonStyle(.borderedProminent)
-        .buttonBorderShape(.circle)
+        .buttonStyle(.plain)
         .disabled(!canSubmit)
         .accessibilityLabel("Preview route")
       }
     }
-    .padding(14)
-    .background(.background, in: RoundedRectangle(cornerRadius: 20))
+    .padding(.horizontal, 14)
+    .padding(.vertical, 12)
+    .background(
+      Color(uiColor: .secondarySystemBackground),
+      in: RoundedRectangle(cornerRadius: 24)
+    )
     .overlay {
-      RoundedRectangle(cornerRadius: 20)
-        .stroke(WayfinderTheme.accent.opacity(0.7), lineWidth: 1.5)
+      RoundedRectangle(cornerRadius: 24)
+        .stroke(Color.primary.opacity(0.08), lineWidth: 1)
     }
-    .shadow(color: .black.opacity(0.06), radius: 18, y: 6)
+    .shadow(color: .black.opacity(0.08), radius: 14, y: 5)
   }
 }

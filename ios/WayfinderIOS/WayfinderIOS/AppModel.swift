@@ -59,12 +59,14 @@ enum PrivacyPostureOption: String, CaseIterable, Identifiable {
   }
 }
 
-struct RoutePreview: Equatable {
+struct RoutePreview: Equatable, Identifiable {
   let destinationID: String
   let destinationName: String
   let score: Double
   let recommendation: String
   let executionSummary: String
+
+  var id: String { destinationID }
 }
 
 enum RoutePreviewState: Equatable {
@@ -78,6 +80,7 @@ enum RoutePreviewState: Equatable {
 final class AppModel {
   var selectedTab: AppTab = .chat
   var draft = ""
+  var submittedPrompt: String?
   var privacyPosture: PrivacyPostureOption = .hostedAllowed
   var routePreviewState: RoutePreviewState = .idle
 
@@ -128,6 +131,8 @@ final class AppModel {
       return
     }
 
+    submittedPrompt = prompt
+
     do {
       let plan = try routingEngine.plan(
         request: RoutingRequest(
@@ -173,6 +178,13 @@ final class AppModel {
 
   func clearPreview() {
     routePreviewState = .idle
+  }
+
+  func startNewChat() {
+    draft = ""
+    submittedPrompt = nil
+    routePreviewState = .idle
+    selectedTab = .chat
   }
 }
 
