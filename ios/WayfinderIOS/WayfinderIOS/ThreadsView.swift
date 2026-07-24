@@ -1,6 +1,8 @@
 import SwiftUI
 
 struct ThreadsView: View {
+  var openSidebar: (() -> Void)?
+
   var body: some View {
     ContentUnavailableView(
       "No threads yet",
@@ -10,5 +12,10 @@ struct ThreadsView: View {
       )
     )
     .navigationTitle("Threads")
+    .toolbar {
+      if let openSidebar {
+        SidebarToolbarButton(action: openSidebar)
+      }
+    }
   }
 }

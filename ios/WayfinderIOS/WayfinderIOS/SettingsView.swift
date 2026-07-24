@@ -2,6 +2,7 @@ import SwiftUI
 
 struct SettingsView: View {
   @Environment(AppModel.self) private var appModel
+  var openSidebar: (() -> Void)?
 
   var body: some View {
     @Bindable var appModel = appModel
@@ -26,5 +27,10 @@ struct SettingsView: View {
       }
     }
     .navigationTitle("Settings")
+    .toolbar {
+      if let openSidebar {
+        SidebarToolbarButton(action: openSidebar)
+      }
+    }
   }
 }

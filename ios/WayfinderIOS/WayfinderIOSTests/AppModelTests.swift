@@ -16,6 +16,7 @@ final class AppModelTests: XCTestCase {
     XCTAssertEqual(preview.destinationID, "device-preview")
     XCTAssertEqual(preview.executionSummary, "On this device")
     XCTAssertEqual(preview.score, 0.0)
+    XCTAssertEqual(model.submittedPrompt, "Hello")
   }
 
   func testStructuredPromptRoutesToHostedCandidateWhenAllowed() {
@@ -62,5 +63,19 @@ final class AppModelTests: XCTestCase {
       AppTab.allCases.map(\.title),
       ["Chat", "Threads", "Destinations", "Settings"]
     )
+  }
+
+  func testNewChatClearsTransientConversationState() {
+    let model = AppModel()
+    model.selectedTab = .settings
+    model.draft = "Hello"
+    model.previewRoute()
+
+    model.startNewChat()
+
+    XCTAssertEqual(model.selectedTab, .chat)
+    XCTAssertEqual(model.draft, "")
+    XCTAssertNil(model.submittedPrompt)
+    XCTAssertEqual(model.routePreviewState, .idle)
   }
 }
