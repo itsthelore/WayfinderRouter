@@ -76,15 +76,14 @@ Connecting a hosted provider does not itself select Hosted Allowed.
 
 ### Information architecture
 
-iPhone uses a `TabView` with separate `NavigationStack` state for:
+iPhone launches into Chat and keeps the transcript as the dominant surface.
+Threads, Destinations, and Settings are reached from a leading navigation
+drawer rather than a persistent bottom tab bar. Each section keeps independent
+`NavigationStack` state behind that shell.
 
-1. Chat;
-2. Threads;
-3. Destinations;
-4. Settings.
-
-iPad uses `NavigationSplitView`: threads and shortcuts in the sidebar,
-transcript/composer in the primary detail, and an optional route inspector.
+iPad uses `NavigationSplitView`: threads and shortcuts in the persistent
+sidebar and transcript/composer in the primary detail. Route detail is opened
+from a compact receipt, not reserved as a permanently visible inspector.
 Single-window lifecycle is proven before multiwindow support.
 
 ### Destination and receipt truth
@@ -148,6 +147,7 @@ Deliverables:
 - WF-ADR-0047: independent mobile product and optional pairing;
 - WF-ADR-0048: shared routing-core ownership and native embedding;
 - WF-DESIGN-0019: provider, account, OAuth, Keychain, and execution boundaries;
+- WF-DESIGN-0020: thread-first mobile Chat, navigation, and route receipts;
 - this roadmap and the Apple-platform capability matrix;
 - Kimi qualification note;
 - supersession links from current macOS, Rust, Apple, ChatGPT, and old mobile
@@ -334,5 +334,6 @@ Kimi account auth is optional and does not gate the release.
 - WF-ADR-0047
 - WF-ADR-0048
 - WF-DESIGN-0019
+- WF-DESIGN-0020
 - `docs/apple-platform-capability-matrix.md`
 - `docs/qualifications/WF-QUAL-0001-kimi-account-auth.md`
