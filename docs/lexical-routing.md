@@ -1,5 +1,9 @@
 # Lexical routing — the opt-in recipe that beats the structural default
 
+> The legacy calibration commands referenced in this historical guide were
+> removed by the Rust-only cutover (WF-ADR-0046). Existing Rust configuration
+> support remains, but there is not yet a supported native corpus-mining CLI.
+
 Wayfinder's default scorer is **structural only** (length, headings, lists, code, tables).
 On real frontier traffic that default does not beat stable-random: against RouterBench
 (`mistralai/mistral-7b-chat` as `local` vs `gpt-4-1106-preview` as `cloud`) its cost-aware

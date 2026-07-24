@@ -15,8 +15,8 @@ proposed follow-up work.
 > Desktop v0.1.0 release amendment (WF-ROADMAP-0015): the implemented Setup Assistant ships in the
 > Apple Silicon-only app with its arm64 Rust gateway already bundled. The Homebrew cask/formula,
 > universal artifact, and physical Intel distribution phases below remain proposed follow-up work;
-> they are not v0.1.0 installation requirements. For this release, bundled-helper discovery takes
-> precedence while the explicit legacy/Homebrew fallback remains available.
+> they are not v0.1.0 installation requirements. The verified bundled helper is the supported
+> gateway runtime.
 
 ## Decision summary
 
@@ -31,8 +31,7 @@ Settings, and disappears from the normal path after success.
 
 The assistant preserves the existing product boundaries:
 
-- Desktop v0.1.0 installs as one app with its arm64 Rust gateway embedded; Homebrew/Python remains an
-  explicit rollback or later distribution path;
+- Desktop v0.1.0 installs as one app with its arm64 Rust gateway embedded;
 - the gateway CLI remains the only config author (WF-ADR-0044);
 - the service remains launchd-owned and the app never supervises it (WF-ADR-0042/0038);
 - credentials go directly to Keychain and never persist in Swift state, argv, logs, or files;

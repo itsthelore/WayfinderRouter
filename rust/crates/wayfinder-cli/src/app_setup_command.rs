@@ -1,8 +1,7 @@
 //! Non-interactive configuration bootstrap owned by the packaged macOS app.
 //!
-//! The public `init` command remains Python-delegated during coexistence. This
-//! narrow command exists so a self-contained app never depends on a Python
-//! module being importable from its launch working directory.
+//! The bounded command keeps packaged setup independent of the launch working
+//! directory and any external runtime.
 
 use std::fs::{self, OpenOptions};
 use std::io::{self, Write};

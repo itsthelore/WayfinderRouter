@@ -6,7 +6,7 @@ use wayfinder_core::{
     ClassifierModel, ComplexityScore, RoutingConfig, RoutingMode, Tier, Weights, score_complexity,
 };
 
-const PYTHON_GOLDEN: &str = include_str!("../fixtures/python-golden.json");
+const MIGRATION_GOLDEN: &str = include_str!("../fixtures/migration-golden.json");
 const ROUTING_BOUNDARIES: &str = include_str!("../fixtures/routing-boundaries.json");
 
 #[derive(Debug, Deserialize)]
@@ -45,8 +45,8 @@ struct TierFixture {
 }
 
 #[test]
-fn rust_matches_all_21_python_golden_decisions() -> Result<(), Box<dyn Error>> {
-    let cases: Vec<ExpectedDecision> = serde_json::from_str(PYTHON_GOLDEN)?;
+fn rust_matches_all_21_migration_golden_decisions() -> Result<(), Box<dyn Error>> {
+    let cases: Vec<ExpectedDecision> = serde_json::from_str(MIGRATION_GOLDEN)?;
 
     assert_eq!(cases.len(), 21);
     for expected in &cases {

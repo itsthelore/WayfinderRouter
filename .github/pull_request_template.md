@@ -10,9 +10,9 @@
 
 ## Verification
 
-- [ ] `ruff check .`
-- [ ] `python -m mypy wayfinder_router`
-- [ ] `python -m pytest -q` — full suite, run via `python -m` (a bare `pytest` skips the gateway/ui/tui tests)
+- [ ] `cargo fmt --manifest-path rust/Cargo.toml --all -- --check`
+- [ ] `cargo test --manifest-path rust/Cargo.toml --workspace --all-features --locked`
+- [ ] `cargo clippy --manifest-path rust/Cargo.toml --workspace --all-targets --all-features --locked -- -D warnings`
 
 ## Checklist
 

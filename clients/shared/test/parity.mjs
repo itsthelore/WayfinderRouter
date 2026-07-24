@@ -1,8 +1,6 @@
-// Cross-language parity gate (WF-ADR-0042): compare the shared JS decision core against the
-// golden corpus emitted from the REAL Python scorer, byte-for-byte. Regenerate the corpus and
-// run from the repo root:
+// Decision-preview contract gate (WF-ADR-0042): compare the shared JS preview against the
+// frozen migration corpus byte-for-byte. Run from the repo root:
 //
-//     python3 tools/golden.py > clients/shared/test/golden.json
 //     node clients/shared/test/parity.mjs
 //
 // Exits non-zero on ANY divergence (score, routing, or a single feature). The desktop app's
@@ -22,9 +20,9 @@ for (const g of golden) {
   if (!rOk) recFail++;
   if (fDiff.length) featFail++;
   const mark = sOk && rOk && !fDiff.length ? '✅' : '❌';
-  rows.push(`${mark} ${g.name.padEnd(18)} py=${g.score.toFixed(2)} js=${js.score.toFixed(2)} `
+  rows.push(`${mark} ${g.name.padEnd(18)} fixture=${g.score.toFixed(2)} js=${js.score.toFixed(2)} `
     + `${sOk ? 'score✓' : 'SCORE✗'} ${rOk ? 'route✓' : 'ROUTE✗'} `
-    + (fDiff.length ? `FEAT✗(${fDiff.map((f) => `${f}:py${g.features[f]}/js${js.features[f]}`).join(',')})` : 'feat✓'));
+    + (fDiff.length ? `FEAT✗(${fDiff.map((f) => `${f}:fixture${g.features[f]}/js${js.features[f]}`).join(',')})` : 'feat✓'));
 }
 console.log(rows.join('\n'));
 const n = golden.length;

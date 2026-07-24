@@ -30,7 +30,9 @@ import { spawn } from "node:child_process";
 
 const ROOT = dirname(dirname(fileURLToPath(import.meta.url)));
 const OUT = join(ROOT, "clients", "desktop", "src", "test", "fixtures");
-const PYTHON = process.env.WAYFINDER_PYTHON || join(ROOT, ".venv", "bin", "python");
+const ROUTER =
+  process.env.WAYFINDER_ROUTER_BIN ||
+  join(ROOT, "rust", "target", "debug", "wayfinder-router");
 const GW_PORT = 8090; // never the real service's 8088
 const UP_PORT = 9909;
 const GW = `http://127.0.0.1:${GW_PORT}`;
@@ -144,8 +146,8 @@ async function withGateway({ toml, args = [] }, fn) {
   const dir = mkdtempSync(join(tmpdir(), "wf-fixture-"));
   writeFileSync(join(dir, "wayfinder-router.toml"), toml);
   const child = spawn(
-    PYTHON,
-    ["-m", "wayfinder_router.cli", "serve", "--host", "127.0.0.1", "--port", String(GW_PORT), ...args],
+    ROUTER,
+    ["serve", "--host", "127.0.0.1", "--port", String(GW_PORT), ...args],
     { cwd: dir, stdio: ["ignore", "ignore", "pipe"] },
   );
   let stderr = "";

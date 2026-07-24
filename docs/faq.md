@@ -1,5 +1,9 @@
 # FAQ
 
+> Runtime and installation answers written for the retired package are
+> historical. Current Wayfinder uses the native Rust gateway embedded in the
+> Swift desktop app; see the repository README and WF-ADR-0046.
+
 Straight answers, including where Wayfinder loses. The benchmark docs back every claim here:
 [`results.md`](../benchmarks/results.md) (illustrative set), [`blind-eval.md`](../benchmarks/blind-eval.md)
 (double-blind), [`routerbench-results.md`](../benchmarks/routerbench-results.md) and

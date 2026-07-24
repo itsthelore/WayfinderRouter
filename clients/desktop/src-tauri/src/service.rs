@@ -73,10 +73,8 @@ pub fn argv(action: ServiceAction, wf_bin: &str, uid: u32, home: &str) -> (Strin
     }
 }
 
-/// Resolve the `wayfinder-router` launcher. A packaged GUI app inherits a minimal PATH, so we
-/// check PATH plus the usual user/pipx/homebrew bins; falling back to `python3 -m
-/// wayfinder_router.cli` only helps if python is itself resolvable, so we return the console
-/// script path when we can and let the caller surface a clear "install the gateway" otherwise.
+/// Resolve a native `wayfinder-router` launcher. A packaged GUI app inherits a
+/// minimal PATH, so also check the usual native binary locations.
 pub fn resolve_wayfinder(home: &str, path_env: &str) -> Option<String> {
     let mut candidates: Vec<PathBuf> = Vec::new();
     for dir in path_env.split(':').filter(|s| !s.is_empty()) {
@@ -86,7 +84,6 @@ pub fn resolve_wayfinder(home: &str, path_env: &str) -> Option<String> {
         format!("{home}/.local/bin"),
         "/opt/homebrew/bin".to_string(),
         "/usr/local/bin".to_string(),
-        format!("{home}/Library/Application Support/pipx/venvs/wayfinder-router/bin"),
     ] {
         candidates.push(PathBuf::from(dir).join("wayfinder-router"));
     }
@@ -104,8 +101,7 @@ pub fn run(action: ServiceAction) -> Result<String, String> {
     let (program, args) = if matches!(action, ServiceAction::Install | ServiceAction::Uninstall) {
         let path = std::env::var("PATH").unwrap_or_default();
         let wf = resolve_wayfinder(&home, &path).ok_or_else(|| {
-            "couldn't find `wayfinder-router` — install the gateway first (pip install wayfinder-router)"
-                .to_string()
+            "couldn't find the native `wayfinder-router` binary".to_string()
         })?;
         argv(action, &wf, uid, &home)
     } else {

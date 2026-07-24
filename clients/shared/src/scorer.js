@@ -1,8 +1,7 @@
-// Shared decision core (WF-ADR-0042): a JS port of wayfinder_router/complexity.py's scoring
-// path, held to byte-for-byte parity against a golden corpus emitted from the Python core
-// (see ../test/parity.mjs + tools/golden.py). A *verified mirror* of the gateway's decision,
+// Shared decision preview (WF-ADR-0042), checked byte-for-byte against the frozen
+// migration corpus (see ../test/parity.mjs). A *verified mirror* of the gateway's decision,
 // used ONLY as the app's decision-only degraded mode when the gateway is unreachable — the
-// gateway remains the source of truth (WF-ADR-0001). Ported verbatim from the parity-proven
+// Rust gateway remains the source of truth (WF-ADR-0001). Preserved from the parity-proven
 // spike; do not edit the numeric path (constants, regexes, summation order, rounding) without
 // re-running the parity gate.
 

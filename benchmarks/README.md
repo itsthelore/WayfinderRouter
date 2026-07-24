@@ -1,4 +1,8 @@
-# Wayfinder benchmark
+# Wayfinder benchmark archive
+
+> The executable benchmark harness was retired with the Rust-only cutover
+> (WF-ADR-0046). The datasets and reports below are preserved as historical
+> migration evidence; their old commands are not current product instructions.
 
 A small, **deterministic, offline** evaluation of prompt-complexity routers, with
 metrics aligned to the routing literature ([RouteLLM](https://www.lmsys.org/blog/2024-07-01-routellm/),

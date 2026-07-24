@@ -1,10 +1,8 @@
 //! Native routing-only config commands used by Wayfinder Desktop.
 //!
-//! The rest of the `config` surface remains delegated to Python until it has
-//! its own parity gate. These two commands deliberately accept and emit only
-//! the bounded routing contract consumed by the native app.
+//! These commands deliberately accept and emit only the bounded routing
+//! contract consumed by the native app.
 
-use std::ffi::OsString;
 use std::fs::{self, File, OpenOptions};
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
@@ -34,33 +32,6 @@ enum ConfigAction {
 struct ConfigOptions {
     action: ConfigAction,
     path: Option<PathBuf>,
-}
-
-/// Whether `arguments` select one of the two config operations owned by Rust.
-///
-/// `arguments` includes the top-level `config` token. Options may appear on
-/// either side of argparse's positional action, matching the retained CLI.
-pub(crate) fn is_native_config_command(arguments: &[OsString]) -> bool {
-    if arguments.first().and_then(|value| value.to_str()) != Some("config") {
-        return false;
-    }
-    native_action_from_os_arguments(&arguments[1..]).is_some()
-}
-
-fn native_action_from_os_arguments(arguments: &[OsString]) -> Option<ConfigAction> {
-    let mut index = 0;
-    while let Some(argument) = arguments.get(index).and_then(|value| value.to_str()) {
-        match argument {
-            "--path" => index = index.saturating_add(2),
-            value if value.starts_with("--path=") => index = index.saturating_add(1),
-            "-h" | "--help" => return None,
-            value if value.starts_with('-') => index = index.saturating_add(1),
-            "read-routing" => return Some(ConfigAction::ReadRouting),
-            "apply-routing" => return Some(ConfigAction::ApplyRouting),
-            _ => return None,
-        }
-    }
-    None
 }
 
 pub(crate) fn run_config(

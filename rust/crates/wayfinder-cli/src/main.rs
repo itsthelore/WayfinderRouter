@@ -4,9 +4,7 @@ fn main() {
     let arguments = std::env::args_os()
         .skip(1)
         .collect::<Vec<std::ffi::OsString>>();
-    let code = if wayfinder_cli::is_python_delegated_command(&arguments) {
-        wayfinder_cli::run_python_delegate(&arguments)
-    } else if wayfinder_cli::is_serve_command(&arguments) {
+    let code = if wayfinder_cli::is_serve_command(&arguments) {
         let runtime = match tokio::runtime::Builder::new_multi_thread()
             .enable_all()
             .build()

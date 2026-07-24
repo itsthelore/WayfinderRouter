@@ -8,11 +8,9 @@
 #
 # Honest about quality: science / general / humanities give real subject-matter vocabulary;
 # math / multilingual / commonsense skew to task-surface nouns (RouterBench's tasks there are
-# word-problems / templated), and sparse domains (e.g. code) may be absent. The right move is
-# to mine YOUR traffic: `python -m benchmarks.mine_lexicon your-data.jsonl --emit-domains out.toml`.
-#
-# Reproduce: python -m benchmarks.mine_lexicon benchmarks/routerbench.jsonl \
-#                --emit-domains benchmarks/seed/domain-lexicons.toml
+# word-problems / templated), and sparse domains (e.g. code) may be absent.
+# This file is frozen migration evidence until native calibration tooling
+# provides a reviewed replacement generator.
 
 
 [commonsense]

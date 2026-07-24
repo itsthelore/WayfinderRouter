@@ -3,7 +3,7 @@ use std::error::Error;
 
 use serde::Deserialize;
 
-const PYTHON_GOLDEN: &str = include_str!("../fixtures/python-golden.json");
+const MIGRATION_GOLDEN: &str = include_str!("../fixtures/migration-golden.json");
 const SHARED_GOLDEN: &str = include_str!("../../../../clients/shared/test/golden.json");
 const ROUTING_BOUNDARIES: &str = include_str!("../fixtures/routing-boundaries.json");
 
@@ -57,8 +57,9 @@ struct TierFixture {
 }
 
 #[test]
-fn copied_python_golden_is_the_shared_corpus_without_normalization() -> Result<(), Box<dyn Error>> {
-    let copied: serde_json::Value = serde_json::from_str(PYTHON_GOLDEN)?;
+fn copied_migration_golden_is_the_shared_corpus_without_normalization() -> Result<(), Box<dyn Error>>
+{
+    let copied: serde_json::Value = serde_json::from_str(MIGRATION_GOLDEN)?;
     let shared: serde_json::Value = serde_json::from_str(SHARED_GOLDEN)?;
 
     assert_eq!(copied, shared);
@@ -66,8 +67,8 @@ fn copied_python_golden_is_the_shared_corpus_without_normalization() -> Result<(
 }
 
 #[test]
-fn python_golden_has_the_expected_21_case_contract() -> Result<(), Box<dyn Error>> {
-    let cases: Vec<GoldenCase> = serde_json::from_str(PYTHON_GOLDEN)?;
+fn migration_golden_has_the_expected_21_case_contract() -> Result<(), Box<dyn Error>> {
+    let cases: Vec<GoldenCase> = serde_json::from_str(MIGRATION_GOLDEN)?;
     let expected_names = [
         "empty",
         "blank_whitespace",
