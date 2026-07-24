@@ -3,13 +3,41 @@ import SwiftUI
 struct RootView: View {
   @Environment(AppModel.self) private var appModel
   @Environment(\.horizontalSizeClass) private var horizontalSizeClass
+  @Environment(\.scenePhase) private var scenePhase
   @State private var showsSidebar = false
 
   var body: some View {
-    if horizontalSizeClass == .regular {
-      regularWidthLayout
-    } else {
-      compactWidthLayout
+    Group {
+      if horizontalSizeClass == .regular {
+        regularWidthLayout
+      } else {
+        compactWidthLayout
+      }
+    }
+    .alert(
+      "Conversation storage",
+      isPresented: Binding(
+        get: { appModel.persistenceNotice != nil },
+        set: { isPresented in
+          if !isPresented {
+            appModel.persistenceNotice = nil
+          }
+        }
+      )
+    ) {
+      Button("OK") {
+        appModel.persistenceNotice = nil
+      }
+    } message: {
+      Text(appModel.persistenceNotice ?? "")
+    }
+    .onChange(of: scenePhase) {
+      guard scenePhase != .active else {
+        return
+      }
+      Task {
+        await appModel.saveDraft()
+      }
     }
   }
 
@@ -113,8 +141,10 @@ private struct AppSidebarView: View {
       ScrollView {
         VStack(alignment: .leading, spacing: 18) {
           Button {
-            appModel.startNewChat()
-            select(.chat)
+            Task {
+              await appModel.startNewChat()
+              select(.chat)
+            }
           } label: {
             Label("New chat", systemImage: "square.and.pencil")
               .frame(maxWidth: .infinity, alignment: .leading)
@@ -130,33 +160,46 @@ private struct AppSidebarView: View {
               .foregroundStyle(.secondary)
               .textCase(.uppercase)
 
-            if let prompt = appModel.submittedPrompt {
-              Button {
-                select(.chat)
-              } label: {
-                VStack(alignment: .leading, spacing: 3) {
-                  Text(prompt)
-                    .lineLimit(1)
-                  Text("Current chat")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                }
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(.horizontal, 12)
-                .padding(.vertical, 10)
-                .background(
-                  appModel.selectedTab == .chat
-                    ? Color.primary.opacity(0.07)
-                    : Color.clear,
-                  in: RoundedRectangle(cornerRadius: 10)
-                )
-              }
-              .buttonStyle(.plain)
-            } else {
+            if appModel.threads.isEmpty {
               Text("Your conversations will appear here.")
                 .font(.subheadline)
                 .foregroundStyle(.secondary)
                 .padding(.vertical, 8)
+            } else {
+              ForEach(appModel.threads.prefix(12)) { thread in
+                Button {
+                  Task {
+                    await appModel.selectThread(id: thread.id)
+                    select(.chat)
+                  }
+                } label: {
+                  VStack(alignment: .leading, spacing: 3) {
+                    Text(thread.title)
+                      .lineLimit(1)
+                    Text(
+                      thread.id == appModel.activeThreadID
+                        ? "Current chat"
+                        : thread.updatedAt.formatted(
+                          date: .abbreviated,
+                          time: .shortened
+                        )
+                    )
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                  }
+                  .frame(maxWidth: .infinity, alignment: .leading)
+                  .padding(.horizontal, 12)
+                  .padding(.vertical, 10)
+                  .background(
+                    thread.id == appModel.activeThreadID
+                      && appModel.selectedTab == .chat
+                      ? Color.primary.opacity(0.07)
+                      : Color.clear,
+                    in: RoundedRectangle(cornerRadius: 10)
+                  )
+                }
+                .buttonStyle(.plain)
+              }
             }
 
             SidebarDestinationButton(

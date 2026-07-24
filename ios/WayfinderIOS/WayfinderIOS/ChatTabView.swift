@@ -22,10 +22,11 @@ struct ChatView: View {
 
     ScrollView {
       LazyVStack(spacing: 26) {
-        if let prompt = appModel.submittedPrompt {
-          ConversationPreview(
-            prompt: prompt,
-            routeState: appModel.routePreviewState,
+        if let thread = appModel.activeThread,
+          !thread.messages.isEmpty
+        {
+          ConversationTranscript(
+            thread: thread,
             showReceipt: { presentedReceipt = $0 }
           )
         } else {
@@ -47,7 +48,11 @@ struct ChatView: View {
         draft: $appModel.draft,
         privacyPosture: $appModel.privacyPosture,
         canSubmit: appModel.canPreviewRoute,
-        submit: appModel.previewRoute
+        submit: {
+          Task {
+            await appModel.previewRoute()
+          }
+        }
       )
       .focused($composerFocused)
       .frame(maxWidth: 780)
@@ -85,8 +90,10 @@ struct ChatView: View {
 
       ToolbarItemGroup(placement: .topBarTrailing) {
         Button {
-          appModel.startNewChat()
-          composerFocused = true
+          Task {
+            await appModel.startNewChat()
+            composerFocused = true
+          }
         } label: {
           Image(systemName: "square.and.pencil")
         }
@@ -99,13 +106,10 @@ struct ChatView: View {
         .presentationDragIndicator(.visible)
     }
     .onChange(of: appModel.draft) {
-      guard
-        let prompt = appModel.submittedPrompt,
-        appModel.draft.trimmingCharacters(in: .whitespacesAndNewlines) != prompt
-      else { return }
-
-      appModel.submittedPrompt = nil
-      appModel.clearPreview()
+      appModel.scheduleDraftSave()
+    }
+    .task {
+      await appModel.restoreConversations()
     }
   }
 
@@ -153,70 +157,79 @@ private struct ChatEmptyState: View {
   }
 }
 
-private struct ConversationPreview: View {
-  let prompt: String
-  let routeState: RoutePreviewState
+private struct ConversationTranscript: View {
+  let thread: ConversationThreadSnapshot
   let showReceipt: (RoutePreview) -> Void
 
   var body: some View {
-    VStack(spacing: 26) {
-      HStack {
-        Spacer(minLength: 48)
-        Text(prompt)
-          .padding(.horizontal, 16)
-          .padding(.vertical, 11)
-          .background(
-            Color(uiColor: .secondarySystemBackground),
-            in: RoundedRectangle(cornerRadius: 20)
-          )
-      }
-      .accessibilityElement(children: .combine)
-      .accessibilityLabel("You")
-      .accessibilityValue(prompt)
+    VStack(spacing: 30) {
+      ForEach(thread.messages) { message in
+        VStack(spacing: 16) {
+          HStack {
+            Spacer(minLength: 48)
+            Text(message.content)
+              .padding(.horizontal, 16)
+              .padding(.vertical, 11)
+              .background(
+                Color(uiColor: .secondarySystemBackground),
+                in: RoundedRectangle(cornerRadius: 20)
+              )
+          }
+          .accessibilityElement(children: .combine)
+          .accessibilityLabel("You")
+          .accessibilityValue(message.content)
 
-      switch routeState {
-      case .idle:
-        EmptyView()
-      case .routed(let preview):
-        VStack(alignment: .leading, spacing: 12) {
           Text(
             "Wayfinder calculated where this message would run. This preview did not contact a model."
           )
           .frame(maxWidth: .infinity, alignment: .leading)
 
-          Button {
-            showReceipt(preview)
-          } label: {
-            HStack(spacing: 7) {
-              Image(systemName: boundaryImage(for: preview))
-                .foregroundStyle(WayfinderTheme.accent)
-              Text("Would run \(preview.executionSummary.lowercased())")
-                .fontWeight(.medium)
-              Image(systemName: "info.circle")
-                .foregroundStyle(.secondary)
+          if let receipt = message.routeReceipt {
+            Button {
+              showReceipt(receipt.routePreview)
+            } label: {
+              HStack(spacing: 7) {
+                Image(systemName: boundaryImage(for: receipt))
+                  .foregroundStyle(WayfinderTheme.accent)
+                Text("Would run \(receipt.executionSummary.lowercased())")
+                  .fontWeight(.medium)
+                Image(systemName: "info.circle")
+                  .foregroundStyle(.secondary)
+              }
+              .font(.footnote)
             }
-            .font(.footnote)
-          }
-          .buttonStyle(.plain)
-          .accessibilityHint("Shows routing details")
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-      case .unavailable(let message):
-        Label {
-          Text(message)
-        } icon: {
-          Image(systemName: "exclamationmark.triangle.fill")
+            .buttonStyle(.plain)
+            .accessibilityHint("Shows routing details")
+            .frame(maxWidth: .infinity, alignment: .leading)
+          } else if message.status == .failed {
+            Label(
+              "No eligible route",
+              systemImage: "exclamationmark.triangle.fill"
+            )
+            .font(.footnote.weight(.medium))
             .foregroundStyle(.orange)
+            .frame(maxWidth: .infinity, alignment: .leading)
+          }
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .accessibilityElement(children: .combine)
       }
     }
     .padding(.top, 24)
   }
 
-  private func boundaryImage(for preview: RoutePreview) -> String {
-    preview.destinationID == "device-preview" ? "iphone" : "cloud"
+  private func boundaryImage(for receipt: StoredRouteReceipt) -> String {
+    receipt.destinationID == "device-preview" ? "iphone" : "cloud"
+  }
+}
+
+extension StoredRouteReceipt {
+  fileprivate var routePreview: RoutePreview {
+    RoutePreview(
+      destinationID: destinationID,
+      destinationName: destinationName,
+      score: score,
+      recommendation: recommendation,
+      executionSummary: executionSummary
+    )
   }
 }
 
