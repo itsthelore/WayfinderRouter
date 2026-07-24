@@ -84,10 +84,12 @@ rather than silently switching.
 
 ## Platform experience
 
-After onboarding, iPhone launches into a `TabView` with separate navigation
-stacks for Chat, Threads, Destinations, and Settings. iPad uses an adaptive
-`NavigationSplitView` with transcript and composer as the primary surface and
-an optional route inspector.
+After onboarding, iPhone launches into Chat. A leading navigation drawer
+surfaces Threads, Destinations, and Settings without permanently reducing the
+conversation viewport; independent navigation stacks remain behind the shell.
+iPad uses an adaptive `NavigationSplitView` with transcript and composer as the
+primary surface. Compact route receipts open detail on demand instead of
+allocating a permanent inspector column.
 
 The macOS window hierarchy is not copied into a smaller display. Standard Apple
 navigation, forms, lists, sheets, typography, accessibility, and platform
@@ -133,5 +135,6 @@ configuration and threads are locally owned.
 
 - WF-ADR-0048 — shared routing core and Apple embedding
 - WF-DESIGN-0019 — provider, authentication, and credential contract
+- WF-DESIGN-0020 — mobile Chat shell and route-receipt interaction
 - WF-ROADMAP-0016 — native mobile v0.2 delivery
 - `docs/apple-platform-capability-matrix.md`

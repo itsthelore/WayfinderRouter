@@ -35,6 +35,8 @@ The governing contracts are
 [`WF-ROADMAP-0016`](roadmaps/WF-ROADMAP-0016-native-mobile-v0.2.md),
 [`WF-ADR-0047`](decisions/WF-ADR-0047-native-mobile-independence.md), and
 [`WF-ADR-0048`](decisions/WF-ADR-0048-shared-routing-core-apple-embedding.md).
+The thread-first mobile interaction contract is
+[`WF-DESIGN-0020`](designs/WF-DESIGN-0020-mobile-chat-shell.md).
 
 ### Rust gateway
 
