@@ -69,5 +69,5 @@ jobs:
           xcodebuild test
           -project ios/WayfinderIOS/WayfinderIOS.xcodeproj
           -scheme WayfinderIOS
-          -destination 'platform=iOS Simulator,name=iPhone 16 Pro,OS=latest'
+          -destination 'platform=iOS Simulator,name=iPhone 17,OS=latest'
           CODE_SIGNING_ALLOWED=NO
