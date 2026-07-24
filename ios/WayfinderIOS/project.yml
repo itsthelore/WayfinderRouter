@@ -1,0 +1,65 @@
+name: WayfinderIOS
+
+options:
+  bundleIdPrefix: com.wayfinder.router
+  createIntermediateGroups: true
+  deploymentTarget:
+    iOS: "18.0"
+
+packages:
+  WayfinderRoutingBridge:
+    path: ../../apple/Packages/WayfinderRoutingBridge
+
+settings:
+  base:
+    CURRENT_PROJECT_VERSION: 1
+    MARKETING_VERSION: 0.2.0
+    SWIFT_VERSION: 6.0
+
+targets:
+  WayfinderIOS:
+    type: application
+    platform: iOS
+    sources:
+      - WayfinderIOS
+    dependencies:
+      - package: WayfinderRoutingBridge
+    settings:
+      base:
+        ASSETCATALOG_COMPILER_APPICON_NAME: ""
+        CODE_SIGN_STYLE: Automatic
+        GENERATE_INFOPLIST_FILE: true
+        INFOPLIST_KEY_CFBundleDisplayName: Wayfinder
+        INFOPLIST_KEY_LSApplicationCategoryType: public.app-category.productivity
+        INFOPLIST_KEY_UIApplicationSceneManifest_Generation: true
+        INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents: true
+        INFOPLIST_KEY_UILaunchScreen_Generation: true
+        PRODUCT_BUNDLE_IDENTIFIER: com.wayfinder.router.ios
+        SUPPORTED_PLATFORMS: iphoneos iphonesimulator
+        SUPPORTS_MACCATALYST: false
+        TARGETED_DEVICE_FAMILY: "1,2"
+
+  WayfinderIOSTests:
+    type: bundle.unit-test
+    platform: iOS
+    sources:
+      - WayfinderIOSTests
+    dependencies:
+      - target: WayfinderIOS
+    settings:
+      base:
+        GENERATE_INFOPLIST_FILE: true
+        PRODUCT_BUNDLE_IDENTIFIER: com.wayfinder.router.ios.tests
+
+
+schemes:
+  WayfinderIOS:
+    build:
+      targets:
+        WayfinderIOS: all
+        WayfinderIOSTests:
+          - test
+    test:
+      gatherCoverageData: true
+      targets:
+        - WayfinderIOSTests

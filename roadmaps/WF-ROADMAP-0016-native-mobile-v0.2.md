@@ -187,6 +187,12 @@ build.
 
 ## Phase 2 — native shell and local data
 
+Implementation note: the first native shell slice adds universal iPhone/iPad
+targets, root Observation state, adaptive tab/split navigation, and an honest
+routing-preview flow backed by the generated Rust bridge. It intentionally
+does not execute a provider or persist conversations; those remain separate
+review boundaries below.
+
 - create iPhone/iPad Xcode targets;
 - add adaptive navigation and root `AppModel`;
 - implement the selected conversation store, draft restoration, retention,
