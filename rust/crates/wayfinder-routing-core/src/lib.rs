@@ -1,7 +1,8 @@
 //! Pure, deterministic Wayfinder routing core.
 //!
-//! This crate mirrors `wayfinder_router.complexity` and deliberately has no
-//! network, process, filesystem, async-runtime, or secret dependencies.
+//! This crate is the single authoritative routing implementation shared by
+//! gateway and embedded Apple hosts. It deliberately has no network, process,
+//! filesystem, async-runtime, platform-framework, or secret dependencies.
 
 #![forbid(unsafe_code)]
 
@@ -12,6 +13,13 @@ use serde::Serialize;
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::OnceLock;
 use thiserror::Error;
+
+pub use wayfinder_runtime_contracts::{
+    BillingClass, CandidateAssessment, DestinationCapabilities, DestinationSnapshot,
+    ExclusionReason, ExecutionBoundary, PrivacyPosture, ProviderReadiness,
+    RUNTIME_CONTRACT_VERSION, RouteExplanation, RoutePlan, RouteReceipt, RoutingRequest,
+    RoutingRequirements,
+};
 
 /// Default cut for the binary local/cloud router.
 pub const DEFAULT_THRESHOLD: f64 = 0.5;
@@ -119,6 +127,9 @@ pub enum CoreError {
     /// A classifier shape is invalid.
     #[error("invalid classifier: {0}")]
     InvalidClassifier(String),
+    /// A platform-neutral runtime contract is invalid.
+    #[error("invalid runtime contract: {0}")]
+    InvalidContract(String),
 }
 
 #[derive(Debug)]
@@ -756,6 +767,130 @@ pub fn explain_score(features: &Features, weights: &Weights) -> Vec<FeatureContr
         .collect()
 }
 
+/// Assess one destination against hard compatibility and privacy requirements.
+///
+/// Eligibility is decided before complexity scoring and reasons remain in a
+/// stable order for portable fixtures and user remediation.
+#[must_use]
+pub fn assess_destination(
+    request: &RoutingRequest,
+    destination: &DestinationSnapshot,
+) -> CandidateAssessment {
+    let mut exclusions = Vec::new();
+    if destination.readiness != ProviderReadiness::Ready {
+        exclusions.push(ExclusionReason::ProviderNotReady);
+    }
+    if !request
+        .privacy_posture
+        .permits(destination.execution_boundary)
+    {
+        exclusions.push(ExclusionReason::PrivacyBoundaryDenied);
+    }
+    if !destination.capabilities.text {
+        exclusions.push(ExclusionReason::TextUnsupported);
+    }
+    if let Some(required) = request.requirements.context_tokens {
+        match destination.context_window {
+            Some(available) if available < required => {
+                exclusions.push(ExclusionReason::ContextWindowTooSmall);
+            }
+            None => exclusions.push(ExclusionReason::ContextWindowUnknown),
+            Some(_) => {}
+        }
+    }
+    if request.requirements.image_input && !destination.capabilities.image_input {
+        exclusions.push(ExclusionReason::ImageInputUnsupported);
+    }
+    if request.requirements.tools && !destination.capabilities.tools {
+        exclusions.push(ExclusionReason::ToolsUnsupported);
+    }
+    if request.requirements.streaming && !destination.capabilities.streaming {
+        exclusions.push(ExclusionReason::StreamingUnsupported);
+    }
+    if !destination.automatic_eligible {
+        exclusions.push(ExclusionReason::AutomaticNotAllowed);
+    }
+    CandidateAssessment {
+        destination_id: destination.id.clone(),
+        exclusions,
+    }
+}
+
+/// Plan an Automatic route over secret-free destination snapshots.
+///
+/// The configured scorer selects a tier. Hard filters run first, then the
+/// first eligible destination in that tier wins with remaining matching
+/// candidates preserved as stable pre-output fallback order. This function
+/// never crosses to a different tier implicitly.
+pub fn plan_automatic_route(
+    request: &RoutingRequest,
+    candidates: &[DestinationSnapshot],
+    config: &RoutingConfig,
+) -> Result<RoutePlan, CoreError> {
+    validate_runtime_contract(request, candidates)?;
+    let scored = score_complexity(&request.prompt, config)?;
+    let assessments = candidates
+        .iter()
+        .map(|candidate| assess_destination(request, candidate))
+        .collect::<Vec<_>>();
+    let eligible_ids = candidates
+        .iter()
+        .zip(&assessments)
+        .filter(|(candidate, assessment)| {
+            assessment.is_eligible() && candidate.route_tier == scored.recommendation
+        })
+        .map(|(candidate, _)| candidate.id.clone())
+        .collect::<Vec<_>>();
+    let selected_destination_id = eligible_ids.first().cloned();
+    let fallback_destination_ids = eligible_ids.into_iter().skip(1).collect();
+
+    Ok(RoutePlan {
+        schema_version: RUNTIME_CONTRACT_VERSION,
+        request_id: request.request_id.clone(),
+        score: scored.score,
+        recommendation: scored.recommendation,
+        selected_destination_id,
+        fallback_destination_ids,
+        candidates: assessments,
+    })
+}
+
+fn validate_runtime_contract(
+    request: &RoutingRequest,
+    candidates: &[DestinationSnapshot],
+) -> Result<(), CoreError> {
+    if request.schema_version != RUNTIME_CONTRACT_VERSION {
+        return Err(CoreError::InvalidContract(format!(
+            "unsupported schema version {}",
+            request.schema_version
+        )));
+    }
+    if request.request_id.trim().is_empty() {
+        return Err(CoreError::InvalidContract(
+            "request_id must be non-empty".to_owned(),
+        ));
+    }
+    let mut ids = BTreeSet::new();
+    for candidate in candidates {
+        if candidate.id.trim().is_empty()
+            || candidate.provider_id.trim().is_empty()
+            || candidate.model_id.trim().is_empty()
+            || candidate.route_tier.trim().is_empty()
+        {
+            return Err(CoreError::InvalidContract(
+                "destination identity and route_tier must be non-empty".to_owned(),
+            ));
+        }
+        if !ids.insert(candidate.id.as_str()) {
+            return Err(CoreError::InvalidContract(format!(
+                "duplicate destination id {:?}",
+                candidate.id
+            )));
+        }
+    }
+    Ok(())
+}
+
 /// Python `round(value, places)` behavior for the bounded numeric paths used by
 /// routing. It rounds the formatted true binary value half-to-even, matching the
 /// parity-proven JavaScript mirror rather than Rust's integer `round` rule.
@@ -910,6 +1045,44 @@ mod tests {
         score_complexity(text, &RoutingConfig::default())
     }
 
+    fn destination(
+        id: &str,
+        route_tier: &str,
+        execution_boundary: ExecutionBoundary,
+    ) -> DestinationSnapshot {
+        DestinationSnapshot {
+            id: id.to_owned(),
+            provider_id: format!("provider-{id}"),
+            model_id: format!("model-{id}"),
+            display_name: id.to_owned(),
+            route_tier: route_tier.to_owned(),
+            execution_boundary,
+            readiness: ProviderReadiness::Ready,
+            billing_class: BillingClass::Unknown,
+            context_window: Some(8_192),
+            capabilities: DestinationCapabilities {
+                text: true,
+                streaming: true,
+                image_input: false,
+                tools: false,
+            },
+            automatic_eligible: true,
+        }
+    }
+
+    fn request(privacy_posture: PrivacyPosture) -> RoutingRequest {
+        RoutingRequest {
+            schema_version: RUNTIME_CONTRACT_VERSION,
+            request_id: "request-1".to_owned(),
+            prompt: "hello".to_owned(),
+            privacy_posture,
+            requirements: RoutingRequirements {
+                streaming: true,
+                ..RoutingRequirements::default()
+            },
+        }
+    }
+
     #[test]
     fn python_round_matches_binary_half_even_traps() {
         assert_eq!(python_round(0.005, 2), 0.01);
@@ -1018,5 +1191,72 @@ mod tests {
         assert_eq!(names, FEATURE_ORDER);
         assert_eq!(explanation.len(), 11);
         Ok(())
+    }
+
+    #[test]
+    fn automatic_plan_filters_before_scoring_and_preserves_fallback_order() -> Result<(), CoreError>
+    {
+        let hosted = destination("hosted", "local", ExecutionBoundary::Hosted);
+        let local_first = destination("local-first", "local", ExecutionBoundary::OnDevice);
+        let local_second = destination("local-second", "local", ExecutionBoundary::OnDevice);
+
+        let plan = plan_automatic_route(
+            &request(PrivacyPosture::OnDeviceOnly),
+            &[hosted, local_first, local_second],
+            &RoutingConfig::default(),
+        )?;
+
+        assert_eq!(plan.recommendation, "local");
+        assert_eq!(plan.selected_destination_id.as_deref(), Some("local-first"));
+        assert_eq!(plan.fallback_destination_ids, ["local-second"]);
+        assert_eq!(
+            plan.candidates[0].exclusions,
+            [ExclusionReason::PrivacyBoundaryDenied]
+        );
+        assert!(plan.candidates[1].is_eligible());
+        assert!(plan.candidates[2].is_eligible());
+        Ok(())
+    }
+
+    #[test]
+    fn automatic_plan_does_not_cross_tiers_when_selected_tier_is_unavailable()
+    -> Result<(), CoreError> {
+        let hosted = destination("hosted", "cloud", ExecutionBoundary::Hosted);
+        let plan = plan_automatic_route(
+            &request(PrivacyPosture::HostedAllowed),
+            &[hosted],
+            &RoutingConfig::default(),
+        )?;
+
+        assert_eq!(plan.recommendation, "local");
+        assert_eq!(plan.selected_destination_id, None);
+        assert!(plan.fallback_destination_ids.is_empty());
+        assert!(plan.candidates[0].is_eligible());
+        Ok(())
+    }
+
+    #[test]
+    fn candidate_assessment_fails_closed_for_unknown_context() {
+        let mut candidate = destination("local", "local", ExecutionBoundary::OnDevice);
+        candidate.context_window = None;
+        let mut input = request(PrivacyPosture::OnDeviceOnly);
+        input.requirements.context_tokens = Some(1_024);
+
+        assert_eq!(
+            assess_destination(&input, &candidate).exclusions,
+            [ExclusionReason::ContextWindowUnknown]
+        );
+    }
+
+    #[test]
+    fn automatic_plan_rejects_duplicate_destination_ids() {
+        let candidate = destination("same", "local", ExecutionBoundary::OnDevice);
+        let result = plan_automatic_route(
+            &request(PrivacyPosture::OnDeviceOnly),
+            &[candidate.clone(), candidate],
+            &RoutingConfig::default(),
+        );
+
+        assert!(matches!(result, Err(CoreError::InvalidContract(_))));
     }
 }

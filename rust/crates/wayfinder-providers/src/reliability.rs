@@ -6,7 +6,7 @@
 
 use std::collections::{HashMap, HashSet};
 
-use wayfinder_core::python_round;
+use wayfinder_routing_core::python_round;
 
 /// HTTP statuses that may succeed when attempted again.
 pub const RETRYABLE_STATUS: [u16; 5] = [429, 500, 502, 503, 504];

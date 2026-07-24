@@ -1,4 +1,4 @@
-//! Stock starter lexicons, ported byte-for-byte from `wayfinder_router.profiles`.
+//! Stock starter lexicons preserved from the checked migration corpus.
 //!
 //! These are calibration seeds, not validated routers. `curated` profiles are
 //! hand-authored; `mined` profiles come from RouterBench and retain the Python

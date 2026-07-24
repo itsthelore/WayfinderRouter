@@ -13,7 +13,7 @@ serde.workspace = true
 thiserror.workspace = true
 toml.workspace = true
 toml_edit.workspace = true
-wayfinder-core = { path = "../wayfinder-core" }
+wayfinder-routing-core = { path = "../wayfinder-routing-core" }
 
 [dev-dependencies]
 serde_json.workspace = true

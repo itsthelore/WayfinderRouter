@@ -1,7 +1,8 @@
 [workspace]
 resolver = "3"
 members = [
-    "crates/wayfinder-core",
+    "crates/wayfinder-routing-core",
+    "crates/wayfinder-runtime-contracts",
     "crates/wayfinder-config",
     "crates/wayfinder-providers",
     "crates/wayfinder-gateway",

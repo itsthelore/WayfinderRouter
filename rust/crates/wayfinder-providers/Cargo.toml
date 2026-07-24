@@ -14,7 +14,7 @@ http.workspace = true
 reqwest.workspace = true
 serde_json.workspace = true
 thiserror.workspace = true
-wayfinder-core = { path = "../wayfinder-core" }
+wayfinder-routing-core = { path = "../wayfinder-routing-core" }
 
 [dev-dependencies]
 tokio.workspace = true
