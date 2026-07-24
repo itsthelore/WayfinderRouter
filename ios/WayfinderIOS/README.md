@@ -17,7 +17,7 @@ apple/scripts/build_routing_xcframework.sh
 xcodebuild \
   -project ios/WayfinderIOS/WayfinderIOS.xcodeproj \
   -scheme WayfinderIOS \
-  -destination 'platform=iOS Simulator,name=iPhone 16 Pro,OS=latest' \
+  -destination 'platform=iOS Simulator,name=iPhone 17,OS=latest' \
   test
 ```
 
