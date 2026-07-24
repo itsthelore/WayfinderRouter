@@ -66,7 +66,10 @@ final class ConversationStoreTests: XCTestCase {
     let deletedThread = try await store.thread(id: thread.id)
     let workspace = try await store.loadWorkspace()
     XCTAssertNil(deletedThread)
-    XCTAssertEqual(workspace, .empty)
+    XCTAssertNil(workspace.activeThreadID)
+    XCTAssertEqual(workspace.draft, "")
+    XCTAssertNil(workspace.retentionDays)
+    XCTAssertGreaterThan(workspace.updatedAt, thread.updatedAt)
   }
 
   func testRetentionPrunesOnlyThreadsBeforeCutoff() async throws {
