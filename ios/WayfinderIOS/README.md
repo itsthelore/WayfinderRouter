@@ -4,9 +4,11 @@ This target is the standalone native mobile shell governed by
 `WF-ROADMAP-0016`. It embeds the authoritative Rust routing core through
 `WayfinderRoutingBridge`; it does not require a Mac or localhost gateway.
 
-The first slice deliberately previews deterministic route decisions without
-executing a provider. Credentials, live providers, persistence, Apple
-Foundation Models, and optional Mac pairing land in later review boundaries.
+The current shell previews deterministic route decisions without executing a
+provider. Threads, drafts, terminal message states, and compact route receipts
+persist locally through the `ConversationStore` boundary and a versioned
+SwiftData implementation. Credentials, live providers, Apple Foundation
+Models, and optional Mac pairing land in later review boundaries.
 
 ## Build
 

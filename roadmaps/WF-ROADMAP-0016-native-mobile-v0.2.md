@@ -187,11 +187,13 @@ build.
 
 ## Phase 2 — native shell and local data
 
-Implementation note: the first native shell slice adds universal iPhone/iPad
-targets, root Observation state, adaptive tab/split navigation, and an honest
-routing-preview flow backed by the generated Rust bridge. It intentionally
-does not execute a provider or persist conversations; those remain separate
-review boundaries below.
+Implementation note: the native shell has universal iPhone/iPad targets, root
+Observation state, adaptive drawer/split navigation, and an honest
+routing-preview flow backed by the generated Rust bridge. The second Phase 2
+slice adds the `ConversationStore` boundary, versioned SwiftData model actor,
+thread and draft restoration, retention, deterministic export, deletion, and
+bounded storage failure recovery. It intentionally does not execute a
+provider.
 
 - create iPhone/iPad Xcode targets;
 - add adaptive navigation and root `AppModel`;
@@ -333,6 +335,7 @@ Kimi account auth is optional and does not gate the release.
 
 - WF-ADR-0047
 - WF-ADR-0048
+- WF-ADR-0049
 - WF-DESIGN-0019
 - WF-DESIGN-0020
 - `docs/apple-platform-capability-matrix.md`
