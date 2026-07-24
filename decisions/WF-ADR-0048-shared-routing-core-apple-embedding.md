@@ -2,7 +2,7 @@
 schema_version: 1
 id: WF-ADR-0048
 type: decision
-status: accepted-for-phase-0-spikes
+status: accepted
 date: 2026-07-24
 tags: [rust, swift, ios, ipados, ffi, routing, providers, persistence]
 ---
@@ -132,6 +132,22 @@ mobile independence or introduce a Swift routing implementation.
   cancellation races fail safely.
 - Core extraction lands without provider or UI behavior changes.
 - XCFramework/bridge work lands separately from the extraction.
+
+## Implementation status
+
+The first extraction boundary provides:
+
+- `wayfinder-routing-core` as the renamed authoritative scorer and planner;
+- `wayfinder-runtime-contracts` as secret-free, serializable host contracts;
+- gateway and compatibility consumers compiled against the renamed core;
+- hard eligibility filters that run before score-based tier selection;
+- stable input-order selection and pre-output fallback planning within the
+  recommended tier;
+- a manifest-level dependency test that rejects unreviewed production
+  dependencies.
+
+The generated Swift bridge, XCFramework assembly, physical-device proof, and
+provider-execution placement decision remain separate gated work.
 
 ## Consequences
 

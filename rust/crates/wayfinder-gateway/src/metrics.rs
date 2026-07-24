@@ -5,7 +5,7 @@ use std::fmt::Write as _;
 use std::sync::Mutex;
 
 use thiserror::Error;
-use wayfinder_core::python_round;
+use wayfinder_routing_core::python_round;
 
 /// Default maximum unique values retained by any dynamic label family.
 pub const DEFAULT_MAX_LABEL_SERIES: usize = 256;

@@ -1697,10 +1697,10 @@ dependencies = [
  "wayfinder-apple-foundation-xpc",
  "wayfinder-codex-app-server",
  "wayfinder-config",
- "wayfinder-core",
  "wayfinder-gateway",
  "wayfinder-macos-xpc",
  "wayfinder-providers",
+ "wayfinder-routing-core",
  "wayfinder-service",
 ]
 
@@ -1726,8 +1726,8 @@ dependencies = [
  "tokio",
  "tower",
  "wayfinder-config",
- "wayfinder-core",
  "wayfinder-gateway",
+ "wayfinder-routing-core",
  "wayfinder-service",
 ]
 
@@ -1741,17 +1741,7 @@ dependencies = [
  "thiserror",
  "toml",
  "toml_edit",
- "wayfinder-core",
-]
-
-[[package]]
-name = "wayfinder-core"
-version = "2026.7.0"
-dependencies = [
- "regex",
- "serde",
- "serde_json",
- "thiserror",
+ "wayfinder-routing-core",
 ]
 
 [[package]]
@@ -1778,8 +1768,8 @@ dependencies = [
  "wayfinder-apple-foundation-xpc",
  "wayfinder-codex-app-server",
  "wayfinder-config",
- "wayfinder-core",
  "wayfinder-providers",
+ "wayfinder-routing-core",
  "wayfinder-service",
 ]
 
@@ -1803,7 +1793,27 @@ dependencies = [
  "serde_json",
  "thiserror",
  "tokio",
- "wayfinder-core",
+ "wayfinder-routing-core",
+]
+
+[[package]]
+name = "wayfinder-routing-core"
+version = "2026.7.0"
+dependencies = [
+ "regex",
+ "serde",
+ "serde_json",
+ "thiserror",
+ "toml",
+ "wayfinder-runtime-contracts",
+]
+
+[[package]]
+name = "wayfinder-runtime-contracts"
+version = "2026.7.0"
+dependencies = [
+ "serde",
+ "serde_json",
 ]
 
 [[package]]
@@ -1816,8 +1826,8 @@ dependencies = [
  "sha2",
  "thiserror",
  "tokio",
- "wayfinder-core",
  "wayfinder-providers",
+ "wayfinder-routing-core",
 ]
 
 [[package]]

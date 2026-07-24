@@ -1,5 +1,5 @@
 [package]
-name = "wayfinder-service"
+name = "wayfinder-routing-core"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
@@ -8,14 +8,14 @@ license.workspace = true
 repository.workspace = true
 
 [dependencies]
-indexmap.workspace = true
+regex.workspace = true
 serde.workspace = true
-serde_json.workspace = true
-sha2.workspace = true
 thiserror.workspace = true
-tokio.workspace = true
-wayfinder-routing-core = { path = "../wayfinder-routing-core" }
-wayfinder-providers = { path = "../wayfinder-providers" }
+wayfinder-runtime-contracts = { path = "../wayfinder-runtime-contracts" }
+
+[dev-dependencies]
+serde_json.workspace = true
+toml.workspace = true
 
 [lints]
 workspace = true

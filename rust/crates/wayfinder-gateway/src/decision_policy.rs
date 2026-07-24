@@ -8,7 +8,9 @@ use std::collections::BTreeSet;
 use serde_json::Value;
 use thiserror::Error;
 use wayfinder_config::gateway::GatewayConfig;
-use wayfinder_core::{CoreError, Lexicon, RoutingConfig, Tier, recommend_tier, score_complexity};
+use wayfinder_routing_core::{
+    CoreError, Lexicon, RoutingConfig, Tier, recommend_tier, score_complexity,
+};
 
 /// Header carrying a binary threshold override.
 pub const THRESHOLD_HEADER: &str = "x-wayfinder-threshold";
@@ -574,7 +576,7 @@ model = "large"
     #[test]
     fn classifier_prefer_directive_falls_through() -> Result<(), Box<dyn std::error::Error>> {
         let routing = RoutingConfig {
-            classifier: Some(wayfinder_core::ClassifierModel::new(
+            classifier: Some(wayfinder_routing_core::ClassifierModel::new(
                 vec!["local".to_owned(), "cloud".to_owned()],
                 Default::default(),
                 vec![0.0, 0.0],

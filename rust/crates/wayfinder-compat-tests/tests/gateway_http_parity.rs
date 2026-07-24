@@ -6,8 +6,8 @@ use http::{Request, StatusCode};
 use serde::Deserialize;
 use serde_json::{Map, Value};
 use tower::ServiceExt;
-use wayfinder_core::RoutingConfig;
 use wayfinder_gateway::{AppState, ConfiguredModel, build_router};
+use wayfinder_routing_core::RoutingConfig;
 
 const GATEWAY_HTTP_VECTORS: &str = include_str!("../fixtures/gateway-http.json");
 #[derive(Debug, Deserialize)]

@@ -44,11 +44,6 @@ use tower::ServiceExt;
 use uuid::Uuid;
 use wayfinder_config::dump_routing_toml;
 use wayfinder_config::gateway::{GatewayModel, ProviderKind, ProviderTier};
-use wayfinder_core::profiles::{LexiconProfile, profiles};
-use wayfinder_core::{
-    ComplexityScore, FeatureContribution, Features, RoutingConfig, Tier, explain_score,
-    python_round, recommend_tier, score_complexity,
-};
 use wayfinder_providers::anthropic::{
     MessagesStreamTranslator, anthropic_error, anthropic_to_openai_request,
     openai_to_anthropic_response,
@@ -58,6 +53,11 @@ use wayfinder_providers::reliability::{
     failover_candidates, is_auth_failure, is_retryable, precheck_ok,
 };
 use wayfinder_providers::sse::{SseDecoder, SseEvent};
+use wayfinder_routing_core::profiles::{LexiconProfile, profiles};
+use wayfinder_routing_core::{
+    ComplexityScore, FeatureContribution, Features, RoutingConfig, Tier, explain_score,
+    python_round, recommend_tier, score_complexity,
+};
 use wayfinder_service::pricing::{
     LedgerError, PriceTable, SavingsLedger, SavingsReport, UtcDate, estimate_tokens, price_table,
     table_version, turn_cost, usage_tokens,
@@ -3134,7 +3134,7 @@ mod tests {
     use wayfinder_config::gateway::{
         Budget as GatewayBudget, GatewayConfig, ProviderKind, ProviderTier, RateLimit, VirtualKey,
     };
-    use wayfinder_core::{ClassifierModel, RoutingConfig};
+    use wayfinder_routing_core::{ClassifierModel, RoutingConfig};
     use wayfinder_service::pricing::{SavingsLedger, UtcDate, turn_cost};
 
     use super::{

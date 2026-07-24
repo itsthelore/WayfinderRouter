@@ -2,7 +2,7 @@ use std::collections::BTreeMap;
 use std::error::Error;
 
 use serde::Deserialize;
-use wayfinder_core::{
+use wayfinder_routing_core::{
     ClassifierModel, ComplexityScore, RoutingConfig, RoutingMode, Tier, Weights, score_complexity,
 };
 
@@ -131,7 +131,7 @@ fn assert_decision_matches(
     );
     assert_eq!(
         expected_features.len(),
-        wayfinder_core::FEATURE_ORDER.len(),
+        wayfinder_routing_core::FEATURE_ORDER.len(),
         "{name} feature count"
     );
     for (feature, expected_value) in expected_features {

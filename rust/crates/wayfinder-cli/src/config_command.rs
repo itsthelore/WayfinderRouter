@@ -14,7 +14,7 @@ use wayfinder_config::{
     CONFIG_FILE, CONFIG_PATH_ENV, TierOrderPolicy, apply_supported_routing_fragment,
     find_config_file, routing_config_from_toml,
 };
-use wayfinder_core::{FEATURE_ORDER, RoutingConfig, Weights};
+use wayfinder_routing_core::{FEATURE_ORDER, RoutingConfig, Weights};
 
 use crate::{EXIT_CONFIG, EXIT_OK, EXIT_USAGE, write_error, write_output};
 
