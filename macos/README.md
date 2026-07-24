@@ -1,15 +1,17 @@
 # Wayfinder Native macOS App
 
 This directory contains the shipping native macOS product. Wayfinder Desktop is a thin SwiftUI and
-AppKit client over its bundled Rust gateway; the standalone Python distribution remains available
-for compatibility and delegated commands during the migration period.
+AppKit client over its bundled Rust gateway. Rust is the sole router and gateway runtime under
+WF-ADR-0046.
+
+Native iPhone and iPad work follows a different host topology: v0.2 embeds the shared routing core
+and remains independently useful without this app or its gateway. That does not change the current
+macOS gateway-first boundary. See WF-ADR-0047, WF-ADR-0048, and WF-ROADMAP-0016.
 
 ## Inspection Summary
 
 - The bundled Rust implementation lives under `rust/crates/`; `wayfinder-gateway` owns native
   routing and OpenAI-compatible delivery.
-- The Python package remains the compatibility implementation and owns explicitly delegated
-  commands until the later removal decision.
 - The macOS app never computes an authoritative route, calls a provider directly, or owns provider
   secrets. It consumes the bundled gateway contract.
 - `clients/desktop` is the retained legacy Tauri client, not the current native product.
@@ -93,7 +95,8 @@ Recommended path:
 
 1. Keep the native app behind the `WayfinderClient` protocol.
 2. Use `GatewayWayfinderClient` as the real source-of-truth integration for menu-bar status, routing mix, and savings data.
-3. Keep `LocalWayfinderClient` as a prototype/degraded preview only unless a parity test is added against the Python golden corpus.
+3. Keep `LocalWayfinderClient` as a prototype/degraded preview only; it is not an authoritative
+   route implementation.
 4. Avoid storing provider keys in the app. Follow the existing gateway and Keychain pattern from the Tauri client.
 
 The first UI patch ran with `MockWayfinderClient` so the menu-bar, chat, and settings surfaces could be shaped without bootstrapping the gateway. The native menu now starts with `AppDelegate(client: GatewayWayfinderClient())` in `Sources/WayfinderMacApp/WayfinderMacMain.swift`.
@@ -109,6 +112,8 @@ The first UI patch ran with `MockWayfinderClient` so the menu-bar, chat, and set
 - Provider-key writes and reads stay behind the existing narrow Keychain and authenticated XPC
   boundaries. Chat does not broaden either broker.
 - The bundled gateway remains the routing source of truth, matching WF-ADR-0042.
+- Mobile extraction may introduce shared Apple packages incrementally, but v0.2 does not move the
+  macOS provider, credential, or lifecycle boundaries merely for code uniformity.
 
 ## Run
 
