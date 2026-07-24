@@ -4,11 +4,11 @@ import XCTest
 
 @MainActor
 final class AppModelTests: XCTestCase {
-  func testSimplePromptRoutesToOnDeviceCandidate() {
+  func testSimplePromptRoutesToOnDeviceCandidate() async {
     let model = AppModel()
     model.draft = "Hello"
 
-    model.previewRoute()
+    await model.previewRoute()
 
     guard case .routed(let preview) = model.routePreviewState else {
       return XCTFail("Expected a routed preview")
@@ -19,11 +19,11 @@ final class AppModelTests: XCTestCase {
     XCTAssertEqual(model.submittedPrompt, "Hello")
   }
 
-  func testStructuredPromptRoutesToHostedCandidateWhenAllowed() {
+  func testStructuredPromptRoutesToHostedCandidateWhenAllowed() async {
     let model = AppModel()
     model.draft = "# Plan\n\n## Steps\n- one\n- two\n- three\n1. first\n2. second"
 
-    model.previewRoute()
+    await model.previewRoute()
 
     guard case .routed(let preview) = model.routePreviewState else {
       return XCTFail("Expected a routed preview")
@@ -33,12 +33,12 @@ final class AppModelTests: XCTestCase {
     XCTAssertEqual(preview.score, 0.15)
   }
 
-  func testOnDeviceOnlyExcludesHostedRecommendation() {
+  func testOnDeviceOnlyExcludesHostedRecommendation() async {
     let model = AppModel()
     model.privacyPosture = .onDeviceOnly
     model.draft = "# Plan\n\n## Steps\n- one\n- two\n- three\n1. first\n2. second"
 
-    model.previewRoute()
+    await model.previewRoute()
 
     guard case .unavailable(let message) = model.routePreviewState else {
       return XCTFail("Expected no eligible route")
@@ -46,11 +46,11 @@ final class AppModelTests: XCTestCase {
     XCTAssertTrue(message.contains("On-Device Only"))
   }
 
-  func testEmptyPromptDoesNotRoute() {
+  func testEmptyPromptDoesNotRoute() async {
     let model = AppModel()
     model.draft = " \n "
 
-    model.previewRoute()
+    await model.previewRoute()
 
     XCTAssertEqual(
       model.routePreviewState,
@@ -65,17 +65,100 @@ final class AppModelTests: XCTestCase {
     )
   }
 
-  func testNewChatClearsTransientConversationState() {
+  func testNewChatClearsTransientConversationState() async {
     let model = AppModel()
     model.selectedTab = .settings
     model.draft = "Hello"
-    model.previewRoute()
+    await model.previewRoute()
 
-    model.startNewChat()
+    await model.startNewChat()
 
     XCTAssertEqual(model.selectedTab, .chat)
     XCTAssertEqual(model.draft, "")
     XCTAssertNil(model.submittedPrompt)
     XCTAssertEqual(model.routePreviewState, .idle)
+  }
+
+  func testSavedConversationRestoresIntoNewModel() async {
+    let store = InMemoryConversationStore()
+    let timestamp = Date(timeIntervalSince1970: 1_700_000_000)
+    let firstModel = AppModel(
+      conversationStore: store,
+      now: { timestamp }
+    )
+    firstModel.draft = "Restore this conversation"
+
+    await firstModel.previewRoute()
+
+    let restoredModel = AppModel(conversationStore: store)
+    await restoredModel.restoreConversations()
+
+    XCTAssertEqual(restoredModel.threads.count, 1)
+    XCTAssertEqual(
+      restoredModel.activeThread?.messages.first?.content,
+      "Restore this conversation"
+    )
+    XCTAssertEqual(restoredModel.submittedPrompt, "Restore this conversation")
+  }
+
+  func testSecondTurnAppendsToActiveConversation() async {
+    let store = InMemoryConversationStore()
+    let model = AppModel(conversationStore: store)
+    model.draft = "First turn"
+    await model.previewRoute()
+    model.draft = "Second turn"
+
+    await model.previewRoute()
+
+    XCTAssertEqual(model.threads.count, 1)
+    XCTAssertEqual(
+      model.activeThread?.messages.map(\.content),
+      ["First turn", "Second turn"]
+    )
+  }
+
+  func testNewChatDraftRestoresWithoutCreatingThread() async {
+    let store = InMemoryConversationStore()
+    let firstModel = AppModel(conversationStore: store)
+    firstModel.draft = "Unsent draft"
+    await firstModel.saveDraft()
+
+    let restoredModel = AppModel(conversationStore: store)
+    await restoredModel.restoreConversations()
+
+    XCTAssertEqual(restoredModel.draft, "Unsent draft")
+    XCTAssertTrue(restoredModel.threads.isEmpty)
+    XCTAssertNil(restoredModel.activeThreadID)
+  }
+
+  func testRetentionPolicyPrunesOldConversationOnRestore() async {
+    let store = InMemoryConversationStore()
+    let now = Date(timeIntervalSince1970: 10_000_000)
+    let oldThread = ConversationThreadSnapshot(
+      id: UUID(),
+      title: "Old",
+      createdAt: now.addingTimeInterval(-100 * 86_400),
+      updatedAt: now.addingTimeInterval(-100 * 86_400),
+      messages: [],
+      draft: ""
+    )
+    await store.save(thread: oldThread)
+    await store.save(
+      workspace: ConversationWorkspaceSnapshot(
+        activeThreadID: nil,
+        draft: "",
+        retentionDays: 30,
+        updatedAt: now
+      )
+    )
+    let model = AppModel(
+      conversationStore: store,
+      now: { now }
+    )
+
+    await model.restoreConversations()
+
+    XCTAssertEqual(model.retentionPolicy, .thirtyDays)
+    XCTAssertTrue(model.threads.isEmpty)
   }
 }
