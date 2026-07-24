@@ -2,7 +2,7 @@
   "name": "wayfinder-clients",
   "version": "0.0.0",
   "private": true,
-  "description": "npm workspace root for Wayfinder's thin clients (one backend, many thin clients — WF-ADR-0042). The Python gateway is the backend; these are renderers over its HTTP API.",
+  "description": "npm workspace root for Wayfinder's thin clients over the native Rust gateway HTTP API.",
   "workspaces": [
     "clients/shared",
     "clients/desktop"

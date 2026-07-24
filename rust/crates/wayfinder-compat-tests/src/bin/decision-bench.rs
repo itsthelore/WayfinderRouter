@@ -53,7 +53,7 @@ fn exercise(
 fn main() -> Result<(), Box<dyn Error>> {
     let iterations = parse_iterations()?;
     let corpus: Vec<Fixture> =
-        serde_json::from_str(include_str!("../../fixtures/python-golden.json"))?;
+        serde_json::from_str(include_str!("../../fixtures/migration-golden.json"))?;
     let config = RoutingConfig::default();
     let _ = exercise(&corpus, &config, 100)?;
 

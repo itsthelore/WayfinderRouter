@@ -33,9 +33,8 @@ details, release history over commit history.
   locally across New Chat and relaunch; Stop, contextual Retry, New Chat, bounded request history,
   personal destination names, and actionable delivery failures are included. Settings consolidates
   ChatGPT accounts and API-key providers under Connections while keeping their authentication paths
-  visibly distinct. The app uses its own SemVer release line (`0.1.0`) while the bundled router
-  retains its existing CalVer identity when built and distributed independently; the router
-  embedded in the desktop bundle reports the desktop product version.
+  visibly distinct. The app uses its own SemVer release line (`0.1.0`), and its embedded router
+  reports the desktop product version.
 
 - **Apple Foundation Models availability contract** (WF-DESIGN-0017). The native macOS package now
   capability-detects `SystemLanguageModel.default` on macOS 26 and distinguishes available,
@@ -49,39 +48,14 @@ details, release history over commit history.
   use a separate authenticated, bounded inference XPC service inside the native bundle. Delivery is
   capability-gated and does not broaden the credential broker or make Apple a global Automatic route.
 
-## Standalone router — Unreleased
+### Changed
 
-### Added
-
-- **Decision-only replies when no model is configured** (WF-ADR-0042). A running gateway with no
-  `[gateway.models]` now answers `/v1/chat/completions` with the routing **decision** (HTTP 200,
-  `{"wayfinder": {…}}` and an `x-wayfinder-router-decision-only: true` header) instead of a `500` — so
-  you see real routing the moment the gateway starts, before wiring any backend, and a client can
-  render decisions while a local model is still warming up. Only delivery is skipped; the decision is
-  computed offline and is identical to `--dry-run` (WF-ADR-0001). A genuine outage (models configured
-  but all cooling down) still returns its `503`.
-
-- **`serve --config` / `WAYFINDER_CONFIG`** (WF-ADR-0042). Point the gateway at a specific
-  `wayfinder-router.toml` instead of relying on the working-directory search: `wayfinder-router serve
-  --config <path>` (or set `WAYFINDER_CONFIG`). `service install --config <path>` bakes it into the
-  launchd / systemd unit, so a service-managed gateway loads a fixed file regardless of where it was
-  launched — and a desktop app and the service can share one well-known config. Precedence is
-  `--config` → `WAYFINDER_CONFIG` → the existing cwd walk-up → built-in defaults; an
-  explicitly-configured-but-missing file is a clear "not found" (never a silent fallback to some other
-  file). Fully backward-compatible — unset means the unchanged behavior.
-
-- **`config set`** (WF-ADR-0044). `wayfinder-router config set gateway.offline true|false [--path]`
-  flips offline-first delivery (WF-ADR-0039) for **every** client of the gateway, without hand-editing
-  TOML: the edit is line-preserving (comments and unrelated lines survive byte-for-byte), validated
-  against the real config schema before anything is written, and hot-reloaded by a running gateway on
-  its next request. Whitelisted keys only — `gateway.offline` is the first; this is a seam, not a
-  general TOML editor. It is what the desktop app's new global Offline switch shells out to.
-
-- **`init --keychain`** (WF-ADR-0044, macOS). `wayfinder-router init --preset <p> --keychain` scaffolds
-  the same preset config with an `api_key_cmd` per keyed model that reads the key from the macOS
-  Keychain (`/usr/bin/security find-generic-password -s wayfinder-router -a <ENV_VAR> -w`) — the
-  reference the desktop app onboards through. The key itself is never written to the config
-  (WF-ADR-0004); without the flag, `init` output is unchanged byte-for-byte.
+- **Rust-only runtime cutover** (WF-ADR-0046, WF-ROADMAP-0014). Wayfinder now builds, tests,
+  containers, and ships one native Rust router and gateway. The helper no longer delegates commands
+  to Python, and the old package, PyPI release, Python container, and coexistence-only command
+  surfaces are removed. Native Desktop Chat and setup remain the supported user experience. This
+  does not change Automatic routing preferences, broaden the credential broker, or make Apple a
+  global default.
 
 ## v2026.7.0 — 2026-07-01
 

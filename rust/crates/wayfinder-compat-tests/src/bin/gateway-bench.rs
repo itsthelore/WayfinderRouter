@@ -169,7 +169,7 @@ fn micros(nanoseconds: u64) -> f64 {
 async fn main() -> Result<(), Box<dyn Error>> {
     let options = parse_options()?;
     let fixtures: Vec<Fixture> =
-        serde_json::from_str(include_str!("../../fixtures/python-golden.json"))?;
+        serde_json::from_str(include_str!("../../fixtures/migration-golden.json"))?;
     let corpus = prepare(fixtures)?;
     let _ = exercise(&corpus, options.warmup_iterations, false).await?;
 

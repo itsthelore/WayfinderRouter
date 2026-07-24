@@ -47,8 +47,8 @@ body:
     id: env
     attributes:
       label: Environment
-      description: OS, Python version, and install extras (gateway / ui / …).
-      placeholder: "macOS 15, Python 3.11, [gateway]"
+      description: OS, architecture, Wayfinder Desktop version, and gateway version.
+      placeholder: "macOS 26, Apple Silicon, Desktop 0.1.0"
   - type: checkboxes
     id: confirm
     attributes:

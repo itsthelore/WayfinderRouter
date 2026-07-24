@@ -1,4 +1,4 @@
-//! Initial parity-gated `wayfinder-router` Rust command surface.
+//! Native `wayfinder-router` command surface.
 
 #![forbid(unsafe_code)]
 
@@ -15,7 +15,6 @@ use std::fs;
 use std::io::{Read, Write};
 use std::net::IpAddr;
 use std::path::{Path, PathBuf};
-use std::process::{Command, Stdio};
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -45,21 +44,6 @@ use wayfinder_service::credentials::{LegacyCommandLimits, resolve_legacy_command
 use wayfinder_service::pricing::{LedgerLoad, SavingsLedger};
 
 const SAVINGS_FILE_ENV: &str = "WAYFINDER_ROUTER_SAVINGS_FILE";
-const PYTHON_EXECUTABLE_ENV: &str = "WAYFINDER_PYTHON_EXECUTABLE";
-const PYTHON_DELEGATED_COMMANDS: &[&str] = &[
-    "calibrate",
-    "recalibrate",
-    "webchat",
-    "ui",
-    "chat",
-    "onboard",
-    "judge",
-    "init",
-    "doctor",
-    "config",
-    "keys",
-];
-
 /// Successful command.
 pub const EXIT_OK: i32 = 0;
 /// Invalid configuration or deterministic-core failure.
@@ -75,42 +59,6 @@ fn product_version() -> &'static str {
 #[must_use]
 pub fn is_serve_command(arguments: &[OsString]) -> bool {
     arguments.first().and_then(|argument| argument.to_str()) == Some("serve")
-}
-
-/// Whether the command intentionally retains its Python implementation during
-/// the parity period.
-#[must_use]
-pub fn is_python_delegated_command(arguments: &[OsString]) -> bool {
-    let command = arguments.first().and_then(|argument| argument.to_str());
-    if command == Some("config") && config_command::is_native_config_command(arguments) {
-        return false;
-    }
-    command.is_some_and(|command| PYTHON_DELEGATED_COMMANDS.contains(&command))
-}
-
-/// Replace the Rust process boundary with the existing Python CLI contract.
-///
-/// Standard streams are inherited so interactive TUI/UI commands, exact
-/// stdout/stderr placement, and subprocess exit codes remain Python-owned.
-pub fn run_python_delegate(arguments: &[OsString]) -> i32 {
-    let python = std::env::var_os(PYTHON_EXECUTABLE_ENV)
-        .filter(|value| !value.is_empty())
-        .unwrap_or_else(|| OsString::from("python3"));
-    match Command::new(python)
-        .arg("-m")
-        .arg("wayfinder_router.cli")
-        .args(arguments)
-        .stdin(Stdio::inherit())
-        .stdout(Stdio::inherit())
-        .stderr(Stdio::inherit())
-        .status()
-    {
-        Ok(status) => status.code().unwrap_or(EXIT_CONFIG),
-        Err(error) => {
-            eprintln!("wayfinder-router: cannot start retained Python command: {error}");
-            EXIT_CONFIG
-        }
-    }
 }
 
 /// Run with injected streams. Environment and current-directory discovery remain
@@ -166,7 +114,7 @@ pub fn run(
         other => {
             write_error(
                 stderr,
-                &format!("wayfinder-router: unsupported Rust migration command: {other}"),
+                &format!("wayfinder-router: unsupported command: {other}"),
             );
             EXIT_USAGE
         }
@@ -197,13 +145,13 @@ fn run_capabilities(arguments: &[String], stdout: &mut dyn Write, stderr: &mut d
         "implementation": "rust",
         "version": product_version(),
         "target_architecture": target_architecture(),
-        "commands": ["route", "serve", "service", "capabilities", "app-setup-init", "calibrate", "recalibrate", "webchat", "ui", "chat", "onboard", "judge", "init", "doctor", "config", "keys"],
-        "native_commands": ["route", "serve", "service", "capabilities", "app-setup-init", "config read-routing", "config apply-routing"],
-        "delegated_commands": PYTHON_DELEGATED_COMMANDS,
-        "delegation": {"implementation": "python", "module": "wayfinder_router.cli"},
+        "commands": ["route", "serve", "service", "capabilities", "app-setup-init", "app-configure-chatgpt", "config", "apple-foundation-live-smoke"],
+        "native_commands": ["route", "serve", "service", "capabilities", "app-setup-init", "app-configure-chatgpt", "config read-routing", "config apply-routing", "apple-foundation-live-smoke"],
+        "delegated_commands": [],
+        "delegation": null,
         "decision_schema_versions": ["3"],
         "credential_mechanisms": credential_mechanisms,
-        "gateway_ready": false
+        "gateway_ready": true
     });
     if serde_json::to_writer_pretty(&mut *stdout, &payload).is_err() || writeln!(stdout).is_err() {
         write_error(stderr, "wayfinder-router: cannot write capabilities output");
@@ -1094,7 +1042,7 @@ fn write_error(stream: &mut dyn Write, message: &str) {
 }
 
 const TOP_LEVEL_USAGE: &str = "usage: wayfinder-router [-h] [--version] COMMAND ...";
-const TOP_LEVEL_HELP: &str = "usage: wayfinder-router [-h] [--version] COMMAND ...\n\nDeterministic prompt-complexity router.\n\nNative Rust commands:\n  route          Score a prompt and recommend a model.\n  serve          Run the parity-gated local HTTP gateway.\n  service        Manage the always-on launchd/systemd user service.\n  capabilities   Emit the versioned helper capability handshake.\n  app-setup-init Create a bounded desktop setup config.\n  config read-routing | apply-routing\n                 Read or replace the desktop-owned routing fragment.\n\nRetained Python commands during coexistence:\n  calibrate recalibrate webchat ui chat onboard judge init doctor config (other actions) keys";
+const TOP_LEVEL_HELP: &str = "usage: wayfinder-router [-h] [--version] COMMAND ...\n\nNative deterministic prompt-complexity router.\n\nCommands:\n  route          Score a prompt and recommend a model.\n  serve          Run the local HTTP gateway.\n  service        Manage the always-on launchd/systemd user service.\n  capabilities   Emit the versioned helper capability handshake.\n  app-setup-init Create a bounded desktop setup config.\n  app-configure-chatgpt\n                 Add a bounded ChatGPT account route for Desktop.\n  config read-routing | apply-routing\n                 Read or replace the desktop-owned routing fragment.\n  apple-foundation-live-smoke\n                 Exercise the bounded Apple Foundation Models delivery path.";
 const ROUTE_HELP: &str = "usage: wayfinder-router route [-h] [--threshold THRESHOLD] [--json] [--explain] prompt\n\nScore a prompt and recommend a model.";
 const SERVE_HELP: &str = "usage: wayfinder-router serve [-h] [--host HOST] [--port PORT] [--dry-run] [--timeout TIMEOUT] [--config CONFIG]\n\nRun the parity-gated local HTTP gateway.";
 
@@ -1165,7 +1113,7 @@ mod tests {
     }
 
     #[test]
-    fn capabilities_are_explicitly_not_gateway_ready() -> Result<(), Box<dyn std::error::Error>> {
+    fn capabilities_report_rust_only_gateway() -> Result<(), Box<dyn std::error::Error>> {
         let mut stdin = "".as_bytes();
         let mut stdout = Vec::new();
         let mut stderr = Vec::new();
@@ -1178,7 +1126,7 @@ mod tests {
         assert_eq!(code, EXIT_OK);
         let payload: serde_json::Value = serde_json::from_slice(&stdout)?;
         assert_eq!(payload.get("implementation"), Some(&json!("rust")));
-        assert_eq!(payload.get("gateway_ready"), Some(&json!(false)));
+        assert_eq!(payload.get("gateway_ready"), Some(&json!(true)));
         let mechanisms = payload["credential_mechanisms"]
             .as_array()
             .ok_or("credential mechanisms must be an array")?;
@@ -1194,16 +1142,14 @@ mod tests {
                 "service",
                 "capabilities",
                 "app-setup-init",
+                "app-configure-chatgpt",
                 "config read-routing",
-                "config apply-routing"
+                "config apply-routing",
+                "apple-foundation-live-smoke"
             ])
         );
-        assert_eq!(payload["delegation"]["implementation"], "python");
-        assert!(
-            payload["delegated_commands"]
-                .as_array()
-                .is_some_and(|commands| commands.contains(&json!("doctor")))
-        );
+        assert!(payload["delegation"].is_null());
+        assert_eq!(payload["delegated_commands"], json!([]));
         Ok(())
     }
 
@@ -1231,32 +1177,35 @@ mod tests {
     }
 
     #[test]
-    fn coexistence_command_ownership_is_explicit() {
-        for command in PYTHON_DELEGATED_COMMANDS {
-            assert!(is_python_delegated_command(&[OsString::from(command)]));
+    fn removed_legacy_commands_fail_closed() {
+        for command in [
+            "calibrate",
+            "recalibrate",
+            "webchat",
+            "ui",
+            "chat",
+            "onboard",
+            "judge",
+            "init",
+            "doctor",
+            "keys",
+        ] {
+            let mut stdin = "".as_bytes();
+            let mut stdout = Vec::new();
+            let mut stderr = Vec::new();
+            let code = run(
+                vec![OsString::from(command)],
+                &mut stdin,
+                &mut stdout,
+                &mut stderr,
+            );
+            assert_eq!(code, EXIT_USAGE, "{command}");
+            assert!(stdout.is_empty(), "{command}");
+            assert_eq!(
+                String::from_utf8_lossy(&stderr),
+                format!("wayfinder-router: unsupported command: {command}\n")
+            );
         }
-        for action in ["read-routing", "apply-routing"] {
-            assert!(!is_python_delegated_command(&[
-                OsString::from("config"),
-                OsString::from(action),
-            ]));
-            assert!(!is_python_delegated_command(&[
-                OsString::from("config"),
-                OsString::from("--path"),
-                OsString::from("fixture.toml"),
-                OsString::from(action),
-            ]));
-        }
-        assert!(is_python_delegated_command(&[
-            OsString::from("config"),
-            OsString::from("set"),
-        ]));
-        assert!(is_python_delegated_command(&[
-            OsString::from("config"),
-            OsString::from("--help"),
-        ]));
-        assert!(!is_python_delegated_command(&[OsString::from("route")]));
-        assert!(!is_python_delegated_command(&[]));
     }
 
     #[test]

@@ -2,8 +2,8 @@
 
 The production artifact is `Wayfinder.app` with its Rust gateway nested inside
 `Contents/Helpers/WayfinderGateway.app`. The helper is versioned, signed, and promoted only as part
-of the containing desktop product. The standalone router/PyPI package retains its independent
-CalVer lifecycle and remains an explicit rollback option; `desktop-v*` tags never publish it.
+of the containing desktop product. The retired package distribution is not a rollback channel;
+`desktop-v*` tags publish only the reviewed native desktop artifact.
 
 ## Supported release
 

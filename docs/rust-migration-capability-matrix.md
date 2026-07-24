@@ -1,9 +1,13 @@
 # Rust migration discovery and capability matrix
 
-Status: discovery baseline, 2026-07-11
+Status: frozen discovery baseline, superseded by WF-ADR-0046 on 2026-07-24
 Python baseline: `cea7d98833a4f54e3c2ebf2588fc2fc5adbad7cd` plus the preserved dirty worktree described below
 Rust parity: Phases 1–3 complete; operations, CLI, and distribution gates remain
 
+> This document preserves the 2026-07-11 discovery baseline and is not current runtime or
+> distribution guidance. WF-ADR-0046 completes the Rust-only cutover, removes the legacy package
+> and fallback, and sets `gateway_ready: true`. Historical rows below remain migration evidence.
+>
 > Current Desktop amendment (2026-07-19): this document preserves the 2026-07-11 discovery baseline.
 > WF-ROADMAP-0015 supersedes its native packaging/default rows for Desktop v0.1.0. The Desktop app
 > explicitly selects a bundled arm64 Rust gateway with authenticated credential and Foundation

@@ -138,8 +138,7 @@ pub fn scaffold_config(preset: String) -> Result<String, String> {
     let home = std::env::var("HOME").unwrap_or_default();
     let path = std::env::var("PATH").unwrap_or_default();
     let wf = service::resolve_wayfinder(&home, &path).ok_or_else(|| {
-        "couldn't find `wayfinder-router` — install the gateway first (pip install wayfinder-router)"
-            .to_string()
+        "couldn't find the native `wayfinder-router` binary".to_string()
     })?;
     let config = service::desktop_config_path(&home);
     if let Some(dir) = std::path::Path::new(&config).parent() {
@@ -200,8 +199,7 @@ pub fn set_offline(on: bool) -> Result<String, String> {
     let home = std::env::var("HOME").unwrap_or_default();
     let path = std::env::var("PATH").unwrap_or_default();
     let wf = service::resolve_wayfinder(&home, &path).ok_or_else(|| {
-        "couldn't find `wayfinder-router` — install the gateway first (pip install wayfinder-router)"
-            .to_string()
+        "couldn't find the native `wayfinder-router` binary".to_string()
     })?;
     let config = service::desktop_config_path(&home);
     let value = if on { "true" } else { "false" };

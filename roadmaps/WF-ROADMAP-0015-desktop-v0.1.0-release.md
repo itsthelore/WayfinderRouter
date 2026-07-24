@@ -15,8 +15,8 @@ Accepted.
 
 Wayfinder Desktop v0.1.0 ships as an **Apple Silicon-only** native macOS application with its
 arm64 Rust gateway embedded inside the signed app. It retains the macOS 14 minimum deployment
-target, uses the independent desktop SemVer tag `desktop-v0.1.0`, and does not change the standalone
-router/PyPI CalVer release line.
+target and uses the desktop SemVer tag `desktop-v0.1.0`. The embedded Rust gateway is part of that
+product and reports the desktop version.
 
 The release includes focused native Chat, Apple Foundation Models on eligible systems, and the
 opt-in ChatGPT-authenticated destination from WF-DESIGN-0018. ChatGPT authentication depends on the
@@ -51,7 +51,7 @@ Intel slice, and universal artifact are follow-up release work.
   installation, replacement, failed promotion, and rollback.
 - Apple on-device inference calls the native `FoundationModels` framework inside the authenticated
   Swift XPC service; no Apple-model CLI or subprocess inference path is shipped.
-- Neither the desktop workflow nor its `desktop-v*` tags can invoke the standalone PyPI release.
+- The desktop workflow and its `desktop-v*` tags publish only native desktop artifacts.
 
 ## Delivery phases
 
@@ -61,8 +61,8 @@ Intel slice, and universal artifact are follow-up release work.
   v0.1.0 platform claim and Intel/universal evidence is explicitly deferred.
 - State that ChatGPT account routing ships through a separately installed verified ChatGPT app and
   that no Codex executable is bundled in v0.1.0.
-- Keep the standalone router's CalVer, Python rollback path, accepted availability-gated Apple
-  new-setup preference, and narrow credential brokers unchanged.
+- Keep the accepted availability-gated Apple new-setup preference and narrow credential brokers
+  unchanged.
 
 **Exit:** no current release-facing document claims that v0.1.0 is universal, Intel-tested, or
 self-contained for ChatGPT authentication.
@@ -89,7 +89,7 @@ architecture mismatch fails before promotion.
 - Upload unsigned/ad-hoc CI artifacts only as build evidence; never present them as distributable.
 
 **Exit:** ordinary PRs cannot access release credentials, malformed desktop tags fail closed, and a
-valid protected tag can produce the independently versioned desktop artifact without invoking PyPI.
+valid protected tag can produce the independently versioned native desktop artifact.
 
 ### Phase 3 — close fidelity and live-provider evidence
 
@@ -110,8 +110,7 @@ live evidence against the final production topology.
 
 ### Phase 4 — publish desktop-v0.1.0
 
-- Move the desktop entries from `Unreleased` into a dated `Desktop v0.1.0` release record without
-  changing the standalone router version.
+- Move the desktop entries from `Unreleased` into a dated `Desktop v0.1.0` release record.
 - Create the protected `desktop-v0.1.0` tag from reviewed `main`.
 - Publish the final ZIP, checksum, release notes, supported-platform statement, install/rollback
   steps, and known external ChatGPT-app dependency.
@@ -129,7 +128,7 @@ and honest about its supported platform and external provider dependency.
   the Apple Local setup preset to an existing configuration.
 - Expanding `WayfinderCredentialBroker` or moving gateway/provider ownership into Swift.
 - A DMG, Homebrew cask, Sparkle/Tauri updater, Mac App Store package, or automatic promotion.
-- Changing or removing the standalone Python/PyPI distribution.
+- Standalone package-manager distribution; any future channel needs its own native support contract.
 - iOS implementation; that begins as a separate roadmap after the desktop release gate closes.
 
 ## Verification record

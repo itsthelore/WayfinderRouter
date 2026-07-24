@@ -1,20 +1,20 @@
-.PHONY: route calibrate test benchmark
+.PHONY: build route test lint
+
+CARGO := cargo
+MANIFEST := rust/Cargo.toml
+ROUTER := rust/target/debug/wayfinder-router
 
 # Score a prompt and print a model recommendation, e.g.
 #   make route PROMPT=path/to/prompt.md
-route:
-	python -m wayfinder_router.cli route $(PROMPT)
+build:
+	$(CARGO) build --manifest-path $(MANIFEST) --package wayfinder-cli --bin wayfinder-router --locked
 
-# Calibrate a routing config from a labeled JSONL dataset, e.g.
-#   make calibrate DATA=data.jsonl MODE=threshold
-calibrate:
-	python -m wayfinder_router.cli calibrate $(DATA) --mode $(MODE)
+route: build
+	$(ROUTER) route $(PROMPT)
 
 test:
-	python -m pytest -q
+	$(CARGO) test --manifest-path $(MANIFEST) --workspace --all-features --locked
 
-# Run the deterministic, offline routing benchmark (WF-ADR-0015), e.g.
-#   make benchmark            # uses benchmarks/dataset.jsonl
-#   make benchmark DATA=my.jsonl
-benchmark:
-	python -m benchmarks.run $(DATA)
+lint:
+	$(CARGO) fmt --manifest-path $(MANIFEST) --all -- --check
+	$(CARGO) clippy --manifest-path $(MANIFEST) --workspace --all-targets --all-features --locked -- -D warnings
