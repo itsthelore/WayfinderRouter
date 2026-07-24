@@ -1,8 +1,8 @@
 # Wayfinder
 
-Wayfinder is a local-first model router and native macOS chat app. It scores each
-request locally, chooses a configured destination, and keeps delivery policy
-separate from the application making the request.
+Wayfinder is a local-first model router and native Apple AI environment. It
+scores each request locally, chooses an eligible destination, and keeps delivery
+policy separate from the application making the request.
 
 The production router is implemented in Rust. Wayfinder Desktop embeds that
 router inside the signed application bundle; no Python runtime, package, or
@@ -23,6 +23,18 @@ The native Swift macOS app provides:
 
 Desktop releases use SemVer and `desktop-v*` tags. See
 [`macos/WayfinderMac/Packaging/RELEASE.md`](macos/WayfinderMac/Packaging/RELEASE.md).
+
+### Wayfinder for iPhone and iPad
+
+Native standalone iPhone and iPad apps are planned for v0.2.0. They embed the
+same authoritative Rust routing core and execute approved on-device or direct
+cloud providers without requiring a Mac or localhost gateway. Optional Mac
+pairing follows in v0.2.1 as an additional provider.
+
+The governing contracts are
+[`WF-ROADMAP-0016`](roadmaps/WF-ROADMAP-0016-native-mobile-v0.2.md),
+[`WF-ADR-0047`](decisions/WF-ADR-0047-native-mobile-independence.md), and
+[`WF-ADR-0048`](decisions/WF-ADR-0048-shared-routing-core-apple-embedding.md).
 
 ### Rust gateway
 
@@ -83,6 +95,8 @@ node clients/shared/test/parity.mjs
 
 ```text
 rust/                    native router, gateway, providers, and service crates
+apple/                   planned shared Apple packages after bridge validation
+ios/                     planned native iPhone and iPad product
 macos/WayfinderMac/      native Swift macOS app and release packaging
 clients/                 retained thin-client contract code and fixtures
 decisions/               architecture decisions

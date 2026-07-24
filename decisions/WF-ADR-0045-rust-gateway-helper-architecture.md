@@ -9,13 +9,24 @@ tags: [rust, gateway, router, helper, macos, compatibility, security, packaging]
 
 ## Status
 
-Accepted for staged implementation; Rust is not yet accepted as the default backend.
+Superseded for runtime-selection and migration state by WF-ADR-0046. Retained
+as the architecture and threat-model record for the separately running macOS
+gateway helper.
 
 > Desktop v0.1.0 release amendment (WF-ROADMAP-0015): the native app explicitly ships its bundled
 > Rust gateway as a thin arm64 helper on Apple Silicon. This desktop-product selection does not make
 > Rust the default for standalone, Homebrew, container, or PyPI installations and does not authorize
 > Python removal. The originally accepted universal arm64/x86_64 artifact remains a future broader
 > distribution gate rather than a requirement for the first desktop release.
+>
+> Rust-only cutover (WF-ADR-0046): Python coexistence, delegation, PyPI, and
+> Python verification gates below are historical migration constraints, not
+> current runtime requirements.
+>
+> Mobile amendment (WF-ADR-0048): the rejection of an in-process Swift/Rust
+> bridge remains correct for the macOS gateway-first product. Native iPhone and
+> iPad have no gateway helper and therefore embed a separately extracted pure
+> routing core through generated bindings.
 
 ## Category
 
@@ -328,3 +339,5 @@ omitted from a default-readiness recommendation.
 - WF-ADR-0042/0044 (thin native client and CLI-owned configuration)
 - `docs/rust-migration-capability-matrix.md`
 - WF-ROADMAP-0015 (Apple Silicon desktop v0.1.0 release contract)
+- WF-ADR-0046 (completed Rust-only cutover)
+- WF-ADR-0048 (mobile shared-core embedding)
