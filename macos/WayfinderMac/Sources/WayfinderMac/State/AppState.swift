@@ -10,6 +10,7 @@ public final class AppState: ObservableObject {
     @Published public private(set) var isRefreshingStats = false
     @Published public var chatDraft = ""
     @Published public var chatDestination: ChatDestination = .automatic
+    @Published public private(set) var chatMessageDestinationOverride: ChatDestination?
     @Published public private(set) var chatDestinations: [ChatDestination] = [.automatic]
     @Published public private(set) var chatMessages: [ChatMessage]
     @Published public private(set) var chatConversations: [ChatConversation]
@@ -50,9 +51,10 @@ public final class AppState: ObservableObject {
     }
 
     public var canSendMessage: Bool {
-        !chatDraft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-            && !isSendingMessage
-            && chatDestination.isAvailable
+        guard !isSendingMessage, let submission = resolvedChatSubmission else {
+            return false
+        }
+        return submission.destination.isAvailable
     }
 
     public var canClearChat: Bool {
@@ -60,9 +62,10 @@ public final class AppState: ObservableObject {
     }
 
     public var canRetryChat: Bool {
-        !isSendingMessage && chatDestination.isAvailable && chatMessages.last.map {
-            $0.role == .assistant && ($0.state == .failed || $0.state == .stopped)
-        } == true
+        guard !isSendingMessage, let failedTurn = lastRetryableChatTurn else {
+            return false
+        }
+        return retryDestination(for: failedTurn.prompt).isAvailable
     }
 
     public func analyse() {
@@ -133,82 +136,26 @@ public final class AppState: ObservableObject {
     }
 
     public func sendChatDraft() {
-        let input = chatDraft.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard canSendMessage, !input.isEmpty else {
+        guard !isSendingMessage,
+              let submission = resolvedChatSubmission,
+              submission.destination.isAvailable else {
             return
         }
+        submitChatMessage(
+            prompt: submission.prompt,
+            destination: submission.destination
+        )
+    }
 
-        let requestMessages = Self.chatRequestMessages(from: chatMessages) + [
-            ChatRequestMessage(role: "user", content: input)
-        ]
-        let destination = chatDestination
-        let responseID = UUID()
-        chatDraft = ""
-        isSendingMessage = true
-        chatMessages.append(ChatMessage(role: .user, text: input))
-        chatMessages.append(ChatMessage(
-            id: responseID,
-            role: .assistant,
-            text: "",
-            state: .streaming
-        ))
-        saveActiveConversation()
+    public func selectChatMessageDestinationOverride(_ destination: ChatDestination) {
+        guard !isSendingMessage else { return }
+        chatMessageDestinationOverride = destination
+        chatDraft = ChatDestinationMentionResolver.removingActiveMention(from: chatDraft)
+    }
 
-        chatTask = Task {
-            do {
-                for try await event in client.streamChat(
-                    messages: requestMessages,
-                    destination: destination
-                ) {
-                    guard let index = self.chatMessages.firstIndex(where: { $0.id == responseID }) else {
-                        continue
-                    }
-                    switch event {
-                    case let .decision(decision):
-                        self.chatMessages[index].decision = decision
-                    case let .text(fragment):
-                        self.chatMessages[index].text += fragment
-                    case .completed:
-                        self.chatMessages[index].state = self.chatMessages[index].text.isEmpty
-                            ? .failed
-                            : .complete
-                        if self.chatMessages[index].text.isEmpty {
-                            self.chatMessages[index].text = "No model reply was delivered. Check the configured endpoint in Settings."
-                            self.chatMessages[index].recoverySettingsSection = .gateway
-                        }
-                    }
-                }
-                if Task.isCancelled {
-                    self.finishStoppedChatMessage(id: responseID)
-                    return
-                }
-                if let index = self.chatMessages.firstIndex(where: { $0.id == responseID }),
-                   self.chatMessages[index].state == .streaming {
-                    self.finishFailedChatMessage(
-                        id: responseID,
-                        message: WayfinderClientError.invalidChatStream.localizedDescription
-                    )
-                    return
-                }
-                self.isSendingMessage = false
-                self.chatTask = nil
-                self.saveActiveConversation()
-                self.refreshStats()
-            } catch {
-                if Task.isCancelled || error is CancellationError {
-                    self.finishStoppedChatMessage(id: responseID)
-                } else {
-                    self.finishFailedChatMessage(
-                        id: responseID,
-                        message: Self.chatErrorMessage(error, destination: destination),
-                        recoverySettingsSection: Self.chatRecoverySettingsSection(
-                            error,
-                            destination: destination
-                        )
-                    )
-                }
-            }
-        }
+    public func clearChatMessageDestinationOverride() {
+        guard !isSendingMessage else { return }
+        chatMessageDestinationOverride = nil
     }
 
     public func stopChatResponse() {
@@ -223,6 +170,7 @@ public final class AppState: ObservableObject {
         activeChatConversationID = UUID()
         chatMessages = []
         chatDraft = ""
+        chatMessageDestinationOverride = nil
     }
 
     public func selectChatConversation(_ id: UUID) {
@@ -234,21 +182,17 @@ public final class AppState: ObservableObject {
         activeChatConversationID = conversation.id
         chatMessages = conversation.messages
         chatDraft = ""
+        chatMessageDestinationOverride = nil
     }
 
     public func retryLastChatTurn() {
-        guard !isSendingMessage, chatDestination.isAvailable,
-              let responseIndex = chatMessages.lastIndex(where: {
-                  $0.role == .assistant && ($0.state == .failed || $0.state == .stopped)
-              }),
-              responseIndex > 0,
-              chatMessages[responseIndex - 1].role == .user else {
+        guard !isSendingMessage, let failedTurn = lastRetryableChatTurn else {
             return
         }
-        let prompt = chatMessages[responseIndex - 1].text
-        chatMessages.removeSubrange((responseIndex - 1)...responseIndex)
-        chatDraft = prompt
-        sendChatDraft()
+        let destination = retryDestination(for: failedTurn.prompt)
+        guard destination.isAvailable else { return }
+        chatMessages.removeSubrange(failedTurn.promptIndex...failedTurn.responseIndex)
+        submitChatMessage(prompt: failedTurn.prompt.text, destination: destination)
     }
 
     static func chatRequestMessages(from messages: [ChatMessage]) -> [ChatRequestMessage] {
@@ -338,6 +282,141 @@ public final class AppState: ObservableObject {
         chatDestinations = destinations
     }
 
+    private var resolvedChatSubmission: ChatSubmission? {
+        let trimmedDraft = chatDraft.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedDraft.isEmpty else { return nil }
+
+        if let chatMessageDestinationOverride {
+            return ChatSubmission(
+                prompt: trimmedDraft,
+                destination: chatMessageDestinationOverride
+            )
+        }
+
+        switch ChatDestinationMentionResolver.resolve(
+            draft: trimmedDraft,
+            destinations: chatDestinations
+        ) {
+        case let .resolved(destination, prompt):
+            guard !prompt.isEmpty else { return nil }
+            return ChatSubmission(prompt: prompt, destination: destination)
+        case .none, .ambiguous, .unknown:
+            return ChatSubmission(prompt: trimmedDraft, destination: chatDestination)
+        }
+    }
+
+    private var lastRetryableChatTurn: (
+        promptIndex: Int,
+        responseIndex: Int,
+        prompt: ChatMessage
+    )? {
+        guard let responseIndex = chatMessages.lastIndex(where: {
+            $0.role == .assistant && ($0.state == .failed || $0.state == .stopped)
+        }),
+        responseIndex > 0,
+        chatMessages[responseIndex - 1].role == .user else {
+            return nil
+        }
+        return (responseIndex - 1, responseIndex, chatMessages[responseIndex - 1])
+    }
+
+    private func retryDestination(for prompt: ChatMessage) -> ChatDestination {
+        guard let routeName = prompt.requestedGatewayRouteName else {
+            return .automatic
+        }
+        if chatDestination.gatewayModelValue.caseInsensitiveCompare(routeName) == .orderedSame {
+            return chatDestination
+        }
+        return ChatDestinationMentionResolver.destination(
+            forGatewayModelValue: routeName,
+            destinations: chatDestinations
+        ) ?? ChatDestination(
+            routeName: routeName,
+            title: prompt.requestedDestinationTitle ?? routeName,
+            detail: "Previously requested route",
+            isAvailable: false
+        )
+    }
+
+    private func submitChatMessage(prompt: String, destination: ChatDestination) {
+        let requestMessages = Self.chatRequestMessages(from: chatMessages) + [
+            ChatRequestMessage(role: "user", content: prompt)
+        ]
+        let responseID = UUID()
+        chatDraft = ""
+        chatMessageDestinationOverride = nil
+        isSendingMessage = true
+        chatMessages.append(ChatMessage(
+            role: .user,
+            text: prompt,
+            requestedGatewayRouteName: destination.routeName,
+            requestedDestinationTitle: destination.isAutomatic ? nil : destination.title
+        ))
+        chatMessages.append(ChatMessage(
+            id: responseID,
+            role: .assistant,
+            text: "",
+            state: .streaming
+        ))
+        saveActiveConversation()
+
+        chatTask = Task {
+            do {
+                for try await event in client.streamChat(
+                    messages: requestMessages,
+                    destination: destination
+                ) {
+                    guard let index = self.chatMessages.firstIndex(where: { $0.id == responseID }) else {
+                        continue
+                    }
+                    switch event {
+                    case let .decision(decision):
+                        self.chatMessages[index].decision = decision
+                    case let .text(fragment):
+                        self.chatMessages[index].text += fragment
+                    case .completed:
+                        self.chatMessages[index].state = self.chatMessages[index].text.isEmpty
+                            ? .failed
+                            : .complete
+                        if self.chatMessages[index].text.isEmpty {
+                            self.chatMessages[index].text = "No model reply was delivered. Check the configured endpoint in Settings."
+                            self.chatMessages[index].recoverySettingsSection = .gateway
+                        }
+                    }
+                }
+                if Task.isCancelled {
+                    self.finishStoppedChatMessage(id: responseID)
+                    return
+                }
+                if let index = self.chatMessages.firstIndex(where: { $0.id == responseID }),
+                   self.chatMessages[index].state == .streaming {
+                    self.finishFailedChatMessage(
+                        id: responseID,
+                        message: WayfinderClientError.invalidChatStream.localizedDescription
+                    )
+                    return
+                }
+                self.isSendingMessage = false
+                self.chatTask = nil
+                self.saveActiveConversation()
+                self.refreshStats()
+            } catch {
+                if Task.isCancelled || error is CancellationError {
+                    self.finishStoppedChatMessage(id: responseID)
+                } else {
+                    self.finishFailedChatMessage(
+                        id: responseID,
+                        message: Self.chatErrorMessage(error, destination: destination),
+                        recoverySettingsSection: Self.chatRecoverySettingsSection(
+                            error,
+                            destination: destination
+                        )
+                    )
+                }
+            }
+        }
+    }
+
     private func finishStoppedChatMessage(id: UUID) {
         if let index = chatMessages.firstIndex(where: { $0.id == id }) {
             chatMessages[index].state = .stopped
@@ -383,6 +462,11 @@ public final class AppState: ObservableObject {
         chatConversations.sort { $0.updatedAt > $1.updatedAt }
         chatConversationStore.save(chatConversations)
     }
+}
+
+private struct ChatSubmission {
+    let prompt: String
+    let destination: ChatDestination
 }
 
 public enum SettingsSection: String, CaseIterable, Codable, Identifiable, Sendable {

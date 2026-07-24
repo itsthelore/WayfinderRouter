@@ -17,6 +17,8 @@ public struct ChatMessage: Identifiable, Codable, Equatable, Sendable {
     public let role: ChatMessageRole
     public var text: String
     public var decision: RoutingDecision?
+    public var requestedGatewayRouteName: String?
+    public var requestedDestinationTitle: String?
     public var state: ChatMessageState
     public var recoverySettingsSection: SettingsSection?
     public let createdAt: Date
@@ -26,6 +28,8 @@ public struct ChatMessage: Identifiable, Codable, Equatable, Sendable {
         role: ChatMessageRole,
         text: String,
         decision: RoutingDecision? = nil,
+        requestedGatewayRouteName: String? = nil,
+        requestedDestinationTitle: String? = nil,
         state: ChatMessageState = .complete,
         recoverySettingsSection: SettingsSection? = nil,
         createdAt: Date = Date()
@@ -34,6 +38,8 @@ public struct ChatMessage: Identifiable, Codable, Equatable, Sendable {
         self.role = role
         self.text = text
         self.decision = decision
+        self.requestedGatewayRouteName = requestedGatewayRouteName
+        self.requestedDestinationTitle = requestedDestinationTitle
         self.state = state
         self.recoverySettingsSection = recoverySettingsSection
         self.createdAt = createdAt
@@ -65,6 +71,16 @@ public struct ChatDestination: Identifiable, Hashable, Sendable {
         routeName: nil,
         title: "Automatic",
         detail: "Wayfinder chooses"
+    )
+    public static let preferLocal = ChatDestination(
+        routeName: "prefer-local",
+        title: "Prefer Local",
+        detail: "Use the best available local route"
+    )
+    public static let preferHosted = ChatDestination(
+        routeName: "prefer-hosted",
+        title: "Prefer Hosted",
+        detail: "Use the best available hosted route"
     )
 
     public let routeName: String?
