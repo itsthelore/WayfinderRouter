@@ -146,8 +146,20 @@ The first extraction boundary provides:
 - a manifest-level dependency test that rejects unreviewed production
   dependencies.
 
-The generated Swift bridge, XCFramework assembly, physical-device proof, and
-provider-execution placement decision remain separate gated work.
+The first Apple bridge boundary additionally provides:
+
+- generated UniFFI 0.29.5 Swift bindings pinned to the workspace's Rust 1.85
+  toolchain;
+- a narrow, versioned, bounded score-and-plan API over the authoritative core;
+- local XCFramework assembly for Apple Silicon macOS, arm64 iOS devices, and
+  arm64 iOS Simulator;
+- Swift contract tests for golden scoring, privacy exclusions, bounded errors,
+  concurrent calls, and repeated object lifetimes;
+- compile gates against the installed iOS device and simulator SDKs.
+
+This accepts UniFFI for the typed routing bridge. Physical-device execution,
+provider-execution placement, streaming/cancellation at the provider layer,
+and the native application shell remain separate gated work.
 
 ## Consequences
 

@@ -1,0 +1,5 @@
+[bindings.swift]
+module_name = "WayfinderRoutingBridge"
+ffi_module_name = "WayfinderRoutingFFI"
+ffi_module_filename = "WayfinderRoutingFFI"
+generate_immutable_records = true

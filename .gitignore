@@ -24,3 +24,9 @@ macos/WayfinderMac/dist-release/
 
 # Rust migration workspace build output
 rust/target/
+
+# Generated Apple routing bridge products
+apple/.build/
+apple/Packages/WayfinderRoutingBridge/.build/
+apple/Packages/WayfinderRoutingBridge/Artifacts/
+apple/Packages/WayfinderRoutingBridge/Sources/WayfinderRoutingBridge/Generated/
