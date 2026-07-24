@@ -12,8 +12,8 @@ use http::{Request, StatusCode};
 use serde::Deserialize;
 use serde_json::{Value, json};
 use tower::ServiceExt;
-use wayfinder_core::RoutingConfig;
 use wayfinder_gateway::{AppState, build_router};
+use wayfinder_routing_core::RoutingConfig;
 
 const MAX_OPERATIONS: usize = 2_000_000;
 const RESPONSE_LIMIT: usize = 1024 * 1024;

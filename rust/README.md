@@ -3,8 +3,10 @@
 Rust is Wayfinder's sole production router and gateway runtime under
 WF-ADR-0046. This workspace contains:
 
-- `wayfinder-core` — deterministic feature extraction, scoring, tiers, and
-  explanations;
+- `wayfinder-routing-core` — authoritative deterministic feature extraction,
+  compatibility filtering, scoring, tier selection, and route planning;
+- `wayfinder-runtime-contracts` — secret-free requests, destination snapshots,
+  exclusion reasons, plans, explanations, and receipts;
 - `wayfinder-config` — typed routing/gateway configuration and preserved
   mutations;
 - `wayfinder-providers` — bounded provider clients and streaming translation;
@@ -43,14 +45,16 @@ Wayfinder Desktop continues to embed `wayfinder-router` as a separately running
 signed helper. Native iPhone and iPad v0.2 does not run that executable or an
 internal HTTP server.
 
-WF-ADR-0048 extracts a pure `wayfinder-routing-core` and typed runtime contracts
-from this workspace. The gateway and generated Swift bridge will consume the
-same core and golden fixtures. The pure core may not perform filesystem,
-Keychain, process, provider, HTTP-server, UI, or Apple-framework work.
+WF-ADR-0048 defines the extracted `wayfinder-routing-core` and
+`wayfinder-runtime-contracts` as the shared routing authority. The gateway
+already consumes that core, and dependency-boundary plus golden-corpus tests
+protect its portability. The generated Swift bridge will consume these same
+crates and fixtures in its own pull request. The pure core may not perform
+filesystem, Keychain, process, provider, HTTP-server, UI, or Apple-framework
+work.
 
-The extraction, bridge/XCFramework, provider execution choice, iOS shell, auth,
-Apple model, and pairing remain separate pull requests under
-WF-ROADMAP-0016.
+The bridge/XCFramework, provider execution choice, iOS shell, auth, Apple
+model, and pairing remain separate pull requests under WF-ROADMAP-0016.
 
 ## Governing documents
 

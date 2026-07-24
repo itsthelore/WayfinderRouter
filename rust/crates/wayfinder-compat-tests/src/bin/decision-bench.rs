@@ -10,7 +10,7 @@ use std::time::Instant;
 
 use serde::Deserialize;
 use serde_json::json;
-use wayfinder_core::{RoutingConfig, score_complexity};
+use wayfinder_routing_core::{RoutingConfig, score_complexity};
 
 #[derive(Deserialize)]
 struct Fixture {

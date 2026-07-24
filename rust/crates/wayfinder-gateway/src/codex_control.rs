@@ -501,7 +501,7 @@ mod tests {
     use axum::http::{Method, Request};
     use serde_json::{Value, json};
     use tower::ServiceExt;
-    use wayfinder_core::RoutingConfig;
+    use wayfinder_routing_core::RoutingConfig;
 
     use super::*;
     use crate::{AppState, build_router};

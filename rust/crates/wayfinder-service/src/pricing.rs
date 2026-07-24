@@ -18,7 +18,7 @@ use serde::Serialize;
 use serde_json::Value;
 use sha2::{Digest, Sha256};
 use thiserror::Error;
-use wayfinder_core::python_round;
+use wayfinder_routing_core::python_round;
 
 /// The compatibility estimate used when an upstream omits token usage.
 pub const CHARS_PER_TOKEN: usize = 4;

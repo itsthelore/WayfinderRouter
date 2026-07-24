@@ -25,10 +25,6 @@ use wayfinder_config::{
     CONFIG_PATH_ENV, THRESHOLD_ENV, TierOrderPolicy, find_config_file, load_routing_config,
     routing_config_from_toml,
 };
-use wayfinder_core::{
-    ComplexityScore, FEATURE_ORDER, Lexicon, RoutingConfig, RoutingMode, Weights, binary_tiers,
-    explain_score, score_complexity,
-};
 use wayfinder_gateway::delivery::{
     AppleFoundationModelDelivery, BufferedProviderDelivery, CodexAppServerDelivery,
     CredentialError, CredentialSource, OpenAiCompatibleDelivery, ProviderDelivery,
@@ -39,6 +35,10 @@ use wayfinder_gateway::server::{DEFAULT_DRAIN_TIMEOUT, serve_with_shutdown, shut
 use wayfinder_gateway::{AppState, ConfiguredModel, RouteOn, build_reloadable_router};
 use wayfinder_providers::openai_compat::{
     DEFAULT_CONNECT_TIMEOUT, OpenAiProviderClient, ProviderClientConfig, SecretValue,
+};
+use wayfinder_routing_core::{
+    ComplexityScore, FEATURE_ORDER, Lexicon, RoutingConfig, RoutingMode, Weights, binary_tiers,
+    explain_score, score_complexity,
 };
 use wayfinder_service::credentials::{LegacyCommandLimits, resolve_legacy_command};
 use wayfinder_service::pricing::{LedgerLoad, SavingsLedger};

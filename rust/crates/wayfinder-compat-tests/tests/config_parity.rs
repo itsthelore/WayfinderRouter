@@ -3,7 +3,7 @@ use std::error::Error;
 
 use serde::Deserialize;
 use wayfinder_config::{TierOrderPolicy, routing_config_from_toml};
-use wayfinder_core::{FEATURE_ORDER, RoutingConfig, RoutingMode, score_complexity};
+use wayfinder_routing_core::{FEATURE_ORDER, RoutingConfig, RoutingMode, score_complexity};
 
 const ROUTING_CONFIG_VECTORS: &str = include_str!("../fixtures/routing-config.json");
 const WHERE: &str = "compat-vector";

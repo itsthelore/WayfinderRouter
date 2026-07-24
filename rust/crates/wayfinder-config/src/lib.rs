@@ -11,7 +11,7 @@ use std::path::{Path, PathBuf};
 
 use thiserror::Error;
 use toml::Value;
-use wayfinder_core::{
+use wayfinder_routing_core::{
     ClassifierModel, CoreError, FEATURE_ORDER, Lexicon, RoutingConfig, Tier, Weights, binary_tiers,
     python_round,
 };
@@ -818,7 +818,7 @@ fn invalid(where_: &str, message: impl Into<String>) -> ConfigError {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use wayfinder_core::{RoutingMode, score_complexity};
+    use wayfinder_routing_core::{RoutingMode, score_complexity};
 
     fn parse(text: &str, order: TierOrderPolicy) -> Result<RoutingConfig, ConfigError> {
         routing_config_from_toml(text, "fixture", None, order)
