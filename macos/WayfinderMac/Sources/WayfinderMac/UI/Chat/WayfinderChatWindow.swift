@@ -54,8 +54,11 @@ public struct WayfinderChatWindow: View {
                     draft: $appState.chatDraft,
                     destination: $appState.chatDestination,
                     destinations: appState.chatDestinations,
+                    messageOverride: appState.chatMessageDestinationOverride,
                     isSending: appState.isSendingMessage,
                     canSend: appState.canSendMessage,
+                    onSelectMessageOverride: appState.selectChatMessageDestinationOverride,
+                    onClearMessageOverride: appState.clearChatMessageDestinationOverride,
                     onSend: {
                         followsLatestTurn = true
                         appState.sendChatDraft()

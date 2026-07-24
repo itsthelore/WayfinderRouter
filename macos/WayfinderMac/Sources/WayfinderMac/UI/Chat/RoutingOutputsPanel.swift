@@ -153,6 +153,13 @@ private struct PromptInspectorPreview: View {
                     .fixedSize(horizontal: false, vertical: true)
                     .textSelection(.enabled)
             }
+            if let requestedDestination = turn.prompt.requestedDestinationTitle
+                ?? turn.prompt.requestedGatewayRouteName {
+                Label("Requested \(requestedDestination)", systemImage: "arrow.turn.down.right")
+                    .font(.caption)
+                    .foregroundStyle(ChatWorkspaceChrome.secondaryText)
+                    .accessibilityLabel("Requested destination: \(requestedDestination)")
+            }
         }
     }
 }
